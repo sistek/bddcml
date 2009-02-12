@@ -18,7 +18,7 @@ program bddcpp
 ! *.ES   - ASCII file with list of subd. numbers of elements, from 1 
 ! *.CN   - ASCII file with list of "corner nodes"
 !
-! programmed by Jakub Sistek            Denver                  4.2.2009 
+! programmed by Jakub Sistek            Denver                 12.2.2009 
 !***********************************************************************
 
 implicit none
@@ -41,8 +41,10 @@ integer,allocatable:: inet(:), nnet(:), nndf(:), kinet(:), iets(:), kmynodes(:),
 integer ::           lifix
 integer,allocatable:: ifix(:)
 
-integer ::            lelm,   lx,   ly,   lz,   lrhs,   lfixv,   lsol
+integer ::            lelm,   lx,   ly,   lz,   lrhs,   lfixv,   lsol   
 real(kr),allocatable:: elm(:), x(:), y(:), z(:), rhs(:), fixv(:), sol(:)
+integer ::             lxyz1, lxyz2
+real(kr),allocatable::  xyz(:,:)
 
 character(lname1x):: name1
 character(lnamex)::  name
@@ -436,26 +438,15 @@ logical :: elasticity = .false.
       linet = linet
       lnnet = nelem
       lnndf = nnod
-      lx    = nnod
-      ly    = nnod
-      lz    = nnod
+      lxyz1 = nnod
+      lxyz2 = ndim
       allocate(inet(linet),nnet(lnnet),nndf(lnndf))
-      if      (ndim.eq.3) then
-         allocate(x(lx),y(ly),z(lz))
-      else if (ndim.eq.2) then
-         allocate(x(lx),y(ly))
-      else
-         write(*,*) 'EXPTECPLOTSOLUTION: Strange number of space dimensions, ndim = ',ndim
-      end if
+      allocate(xyz(lxyz1,lxyz2))
 ! read fields INET, NNET, NNDF from file IDGMI
       read(idgmi,*) inet
       read(idgmi,*) nnet
       read(idgmi,*) nndf
-      if      (ndim.eq.3) then
-         read(idgmi,*) x,y,z
-      else if (ndim.eq.2) then
-         read(idgmi,*) x,y
-      end if
+      read(idgmi,*) xyz
       close(idgmi)
 
 ! ES - list of global element numbers in subdomains - structure:
@@ -555,9 +546,9 @@ logical :: elasticity = .false.
             nvar = 3
             allocate(cellcentered(nvar))
             cellcentered = .false.
-            call tecplot_header(iddat,ndim,name1,lname1,'"DX", "DY", "DMAGNITUDE"')
+            call tecplot_header(iddat,ndim,name1,lname1,'"DX", "DY", "DMAGNITUDE", "XDEF", "YDEF" ')
          else if (ndim.eq.3) then
-            call tecplot_header(iddat,ndim,name1,lname1,'"DX", "DY", "DZ", "DMAGNITUDE"')
+            call tecplot_header(iddat,ndim,name1,lname1,'"DX", "DY", "DZ", "DMAGNITUDE", "XDEF", "YDEF", "ZDEF" ')
             nvar = 4
             allocate(cellcentered(nvar))
             cellcentered = .false.
@@ -571,11 +562,9 @@ logical :: elasticity = .false.
       call tecplot_start_zone(iddat,ndim,nnod,nelem,nvar,cellcentered,datapacking)
 
 ! export coordinates
-      call tecplot_export_block_variable(iddat,x,lx)
-      call tecplot_export_block_variable(iddat,y,ly)
-      if (ndim.eq.3) then
-         call tecplot_export_block_variable(iddat,z,lz)
-      end if
+      do inddim = 1,ndim
+         call tecplot_export_block_variable(iddat,xyz(:,inddim),lxyz1)
+      end do
 
 ! export variables
       if (flow) then
@@ -591,6 +580,9 @@ logical :: elasticity = .false.
          end do
          ! export displacement magnitude
          call tecplot_export_block_variable(iddat,sqrt(sum(displacement(:,:)**2,DIM=2)),ldisplacement1)
+         do inddim = 1,ndim
+            call tecplot_export_block_variable(iddat,xyz(:,inddim)+displacement(:,inddim),lxyz1)
+         end do
       end if
    
       call tecplot_connectivity_table(iddat,ndim,nelem,inet,linet,nnet,lnnet)
@@ -609,11 +601,7 @@ logical :: elasticity = .false.
       end if
       deallocate(sol)
       deallocate(inet,nnet,nndf)
-      if      (ndim.eq.3) then
-         deallocate(x,y,z)
-      else if (ndim.eq.2) then
-         deallocate(x,y)
-      end if
+      deallocate(xyz)
 
 end subroutine exptecplotsolution
 
