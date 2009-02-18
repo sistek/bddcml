@@ -29,7 +29,7 @@ integer,parameter:: kr = kind(1.D0)
 integer,parameter:: idpar = 1, idbase = 100, idgmi = 2, ides = 4, idfvs = 3, &
                     idelm = 10, idrhs = 11, iddat = 12, idcn = 13, ides0 = 14, &
                     idrhss = 15, idfvss = 16, idsols = 17, idsol = 18, idglb = 19, &
-                    idgmist = 20, idgmis = 21, idgraph = 22
+                    idgmist = 20, idgmis = 21, idgraph = 22, idint = 23
 integer,parameter:: lname1x = 8, lnamex = 15, lfnamex = 20
 
 integer:: lname1
@@ -1588,6 +1588,16 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       end do
       print *, 'Created file ', trim(name), ' with a list of ',nnewvertex,' corners.'
       close(idcn)
+
+
+! List interface nodes to file *.INT
+! INT - interface
+      name = name1(1:lname1)//'.INT'
+      open (unit=idint,file=name,status='replace',form='formatted')
+      write(idint,*) nnodi
+      write(idint,*) igingn
+      print *, 'Created file ', trim(name), ' with list of',nnodi,' interface nodes.'
+      close(idint)
 
 ! Clear memory
       do iglob = 1,nglob
