@@ -15,6 +15,7 @@ Divides the mesh to the given number of domains using METIS.
 Distribution of data 
 --------------------
 into separate files for parallel processing.
+For distributed solution by BDDCPMD.
 
 Glob selection
 --------------
@@ -32,11 +33,13 @@ Distributes globs to local GLB files.
 Tecplot export
 --------------
 Exports geometry and division into subdomains to Tecplot file format.
+Optionally exports corners.
 
 Assembly solution
 -----------------
 Get global solution from subdomain files obtained by BDDCPMD.
 
-Distribute element matrices and fixed variables and RHS
--------------------------------------------------------
-For distributed solution by BDDCPMD.
+Export solution to Tecplot
+--------------------------
+Exports solution of elasticity or flow problems.
+

@@ -614,7 +614,8 @@ implicit none
 
 ! Local variables
 integer :: idelms
-integer :: i, inod, indn, idofn, ine, isub, nne, lelmx, nevab, ndofn, nevax, point, ie
+integer :: i, inod, indn, idofn, ine, isub, nne, lelmx, nevab, ndofn, nevax, point, ie, &
+           indsub
 
       write(*,*) 'Generating subdomain files with element matrices...'
 
@@ -673,24 +674,48 @@ integer :: i, inod, indn, idofn, ine, isub, nne, lelmx, nevab, ndofn, nevax, poi
       
       allocate(elm(lelmx))
 
-! Open a file for each subdomain
-      do isub = 1,nsub
-         call bddc_getfname(name1,lname1,isub,'EMSO',fname)
-         idelms = idbase + isub
-         open(unit=idelms, file=fname, status='replace', form='unformatted')
-      end do
-! Write the element matrix to a proper file
-      do ie = 1,nelem
-         isub = iets(ie)
-         read(idelm)   lelm,(elm(i), i = 1,lelm)
-         idelms = idbase + isub
-         write(idelms) lelm,(elm(i), i = 1,lelm)
-      end do
+! If number of subdomains is not extensive,
+      if (nsub.le.1024) then
+! open a file for each subdomain and distribute element like cards in one pass through element matrices.
+         do isub = 1,nsub
+            call bddc_getfname(name1,lname1,isub,'EMSO',fname)
+            idelms = idbase + isub
+            open(unit=idelms, file=fname, status='replace', form='unformatted')
+         end do
+!        Write the element matrix to a proper file
+         do ie = 1,nelem
+            isub = iets(ie)
+            read(idelm)   lelm,(elm(i), i = 1,lelm)
+            idelms = idbase + isub
+            write(idelms) lelm,(elm(i), i = 1,lelm)
+         end do
 ! Close all element files
-      do isub = 1,nsub
-         idelms = idbase + isub
-         close(idelms)
-      end do
+         do isub = 1,nsub
+            idelms = idbase + isub
+            close(idelms)
+         end do
+      else
+!     Create element files one by one in NSUB passes through element matrices -
+!     it is slow but robust
+         do isub = 1,nsub
+            call bddc_getfname(name1,lname1,isub,'EMSO',fname)
+            idelms = idbase + 1
+            open(unit=idelms, file=fname, status='replace', form='unformatted')
+            rewind idelm
+            do ie = 1,nelem
+               indsub = iets(ie)
+               ! Is the element in current subdomain?
+               if (indsub.eq.isub) then
+                  read(idelm)   lelm,(elm(i), i = 1,lelm)
+                  write(idelms) lelm,(elm(i), i = 1,lelm)
+               else
+                  ! move one record
+                  read(idelm)  
+               end if
+            end do
+            close(idelms)
+         end do
+      end if
 
       write(*,*) '...done'
 
