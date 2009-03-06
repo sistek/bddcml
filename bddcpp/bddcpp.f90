@@ -1639,6 +1639,9 @@ type(neighbouring_type), allocatable :: neighbourings(:)
             write(idcn,*) igingn(i)
          end if
       end do
+      if (nnewvertex.eq.0) then
+         write(idcn,*) ' 0'
+      end if
       print *, 'Created file ', trim(name), ' with a list of ',nnewvertex,' corners.'
       close(idcn)
 
