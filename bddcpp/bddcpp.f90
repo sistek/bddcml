@@ -18,7 +18,7 @@ program bddcpp
 ! *.ES   - ASCII file with list of subd. numbers of elements, from 1 
 ! *.CN   - ASCII file with list of "corner nodes"
 !
-! programmed by Jakub Sistek            Denver                 12.2.2009 
+! programmed by Jakub Sistek            Denver                  5.3.2009 
 !***********************************************************************
 
 implicit none
@@ -777,7 +777,7 @@ integer :: i, inod, indn, idofn, ine, isub, nne, lelmx, nevab, ndofn, nevax, poi
       lifix = ndof
       lfixv = ndof
       allocate(ifix(lifix),fixv(lfixv))
-! Read RHS
+! Read fixed variables
       read(idfvs,*) ifix
       read(idfvs,*) fixv
       close(idfvs)
@@ -864,7 +864,7 @@ integer:: inod, jnodi, jnod, isub, jsub, inodi, iglob, iglb, ing, iinglb, iglobn
           indsub, nnewvertex, nnodcs, nnodis, indisn, inodis, inodcs, inodcs1, &
           inodcs2, inodcs3, indi, inewnodes, indinode, ncorrections, &
           indn, nglobn, nnodcpair, nshared, inodsh, ish, nnsub, iisub, &
-          indjsub
+          indjsub, inddof, ndofn, point, indnod, nremoved_corners_bc
 integer:: indaux(1)
 integer:: nface, nedge, nvertex
 real(kr):: x1, y1, z1, x2, y2, z2, rnd, xish, yish, zish
@@ -1347,7 +1347,6 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       deallocate(xyz)
       deallocate(iets)
       deallocate(kinet)
-      deallocate(inet,nnet,nndf)
       deallocate(kmynodes,kinodes,kneibnodes)
 
 ! remove vertices from list of globs - will be used more times
@@ -1358,6 +1357,44 @@ type(neighbouring_type), allocatable :: neighbourings(:)
             end do
          end if
       end do
+
+! FVS - fixed variables
+!  * IFIX(LIFIX) * FIXV(LFIXV) * 
+      name = name1(1:lname1)//'.FVS'
+      open (unit=idfvs,file=name,status='old',form='formatted')
+      rewind idfvs
+      lifix = ndof
+      allocate(ifix(lifix))
+! Read fixed variables
+      read(idfvs,*) ifix
+      close(idfvs)
+! Creation of field KDOF(NNOD) with addresses before first global
+! dof of node
+      lkdof = nnod
+      allocate(kdof(lkdof))
+      kdof(1) = 0
+      do inod = 2,nnod
+         kdof(inod) = kdof(inod-1) + nndf(inod-1)
+      end do
+! remove Dirichlet boundary conditions from the list of globs
+      nremoved_corners_bc = 0
+      do inodi = 1,nnodi
+         indnod = igingn(inodi)
+         inddof = kdof(indnod)
+         ndofn = nndf(indnod)
+         if (any(ifix(inddof+1:inddof+ndofn).gt.0)) then
+            ! remove node from globs
+            do iglob = 1,nglob
+               where (globs(iglob)%nodes.eq.inodi) globs(iglob)%nodes = 0
+            end do
+            ! remove node from corners
+            if (newvertex(inodi).gt.0) then
+               newvertex(inodi) = 0
+               nremoved_corners_bc = nremoved_corners_bc + 1
+            end if
+         end if
+      end do
+      write(*,*) 'Number of removals of corners for Dirichlet BC:', nremoved_corners_bc
 ! remove zeros from list of globs
       ncorrections = 0
       do iglob = 1,nglob
@@ -1378,7 +1415,8 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       write(*,*) 'Number of removals of nodes from nodes of globs:',ncorrections
 
 ! Mark degenerated globs with negative integer in the field glob_type
-      write(*,*) 'I am going to remove ', count(globs%nnod.eq.0), ' degenerated globs (including all vertices).'
+      write(*,*) 'I am going to remove ', count(globs%nnod.eq.0.and.globs%itype.ne.-2), &
+                 ' degenerated globs (including all vertices).'
       where (globs%nnod.eq.0) globs%itype = -2
 
 ! All vertices should be removed by now - check that
@@ -1405,7 +1443,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       write(*,'(a)')    '--------------------'
       write(*,'(a,i8)') 'corners = ',count(newvertex.eq.1)
 
-! Perform check of interface coverage - union of faces, edges and corners should form the whole interface 
+! Perform check of interface coverage - union of faces, edges, corners and Dirichlet BC should form the whole interface 
 ! moreover, faces, edges and corners should be disjoint
       licheck = nnodi
       allocate(icheck(licheck))
@@ -1419,11 +1457,23 @@ type(neighbouring_type), allocatable :: neighbourings(:)
             icheck(globs(iglob)%nodes(1:nglobn)) = icheck(globs(iglob)%nodes(1:nglobn)) + 1
          end if
       end do
+! mark Dirichlet boundary conditions from the list of globs
+      do inodi = 1,nnodi
+         indnod = igingn(inodi)
+         inddof = kdof(indnod)
+         ndofn = nndf(indnod)
+         if (any(ifix(inddof+1:inddof+ndofn).gt.0)) then
+            icheck(inodi) = 1
+         end if
+      end do
       ! Every node should be present once
       if (any(icheck.ne.1)) then
          write(*,*) 'Error in interface coverage:'
          do inodi = 1,nnodi
-            if (icheck(inodi) .ne.1 ) then
+            indnod = igingn(inodi)
+            point = kdof(indnod)
+            ndofn = nndf(indnod)
+            if (icheck(inodi) .ne.1) then
                write(*,*) 'Node ',igingn(inodi),' present ',icheck(inodi),' times.'
             end if
          end do
@@ -1431,6 +1481,9 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       end if
       deallocate(icheck)
       write(*,*) 'Coverage of interface by globs successfully checked.'
+
+      deallocate(ifix)
+      deallocate(kdof)
 
 ! Select globs
 ! Choosing 
@@ -1613,6 +1666,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       deallocate(subneib)
       deallocate(xyzbase)
       deallocate(igingn)
+      deallocate(inet,nnet,nndf)
 
       return
 
