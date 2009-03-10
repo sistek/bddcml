@@ -32,7 +32,4 @@ bddcpp: \
 	$(FC) -o $@ $^ $(LIBS)
 
 clean:
-	rm -f *~ *.o *.mod
-
-veryclean: clean
-	rm -f bddcpp
+	rm -f *~ *.o *.mod bddcpp
