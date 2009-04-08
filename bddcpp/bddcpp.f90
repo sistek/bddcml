@@ -1388,10 +1388,11 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                where (globs(iglob)%nodes.eq.inodi) globs(iglob)%nodes = 0
             end do
             ! remove node from corners
-            if (newvertex(inodi).gt.0) then
-               newvertex(inodi) = 0
-               nremoved_corners_bc = nremoved_corners_bc + 1
-            end if
+! uncomment this if you allow corners on Dirichlet BC
+!            if (newvertex(inodi).gt.0) then
+!               newvertex(inodi) = 0
+!               nremoved_corners_bc = nremoved_corners_bc + 1
+!            end if
          end if
       end do
       write(*,*) 'Number of removals of corners for Dirichlet BC:', nremoved_corners_bc
@@ -1473,7 +1474,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
             indnod = igingn(inodi)
             point = kdof(indnod)
             ndofn = nndf(indnod)
-            if (icheck(inodi) .ne.1) then
+            if (icheck(inodi).ne.1) then
                write(*,*) 'Node ',igingn(inodi),' present ',icheck(inodi),' times.'
             end if
          end do

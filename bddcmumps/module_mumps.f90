@@ -11,8 +11,8 @@ contains
       subroutine mumps_init(mumps,comm,matrixtype)
 !*************************************************
 ! Initializes run of MUMPS
+      use dmumps_struc_def
       implicit none
-      include "dmumps_struc.h"
       type(DMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in):: comm, matrixtype
 
@@ -42,8 +42,8 @@ contains
       subroutine mumps_set_info(mumps,mumpsinfo)
 !***********************************************
 ! Defines level of information from MUMPS printed to screen (unit 6)
+      use dmumps_struc_def
       implicit none
-      include "dmumps_struc.h"
       type(DMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in):: mumpsinfo
 
@@ -92,8 +92,8 @@ contains
 ! i_sparse, j_sparse, a_sparse are non-zero entries in IJA
 ! nnz =< la
 
+      use dmumps_struc_def
       implicit none
-      include "dmumps_struc.h"
       type(DMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in):: n, nnz, la
       integer,intent(in),target:: i_sparse(la), j_sparse(la)
@@ -125,8 +125,8 @@ contains
 ! Associates parts of MUMPS structure with program data.
 ! Subroutine for setting Schur complement dimension and variables
 
+      use dmumps_struc_def
       implicit none
-      include "dmumps_struc.h"
       type(DMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in)::       llistvar_schur
       integer,intent(in),target:: listvar_schur(llistvar_schur)
@@ -150,8 +150,8 @@ contains
       subroutine mumps_analyze(mumps)
 !************************************
 ! Performs the analysis of matrix by MUMPS.
+      use dmumps_struc_def
       implicit none
-      include "dmumps_struc.h"
       type(DMUMPS_STRUC),intent(inout) :: mumps
 
 ! Job type = 1 for matrix analysis
@@ -166,8 +166,8 @@ contains
 !*****************************************************
 ! Return size of local block of Schur complement
 
+      use dmumps_struc_def
       implicit none
-      include "dmumps_struc.h"
       type(DMUMPS_STRUC),intent(inout) :: mumps
       integer, intent(out) :: mloc, nloc
 
@@ -184,8 +184,8 @@ contains
 ! Associates parts of MUMPS structure with program data.
 ! Subroutine for setting Schur complement dimension and variables
 
+      use dmumps_struc_def
       implicit none
-      include "dmumps_struc.h"
       type(DMUMPS_STRUC),intent(inout) :: mumps
 ! Local block of Schur complement
       integer,intent(in)::        lschur
@@ -205,8 +205,8 @@ contains
       subroutine mumps_factorize(mumps)
 !**************************************
 ! Performs factorization of matrix by MUMPS
+      use dmumps_struc_def
       implicit none
-      include "dmumps_struc.h"
       type(DMUMPS_STRUC),intent(inout) :: mumps
 
 ! Job type = 2 for factorization
@@ -223,8 +223,8 @@ subroutine mumps_resolve(mumps,rhs,lrhs,nrhs)
 ! in the beginning, RHS contains RHS
 ! in the end, RHS contains solution
 
+      use dmumps_struc_def
       implicit none
-      include "dmumps_struc.h"
       type(DMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in):: lrhs
       real(kr),intent(inout),target:: rhs(lrhs)
@@ -255,8 +255,8 @@ subroutine mumps_resolve(mumps,rhs,lrhs,nrhs)
       subroutine mumps_finalize(mumps)
 !*************************************
 ! Destroy the instance (deallocate internal data structures)
+      use dmumps_struc_def
       implicit none
-      include "dmumps_struc.h"
       type(DMUMPS_STRUC),intent(inout) :: mumps
 
       mumps%JOB = -2

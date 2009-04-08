@@ -1,11 +1,10 @@
 program test_module_mumps
 ! Tester of module_mumps
+      use dmumps_struc_def
       use module_mumps
-
       implicit none
       include "mpif.h"
 ! Use this structure of MUMPS for routines from mumps
-      include "dmumps_struc.h"
       type(DMUMPS_STRUC) :: test_mumps
 
       integer,parameter :: kr = kind(1.D0)

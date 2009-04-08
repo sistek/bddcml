@@ -1,4 +1,5 @@
 module module_errors
+! this module is based on Jaroslav Hajek's auxiliary routines
 implicit none
 private
 public assert,err_unit,error,warning

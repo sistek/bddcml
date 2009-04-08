@@ -3,13 +3,15 @@ module module_bddc
 ! Module for realization of the BDDC preconditioner
 ! Jakub Sistek, Denver, 12/2007
 
+use dmumps_struc_def
+implicit none
+
 ! type of reals
 integer,parameter,private  :: kr = kind(1.D0)
 ! numerical zero
 real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! Use this structure of MUMPS for routines from mumps
-include "dmumps_struc.h"
 type(DMUMPS_STRUC),private :: bddc_mumps
 
 ! Weight matrix D_P shared among routines in this module

@@ -752,7 +752,7 @@ subroutine sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
 ! 0 - unsymmetric
 ! 1 - symmetric positive definite
 ! 2 - general symmetric
-      integer :: matrixtype
+      integer,intent(in) :: matrixtype
 
 ! Matrix in IJA sparse format
       integer,intent(in) :: nnz, la
