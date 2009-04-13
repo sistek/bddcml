@@ -151,6 +151,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
             myisubgl2  = pair_data(5)
             mylvec     = pair_data(6)
 
+            ! where are these subdomains ?
+            call dd_where_is_subdomain(myisub,myplace1)
+            call dd_where_is_subdomain(myjsub,myplace2)
          end if
 
          ! determine working instructions for sending subdomain matrices
@@ -202,9 +205,18 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
             end if
          end do
                
-         ! scheme for this round are ready, start the game
-         ! distribute cards, i.e.
+         ! scheme for this round are ready, start receiving matrices that are necessary
+         if (my_pair.le.npair) then
 
+            call adaptivity_get_pair_data(my_pair,pair_data,lpair_data)
+   
+            myisub     = pair_data(2)
+            myisubgl1  = pair_data(3)
+            myjsub     = pair_data(4)
+            myisubgl2  = pair_data(5)
+            mylvec     = pair_data(6)
+
+         end if
 
 
 
@@ -222,7 +234,7 @@ end subroutine
 subroutine adaptivity_get_pair_data(idpair,pair_data,lpair_data)
 !***************************************************************
 ! Subroutine for getting info about pairs to the global structure
-      use utils
+      use module_utils
       implicit none
 
 ! pair number

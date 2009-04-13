@@ -14,7 +14,7 @@ module module_dd
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! debugging 
-      logical,parameter,private :: debug = .false.
+      logical,parameter,private :: debug = .true.
 
 ! type for subdomain data
       type subdomain_type
@@ -65,6 +65,13 @@ module module_dd
          real(kr),allocatable :: fixv(:)      ! FIXV array - fixed variables values
          integer ::             lbc           ! length of BC array
          real(kr),allocatable :: bc(:)        ! BC array - eliminated entries of stiffness matrix multiplied by values of fixed variables 
+
+         ! description of corners
+         integer ::             nnodc                  ! number of coarse nodes on subdomain
+         integer ::             lglobal_corner_number  ! length of array GLOBAL_CORNER_NUMBER
+         integer, allocatable :: global_corner_number(:) ! global numbers of these corners - lenght NNODC
+         integer ::             licnsin                 ! length of array ICNSIN
+         integer, allocatable :: icnsin(:)              ! ICNSIN array - indices of corse nodes in subdomain interface numbering
 
          ! description of globs
          integer ::             nglob                  ! number of globs on subdomain
@@ -126,9 +133,33 @@ module module_dd
          integer,allocatable  :: j_a22_sparse(:)
          real(kr),allocatable ::   a22_sparse(:)
          
-         logical :: is_interior_factorized = .false.
-         logical :: mumps_active = .false.
+         logical :: is_mumps_interior_active = .false.
+         logical :: is_interior_factorized   = .false.
          type(DMUMPS_STRUC) :: mumps_interior_block
+
+         ! Matrices for BDDC 
+         !  matrix C with constraints on subdomain
+         logical ::              is_c_loaded = .false.
+         integer ::              nconstr ! number of constraints, i.e. no. of rows in C
+         integer ::              nnzc
+         integer ::              lc
+         integer,allocatable  :: i_c_sparse(:)
+         integer,allocatable  :: j_c_sparse(:)
+         real(kr),allocatable ::   c_sparse(:)
+
+         !  matrix Aaug - augmented subdomain matrix
+         integer ::              nnzaaug
+         integer ::              laaug
+         integer,allocatable  :: i_aaug_sparse(:)
+         integer,allocatable  :: j_aaug_sparse(:)
+         real(kr),allocatable ::   aaug_sparse(:)
+
+         logical :: is_mumps_aug_active = .false.
+         logical :: is_aug_factorized   = .false.
+         type(DMUMPS_STRUC) :: mumps_aug
+
+         ! coarse space basis functions phis
+         logical :: is_phis_prepared  = .false.
 
       end type subdomain_type
 
@@ -201,7 +232,7 @@ subroutine dd_read_mesh_from_file(myid,problemname)
       integer :: isub, idsmd, iglob, ivar
       character(100):: fname
 
-      integer :: nelem, nnod, ndof, ndim, nglob
+      integer :: nelem, nnod, ndof, ndim, nnodc, nglob
       integer ::             lnndf,   lnnet,   linet 
       integer, allocatable :: nndf(:), nnet(:), inet(:)
       integer ::             lisngn
@@ -215,6 +246,10 @@ subroutine dd_read_mesh_from_file(myid,problemname)
       integer, allocatable :: ifix(:)
       integer ::              lfixv
       real(kr), allocatable :: fixv(:)
+      integer ::              lglobal_corner_number
+      integer, allocatable ::  global_corner_number(:)
+      integer ::              licnsin 
+      integer, allocatable ::  icnsin(:)
       integer ::              lglobal_glob_number
       integer, allocatable ::  global_glob_number(:)
       integer ::              lnglobvar 
@@ -281,6 +316,14 @@ subroutine dd_read_mesh_from_file(myid,problemname)
             read(idsmd,*) ifix
             read(idsmd,*) fixv
 
+            ! --- corners 
+            read(idsmd,*) nnodc
+            lglobal_corner_number = nnodc
+            licnsin               = nnodc
+            allocate(global_corner_number(lglobal_corner_number),icnsin(licnsin))
+            read(idsmd,*) global_corner_number
+            read(idsmd,*) icnsin
+
             ! --- globs
             read(idsmd,*) nglob
             lglobal_glob_number = nglob
@@ -306,10 +349,11 @@ subroutine dd_read_mesh_from_file(myid,problemname)
             end if
 
             ! load data to structure
-            call dd_load_mesh(myid,isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, nglob,&
+            call dd_load_mesh(myid,isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, nnodc, nglob,&
                               nndf,lnndf, nnet,lnnet, inet,linet, isngn,lisngn,&
                               xyz,lxyz1,lxyz2, &
                               iin,liin, iivsvn,liivsvn, iovsvn,liovsvn,&
+                              global_corner_number,lglobal_corner_number, icnsin,licnsin,&
                               global_glob_number,lglobal_glob_number,nglobvar,lnglobvar,&
                               igvsivn,ligvsivn1,ligvsivn2)
             call dd_load_bc(myid,isub, ifix,lifix, fixv,lfixv)
@@ -326,6 +370,7 @@ subroutine dd_read_mesh_from_file(myid,problemname)
             deallocate (ifix,fixv)
             deallocate (global_glob_number,nglobvar)
             deallocate (igvsivn)
+            deallocate (global_corner_number,icnsin)
          end if
       end do
 
@@ -554,17 +599,18 @@ subroutine dd_load_eliminated_bc(myid, isub, bc,lbc)
 end subroutine
 
 !*********************************************************************************
-subroutine dd_load_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, nglob,&
+subroutine dd_load_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, nnodc, nglob,&
                         nndf,lnndf, nnet,lnnet, inet,linet, isngn,lisngn,&
                         xyz,lxyz1,lxyz2, &
                         iin,liin, iivsvn,liivsvn, iovsvn,liovsvn, &
+                        global_corner_number,lglobal_corner_number, icnsin,licnsin,&
                         global_glob_number,lglobal_glob_number, nglobvar,lnglobvar,&
                         igvsivn,ligvsivn1,ligvsivn2)
 !*********************************************************************************
 ! Subroutine for loading mesh data into sub structure
       implicit none
 
-      integer,intent(in) :: myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, nglob
+      integer,intent(in) :: myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, nnodc, nglob
       integer,intent(in) :: lnndf,       lnnet,       linet
       integer,intent(in) ::  nndf(lnndf), nnet(lnnet), inet(linet)
       integer,intent(in) :: lisngn
@@ -573,6 +619,8 @@ subroutine dd_load_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo
       real(kr),intent(in)::  xyz(lxyz1,lxyz2)
       integer,intent(in) :: liin,       liivsvn,         liovsvn
       integer,intent(in) ::  iin(liin),  iivsvn(liivsvn), iovsvn(liovsvn)
+      integer,intent(in) :: lglobal_corner_number,                       licnsin
+      integer,intent(in) ::  global_corner_number(lglobal_corner_number), icnsin(licnsin)
       integer,intent(in) :: lglobal_glob_number,                     lnglobvar
       integer,intent(in) ::  global_glob_number(lglobal_glob_number), nglobvar(lnglobvar)
       integer,intent(in) :: ligvsivn1, ligvsivn2
@@ -649,6 +697,21 @@ subroutine dd_load_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo
       allocate(sub(isub)%iovsvn(liovsvn))
       do i = 1,liovsvn
          sub(isub)%iovsvn(i) = iovsvn(i)
+      end do
+
+      ! corner data
+      sub(isub)%nnodc = nnodc
+
+      sub(isub)%lglobal_corner_number = lglobal_corner_number
+      allocate(sub(isub)%global_corner_number(lglobal_corner_number))
+      do i = 1,lglobal_corner_number
+         sub(isub)%global_corner_number(i) = global_corner_number(i)
+      end do
+
+      sub(isub)%licnsin = licnsin
+      allocate(sub(isub)%icnsin(licnsin))
+      do i = 1,licnsin
+         sub(isub)%icnsin(i) = icnsin(i)
       end do
 
       ! glob data
@@ -974,9 +1037,9 @@ subroutine dd_matrix_tri2blocktri(myid,remove_original)
 
 end subroutine
 
-!*************************************
-subroutine dd_prepare_schur(myid,comm)
-!*************************************
+!******************************************
+subroutine dd_prepare_schur(myid,comm,isub)
+!******************************************
 ! Subroutine for preparing data for computing with reduced problem
       use module_utils
       use module_mumps
@@ -986,51 +1049,495 @@ subroutine dd_prepare_schur(myid,comm)
       integer,intent(in) :: myid
       ! communicator
       integer,intent(in) :: comm
+      ! subdomain
+      integer,intent(in) :: isub
 
       ! local vars
       integer :: ndofo, la11, nnza11
-      integer :: isub
       integer :: mumpsinfo
 
-      do isub = 1,lsub
-         if (sub(isub)%proc .eq. myid) then
-
-            ! check the prerequisities
-            if (.not.sub(isub)%is_matrix_loaded) then
-               write(*,*) 'DD_PREPARE_SCHUR: Matrix is not loaded for subdomain:', isub
-               call error_exit
-            end if
-            if (.not. (sub(isub)%is_blocked)) then
-               write(*,*) 'DD_PREPARE_SCHUR: Matrix is not in blocked format. Call routine to do this.'
-               call error_exit
-            end if
-
-            sub(isub)%mumps_active = .true.
-
-            ! Initialize MUMPS
-            call mumps_init(sub(isub)%mumps_interior_block,comm,sub(isub)%matrixtype)
-            ! Level of information from MUMPS
-            if (debug) then
-               mumpsinfo = 2
-            else
-               mumpsinfo = 0
-            end if
-            call mumps_set_info(sub(isub)%mumps_interior_block,mumpsinfo)
-            ! Load matrix to MUMPS
-            ndofo  = sub(isub)%ndofo
-            nnza11 = sub(isub)%nnza11
-            la11   = sub(isub)%la11
-            call mumps_load_triplet(sub(isub)%mumps_interior_block,ndofo,nnza11,&
-                                    sub(isub)%i_a11_sparse,sub(isub)%j_a11_sparse,sub(isub)%a11_sparse,la11)
-            ! Analyze matrix
-            call mumps_analyze(sub(isub)%mumps_interior_block) 
-            ! Factorize matrix 
-            call mumps_factorize(sub(isub)%mumps_interior_block) 
-
-            sub(isub)%is_interior_factorized = .true.
+      ! check the prerequisities
+      if (.not.sub(isub)%is_proc_assigned) then
+         write(*,*) 'DD_PREPARE_SCHUR: Processor not assigned for subdomain:', isub
+         call error_exit
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_PREPARE_SCHUR: myid =',myid,'Subdomain', isub,' is not mine.'
          end if
+         return
+      end if
+      if (.not.sub(isub)%is_matrix_loaded) then
+         write(*,*) 'DD_PREPARE_SCHUR: Matrix is not loaded for subdomain:', isub
+         call error_exit
+      end if
+      if (.not. (sub(isub)%is_blocked)) then
+         write(*,*) 'DD_PREPARE_SCHUR: Matrix is not in blocked format. Call routine to do this.'
+         call error_exit
+      end if
+
+      sub(isub)%is_mumps_interior_active = .true.
+
+      ! Initialize MUMPS
+      call mumps_init(sub(isub)%mumps_interior_block,comm,sub(isub)%matrixtype)
+      ! Level of information from MUMPS
+      if (debug) then
+         mumpsinfo = 2
+      else
+         mumpsinfo = 0
+      end if
+      call mumps_set_info(sub(isub)%mumps_interior_block,mumpsinfo)
+      ! Load matrix to MUMPS
+      ndofo  = sub(isub)%ndofo
+      nnza11 = sub(isub)%nnza11
+      la11   = sub(isub)%la11
+      call mumps_load_triplet(sub(isub)%mumps_interior_block,ndofo,nnza11,&
+                              sub(isub)%i_a11_sparse,sub(isub)%j_a11_sparse,sub(isub)%a11_sparse,la11)
+      ! Analyze matrix
+      call mumps_analyze(sub(isub)%mumps_interior_block) 
+      ! Factorize matrix 
+      call mumps_factorize(sub(isub)%mumps_interior_block) 
+
+      sub(isub)%is_interior_factorized = .true.
+
+end subroutine
+
+!*********************************
+subroutine dd_prepare_c(myid,isub)
+!*********************************
+! Subroutine for preparing data for computing with reduced problem
+      use module_sm
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain
+      integer,intent(in) :: isub
+
+      ! local vars
+      integer ::             nnzc
+      integer ::             lc
+      integer,allocatable ::  i_c_sparse(:)
+      integer,allocatable ::  j_c_sparse(:)
+      real(kr),allocatable ::   c_sparse(:)
+
+      integer ::              lkdof
+      real(kr),allocatable ::  kdof(:)
+
+      integer :: nnodc, nnod
+      integer :: icc, ndofn, idofn, inodc, indnod, indnodi, inod, irow,&
+                 jcol, ncc, nconstr
+
+      ! check the prerequisities
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_PREPARE_C: myid =',myid,'Subdomain', isub,' is not mine.'
+         end if
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_PREPARE_C: Mesh is not loaded for subdomain:', isub
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_matrix_loaded) then
+         write(*,*) 'DD_PREPARE_C: Matrix is not loaded for subdomain:', isub
+         call error_exit
+      end if
+
+      ! find number of constraints from corners
+      ncc = 0
+      nnodc = sub(isub)%nnodc
+      do inodc = 1,nnodc
+         indnodi = sub(isub)%icnsin(inodc)
+         indnod  = sub(isub)%iin(indnodi)
+         ndofn   = sub(isub)%nndf(indnod)
+
+         ncc = ncc + ndofn
+      end do
+      ! at the moment, C is constructed only from corners
+      nconstr = ncc
+
+
+      ! Creation of field KDOF(NNOD) with addresses before first global
+      ! dof of node
+      nnod  = sub(isub)%nnod
+      lkdof = nnod
+      allocate(kdof(lkdof))
+      kdof(1) = 0
+      do inod = 2,nnod
+         kdof(inod) = kdof(inod-1) + sub(isub)%nndf(inod-1)
       end do
 
+      lc   = ncc
+      nnzc = ncc
+      allocate (i_c_sparse(lc),j_c_sparse(lc),c_sparse(lc))
+
+      ! create constraints from corners
+      icc = 0
+      nnodc = sub(isub)%nnodc
+      do inodc = 1,nnodc
+         indnodi = sub(isub)%icnsin(inodc)
+         indnod  = sub(isub)%iin(indnodi)
+         ndofn   = sub(isub)%nndf(indnod)
+
+         do idofn = 1,ndofn
+            icc  = icc + 1
+
+            irow = icc
+            jcol = kdof(indnod) + idofn
+
+            i_c_sparse(icc) = irow
+            j_c_sparse(icc) = jcol
+            c_sparse(icc)   = 1._kr
+
+         end do
+
+      end do
+      ! check number
+      if (icc.ne.lc) then
+         write(*,*) 'DD_PREPARE_C: Check of sparse matrix lenght failed for subdomain', isub
+         call error_exit
+      end if
+      
+      ! load the new matrix directly to the structure
+      call dd_load_c(myid,isub,nconstr,i_c_sparse, j_c_sparse, c_sparse, lc, nnzc)
+
+      deallocate (i_c_sparse,j_c_sparse,c_sparse)
+      deallocate (kdof)
+
+end subroutine
+
+!*********************************************************************************
+subroutine dd_load_c(myid,isub,nconstr,i_c_sparse, j_c_sparse, c_sparse, lc, nnzc)
+!*********************************************************************************
+! Subroutine for loading sparse matrix C into the SUB structure
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain
+      integer,intent(in) :: isub
+      ! number of constraints
+      integer,intent(in) :: nconstr
+      ! matrix C in sparse format
+      integer,intent(in) ::             nnzc
+      integer,intent(in) ::             lc
+      integer,intent(in),allocatable ::  i_c_sparse(:)
+      integer,intent(in),allocatable ::  j_c_sparse(:)
+      real(kr),intent(in),allocatable ::   c_sparse(:)
+
+      ! local variables
+      integer :: i
+
+      ! check the prerequisities
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_LOAD_C: myid =',myid,'Subdomain', isub,' is not mine.'
+         end if
+         return
+      end if
+      if (allocated(sub(isub)%c_sparse)) then
+         if (debug) then
+            write(*,*) 'DD_LOAD_C: myid =',myid,'Subdomain', isub,': Matrix C already allocated. Rewriting.'
+         end if
+      end if
+
+      ! load C now
+      sub(isub)%nconstr = nconstr
+      sub(isub)%nnzc = nnzc
+      sub(isub)%lc   = lc
+      allocate(sub(isub)%i_c_sparse(lc))
+      do i = 1,lc
+         sub(isub)%i_c_sparse(i) = i_c_sparse(i)
+      end do
+      allocate(sub(isub)%j_c_sparse(lc))
+      do i = 1,lc
+         sub(isub)%j_c_sparse(i) = j_c_sparse(i)
+      end do
+      allocate(sub(isub)%c_sparse(lc))
+      do i = 1,lc
+         sub(isub)%c_sparse(i)   = c_sparse(i)
+      end do
+      sub(isub)%is_c_loaded = .true.
+
+end subroutine
+
+!****************************************
+subroutine dd_prepare_aug(myid,comm,isub)
+!****************************************
+! Subroutine for preparing augmented matrix for computing with BDDC preconditioned
+! |A C^T|
+! |C  0 |
+! and its factorization
+      use module_sm
+      use module_mumps
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! communicator
+      integer,intent(in) :: comm
+      ! subdomain
+      integer,intent(in) :: isub
+
+      ! local vars
+      integer ::  nnzc, nnza, ndof, nconstr
+      integer ::  nnzaaug, laaug, ndofaaug
+      integer ::  i, iaaug
+      integer ::  mumpsinfo, aaugmatrixtype
+
+      ! check the prerequisities
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_PREPARE_AUG: myid =',myid,'Subdomain', isub,' is not mine.'
+         end if
+         return
+      end if
+      if (.not.sub(isub)%is_matrix_loaded) then
+         write(*,*) 'DD_PREPARE_AUG: Matrix is not loaded for subdomain:', isub
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_c_loaded) then
+         write(*,*) 'DD_PREPARE_AUG: Matrix of constraints C not loaded for subdomain:', isub
+         call error_exit
+      end if
+
+      ! join the new matrix directly to the structure as
+      ! in the unsymmetric case:
+      ! A C^T
+      ! C  0   
+      ! in the symmetric case :
+      ! \A C^T
+      !     0   
+
+      ndof     = sub(isub)%ndof
+      nconstr  = sub(isub)%nconstr
+      ndofaaug = ndof + nconstr
+      nnza     = sub(isub)%nnza
+      nnzc     = sub(isub)%nnzc
+
+      if      (sub(isub)%matrixtype .eq. 0) then
+         ! unsymmetric case:
+         nnzaaug = nnza + 2*nnzc
+      else if (sub(isub)%matrixtype .eq. 1 .or. sub(isub)%matrixtype .eq. 2) then
+         ! symmetric case:
+         nnzaaug = nnza + nnzc
+      end if
+
+      laaug   = nnzaaug
+      allocate(sub(isub)%i_aaug_sparse(laaug),sub(isub)%j_aaug_sparse(laaug),sub(isub)%aaug_sparse(laaug))
+
+      ! copy entries of A
+      iaaug = 0
+      do i = 1,nnza
+         iaaug = iaaug + 1
+         sub(isub)%i_aaug_sparse(iaaug) = sub(isub)%i_a_sparse(i) 
+         sub(isub)%j_aaug_sparse(iaaug) = sub(isub)%j_a_sparse(i) 
+         sub(isub)%aaug_sparse(iaaug)   = sub(isub)%a_sparse(i)   
+      end do
+      ! copy entries of right block of C^T with proper shift in columns
+      do i = 1,nnzc
+         iaaug = iaaug + 1
+         sub(isub)%i_aaug_sparse(iaaug) = sub(isub)%j_c_sparse(i) 
+         sub(isub)%j_aaug_sparse(iaaug) = sub(isub)%i_c_sparse(i) + ndof
+         sub(isub)%aaug_sparse(iaaug)   = sub(isub)%c_sparse(i)   
+      end do
+      if      (sub(isub)%matrixtype .eq. 0) then
+         ! unsymmetric case: apply lower block of C
+         do i = 1,nnzc
+            iaaug = iaaug + 1
+            sub(isub)%i_aaug_sparse(iaaug) = sub(isub)%i_c_sparse(i) + ndof
+            sub(isub)%j_aaug_sparse(iaaug) = sub(isub)%i_c_sparse(i)
+            sub(isub)%aaug_sparse(iaaug)   = sub(isub)%c_sparse(i)   
+         end do
+      end if
+      if (iaaug.ne.nnzaaug) then
+         write(*,*) 'DD_PREPARE_AUG: Actual length of augmented matrix does not match for subdomain:', isub
+         call error_exit
+      end if
+      sub(isub)%nnzaaug = nnzaaug
+      sub(isub)%laaug   = laaug
+
+
+      ! factorize matrix Aaug
+      sub(isub)%is_mumps_aug_active = .true.
+
+      ! Set type of matrix
+      if      (sub(isub)%matrixtype .eq. 0) then
+         ! unsymmetric case:
+         aaugmatrixtype = 0
+      else if (sub(isub)%matrixtype .eq. 1 .or. sub(isub)%matrixtype .eq. 2) then
+         ! in symmetric case, saddle point problem makes the augmented matrix indefinite,
+         ! even if the original matrix is SPD:
+         aaugmatrixtype = 2
+      end if
+      call mumps_init(sub(isub)%mumps_aug,comm,aaugmatrixtype)
+
+      ! Verbosity level of MUMPS
+      if (debug) then
+         mumpsinfo = 2
+      else
+         mumpsinfo = 0
+      end if
+      call mumps_set_info(sub(isub)%mumps_aug,mumpsinfo)
+
+      ! Load matrix to MUMPS
+      ndof     = sub(isub)%ndof
+      nconstr  = sub(isub)%nconstr
+      ndofaaug = ndof + nconstr
+
+      nnzaaug = sub(isub)%nnzaaug
+      laaug   = sub(isub)%laaug
+      call mumps_load_triplet(sub(isub)%mumps_aug,ndofaaug,nnzaaug,&
+                              sub(isub)%i_aaug_sparse,sub(isub)%j_aaug_sparse,sub(isub)%aaug_sparse,laaug)
+      ! Analyze matrix
+      call mumps_analyze(sub(isub)%mumps_aug) 
+      ! Factorize matrix 
+      call mumps_factorize(sub(isub)%mumps_aug) 
+
+      sub(isub)%is_aug_factorized = .true.
+
+end subroutine
+
+!*****************************************
+subroutine dd_prepare_phis(myid,comm,isub)
+!*****************************************
+! Subroutine for solving of system 
+! | A C^T|| phis | = | 0 |
+! ! C  0 ||lambda|   | I |
+! phis are coarse space basis functions on subdomain
+
+      use module_sm
+      use module_mumps
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! communicator
+      integer,intent(in) :: comm
+      ! subdomain
+      integer,intent(in) :: isub
+
+      ! local vars
+      integer ::  ndof, nconstr, ndofaaug
+      integer ::  lc, nnzc
+      integer ::  i, j, indphis, nrhs, matrixtypeaux,&
+                  indphisstart, indaphisstart
+
+      integer ::             lphis
+      real(kr),allocatable :: phis(:)
+
+      integer ::             laphis
+      real(kr),allocatable :: aphis(:)
+
+      integer ::             lac1, lac2
+      real(kr),allocatable :: ac(:,:)
+
+      ! variables for dgemm
+      integer  :: ldphis, ldaphis, ldac
+      real(kr) :: alpha, beta
+
+      ! check the prerequisities
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_PREPARE_PHIS: myid =',myid,'Subdomain', isub,' is not mine.'
+         end if
+         return
+      end if
+      if (.not.sub(isub)%is_aug_factorized) then
+         write(*,*) 'DD_PREPARE_PHIS: Augmented matrix in not factorized for subdomain:', isub
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_mumps_aug_active) then
+         write(*,*) 'DD_PREPARE_PHIS: Augmented matrix solver in not ready for subdomain:', isub
+         call error_exit
+      end if
+
+      ndof     = sub(isub)%ndof
+      nconstr  = sub(isub)%nconstr
+      ndofaaug = ndof + nconstr
+
+      ! Prepare phis with multiple RHS as dense matrix - stored in an linear array for MUMPS
+      lphis = ndofaaug*nconstr
+      allocate(phis(lphis))
+      ! zero all entries
+      call zero(phis,lphis)
+
+      ! put identity into the block of constraints
+      do j = 1,nconstr
+         indphis = (j-1)*ndofaaug + ndof + j
+         phis(indphis) = 1._kr
+      end do
+
+      ! solve the system with multiple RHS
+      nrhs = nconstr
+      call mumps_resolve(sub(isub)%mumps_aug,phis,lphis,nrhs)
+
+      if (debug) then
+         write(*,*) 'Subdomain ',isub,' coarse basis functions phis:'
+         do i = 1,ndofaaug
+            write(*,'(100f13.6)') (phis((j-1)*ndofaaug + i),j = 1,nconstr)
+         end do
+      end if
+
+      ! Build subdomain coarse matrix
+      ! 1. perform multiplication A*phis by the trick that A*phis = -C^T*lambda 
+      ! C^T * lambda => aphis
+      laphis = ndof*nconstr
+      allocate(aphis(laphis))
+
+      matrixtypeaux = 0 ! matrix C is nonsymmetric
+      nnzc = sub(isub)%nnzc
+      lc   = sub(isub)%lc
+      do j = 1,nconstr
+         ! call matrix C as transposed
+         indphisstart  = (j-1)*ndofaaug + ndof + 1
+         indaphisstart = (j-1)*ndof + 1
+         call sm_vec_mult(matrixtypeaux, nnzc, sub(isub)%j_c_sparse, sub(isub)%i_c_sparse, sub(isub)%c_sparse, lc, &
+                          phis(indphisstart),nconstr, aphis(indaphisstart),ndof)
+      end do
+      if (debug) then
+         write(*,*) 'Subdomain ',isub,' coarse basis functions aphis:'
+         do i = 1,ndof
+            write(*,'(100f13.6)') (aphis((j-1)*ndof+ i),j = 1,nconstr)
+         end do
+      end if
+
+      ! 2. build the local matrix Ac = phis^T * A * phis, i.e. Ac = phis^T * (-aphis)
+      ! use level-3 BLAS
+      lac1 = nconstr
+      lac2 = nconstr
+      allocate(ac(lac1,lac2))
+
+      alpha   = -1._kr
+      ldphis  = ndofaaug
+      ldaphis = ndof
+      beta    = 0._kr
+      ldac    = lac1
+      if (kr .eq. 8) then
+         call dgemm('T','N',nconstr,nconstr,ndof,alpha,phis,ldphis,aphis,ldaphis,beta,ac,ldac)
+      else if (kr .eq. 4) then
+         call sgemm('T','N',nconstr,nconstr,ndof,alpha,phis,ldphis,aphis,ldaphis,beta,ac,ldac)
+      else
+         write(*,*) 'DD_PREPARE_PHIS: Precision ',kr,' not supported.'
+         call error_exit
+      end if
+      if (debug) then
+         write(*,*) 'Subdomain ',isub,' coarse matrix:'
+         do i = 1,nconstr
+            write(*,'(100f13.6)') (ac(i,j),j = 1,nconstr)
+         end do
+      end if
+
+      sub(isub)%is_phis_prepared = .true.
+
+      deallocate(ac)
+      deallocate(aphis)
+      deallocate(phis)
 end subroutine
 
 !***************************************************
@@ -1146,6 +1653,7 @@ subroutine dd_multiply_by_schur(myid,isub,x,lx,y,ly)
 
 end subroutine
 
+
 !********************************************
 subroutine dd_where_is_subdomain(isub,idproc)
 !********************************************
@@ -1228,6 +1736,12 @@ subroutine dd_clear_subdomain(isub)
       if (allocated(sub(isub)%bc)) then
          deallocate(sub(isub)%bc)
       end if
+      if (allocated(sub(isub)%global_corner_number)) then
+         deallocate(sub(isub)%global_corner_number)
+      end if
+      if (allocated(sub(isub)%icnsin)) then
+         deallocate(sub(isub)%icnsin)
+      end if
       if (allocated(sub(isub)%global_glob_number)) then
          deallocate(sub(isub)%global_glob_number)
       end if
@@ -1283,12 +1797,36 @@ subroutine dd_clear_subdomain(isub)
          deallocate(sub(isub)%a22_sparse)
       end if
 
-      if (sub(isub)%mumps_active) then
+      ! BDDC matrices
+      if (allocated(sub(isub)%i_c_sparse)) then
+         deallocate(sub(isub)%i_c_sparse)
+      end if
+      if (allocated(sub(isub)%j_c_sparse)) then
+         deallocate(sub(isub)%j_c_sparse)
+      end if
+      if (allocated(sub(isub)%c_sparse)) then
+         deallocate(sub(isub)%c_sparse)
+      end if
+      if (allocated(sub(isub)%i_aaug_sparse)) then
+         deallocate(sub(isub)%i_aaug_sparse)
+      end if
+      if (allocated(sub(isub)%j_aaug_sparse)) then
+         deallocate(sub(isub)%j_aaug_sparse)
+      end if
+      if (allocated(sub(isub)%aaug_sparse)) then
+         deallocate(sub(isub)%aaug_sparse)
+      end if
+
+      if (sub(isub)%is_mumps_interior_active) then
          call mumps_finalize(sub(isub)%mumps_interior_block)
+      end if
+      if (sub(isub)%is_mumps_aug_active) then
+         call mumps_finalize(sub(isub)%mumps_aug)
       end if
 
       sub(isub)%is_mesh_loaded   = .false.
       sub(isub)%is_matrix_loaded = .false.
+      sub(isub)%is_c_loaded      = .false.
 
 end subroutine
 
@@ -1331,6 +1869,8 @@ subroutine dd_print_sub(myid)
          write(*,*) '*** BOUNDARY CONDITIONS :     '
          write(*,*) '     is bc present:           ', sub(isub)%is_bc_present
          write(*,*) '     is bc nonzero:           ', sub(isub)%is_bc_nonzero
+         write(*,*) '*** CORNER INFO :             '
+         write(*,*) '     number of corners:       ', sub(isub)%nnodc
          write(*,*) '*** GLOB INFO :               '
          write(*,*) '     number of globs:         ', sub(isub)%nglob
          write(*,*) '*** MATRIX INFO :             '
@@ -1357,10 +1897,22 @@ subroutine dd_print_sub(myid)
             call sm_print(6, sub(isub)%i_a22_sparse, sub(isub)%j_a22_sparse, sub(isub)%a22_sparse, &
                           sub(isub)%la22, sub(isub)%nnza22)
          end if
+         write(*,*) '*** BDDC INFO:                '
+         write(*,*) '     matrix C loaded:         ', sub(isub)%is_c_loaded
+         if (sub(isub)%is_c_loaded) then
+            call sm_print(6, sub(isub)%i_c_sparse, sub(isub)%j_c_sparse, sub(isub)%c_sparse, &
+                          sub(isub)%lc, sub(isub)%nnzc)
+         end if
+         write(*,*) '     matrix Kaug factorized:  ', sub(isub)%is_aug_factorized
+         if (sub(isub)%is_matrix_loaded.and.sub(isub)%is_aug_factorized) then
+            call sm_print(6, sub(isub)%i_aaug_sparse, sub(isub)%j_aaug_sparse, sub(isub)%aaug_sparse, &
+                          sub(isub)%laaug, sub(isub)%nnzaaug)
+         end if
       end do
       write(*,*) '******************************'
 
 end subroutine
+
 !*********************
 subroutine dd_finalize
 !*********************

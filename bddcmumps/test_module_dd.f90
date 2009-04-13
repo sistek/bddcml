@@ -55,15 +55,13 @@ program test_module_dd
       call dd_assembly_local_matrix(myid)
 
       ! convert matrix to blocks
-      remove_original = .true.
+      remove_original = .false.
       call dd_matrix_tri2blocktri(myid,remove_original)
 
       ! prepare Schur complements
-      call dd_prepare_schur(myid,comm)
-
-      if (debug) then
-         call dd_print_sub(myid)
-      end if
+      do isub = 1,nsub
+         call dd_prepare_schur(myid,comm,isub)
+      end do
 
       ! test who owns data for subdomain
       isub = 1
@@ -72,7 +70,6 @@ program test_module_dd
       isub = 2
       call dd_where_is_subdomain(isub,idproc)
       write(*,*) 'Subdomain ',isub,' is held on processor ', idproc
-
 
       ! multiply vector of ones by subdomain # 1
       x = 1.
@@ -85,6 +82,26 @@ program test_module_dd
       isub = 2
       call dd_multiply_by_schur(myid,isub,x,lx,y,ly)
       write(*,*) 'I am ',myid,'y =',y
+
+      ! test who owns data for subdomain
+      isub = 1
+      call dd_prepare_c(myid,isub)
+      isub = 2
+      call dd_prepare_c(myid,isub)
+
+      ! prepare augmented matrix for BDDC
+      do isub = 1,nsub
+         call dd_prepare_aug(myid,comm,isub)
+      end do
+
+      ! prepare coarse space basis functions for BDDC
+      do isub = 1,nsub
+         call dd_prepare_phis(myid,comm,isub)
+      end do
+
+      if (debug) then
+         call dd_print_sub(myid)
+      end if
 
       call dd_finalize
    
