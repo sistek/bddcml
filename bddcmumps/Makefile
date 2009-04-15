@@ -54,6 +54,7 @@ module_dd.o: \
 
 module_adaptivity.o: \
    module_adaptivity_comm.o \
+   module_dd.o \
    module_utils.o 
 
 bddcmumps.o: \

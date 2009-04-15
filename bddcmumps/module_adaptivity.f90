@@ -98,11 +98,85 @@ subroutine adaptivity_assign_pairs(npair,nproc,npair_locx)
       end do
 end subroutine
 
+!******************************************************************************************************************************
+subroutine adaptivity_get_active_pairs(iround,nproc,npair,npair_locx,active_pairs,lactive_pairs,nactive_pairs,all_pairs_solved)
+!******************************************************************************************************************************
+! Subroutine for activating and deactivating pairs
+      implicit none
+
+! number of round 
+      integer,intent(in) :: iround
+! number of pairs
+      integer,intent(in) :: npair
+! maximal local number of eigenproblems at one processor
+      integer,intent(in) :: npair_locx
+! number of processors
+      integer,intent(in) :: nproc
+! indices of active pairs
+      integer,intent(in) :: lactive_pairs
+      integer,intent(out) :: active_pairs(lactive_pairs)
+! number of active pairs
+      integer, intent(out) :: nactive_pairs
+! set this to true if all pairs are solved
+      logical, intent(out) :: all_pairs_solved
+
+! local variables
+      integer :: ipair, indpair, iactive_pair, i
+
+      if (iround.gt.npair_locx) then
+         all_pairs_solved = .true.
+         return
+      else
+         all_pairs_solved = .false.
+      end if
+
+      indpair      = iround
+      ipair        = 0
+      iactive_pair = 0
+      do i = 1,nproc
+         ipair = ipair + 1
+         if (indpair.le.npair) then
+            iactive_pair = iactive_pair + 1
+            active_pairs(ipair) = indpair
+         else
+            active_pairs(ipair) = 0
+         end if
+
+         indpair = indpair + npair_locx
+      end do
+      nactive_pairs = iactive_pair
+end subroutine
+
+!**********************************************************************
+subroutine adaptivity_get_my_pair(iround,myid,npair_locx,npair,my_pair)
+!**********************************************************************
+! Subroutine for getting number of pair to solve
+      implicit none
+
+! number of round 
+      integer,intent(in) :: iround
+! processor ID
+      integer,intent(in) :: myid
+! Maximal local number of eigenproblems at one processor
+      integer,intent(in) :: npair_locx
+! Global number of pairs to compute eigenproblems
+      integer,intent(in) :: npair
+! number of pair to solve
+      integer,intent(out) :: my_pair 
+
+      my_pair = (myid*npair_locx) + iround
+      if (my_pair.gt.npair) then
+         my_pair = -1
+      end if
+end subroutine
+
 !******************************************************************************
 subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
 !******************************************************************************
 ! Subroutine for parallel solution of distributed eigenproblems
+      use module_dd
       implicit none
+      include "mpif.h"
 
 ! number of processor
       integer,intent(in) :: myid
@@ -122,33 +196,70 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
       integer,intent(in) :: nproc
 
 ! local variables
-      integer :: isub, jsub, ipair
-      integer :: lbuf
+      integer :: isub, jsub, ipair, iactive_pair, iround, isubgl, jsubgl
+      integer :: lvec, my_pair, myisub, myjsub, myisubgl, myjsubgl, mylvec,&
+                 myplace1, myplace2, nactive_pairs, ninstructions, owner, &
+                 place1, place2, pointbuf, i, iinstr
+      integer :: ndofii, ndofij, ndofi
 
-      integer :: pair_data(lpair_subdomains2)
+
+      integer ::             lbufrecv,   lbufsend
+      real(kr),allocatable :: bufrecv(:), bufsend(:)
+
+      integer ::            lpair_data
+      integer,allocatable :: pair_data(:)
+
+      ! array for serving to eigensolvers
+      integer ::            linstructions1
+      integer,parameter ::  linstructions2 = 5
+      integer,allocatable :: instructions(:,:)
+
+      ! numbers of active pairs
+      integer ::            lactive_pairs
+      integer,allocatable :: active_pairs(:)
+
+      logical :: all_pairs_solved
+
+      ! MPI related arrays and variables
+      integer :: request(2*(nsub + nproc)/nproc + 2)
+      integer :: statarray(MPI_STATUS_SIZE, 2*(nsub + nproc)/nproc + 2)
+      integer :: ireq, nreq, ierr
 
       ! allocate table for work instructions - the worst case is that in each
       ! round, I have to compute all the subdomains, i.e. 2 for each pair
-      lintructions1 = (nsub + nproc)/nproc
-      lintructions2 = 5
-      allocate(instructions(lintructions1,lintructions2))
+      linstructions1 = (nsub + nproc)/nproc
+      allocate(instructions(linstructions1,linstructions2))
 
       ! loop over number of rounds for solution of eigenproblems
-      do ipair_round = 1,npair_locx
+      lactive_pairs = nproc
+      allocate(active_pairs(lactive_pairs))
+
+      ! prepare space for pair_data
+      lpair_data = lpair_subdomains2
+      allocate(pair_data(lpair_data))
+
+      iround = 0
+      ! Loop over rounds of eigenvalue solves
+      do 
+         iround = iround + 1
+
          ! each round of eigenproblems has its structure - determine active pairs
+         call adaptivity_get_active_pairs(iround,nproc,npair,npair_locx,active_pairs,lactive_pairs,nactive_pairs,all_pairs_solved)
+         if (all_pairs_solved) then
+            exit
+         end if
 
-         ! determine who I compute
-         ! I am sending this pair
-         my_pair = (myid*npair_locx) + ipair_round
+         ! determine which pair I compute
+         call adaptivity_get_my_pair(iround,myid,npair_locx,npair,my_pair)
 
-         if (my_pair.le.npair) then
+         if (my_pair.ge.0) then
 
             call adaptivity_get_pair_data(my_pair,pair_data,lpair_data)
    
             myisub     = pair_data(2)
-            myisubgl1  = pair_data(3)
+            myisubgl   = pair_data(3)
             myjsub     = pair_data(4)
-            myisubgl2  = pair_data(5)
+            myjsubgl   = pair_data(5)
             mylvec     = pair_data(6)
 
             ! where are these subdomains ?
@@ -162,11 +273,8 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
          ninstructions = 0
          pointbuf      = 1
          lbufrecv      = 0
-         do iproc = 1,nproc
-            iactive_pair = ipair_round + (iproc-1)*npair_locx
-            if (iactive_pair .gt. npair) then
-               cycle
-            end if
+         do ipair = 1,nactive_pairs
+            iactive_pair = active_pairs(ipair)
             
             call adaptivity_get_pair_data(iactive_pair,pair_data,lpair_data)
             owner  = pair_data(1)
@@ -204,28 +312,49 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
                instructions(ninstructions,3) = jsubgl
             end if
          end do
-               
-         ! scheme for this round are ready, start receiving matrices that are necessary
-         if (my_pair.le.npair) then
 
-            call adaptivity_get_pair_data(my_pair,pair_data,lpair_data)
-   
-            myisub     = pair_data(2)
-            myisubgl1  = pair_data(3)
-            myjsub     = pair_data(4)
-            myisubgl2  = pair_data(5)
-            mylvec     = pair_data(6)
+         ! the scheme for communication is ready
+         print *, 'myid =',myid, 'pair_data:'
+         print *, pair_data
+         print *, 'myid =',myid, 'instructions:'
+         do i = 1,ninstructions
+            print *, instructions(i,:)
+         end do
 
+         ! build the local matrix of projection on common globs for active pair
+         !  get sizes of interface of subdomains in my problem
+         ireq = 0
+         if (my_pair.ge.0) then
+            ! receive sizes of interfaces of subdomains involved in my problem
+
+            ireq = ireq + 1
+            call MPI_IRECV(ndofii,1,MPI_INTEGER,myplace1,myisub,comm,request(ireq),ierr)
+
+            ireq = ireq + 1
+            call MPI_IRECV(ndofij,1,MPI_INTEGER,myplace2,myjsub,comm,request(ireq),ierr)
          end if
+         ! send sizes of subdomains involved in problems
+         do iinstr = 1,ninstructions
+            owner = instructions(iinstr,1)
+            isub  = instructions(iinstr,2)
+            call dd_get_interface_size(myid,isub,ndofi)
 
+            ireq = ireq + 1
+            call MPI_ISEND(ndofi,1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+         end do
+         nreq = ireq
 
+         call MPI_WAITALL(nreq, request, statarray, ierr)
+         print *, 'All messages received, MPI is fun!.'
 
-
-
-
+         if (my_pair.ge.0) then
+            print *, 'ndofii',ndofii,'ndofij',ndofij
+         end if
 
       end do
 
+      deallocate(pair_data)
+      deallocate(active_pairs)
       deallocate(instructions)
 
 end subroutine
@@ -242,7 +371,7 @@ subroutine adaptivity_get_pair_data(idpair,pair_data,lpair_data)
 ! length of vector for data
       integer,intent(in) :: lpair_data
 ! vector of data for pair IDPAIR
-      integer,intent(in) :: pair_data(lpair_data)
+      integer,intent(out) :: pair_data(lpair_data)
 
 ! local variables
       integer :: i
@@ -261,7 +390,7 @@ subroutine adaptivity_get_pair_data(idpair,pair_data,lpair_data)
          write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - processor not assigned.'
          call error_exit
       end if
-      if (any(pair_subdomains(idpair,2:).eq.0) then
+      if (any(pair_subdomains(idpair,2:).eq.0)) then
          write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - zeros in subdomain data.'
          call error_exit
       end if

@@ -14,7 +14,7 @@ module module_dd
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! debugging 
-      logical,parameter,private :: debug = .true.
+      logical,parameter,private :: debug = .false.
 
 ! type for subdomain data
       type subdomain_type
@@ -69,9 +69,11 @@ module module_dd
          ! description of corners
          integer ::             nnodc                  ! number of coarse nodes on subdomain
          integer ::             lglobal_corner_number  ! length of array GLOBAL_CORNER_NUMBER
-         integer, allocatable :: global_corner_number(:) ! global numbers of these corners - lenght NNODC
+         integer, allocatable :: global_corner_number(:) ! global numbers of these corners - length NNODC
          integer ::             licnsin                 ! length of array ICNSIN
          integer, allocatable :: icnsin(:)              ! ICNSIN array - indices of corse nodes in subdomain interface numbering
+         integer ::             lncdf                   ! length of array NCDF
+         integer, allocatable :: ncdf(:)                ! NCDF array - numbers of corner dof - length NNODC
 
          ! description of globs
          integer ::             nglob                  ! number of globs on subdomain
@@ -83,6 +85,8 @@ module module_dd
          integer ::             ligvsivn2              ! number of cols of IGVSIVN array
          integer, allocatable :: igvsivn(:,:)          ! IGVSIVN array - indices of glob variables in subdomain interface numbering
                                                        ! data are stored by rows
+         integer ::             lngdf                  ! length of array NGDF
+         integer, allocatable :: ngdf(:)               ! number of degrees of freedom associated with a glob (e.g. number of averages on glob) - lenght NGLOB
       
          ! subdomain matrix 
          logical :: is_matrix_loaded = .false.
@@ -138,6 +142,7 @@ module module_dd
          type(DMUMPS_STRUC) :: mumps_interior_block
 
          ! Matrices for BDDC 
+         integer ::              ndofc            ! number of coarse degrees of freedom on subdomain
          !  matrix C with constraints on subdomain
          logical ::              is_c_loaded = .false.
          integer ::              nconstr ! number of constraints, i.e. no. of rows in C
@@ -158,8 +163,17 @@ module module_dd
          logical :: is_aug_factorized   = .false.
          type(DMUMPS_STRUC) :: mumps_aug
 
-         ! coarse space basis functions phis
-         logical :: is_phis_prepared  = .false.
+         ! coarse space basis functions on interface PHISI
+         logical :: is_phisi_prepared  = .false.
+         integer ::               lphisi1
+         integer ::               lphisi2
+         real(kr),allocatable ::   phisi(:,:)
+
+         ! subdomain coarse matrix 
+         logical :: is_coarse_prepared = .false.
+         integer ::               coarse_matrixtype
+         integer ::               lcoarsem
+         real(kr),allocatable ::   coarsem(:)
 
       end type subdomain_type
 
@@ -1173,7 +1187,8 @@ subroutine dd_prepare_c(myid,isub)
       nnzc = ncc
       allocate (i_c_sparse(lc),j_c_sparse(lc),c_sparse(lc))
 
-      ! create constraints from corners
+      ! create constraints from corners and mapping from local coarse dof to
+      ! global coarse dof
       icc = 0
       nnodc = sub(isub)%nnodc
       do inodc = 1,nnodc
@@ -1402,13 +1417,15 @@ subroutine dd_prepare_aug(myid,comm,isub)
 
 end subroutine
 
-!*****************************************
-subroutine dd_prepare_phis(myid,comm,isub)
-!*****************************************
+!**************************************
+subroutine dd_prepare_coarse(myid,isub)
+!**************************************
 ! Subroutine for solving of system 
 ! | A C^T|| phis | = | 0 |
 ! ! C  0 ||lambda|   | I |
 ! phis are coarse space basis functions on subdomain
+! Then the routine builds the local coarse matrix:
+! Ac = phis^T * A * phis 
 
       use module_sm
       use module_mumps
@@ -1417,16 +1434,15 @@ subroutine dd_prepare_phis(myid,comm,isub)
 
       ! processor ID
       integer,intent(in) :: myid
-      ! communicator
-      integer,intent(in) :: comm
       ! subdomain
       integer,intent(in) :: isub
 
       ! local vars
-      integer ::  ndof, nconstr, ndofaaug
-      integer ::  lc, nnzc
+      integer ::  ndof, nconstr, ndofaaug, ndofi, matrixtype, lc, nnzc
+      integer ::  ndofc
       integer ::  i, j, indphis, nrhs, matrixtypeaux,&
-                  indphisstart, indaphisstart
+                  indphisstart, indaphisstart, indi, icoarsem, lcoarsem
+      integer ::  lphisi1, lphisi2
 
       integer ::             lphis
       real(kr),allocatable :: phis(:)
@@ -1444,16 +1460,16 @@ subroutine dd_prepare_phis(myid,comm,isub)
       ! check the prerequisities
       if (sub(isub)%proc .ne. myid) then
          if (debug) then
-            write(*,*) 'DD_PREPARE_PHIS: myid =',myid,'Subdomain', isub,' is not mine.'
+            write(*,*) 'DD_PREPARE_COARSE: myid =',myid,'Subdomain', isub,' is not mine.'
          end if
          return
       end if
       if (.not.sub(isub)%is_aug_factorized) then
-         write(*,*) 'DD_PREPARE_PHIS: Augmented matrix in not factorized for subdomain:', isub
+         write(*,*) 'DD_PREPARE_COARSE: Augmented matrix in not factorized for subdomain:', isub
          call error_exit
       end if
       if (.not.sub(isub)%is_mumps_aug_active) then
-         write(*,*) 'DD_PREPARE_PHIS: Augmented matrix solver in not ready for subdomain:', isub
+         write(*,*) 'DD_PREPARE_COARSE: Augmented matrix solver in not ready for subdomain:', isub
          call error_exit
       end if
 
@@ -1485,7 +1501,7 @@ subroutine dd_prepare_phis(myid,comm,isub)
       end if
 
       ! Build subdomain coarse matrix
-      ! 1. perform multiplication A*phis by the trick that A*phis = -C^T*lambda 
+      ! 1. perform multiplication A*phis by the fact that A*phis = -C^T*lambda 
       ! C^T * lambda => aphis
       laphis = ndof*nconstr
       allocate(aphis(laphis))
@@ -1523,7 +1539,7 @@ subroutine dd_prepare_phis(myid,comm,isub)
       else if (kr .eq. 4) then
          call sgemm('T','N',nconstr,nconstr,ndof,alpha,phis,ldphis,aphis,ldaphis,beta,ac,ldac)
       else
-         write(*,*) 'DD_PREPARE_PHIS: Precision ',kr,' not supported.'
+         write(*,*) 'DD_PREPARE_COARSE: Precision ',kr,' not supported.'
          call error_exit
       end if
       if (debug) then
@@ -1533,7 +1549,61 @@ subroutine dd_prepare_phis(myid,comm,isub)
          end do
       end if
 
-      sub(isub)%is_phis_prepared = .true.
+      ! restrict vector phis to interface unknowns and load it to the structure
+      ndofi   = sub(isub)%ndofi
+      lphisi1 = ndofi
+      lphisi2 = nconstr
+      allocate(sub(isub)%phisi(lphisi1,lphisi2))
+      sub(isub)%lphisi1 = lphisi1
+      sub(isub)%lphisi2 = lphisi2
+      do i = 1,ndofi
+         indi = sub(isub)%iivsvn(i)
+         do j = 1,nconstr
+            indphis = (j-1)*ndofaaug + indi
+
+            sub(isub)%phisi(i,j) = phis(indphis)
+         end do
+      end do
+      sub(isub)%is_phisi_prepared   = .true.
+
+      ! load the coarse matrix to the structure in appropriate format
+      matrixtype = sub(isub)%matrixtype
+      if      (matrixtype.eq.0) then
+         ! in unsymmetric case, load the whole coarse matrix columnwise
+         lcoarsem = nconstr * nconstr
+         allocate(sub(isub)%coarsem(lcoarsem))
+         icoarsem = 0
+         do j = 1,nconstr
+            do i = 1,nconstr
+               icoarsem = icoarsem + 1
+               sub(isub)%coarsem(icoarsem) = ac(i,j)
+            end do
+         end do
+         sub(isub)%lcoarsem = lcoarsem
+      else if (matrixtype.eq.1 .or. matrixtype.eq.2) then
+         ! in symmetric case, load the upper triangle columnwise
+         lcoarsem = (nconstr+1)*nconstr/2
+         allocate(sub(isub)%coarsem(lcoarsem))
+         icoarsem = 0
+         do j = 1,nconstr
+            do i = 1,j
+               icoarsem = icoarsem + 1
+               sub(isub)%coarsem(icoarsem) = ac(i,j)
+            end do
+         end do
+         sub(isub)%lcoarsem = lcoarsem
+      end if
+      ! check the counter
+      if (icoarsem.ne.lcoarsem) then
+         write(*,*) 'DD_PREPARE_COARSE: Check of coarse matrix length failed for subdomain: ',isub
+         call error_exit
+      end if
+
+      ! number of coarse degrees of freedom equals number of constraints in this implementation
+      ndofc = nconstr
+      sub(isub)%ndofc = ndofc
+
+      sub(isub)%is_coarse_prepared = .true.
 
       deallocate(ac)
       deallocate(aphis)
@@ -1653,7 +1723,6 @@ subroutine dd_multiply_by_schur(myid,isub,x,lx,y,ly)
 
 end subroutine
 
-
 !********************************************
 subroutine dd_where_is_subdomain(isub,idproc)
 !********************************************
@@ -1687,6 +1756,54 @@ subroutine dd_where_is_subdomain(isub,idproc)
 
       ! if all checks are OK, return processor number
       idproc = sub(isub)%proc
+
+end subroutine
+
+!************************************************
+subroutine dd_get_interface_size(myid,isub,ndofi)
+!************************************************
+! Subroutine for finding size of subdomain data
+      implicit none
+! processor ID
+      integer,intent(in) :: myid
+! Index of subdomain whose data I want to get
+      integer,intent(in) :: isub
+! Length of vector of interface dof
+      integer,intent(out) :: ndofi
+
+      if (.not.allocated(sub).or.isub.gt.lsub) then
+         write(*,*) 'DD_GET_INTERFACE_SIZE: Trying to localize nonexistent subdomain.'
+         ndofi = -1
+         return
+      end if
+      if (.not.sub(isub)%is_sub_identified) then
+         write(*,*) 'DD_GET_INTERFACE_SIZE: Subdomain is not identified.'
+         ndofi = -2
+         return
+      end if
+      if (sub(isub)%isub .ne. isub) then
+         write(*,*) 'DD_GET_INTERFACE_SIZE: Subdomain has strange number.'
+         ndofi = -3
+         return
+      end if
+      if (.not.sub(isub)%is_proc_assigned) then
+         write(*,*) 'DD_GET_INTERFACE_SIZE: Processor is not assigned.'
+         ndofi = -4
+         return
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_INTERFACE_SIZE: Subdomain ',isub,' is not mine, myid = ',myid
+         ndofi = -5
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_INTERFACE_SIZE: Mesh is not loaded yet for subdomain ',isub
+         ndofi = -6
+         return
+      end if
+
+      ! if all checks are OK, return subdomain interface size
+      ndofi = sub(isub)%ndofi
 
 end subroutine
 
@@ -1736,11 +1853,15 @@ subroutine dd_clear_subdomain(isub)
       if (allocated(sub(isub)%bc)) then
          deallocate(sub(isub)%bc)
       end if
+      ! corners and globs
       if (allocated(sub(isub)%global_corner_number)) then
          deallocate(sub(isub)%global_corner_number)
       end if
       if (allocated(sub(isub)%icnsin)) then
          deallocate(sub(isub)%icnsin)
+      end if
+      if (allocated(sub(isub)%ncdf)) then
+         deallocate(sub(isub)%ncdf)
       end if
       if (allocated(sub(isub)%global_glob_number)) then
          deallocate(sub(isub)%global_glob_number)
@@ -1751,6 +1872,10 @@ subroutine dd_clear_subdomain(isub)
       if (allocated(sub(isub)%igvsivn)) then
          deallocate(sub(isub)%igvsivn)
       end if
+      if (allocated(sub(isub)%ngdf)) then
+         deallocate(sub(isub)%ngdf)
+      end if
+      ! matrices
       if (allocated(sub(isub)%i_a_sparse)) then
          deallocate(sub(isub)%i_a_sparse)
       end if
@@ -1796,6 +1921,9 @@ subroutine dd_clear_subdomain(isub)
       if (allocated(sub(isub)%a22_sparse)) then
          deallocate(sub(isub)%a22_sparse)
       end if
+      if (sub(isub)%is_mumps_interior_active) then
+         call mumps_finalize(sub(isub)%mumps_interior_block)
+      end if
 
       ! BDDC matrices
       if (allocated(sub(isub)%i_c_sparse)) then
@@ -1816,17 +1944,24 @@ subroutine dd_clear_subdomain(isub)
       if (allocated(sub(isub)%aaug_sparse)) then
          deallocate(sub(isub)%aaug_sparse)
       end if
-
-      if (sub(isub)%is_mumps_interior_active) then
-         call mumps_finalize(sub(isub)%mumps_interior_block)
+      if (allocated(sub(isub)%phisi)) then
+         deallocate(sub(isub)%phisi)
       end if
+      if (allocated(sub(isub)%coarsem)) then
+         deallocate(sub(isub)%coarsem)
+      end if
+
       if (sub(isub)%is_mumps_aug_active) then
          call mumps_finalize(sub(isub)%mumps_aug)
       end if
 
-      sub(isub)%is_mesh_loaded   = .false.
-      sub(isub)%is_matrix_loaded = .false.
-      sub(isub)%is_c_loaded      = .false.
+      sub(isub)%is_mesh_loaded          = .false.
+      sub(isub)%is_matrix_loaded        = .false.
+      sub(isub)%is_c_loaded             = .false.
+      sub(isub)%is_phisi_prepared       = .false.
+      sub(isub)%is_coarse_prepared      = .false.
+      sub(isub)%is_aug_factorized       = .false.
+      sub(isub)%is_interior_factorized  = .false.
 
 end subroutine
 
@@ -1840,7 +1975,7 @@ subroutine dd_print_sub(myid)
       integer,intent(in) :: myid
 
 ! local variables
-      integer :: isub
+      integer :: isub, i, j
 
 ! basic structure
       write(*,*)    '******************************'
@@ -1905,9 +2040,18 @@ subroutine dd_print_sub(myid)
          end if
          write(*,*) '     matrix Kaug factorized:  ', sub(isub)%is_aug_factorized
          if (sub(isub)%is_matrix_loaded.and.sub(isub)%is_aug_factorized) then
-            call sm_print(6, sub(isub)%i_aaug_sparse, sub(isub)%j_aaug_sparse, sub(isub)%aaug_sparse, &
-                          sub(isub)%laaug, sub(isub)%nnzaaug)
+            if (debug) then
+               call sm_print(6, sub(isub)%i_aaug_sparse, sub(isub)%j_aaug_sparse, sub(isub)%aaug_sparse, &
+                             sub(isub)%laaug, sub(isub)%nnzaaug)
+            end if
          end if
+         write(*,*) '     matrix PHIS prepared:    ', sub(isub)%is_phisi_prepared
+            if (debug) then
+               do i = 1,sub(isub)%lphisi1
+                  write(*,'(1000f13.6)') (sub(isub)%phisi(i,j),j = 1,sub(isub)%lphisi2)
+               end do
+            end if
+         write(*,*) '     coarse matrix prepared:  ', sub(isub)%is_coarse_prepared
       end do
       write(*,*) '******************************'
 

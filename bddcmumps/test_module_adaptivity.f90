@@ -1,6 +1,7 @@
 program test_module_adaptivity
 ! Tester of module_adaptivity
       use module_adaptivity
+      use module_dd
       use module_utils
 
       implicit none
@@ -17,6 +18,9 @@ program test_module_adaptivity
       integer :: matrixtype, nsub
       ! how many pairs are assigned to a processor
       integer :: npair_locx
+
+      integer :: isub
+      logical :: remove_original 
 
       character(7)  :: problemname = 'TESTLAP'
       character(20) :: filename
@@ -44,6 +48,18 @@ program test_module_adaptivity
       matrixtype = 1
 
       nsub = 2
+      call dd_init(nsub)
+      call dd_distribute_subdomains(nsub,nproc)
+      call dd_read_mesh_from_file(myid,problemname)
+      call dd_read_matrix_from_file(myid,problemname,matrixtype)
+      call dd_assembly_local_matrix(myid)
+      remove_original = .false.
+      call dd_matrix_tri2blocktri(myid,remove_original)
+      do isub = 1,nsub
+         call dd_prepare_schur(myid,comm,isub)
+      end do
+
+   
       call adaptivity_init(myid,comm,idpair,npair)
 
       print *, 'I am processor ',myid,': nproc = ',nproc, 'nsub = ',nsub
@@ -53,8 +69,11 @@ program test_module_adaptivity
          call adaptivity_print_pairs(myid)
       end if
 
+      call adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
+
       call adaptivity_finalize
    
+      call dd_finalize
       print *, 'I am processor ',myid,': Hello 2'
 
       ! close file with description of pairs

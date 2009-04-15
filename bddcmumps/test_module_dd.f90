@@ -96,7 +96,7 @@ program test_module_dd
 
       ! prepare coarse space basis functions for BDDC
       do isub = 1,nsub
-         call dd_prepare_phis(myid,comm,isub)
+         call dd_prepare_coarse(myid,isub)
       end do
 
       if (debug) then
