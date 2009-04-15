@@ -71,7 +71,7 @@ module module_dd
          integer ::             lglobal_corner_number  ! length of array GLOBAL_CORNER_NUMBER
          integer, allocatable :: global_corner_number(:) ! global numbers of these corners - length NNODC
          integer ::             licnsin                 ! length of array ICNSIN
-         integer, allocatable :: icnsin(:)              ! ICNSIN array - indices of corse nodes in subdomain interface numbering
+         integer, allocatable :: icnsin(:)              ! ICNSIN array - indices of corner nodes in subdomain interface numbering
          integer ::             lncdf                   ! length of array NCDF
          integer, allocatable :: ncdf(:)                ! NCDF array - numbers of corner dof - length NNODC
 
@@ -1759,9 +1759,9 @@ subroutine dd_where_is_subdomain(isub,idproc)
 
 end subroutine
 
-!************************************************
-subroutine dd_get_interface_size(myid,isub,ndofi)
-!************************************************
+!******************************************************
+subroutine dd_get_interface_size(myid,isub,ndofi,nnodi)
+!******************************************************
 ! Subroutine for finding size of subdomain data
       implicit none
 ! processor ID
@@ -1770,6 +1770,8 @@ subroutine dd_get_interface_size(myid,isub,ndofi)
       integer,intent(in) :: isub
 ! Length of vector of interface dof
       integer,intent(out) :: ndofi
+! Length of vector of interface nodes
+      integer,intent(out) :: nnodi
 
       if (.not.allocated(sub).or.isub.gt.lsub) then
          write(*,*) 'DD_GET_INTERFACE_SIZE: Trying to localize nonexistent subdomain.'
@@ -1804,6 +1806,227 @@ subroutine dd_get_interface_size(myid,isub,ndofi)
 
       ! if all checks are OK, return subdomain interface size
       ndofi = sub(isub)%ndofi
+      nnodi = sub(isub)%nnodi
+
+end subroutine
+
+!***************************************************
+subroutine dd_get_number_of_corners(myid,isub,nnodc)
+!***************************************************
+! Subroutine for finding size of subdomain data
+      implicit none
+! processor ID
+      integer,intent(in) :: myid
+! Index of subdomain whose data I want to get
+      integer,intent(in) :: isub
+! Number of corners
+      integer,intent(out) :: nnodc
+
+      if (.not.allocated(sub).or.isub.gt.lsub) then
+         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Trying to localize nonexistent subdomain.'
+         nnodc = -1
+         return
+      end if
+      if (.not.sub(isub)%is_sub_identified) then
+         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Subdomain is not identified.'
+         nnodc = -2
+         return
+      end if
+      if (sub(isub)%isub .ne. isub) then
+         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Subdomain has strange number.'
+         nnodc = -3
+         return
+      end if
+      if (.not.sub(isub)%is_proc_assigned) then
+         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Processor is not assigned.'
+         nnodc = -4
+         return
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Subdomain ',isub,' is not mine, myid = ',myid
+         nnodc = -5
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Mesh is not loaded yet for subdomain ',isub
+         nnodc = -6
+         return
+      end if
+
+      ! if all checks are OK, return subdomain interface size
+      nnodc = sub(isub)%nnodc
+
+end subroutine
+
+!****************************************************************************************
+subroutine dd_get_subdomain_corners(myid,isub,global_corner_number,lglobal_corner_number)
+!****************************************************************************************
+! Subroutine for getting corner nodes
+      implicit none
+! processor ID
+      integer,intent(in) :: myid
+! Index of subdomain whose data I want to get
+      integer,intent(in) :: isub
+! Corners
+      integer,intent(in) :: lglobal_corner_number
+      integer,intent(out) :: global_corner_number(lglobal_corner_number)
+! local vars
+      integer :: nnodc, i
+
+      if (.not.allocated(sub).or.isub.gt.lsub) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Trying to localize nonexistent subdomain.'
+         return
+      end if
+      if (.not.sub(isub)%is_sub_identified) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Subdomain is not identified.'
+         return
+      end if
+      if (sub(isub)%isub .ne. isub) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Subdomain has strange number.'
+         return
+      end if
+      if (.not.sub(isub)%is_proc_assigned) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Processor is not assigned.'
+         return
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Subdomain ',isub,' is not mine, myid = ',myid
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Mesh is not loaded yet for subdomain ',isub
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Mesh is not loaded yet for subdomain ',isub
+         return
+      end if
+      if (sub(isub)%nnodc .ne. lglobal_corner_number) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Size of array for corners not consistent.'
+         write(*,*) 'nnodc :', sub(isub)%nnodc, 'array size: ',lglobal_corner_number
+         return
+      end if
+
+      ! if all checks are OK, return subdomain interface size
+      nnodc = sub(isub)%nnodc
+      do i = 1,nnodc
+         global_corner_number(i) = sub(isub)%global_corner_number(i)
+      end do
+
+end subroutine
+
+!****************************************************************
+subroutine dd_get_subdomain_corners_map(myid,isub,icnsin,licnsin)
+!****************************************************************
+! Subroutine for getting corner nodes embedding into interface
+      implicit none
+! processor ID
+      integer,intent(in) :: myid
+! Index of subdomain whose data I want to get
+      integer,intent(in) :: isub
+! Corners mapping
+      integer,intent(in) :: licnsin
+      integer,intent(out) :: icnsin(licnsin)
+! local vars
+      integer :: nnodc, i
+
+      if (.not.allocated(sub).or.isub.gt.lsub) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Trying to localize nonexistent subdomain.'
+         return
+      end if
+      if (.not.sub(isub)%is_sub_identified) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Subdomain is not identified.'
+         return
+      end if
+      if (sub(isub)%isub .ne. isub) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Subdomain has strange number.'
+         return
+      end if
+      if (.not.sub(isub)%is_proc_assigned) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Processor is not assigned.'
+         return
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Subdomain ',isub,' is not mine, myid = ',myid
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Mesh is not loaded yet for subdomain ',isub
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Mesh is not loaded yet for subdomain ',isub
+         return
+      end if
+      if (sub(isub)%nnodc .ne. licnsin) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Size of array for corners not consistent.'
+         write(*,*) 'nnodc :', sub(isub)%nnodc, 'array size: ',licnsin 
+         return
+      end if
+
+      ! if all checks are OK, return subdomain interface size
+      nnodc = sub(isub)%nnodc
+      do i = 1,nnodc
+         icnsin(i) = sub(isub)%icnsin(i)
+      end do
+
+end subroutine
+
+!*****************************************************************
+subroutine dd_get_subdomain_interface_nndf(myid,isub,nndfi,lnndfi)
+!*****************************************************************
+! Subroutine for getting subdomain nndfi array
+      implicit none
+! processor ID
+      integer,intent(in) :: myid
+! Index of subdomain whose data I want to get
+      integer,intent(in) :: isub
+! Array of numberf of DOF at interface nodes
+      integer,intent(in) :: lnndfi
+      integer,intent(out) :: nndfi(lnndfi)
+! local vars
+      integer :: nnodi, i, indnod
+
+      if (.not.allocated(sub).or.isub.gt.lsub) then
+         write(*,*) 'DD_GET_SUBDOMAIN_INTERFACE_NNDF: Trying to localize nonexistent subdomain.'
+         return
+      end if
+      if (.not.sub(isub)%is_sub_identified) then
+         write(*,*) 'DD_GET_SUBDOMAIN_INTERFACE_NNDF: Subdomain is not identified.'
+         return
+      end if
+      if (sub(isub)%isub .ne. isub) then
+         write(*,*) 'DD_GET_SUBDOMAIN_INTERFACE_NNDF: Subdomain has strange number.'
+         return
+      end if
+      if (.not.sub(isub)%is_proc_assigned) then
+         write(*,*) 'DD_GET_SUBDOMAIN_INTERFACE_NNDF: Processor is not assigned.'
+         return
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_SUBDOMAIN_INTERFACE_NNDF: Subdomain ',isub,' is not mine, myid = ',myid
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_SUBDOMAIN_INTERFACE_NNDF: Mesh is not loaded yet for subdomain ',isub
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_SUBDOMAIN_INTERFACE_NNDF: Mesh is not loaded yet for subdomain ',isub
+         return
+      end if
+      if (sub(isub)%nnodi .ne. lnndfi) then
+         write(*,*) 'DD_GET_SUBDOMAIN_INTERFACE_NNDF: Size of array for interface not consistent.'
+         write(*,*) 'nnodc :', sub(isub)%nnodi, 'array size: ',lnndfi 
+         return
+      end if
+
+      ! if all checks are OK, construct array of numbers of DOF at interface nodes
+      nnodi = sub(isub)%nnodi
+      do i = 1,nnodi
+         indnod   = sub(isub)%iin(i)
+         nndfi(i) = sub(isub)%nndf(indnod)
+      end do
 
 end subroutine
 

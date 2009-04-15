@@ -123,6 +123,175 @@ subroutine error_exit
 call abort()
 end subroutine
 
+!********************************************************************************************************
+subroutine get_array_intersection(array1,larray1,array2,larray2,intersection,lintersection,nintersection)
+!********************************************************************************************************
+! Subroutine for getting intersection of two integer arrays ordered
+      implicit none
+! input arrays
+      integer,intent(in) :: larray1,         larray2
+      integer,intent(in) ::  array1(larray1), array2(larray2)
+! output intersection of arrays 
+      integer,intent(in)  :: lintersection
+      integer,intent(out) ::  intersection(lintersection)
+! number of entries in intersection
+      integer,intent(out) ::  nintersection
+
+! local vars
+      integer :: workarray1(larray1),workarray2(larray2)
+      integer :: i, j, ind1, ind2, iinter
+
+      ! copy arrays to local memory
+      do i = 1,larray1
+         workarray1(i) = array1(i)
+      end do
+      do i = 1,larray2
+         workarray2(i) = array2(i)
+      end do
+
+      ! sort input arrays
+      call iquick_sort(workarray1,larray1)
+      call iquick_sort(workarray2,larray2)
+
+      ! find common intersection in one loop through the arrays
+      i = 1
+      j = 1
+      iinter = 0
+      ind1 = workarray1(i)
+      ind2 = workarray2(j)
+      do 
+         if      (ind1.eq.ind2) then
+            ! they match - add to intersection
+            iinter = iinter + 1
+            intersection(iinter) = ind1
+            i = i + 1
+            j = j + 1
+         else if (ind1.gt.ind2) then
+            j = j + 1
+         else 
+            i = i + 1
+         end if
+         ! set stopping criterion
+         if (i.gt.larray1 .or. j.gt.larray2) then
+            exit
+         end if
+         ind1 = workarray1(i)
+         ind2 = workarray2(j)
+      end do
+      nintersection = iinter
+      do iinter = nintersection + 1,lintersection
+         intersection(iinter) = 0
+      end do
+end subroutine
+
+RECURSIVE SUBROUTINE iquick_sort(list,llist)
+
+! Quick sort routine from:
+! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
+! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
+! modified by Jakub Sistek
+
+IMPLICIT NONE
+INTEGER,INTENT(IN) :: llist
+INTEGER,INTENT(IN OUT)  :: list(llist)
+
+CALL iquick_sort_1(1, llist)
+
+CONTAINS
+
+RECURSIVE SUBROUTINE iquick_sort_1(left_end, right_end)
+
+INTEGER, INTENT(IN) :: left_end, right_end
+
+!     Local variables
+INTEGER             :: i, j
+INTEGER             :: reference, temp
+INTEGER, PARAMETER  :: max_simple_sort_size = 6
+
+IF (right_end < left_end + max_simple_sort_size) THEN
+  ! Use interchange sort for small lists
+  CALL interchange_sort(left_end, right_end)
+
+ELSE
+  ! Use partition ("quick") sort
+  reference = list((left_end + right_end)/2)
+  i = left_end - 1; j = right_end + 1
+
+  DO
+    ! Scan list from left end until element >= reference is found
+    DO
+      i = i + 1
+      IF (list(i) >= reference) EXIT
+    END DO
+    ! Scan list from right end until element <= reference is found
+    DO
+      j = j - 1
+      IF (list(j) <= reference) EXIT
+    END DO
+
+
+    IF (i < j) THEN
+      ! Swap two out-of-order elements
+      temp = list(i); list(i) = list(j); list(j) = temp
+    ELSE IF (i == j) THEN
+      i = i + 1
+      EXIT
+    ELSE
+      EXIT
+    END IF
+  END DO
+
+  IF (left_end < j) CALL iquick_sort_1(left_end, j)
+  IF (i < right_end) CALL iquick_sort_1(i, right_end)
+END IF
+
+END SUBROUTINE iquick_sort_1
+
+
+SUBROUTINE interchange_sort(left_end, right_end)
+
+INTEGER, INTENT(IN) :: left_end, right_end
+
+!     Local variables
+INTEGER             :: i, j
+INTEGER             :: temp
+
+DO i = left_end, right_end - 1
+  DO j = i+1, right_end
+    IF (list(i) > list(j)) THEN
+      temp = list(i); list(i) = list(j); list(j) = temp
+    END IF
+  END DO
+END DO
+
+END SUBROUTINE interchange_sort
+
+END SUBROUTINE iquick_sort
+
+!*************************************************
+subroutine get_index(ivalue,iarray,liarray,iindex)
+!*************************************************
+! Subroutine for returning first index of element in an array that equals prescribed value
+      implicit none
+! prescribed value
+      integer,intent(in) :: ivalue
+! input array
+      integer,intent(in) :: liarray
+      integer,intent(in) ::  iarray(liarray)
+! output index
+      integer,intent(out) ::  iindex
+! local vars
+      integer :: i
+
+      ! find first index where value of element equals prescribed
+      iindex = -1
+      do i = 1,liarray
+         if (iarray(i) .eq. ivalue) then
+            iindex = i
+            exit
+         end if
+      end do
+end subroutine
 
 end module module_utils
 
