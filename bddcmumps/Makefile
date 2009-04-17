@@ -11,8 +11,9 @@ include ../../make.inc
 #LIBS = $(MUMPSLIBPAR) $(SCALAPACKLIB) $(BLACSLIB) \
        $(LAPACKLIB) $(BLASLIB) $(ORDERINGSLIB) $(LIBMPI) $(LIBOTHERS)
 #    semi-sequential
-LIBS = $(LIBMPI) $(MUMPSLIBSEQ) \
+LIBS = $(LIBMPI) $(MUMPSLIBSEQ) $(BLOPEXLINK) \
        $(LAPACKLIB) $(BLASLIB) $(ORDERINGSLIB) $(LIBOTHERS) 
+OBJLOBPCGDRIVER = ../lobpcg_driver/lobpcg_driver.o
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -61,6 +62,11 @@ bddcmumps.o: \
    module_bddc.o \
    module_sm.o
 
+lobpcg_mvecmult_f.o: \
+   module_dd.o \
+   module_adaptivity_comm.o \
+   module_utils.o 
+
 test_module_mumps.o: \
    module_mumps.o
 
@@ -86,6 +92,9 @@ test_module_utils.o: \
    module_utils.o
 
 # building binaries
+
+$(OBJLOBPCGDRIVER) :
+	(cd ../lobpcg_driver ; $(MAKE) )
 
 bddcmumps: \
    bddcmumps.o \
@@ -139,7 +148,9 @@ test_module_adaptivity: \
    module_dd.o \
    module_mumps.o \
    module_sm.o \
-   module_utils.o 
+   module_utils.o \
+   $(OBJLOBPCGDRIVER) \
+   lobpcg_mvecmult_f.o
 	$(FC) -o $@ $^ $(LIBS)
 
 test_module_utils: \

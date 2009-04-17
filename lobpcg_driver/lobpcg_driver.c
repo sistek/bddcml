@@ -1,0 +1,220 @@
+// driver for running lobpcg code of Andrew Knyazev et al.
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+
+// lobpcg includes
+#include "lobpcg.h"
+#include "matmultivec.h"
+#include "multivector.h"
+#include "multi_vector.h"
+#include "pcg_multi.h"
+
+
+#define real double
+#define X(i,j) x[i-1+n*(j-1)]
+#define Lambda(i,j) lambda[i-1+n*(j-1)]
+
+// function prototypes
+int dsygv_ (int *itype, char *jobz, char *uplo, int *
+                    n, double *a, int *lda, double *b, int *ldb,
+                    double *w, double *work, int *lwork, int *info);
+                    
+int dpotrf_ (char *uplo, int *n, double *a, int *
+                    lda, int *info);
+
+void lobpcg_mvecmult_f_(int *n, real *x, int *lx, real *y, int *ly, int *idmatrix);
+// end prototypes
+
+void mvecmult_c (void * data, void * x_p, void * y_p, int idmatrix)
+{
+   serial_Multi_Vector *x = (serial_Multi_Vector *) x_p;
+   serial_Multi_Vector *y = (serial_Multi_Vector *) y_p;
+   double  *x_data; 
+   double  *y_data;
+   double * src;
+   double * dest;
+   int * x_active_ind;
+   int * y_active_ind;
+   int i;
+   int size;
+   int num_active_vectors;
+   int lx;
+   int ly;
+
+   assert (x->size == y->size && x->num_active_vectors == y->num_active_vectors);
+   assert (x->size>1);
+   
+   x_data = x->data;
+   y_data = y->data;
+   size = x->size;
+   lx = size;
+   ly = size;
+   num_active_vectors = x->num_active_vectors;
+   x_active_ind = x->active_indices;
+   y_active_ind = y->active_indices;
+   
+   for(i=0; i<num_active_vectors; i++)
+   {
+      src = x_data + x_active_ind[i]*size;
+      dest = y_data + y_active_ind[i]*size;
+
+      // call Fortran function
+      lobpcg_mvecmult_f_(&size,src,&lx,dest,&ly,&idmatrix);
+   }
+   
+}
+
+void mvecmultA (void * data, void * x_p, void * y_p)
+   // auxiliary routine to multiply by matrix A
+{
+   mvecmult_c (data, x_p, y_p, 1);
+}
+
+void mvecmultB (void * data, void * x_p, void * y_p)
+   // auxiliary routine to multiply by matrix B
+{
+   mvecmult_c (data, x_p, y_p, 2);
+}
+
+void mv_extract_values (serial_Multi_Vector * x_p, double * eigvec, int nvec)
+{
+   serial_Multi_Vector *x = (serial_Multi_Vector *) x_p;
+   double  *x_data; 
+   double * src;
+   double * dest;
+   int * x_active_ind;
+   int i;
+   int j;
+   int size;
+   int num_active_vectors;
+   int idest;
+
+   assert (x->size>1);
+   
+   x_data = x->data;
+   size = x->size;
+   num_active_vectors = x->num_active_vectors;
+   x_active_ind = x->active_indices;
+
+   assert(num_active_vectors == nvec);
+   
+   idest = 0;
+   for(i=0; i<num_active_vectors; i++)
+   {
+      src = x_data + x_active_ind[i]*size;
+      dest = eigvec + idest*size;
+
+      // copy particular eigenvector
+      for(j=0; j<size; j++)
+      {
+	 dest[j] = src[j];
+      }
+      idest = idest + 1;
+   }
+   
+}
+
+// Fortran callable subroutine arguments are passed by reference
+extern void lobpcg_driver_(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSITY_LEVEL, real *lambda, real *vec) 
+{
+   int n=*N; 
+   int nvec=*NVEC; 
+   real tol=*TOL;
+   int maxit=*MAXIT; 
+   int verbosity_level=*VERBOSITY_LEVEL; 
+
+ // lobpcg data
+   serial_Multi_Vector * x;
+   mv_MultiVectorPtr xx; 
+   double * resid;
+   int iterations;
+   lobpcg_Tolerance lobpcg_tol;
+   mv_InterfaceInterpreter ii;
+   lobpcg_BLASLAPACKFunctions blap_fn;
+   int ierr;
+
+ // prepare data for LOBPCG
+  /* create multivector */
+   x = serial_Multi_VectorCreate(n, nvec);
+   serial_Multi_VectorInitialize(x);
+
+  /* fill it with random numbers */
+   serial_Multi_VectorSetRandomValues(x, 1);
+
+/* get memory for eigenvalues, eigenvalue history, residual norms, residual norms history */
+   // memory is already prepared for eigenvalues
+
+   /* request memory for resid. norms */
+   resid = (double *)malloc(sizeof(double)*nvec);
+
+   /* set tolerances */
+   lobpcg_tol.absolute = tol;
+   lobpcg_tol.relative = 1e-50;
+
+/* setup interface interpreter and wrap around "x" another structure */
+
+   SerialSetupInterpreter( &ii );
+   xx = mv_MultiVectorWrap( &ii, x, 0);
+
+/* set pointers to lapack functions */
+   blap_fn.dpotrf = dpotrf_;
+   blap_fn.dsygv = dsygv_;
+
+   /* execute lobpcg */
+   ierr = lobpcg_solve( xx,
+          NULL,
+          mvecmultA,
+          NULL,
+          mvecmultB,
+          NULL,
+          NULL,
+          NULL,
+          blap_fn,
+          lobpcg_tol,
+          maxit,
+          verbosity_level,
+          &iterations,
+          
+          /* eigenvalues; "lambda_values" should point to array  containing <blocksize> doubles where <blocksi
+          ze> is the width of multivector "blockVectorX" */
+          lambda,
+          
+          /* eigenvalues history; a pointer to the entries of the  <blocksize>-by-(<maxIterations>+1) matrix s
+          tored
+          in  fortran-style. (i.e. column-wise) The matrix may be  a submatrix of a larger matrix, see next
+          argument; If you don't need eigenvalues history, provide NULL in this entry */
+          NULL,
+          
+          /* global height of the matrix (stored in fotran-style)  specified by previous argument */
+          0,
+          
+          /* residual norms; argument should point to array of <blocksize> doubles */
+          resid,
+          
+          /* residual norms history; a pointer to the entries of the  <blocksize>-by-(<maxIterations>+1) matri
+          x
+          stored in  fortran-style. (i.e. column-wise) The matrix may be  a submatrix of a larger matrix, see
+          next
+          argument If you don't need residual norms history, provide NULL in this entry */
+          NULL,
+          
+          /* global height of the matrix (stored in fotran-style)  specified by previous argument */
+          0
+          );
+
+   if (ierr)
+   {
+      printf("LOBPCG exited with nonzero code: %d \n",ierr);
+   }
+
+/* print eigenvectors to file */
+   serial_Multi_VectorPrint(x, "eigenvectors");
+   mv_extract_values (x, vec, nvec);
+
+   serial_Multi_VectorDestroy(x);
+   mv_MultiVectorDestroy(xx);
+   free(resid); 
+ 
+}
+

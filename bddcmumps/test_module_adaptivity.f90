@@ -69,7 +69,7 @@ program test_module_adaptivity
          call adaptivity_print_pairs(myid)
       end if
 
-      call adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
+      call adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
       call adaptivity_finalize
    

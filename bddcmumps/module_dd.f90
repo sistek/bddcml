@@ -2030,6 +2030,119 @@ subroutine dd_get_subdomain_interface_nndf(myid,isub,nndfi,lnndfi)
 
 end subroutine
 
+!*******************************************************************
+subroutine dd_get_interface_global_numbers(myid, isub, iingn,liingn)
+!*******************************************************************
+! Subroutine for getting mapping of interface nodes into global node numbering
+      use module_utils
+      implicit none
+
+      integer,intent(in) :: myid, isub
+      integer,intent(in)  :: liingn
+      integer,intent(out) ::  iingn(liingn)
+
+      ! local vars
+      integer :: nnodi
+      integer :: i, ind
+
+      ! check if I store the subdomain
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_GET_INTERFACE_GLOBAL_NUMBERS: myid =',myid,', not my subdomain: ',isub
+         end if
+         return
+      end if
+      ! check if mesh is loaded
+      if (.not. sub(isub)%is_mesh_loaded) then
+         if (debug) then
+            write(*,*) 'DD_GET_INTERFACE_GLOBAL_NUMBERS: myid =',myid,', Mesh not loaded for subdomain: ',isub
+         end if
+         call error_exit
+      end if
+      ! check dimensions
+      if (sub(isub)%nnodi.ne.liingn) then
+         if (debug) then
+            write(*,*) 'DD_GET_INTERFACE_GLOBAL_NUMBERS: myid =',myid,', Interface dimensions mismatch for subdomain ',isub
+         end if
+         call error_exit
+      end if
+
+      ! load data
+      nnodi = sub(isub)%nnodi
+      do i = 1,nnodi
+         ! subdomain node number
+         ind = sub(isub)%iin(i)
+         ! global node number
+         iingn(i) = sub(isub)%isngn(ind)
+      end do
+end subroutine
+
+!***********************************************************
+subroutine dd_get_interface_diagonal(myid, isub, rhoi,lrhoi)
+!***********************************************************
+! Subroutine for getting subdomain diagonal from the structure
+      use module_utils
+      implicit none
+
+      integer,intent(in) :: myid, isub
+      integer,intent(in)  :: lrhoi
+      real(kr),intent(out) ::  rhoi(lrhoi)
+
+      ! local vars
+      integer :: ndof, ndofi, la
+      integer :: i, indiv, ia, ind
+
+      integer ::              lrho
+      real(kr),allocatable ::  rho(:)
+
+      ! check if I store the subdomain
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_GET_INTERFACE_DIAGONAL: myid =',myid,', not my subdomain: ',isub
+         end if
+         return
+      end if
+      ! check if matrix is loaded
+      if (.not. sub(isub)%is_matrix_loaded) then
+         if (debug) then
+            write(*,*) 'DD_GET_INTERFACE_DIAGONAL: myid =',myid,', Matrix not loaded for subdomain: ',isub
+         end if
+         call error_exit
+      end if
+      ! check dimensions
+      if (sub(isub)%ndofi.ne.lrhoi) then
+         if (debug) then
+            write(*,*) 'DD_GET_INTERFACE_DIAGONAL: myid =',myid,', Interface dimensions mismatch for subdomain ',isub
+         end if
+         call error_exit
+      end if
+
+      ! load data
+      ndof  = sub(isub)%ndof
+      ndofi = sub(isub)%ndofi
+
+      ! allocate vector for whole subdomain diagonal
+      lrho = ndof
+      allocate(rho(lrho))
+      call zero(rho,lrho)
+
+      la = sub(isub)%la
+      do ia = 1,la
+         if (sub(isub)%i_a_sparse(ia).eq.sub(isub)%j_a_sparse(ia)) then
+            ind = sub(isub)%i_a_sparse(ia)
+
+            rho(ind) = rho(ind) + sub(isub)%a_sparse(ia)
+         end if
+      end do
+
+      do i = 1,ndofi
+         indiv = sub(isub)%iivsvn(i)
+         rhoi(i) = rho(indiv)
+      end do
+
+      deallocate(rho)
+end subroutine
+
 !**********************************
 subroutine dd_clear_subdomain(isub)
 !**********************************

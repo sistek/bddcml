@@ -170,10 +170,11 @@ subroutine adaptivity_get_my_pair(iround,myid,npair_locx,npair,my_pair)
       end if
 end subroutine
 
-!******************************************************************************
-subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
-!******************************************************************************
+!*************************************************************************
+subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
+!*************************************************************************
 ! Subroutine for parallel solution of distributed eigenproblems
+      use module_adaptivity_comm
       use module_dd
       use module_utils
       implicit none
@@ -190,11 +191,11 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
 ! Global number of pairs to compute eigenproblems
       integer,intent(in) :: npair
 
-! Number of subdomains
-      integer,intent(in) :: nsub
-
 ! Number of processors
       integer,intent(in) :: nproc
+
+! Maximal number of eigenvectors per problem
+      integer,parameter :: neigvecx = 2
 
 ! local variables
       integer :: isub, jsub, ipair, iactive_pair, iround, isubgl, jsubgl
@@ -202,29 +203,28 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
                  myplace1, myplace2, nactive_pairs, ninstructions, owner, &
                  place1, place2, pointbuf, i, j, iinstr, indcorner, icommon, &
                  indc_i, indc_j, indi_i, indi_j, ndofn, nconstr, iconstr, inodi,&
-                 pointv_i, pointv_j, shift
+                 pointv_i, pointv_j, shift, indcommon, ndofcomm, idofn, irhoicomm,&
+                 point_i, point_j
 
-      integer :: ndofi_i, ndofi_j, ndofi
-      integer :: nnodci, nnodcj, nnodc
-      integer :: nnodi_i,nnodi_j,nnodi
+      integer :: ndofi
+      integer :: nnodc
+      integer :: nnodi
 
-
-      integer ::             lbufrecv,   lbufsend
-      real(kr),allocatable :: bufrecv(:), bufsend(:)
 
       integer ::            lpair_data
       integer,allocatable :: pair_data(:)
-
-      ! array for serving to eigensolvers
-      integer ::            linstructions1
-      integer,parameter ::  linstructions2 = 5
-      integer,allocatable :: instructions(:,:)
 
       ! numbers of active pairs
       integer ::            lactive_pairs
       integer,allocatable :: active_pairs(:)
 
       logical :: all_pairs_solved
+
+      ! eigenvectors and eigenvalues
+      integer ::             leigvec
+      real(kr),allocatable :: eigvec(:)
+      integer ::             leigval
+      real(kr),allocatable :: eigval(:)
 
       ! corner information
       integer ::            ncommon_corners
@@ -244,25 +244,30 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
       integer,allocatable :: nndfi(:)
       integer ::            lkdofi_i,   lkdofi_j
       integer,allocatable :: kdofi_i(:), kdofi_j(:)
+      integer ::             lrhoi_i,   lrhoi_j
+      real(kr),allocatable :: rhoi_i(:), rhoi_j(:)
+      integer ::             lrhoi
+      real(kr),allocatable :: rhoi(:)
+      integer ::            liingn_i,   liingn_j
+      integer,allocatable :: iingn_i(:), iingn_j(:)
+      integer ::            liingn
+      integer,allocatable :: iingn(:)
+      integer ::             lrhoicomm
+      real(kr),allocatable :: rhoicomm(:)
 
-      ! matrix of local constraints D_ij
-      integer ::              ldij1,ldij2
-      real(kr),allocatable ::  dij(:,:)
-
-      ! MPI related arrays and variables
-      integer ::            lrequest
-      integer,allocatable :: request(:)
-      integer,parameter   :: lstatarray1 = MPI_STATUS_SIZE
-      integer             :: lstatarray2
-      integer,allocatable :: statarray(:,:)
-      integer :: ireq, nreq, ierr
+      integer ::            ncommon_interface
+      integer ::            lcommon_interface
+      integer,allocatable :: common_interface(:)
 
       ! LAPACK QR related variables
       integer :: ldim, lapack_info
       integer ::             lwork
       real(kr),allocatable :: work(:)
-      integer ::             ltau
-      real(kr),allocatable :: tau(:)
+
+      ! LOBPCG related variables
+      integer ::  lobpcg_maxit, lobpcg_verbosity
+      real(kr) :: lobpcg_tol
+
 
       ! allocate table for work instructions - the worst case is that in each
       ! round, I have to compute all the subdomains, i.e. 2 for each pair
@@ -271,6 +276,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
       ! prepare MPI arrays 
       lrequest = 2*nproc + 2
       allocate(request(lrequest))
+      lstatarray1 = MPI_STATUS_SIZE
       lstatarray2 = lrequest
       allocate(statarray(lstatarray1,lstatarray2))
 
@@ -311,12 +317,12 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
             call dd_where_is_subdomain(myjsub,myplace2)
          end if
 
+
          ! determine working instructions for sending subdomain matrices
          ! go through pairs that are active in this round
          instructions  = 0
          ninstructions = 0
          pointbuf      = 1
-         lbufrecv      = 0
          do ipair = 1,nactive_pairs
             iactive_pair = active_pairs(ipair)
             
@@ -464,6 +470,12 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
             lnndfi_i = nnodi_i
             lnndfi_j = nnodi_j
             allocate(nndfi_i(lnndfi_i),nndfi_j(lnndfi_j))
+            lrhoi_i = ndofi_i
+            lrhoi_j = ndofi_j
+            allocate(rhoi_i(lrhoi_i),rhoi_j(lrhoi_j))
+            liingn_i = nnodi_i
+            liingn_j = nnodi_j
+            allocate(iingn_i(liingn_i),iingn_j(liingn_j))
          end if
          ! get data about corners
          ireq = 0
@@ -658,8 +670,228 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
                print *,(dij(i,j),j = 1,ldij2)
             end do
          end if
-   
+
+
+         ! prepare operator (I-R_ijE_ij)
+         ! get data about interface weigths
+         ireq = 0
          if (my_pair.ge.0) then
+            ! receive diagonal entries
+
+            ireq = ireq + 1
+            call MPI_IRECV(rhoi_i,ndofi_i,MPI_DOUBLE_PRECISION,myplace1,myisub,comm,request(ireq),ierr)
+
+            ireq = ireq + 1
+            call MPI_IRECV(rhoi_j,ndofi_j,MPI_DOUBLE_PRECISION,myplace2,myjsub,comm,request(ireq),ierr)
+         end if
+         do iinstr = 1,ninstructions
+            owner = instructions(iinstr,1)
+            isub  = instructions(iinstr,2)
+            call dd_get_interface_size(myid,isub,ndofi,nnodi)
+
+            lrhoi = ndofi
+            allocate(rhoi(lrhoi))
+            call dd_get_interface_diagonal(myid,isub, rhoi,lrhoi)
+
+            ireq = ireq + 1
+            call MPI_ISEND(rhoi,ndofi,MPI_DOUBLE_PRECISION,owner,isub,comm,request(ireq),ierr)
+            deallocate(rhoi)
+         end do
+         nreq = ireq
+         call MPI_WAITALL(nreq, request, statarray, ierr)
+         print *, 'All messages in pack 7 received, MPI is fun!.'
+         if (my_pair.ge.0) then
+            print *, 'rhoi_i'
+            print *,  rhoi_i
+            print *, 'rhoi_j'
+            print *,  rhoi_j
+         end if
+
+         ! get data about common interface
+         ireq = 0
+         if (my_pair.ge.0) then
+            ! receive mapping of interface nodes into global nodes
+
+            ireq = ireq + 1
+            call MPI_IRECV(iingn_i,nnodi_i,MPI_INTEGER,myplace1,myisub,comm,request(ireq),ierr)
+
+            ireq = ireq + 1
+            call MPI_IRECV(iingn_j,nnodi_j,MPI_INTEGER,myplace2,myjsub,comm,request(ireq),ierr)
+         end if
+         ! send sizes of subdomains involved in problems
+         do iinstr = 1,ninstructions
+            owner = instructions(iinstr,1)
+            isub  = instructions(iinstr,2)
+            call dd_get_interface_size(myid,isub,ndofi,nnodi)
+
+            liingn = nnodi
+            allocate(iingn(liingn))
+            call dd_get_interface_global_numbers(myid,isub,iingn,liingn)
+
+            ireq = ireq + 1
+            call MPI_ISEND(iingn,nnodi,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+            deallocate(iingn)
+         end do
+         nreq = ireq
+         call MPI_WAITALL(nreq, request, statarray, ierr)
+         print *, 'All messages in pack 8 received, MPI is fun!.'
+         if (my_pair.ge.0) then
+            print *, 'iingn_i'
+            print *,  iingn_i
+            print *, 'iingn_j'
+            print *,  iingn_j
+         end if
+
+         ! find common intersection of interface nodes
+         if (my_pair.ge.0) then
+            lcommon_interface = min(nnodi_i,nnodi_j)
+            allocate(common_interface(lcommon_interface))
+            if (my_pair.ge.0) then
+               call get_array_intersection(iingn_i,liingn_i, iingn_j,liingn_j,&
+                                           common_interface,lcommon_interface,ncommon_interface)
+            end if
+            ! determine size of common interface
+            ndofcomm = 0
+            do icommon = 1,ncommon_interface
+               indcommon = common_interface(icommon)
+               call get_index(indcommon,iingn_i,liingn_i,indi_i)
+               ndofn = nndfi_i(indi_i)
+
+               ndofcomm = ndofcomm + ndofn
+            end do
+            ! prepare space for sum of interface entries
+            lrhoicomm = ndofcomm
+            allocate(rhoicomm(lrhoicomm))
+            irhoicomm = 0
+            ! sum diagonal entries on interface
+            do icommon = 1,ncommon_interface
+               indcommon = common_interface(icommon)
+               call get_index(indcommon,iingn_i,liingn_i,indi_i)
+               point_i = kdofi_i(indi_i)
+               call get_index(indcommon,iingn_j,liingn_j,indi_j)
+               point_j = kdofi_j(indi_j)
+
+               ndofn = nndfi_i(indi_i)
+
+               do idofn = 1,ndofn
+                  irhoicomm = irhoicomm + 1
+
+                  rhoicomm(irhoicomm) = rhoi_i(point_i + idofn) + rhoi_j(point_j + idofn)
+               end do
+            end do
+            ! prepare vector of mask and weigths representing (I - R_ij E_ij)
+            limre = ndofi_i + ndofi_j
+            allocate(imre(limre))
+            call zero(imre,limre)
+            irhoicomm = 0
+            shift = ndofi_i
+            do icommon = 1,ncommon_interface
+               indcommon = common_interface(icommon)
+               call get_index(indcommon,iingn_i,liingn_i,indi_i)
+               point_i = kdofi_i(indi_i)
+               call get_index(indcommon,iingn_j,liingn_j,indi_j)
+               point_j = kdofi_j(indi_j)
+
+               ndofn = nndfi_i(indi_i)
+
+               do idofn = 1,ndofn
+                  irhoicomm = irhoicomm + 1
+
+                  imre(        point_i + idofn) = rhoi_i(point_i + idofn) / rhoicomm(irhoicomm)
+                  imre(shift + point_j + idofn) = rhoi_j(point_j + idofn) / rhoicomm(irhoicomm)
+               end do
+            end do
+
+            deallocate(rhoicomm)
+            print *, 'imre',imre
+         end if
+
+
+         ! prepare space for eigenvectors
+         ireq = 0
+         if (my_pair.ge.0) then
+            neigvec     = min(neigvecx,mylvec)
+            problemsize = ndofi_i + ndofi_j
+            leigvec = neigvec * problemsize
+            leigval = neigvec
+            allocate(eigvec(leigvec),eigval(leigval))
+
+            ! prepare space for buffers
+            lbufsend_i = ndofi_i * neigvec
+            lbufsend_j = ndofi_j * neigvec
+            allocate(bufsend_i(lbufsend_i),bufsend_j(lbufsend_j))
+
+            ! distribute sizes of chunks of eigenvectors
+            ireq = ireq + 1
+            call MPI_ISEND(lbufsend_i,1,MPI_INTEGER,myplace1,myisub,comm,request(ireq),ierr)
+
+            ireq = ireq + 1
+            call MPI_ISEND(lbufsend_j,1,MPI_INTEGER,myplace2,myjsub,comm,request(ireq),ierr)
+         end if
+         ! prepare pointers to buffers with chunks of eigenvectors and their size
+         llbufa = ninstructions
+         allocate(lbufa(llbufa))
+         do iinstr = 1,ninstructions
+            owner = instructions(iinstr,1)
+            isub  = instructions(iinstr,2)
+
+            ireq = ireq + 1
+            call MPI_IRECV(lbufa(iinstr),1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+         end do
+         nreq = ireq
+         call MPI_WAITALL(nreq, request, statarray, ierr)
+         ! prepare arrays kbufsend and 
+         lkbufsend = ninstructions
+         allocate(kbufsend(lkbufsend))
+         kbufsend(1)  = 1
+         do i = 2,ninstructions
+            kbufsend(i) = kbufsend(i-1) + lbufa(i-1)
+         end do
+         print *, 'All messages in pack 9 received, MPI is fun!.'
+         print *, 'myid',myid,'lbufa'
+         print *,  lbufa
+         print *, 'myid',myid,'kbufsend'
+         print *,  kbufsend
+         lbufsend = 0
+         do i = 1,ninstructions
+            lbufsend = lbufsend + lbufa(i)
+         end do
+         allocate(bufsend(lbufsend))
+
+         ! All arrays are ready for iterational process
+         ! call LOBCPG
+         comm_comm = comm
+         if (my_pair.ge.0) then
+            lobpcg_tol   = 1.e-6_kr
+            lobpcg_maxit = 1000
+            problemsize = ndofi_i + ndofi_j
+            lobpcg_verbosity = 0
+            if (debug) then
+               write(*,*) 'myid =',myid,', I am calling eigensolver for pair ',my_pair
+            end if
+            call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,eigval,eigvec)
+            ! turn around the eigenvalues to be the largest
+            eigval = -eigval
+            print *, 'eigval ='
+            print '(f13.7)', eigval
+            print *, 'x ='
+            do i = 1,problemsize
+               print '(30f13.7)', (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+            end do
+         end if
+         call adaptivity_fake_lobpcg_driver
+
+
+         deallocate(bufsend)
+         deallocate(lbufa)
+         deallocate(kbufsend) 
+         if (my_pair.ge.0) then
+            deallocate(eigvec,eigval)
+            deallocate(bufsend_i,bufsend_j)
+            deallocate(imre)
+            deallocate(common_interface)
+            deallocate(iingn_i,iingn_j)
+            deallocate(rhoi_i,rhoi_j)
             deallocate(tau)
             deallocate(kdofi_i,kdofi_j)
             deallocate(dij)
@@ -675,6 +907,34 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nsub,nproc)
       deallocate(pair_data)
       deallocate(active_pairs)
       deallocate(instructions)
+
+end subroutine
+
+!***************************************
+subroutine adaptivity_fake_lobpcg_driver
+!***************************************
+! Subroutine for looping to compute all Schur complement multiplications in eigenproblems
+      implicit none
+
+! local variables
+      integer :: idmatrix
+
+      ! these have no meaning and are present only for matching the arguments
+      integer :: n, lx = 0, ly = 0
+      real(kr) :: x , y
+
+
+      ! repeat loop until idmat not equal 3
+      ! here the only important argument is idmatrix
+      ! all other necessary data are obtained through modules
+      idmatrix = 3
+      do 
+         call lobpcg_mvecmult_f(n,x,lx,y,ly,idmatrix)
+         ! stopping criterion
+         if (idmatrix .ne. 3) then
+            exit
+         end if
+      end do
 
 end subroutine
 
@@ -759,4 +1019,5 @@ subroutine adaptivity_finalize
 end subroutine
 
 end module module_adaptivity
+
 

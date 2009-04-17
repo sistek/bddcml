@@ -1,0 +1,527 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.7	//
+10	bddcmumps.f90	/^   10    write(*,'(a,$)') 'Name of the problem: '$/;"	l	program:bddcmumps	file:
+20	bddcmumps.f90	/^ 20   continue$/;"	l	program:bddcmumps	file:
+5001	bddcmumps.f90	/^ 5001       format(1X,'iteration iter = ',I4,2X,'relres = ',F25.18)$/;"	l	subroutine:bddcpcg	file:
+77	bddcmumps.f90	/^   77 continue$/;"	l	subroutine:bddcpcg	file:
+77	module_sm.f90	/^  77  return$/;"	l	subroutine:sm_assembly	file:
+a11_sparse	module_dd.f90	/^         real(kr),allocatable ::   a11_sparse(/;"	k	type:subdomain_type
+a12_sparse	module_dd.f90	/^         real(kr),allocatable ::   a12_sparse(/;"	k	type:subdomain_type
+a21_sparse	module_dd.f90	/^         real(kr),allocatable ::   a21_sparse(/;"	k	type:subdomain_type
+a22_sparse	module_dd.f90	/^         real(kr),allocatable ::   a22_sparse(/;"	k	type:subdomain_type
+a_sparse	bddcmumps.f90	/^real(kr),allocatable :: a_sparse(/;"	v	program:bddcmumps
+a_sparse	module_dd.f90	/^         real(kr),allocatable ::   a_sparse(/;"	k	type:subdomain_type
+a_sparse	test_module_bddc2.f90	/^      real(kr) :: a_sparse(/;"	v	program:test_module_bddc2
+a_sparse	test_module_mumps.f90	/^      real(kr) :: a_sparse(/;"	v	program:test_module_mumps
+a_sparse	test_module_mumps2.f90	/^      real(kr) :: a_sparse(/;"	v	program:test_module_mumps
+a_sparse	test_module_sm.f90	/^      real(kr),allocatable :: a_sparse(/;"	v	program:test_module_sm
+adaptivity_finalize	module_adaptivity.f90	/^subroutine adaptivity_finalize$/;"	s	module:module_adaptivity
+adaptivity_init	module_adaptivity.f90	/^subroutine adaptivity_init(/;"	s	module:module_adaptivity
+allocate_unit	module_utils.f90	/^subroutine allocate_unit(/;"	s	module:module_utils
+aux	bddcmumps.f90	/^real(kr),allocatable :: aux(/;"	v	program:bddcmumps
+averages_approach	bddcmumps.f90	/^integer,parameter:: averages_approach /;"	v	program:bddcmumps
+averages_approach	test_module_bddc2.f90	/^      integer :: averages_approach /;"	v	program:test_module_bddc2
+avg	test_module_bddc.f90	/^      real(kr), allocatable :: avg(/;"	v	program:test_module_bddc
+avgref	test_module_bddc.f90	/^      real(kr), allocatable :: avgref(/;"	v	program:test_module_bddc
+bc	test_module_sm.f90	/^      real(kr) :: bc(/;"	v	program:test_module_sm
+bct	bddcmumps.f90	/^real(kr),allocatable:: rhst(:), fixvt(:), solt(:), bct(/;"	v	program:bddcmumps
+bddc_DP_build_card	module_bddc.f90	/^subroutine bddc_DP_build_card(/;"	s	module:module_bddc
+bddc_DP_build_stiff	module_bddc.f90	/^subroutine bddc_DP_build_stiff(/;"	s	module:module_bddc
+bddc_G_aritmetic_build	module_bddc.f90	/^subroutine bddc_G_aritmetic_build(/;"	s	module:module_bddc
+bddc_G_aritmetic_size	module_bddc.f90	/^subroutine bddc_G_aritmetic_size(/;"	s	module:module_bddc
+bddc_M	module_bddc.f90	/^subroutine bddc_M(/;"	s	module:module_bddc
+bddc_M_fake	module_bddc.f90	/^subroutine bddc_M_fake(/;"	s	module:module_bddc
+bddc_P_apply	module_bddc.f90	/^subroutine bddc_P_apply(/;"	s	module:module_bddc
+bddc_P_init	module_bddc.f90	/^subroutine bddc_P_init(/;"	s	module:module_bddc
+bddc_P_nnz_est	module_bddc.f90	/^subroutine bddc_P_nnz_est(/;"	s	module:module_bddc
+bddc_R	module_bddc.f90	/^subroutine bddc_R(/;"	s	module:module_bddc
+bddc_RRT	module_bddc.f90	/^subroutine bddc_RRT(/;"	s	module:module_bddc
+bddc_RT	module_bddc.f90	/^subroutine bddc_RT(/;"	s	module:module_bddc
+bddc_R_int	module_bddc.f90	/^subroutine bddc_R_int(/;"	s	module:module_bddc
+bddc_T_LU	module_bddc.f90	/^subroutine bddc_T_LU(/;"	s	module:module_bddc
+bddc_T_apply	module_bddc.f90	/^subroutine bddc_T_apply(/;"	s	module:module_bddc
+bddc_T_blinv	module_bddc.f90	/^subroutine bddc_T_blinv(/;"	s	module:module_bddc
+bddc_T_init	module_bddc.f90	/^subroutine bddc_T_init(/;"	s	module:module_bddc
+bddc_T_inverse	module_bddc.f90	/^subroutine bddc_T_inverse(/;"	s	module:module_bddc
+bddc_T_nnz_est	module_bddc.f90	/^subroutine bddc_T_nnz_est(/;"	s	module:module_bddc
+bddc_convert_ht	module_bddc.f90	/^subroutine bddc_convert_ht(/;"	s	module:module_bddc
+bddc_convert_ht_int	module_bddc.f90	/^subroutine bddc_convert_ht_int(/;"	s	module:module_bddc
+bddc_convert_th	module_bddc.f90	/^subroutine bddc_convert_th(/;"	s	module:module_bddc
+bddc_dot_product	module_bddc.f90	/^function bddc_dot_product(/;"	f	module:module_bddc
+bddc_dual_init	module_bddc.f90	/^subroutine bddc_dual_init(/;"	s	module:module_bddc
+bddc_dual_solve	module_bddc.f90	/^subroutine bddc_dual_solve(/;"	s	module:module_bddc
+bddc_finalize	module_bddc.f90	/^subroutine bddc_finalize$/;"	s	module:module_bddc
+bddc_getfname	module_bddc.f90	/^subroutine bddc_getfname(/;"	s	module:module_bddc
+bddc_init	module_bddc.f90	/^subroutine bddc_init(/;"	s	module:module_bddc
+bddc_mumps	module_bddc.f90	/^type(DMUMPS_STRUC),private :: bddc_mumps$/;"	v	module:module_bddc
+bddc_normvec	module_bddc.f90	/^function bddc_normvec(/;"	f	module:module_bddc
+bddc_time_end	module_bddc.f90	/^subroutine bddc_time_end(/;"	s	module:module_bddc
+bddc_time_start	module_bddc.f90	/^subroutine bddc_time_start(/;"	s	module:module_bddc
+bddcmumps	bddcmumps.f90	/^program bddcmumps$/;"	p
+bddcpcg	bddcmumps.f90	/^subroutine bddcpcg(/;"	s
+buf	module_bddc.f90	/^real(kr),allocatable,private :: buf(/;"	v	module:module_bddc
+comm	bddcmumps.f90	/^integer:: comm,/;"	v	program:bddcmumps
+comm	test_module_bddc2.f90	/^      integer :: myid, comm,/;"	v	program:test_module_bddc2
+comm	test_module_dd.f90	/^      integer :: myid, comm,/;"	v	program:test_module_dd
+comm	test_module_mumps.f90	/^      integer :: comm,/;"	v	program:test_module_mumps
+comm	test_module_mumps2.f90	/^      integer :: comm,/;"	v	program:test_module_mumps
+dd_clear_subdomain	module_dd.f90	/^subroutine dd_clear_subdomain(/;"	s	module:module_dd
+dd_distribute_subdomains	module_dd.f90	/^subroutine dd_distribute_subdomains(/;"	s	module:module_dd
+dd_finalize	module_dd.f90	/^subroutine dd_finalize$/;"	s	module:module_dd
+dd_init	module_dd.f90	/^subroutine dd_init(/;"	s	module:module_dd
+dd_load_mesh	module_dd.f90	/^subroutine dd_load_mesh(/;"	s	module:module_dd
+dd_print_sub	module_dd.f90	/^subroutine dd_print_sub(/;"	s	module:module_dd
+dd_read_matrix_from_file	module_dd.f90	/^subroutine dd_read_matrix_from_file(/;"	s	module:module_dd
+dd_read_mesh_from_file	module_dd.f90	/^subroutine dd_read_mesh_from_file(/;"	s	module:module_dd
+debug	module_dd.f90	/^      logical,parameter,private :: debug /;"	v	module:module_dd
+debug	test_module_dd.f90	/^      logical :: debug /;"	v	program:test_module_dd
+dp	module_bddc.f90	/^real(kr),allocatable,private :: dp(/;"	v	module:module_bddc
+dualm	module_bddc.f90	/^real(kr),allocatable,private :: dualm(/;"	v	module:module_bddc
+dualrhs	module_bddc.f90	/^real(kr),allocatable,private :: dualrhs(/;"	v	module:module_bddc
+elm	test_module_sm.f90	/^      real(kr) :: elm(/;"	v	program:test_module_sm
+error	module_utils.f90	/^subroutine error(/;"	s	module:module_utils
+error_exit	module_utils.f90	/^subroutine error_exit$/;"	s	module:module_utils
+f_sparse	module_bddc.f90	/^real(kr),allocatable,private :: f_sparse(/;"	v	module:module_bddc
+f_type	module_bddc.f90	/^integer,private              :: nnz_f = 0, lf_sparse, f_type /;"	v	module:module_bddc
+finish	bddcmumps.f90	/^integer:: start, finish,/;"	v	program:bddcmumps
+fixv	bddcmumps.f90	/^real(kr),allocatable:: rhs(:), fixv(/;"	v	program:bddcmumps
+fixv	test_module_sm.f90	/^      real(kr) :: fixv(/;"	v	program:test_module_sm
+fixvt	bddcmumps.f90	/^real(kr),allocatable:: rhst(:), fixvt(/;"	v	program:bddcmumps
+fl	test_module_bddc.f90	/^      real(kr), allocatable :: fl(/;"	v	program:test_module_bddc
+fname	bddcmumps.f90	/^character(lfnamex/;"	v	program:bddcmumps
+fname	test_module_utils.f90	/^      character(100) :: fname$/;"	v	program:test_module_dd
+fu	test_module_bddc.f90	/^      real(kr), allocatable :: fu(/;"	v	program:test_module_bddc
+g	module_bddc.f90	/^real(kr),allocatable,private :: g(/;"	v	module:module_bddc
+getfname	module_utils.f90	/^subroutine getfname(/;"	s	module:module_utils
+ht	test_module_bddc2.f90	/^      real(kr) :: ht(/;"	v	program:test_module_bddc2
+i	bddcmumps.f90	/^in/;"	v	program:bddcmumps
+i	test_module_bddc.f90	/^      in/;"	v	program:test_module_bddc
+i	test_module_bddc2.f90	/^      in/;"	v	program:test_module_bddc2
+i	test_module_mumps.f90	/^      in/;"	v	program:test_module_mumps
+i	test_module_mumps2.f90	/^      in/;"	v	program:test_module_mumps
+i	test_module_sm.f90	/^      in/;"	v	program:test_module_sm
+i	test_module_utils.f90	/^      in/;"	v	program:test_module_dd
+i_a11_sparse	module_dd.f90	/^         integer,allocatable  :: i_a11_sparse(/;"	k	type:subdomain_type
+i_a12_sparse	module_dd.f90	/^         integer,allocatable  :: i_a12_sparse(/;"	k	type:subdomain_type
+i_a21_sparse	module_dd.f90	/^         integer,allocatable  :: i_a21_sparse(/;"	k	type:subdomain_type
+i_a22_sparse	module_dd.f90	/^         integer,allocatable  :: i_a22_sparse(/;"	k	type:subdomain_type
+i_a_sparse	module_dd.f90	/^         integer,allocatable  :: i_a_sparse(/;"	k	type:subdomain_type
+i_f_sparse	module_bddc.f90	/^integer,allocatable,private  :: i_f_sparse(/;"	v	module:module_bddc
+i_sparse	bddcmumps.f90	/^integer,allocatable  :: i_sparse(/;"	v	program:bddcmumps
+i_sparse	test_module_bddc2.f90	/^      integer ::  i_sparse(/;"	v	program:test_module_bddc2
+i_sparse	test_module_mumps.f90	/^      integer ::  i_sparse(/;"	v	program:test_module_mumps
+i_sparse	test_module_mumps2.f90	/^      integer ::  i_sparse(/;"	v	program:test_module_mumps
+i_sparse	test_module_sm.f90	/^      integer,allocatable  :: i_sparse(/;"	v	program:test_module_sm
+i_t_sparse	module_bddc.f90	/^integer,allocatable,private  :: i_t_sparse(/;"	v	module:module_bddc
+iaux	bddcmumps.f90	/^integer :: i, j, inodt, iaux,/;"	v	program:bddcmumps
+idcheck	test_module_bddc.f90	/^      real(kr), allocatable :: idcheck(/;"	v	program:test_module_bddc
+idelm	bddcmumps.f90	/^integer,parameter:: idpar = 1, idfvs = 4, &$/;"	v	program:bddcmumps
+idelm	test_module_sm.f90	/^      integer :: idelm /;"	v	program:test_module_sm
+idfvs	bddcmumps.f90	/^integer,parameter:: idpar = 1, idfvs /;"	v	program:bddcmumps
+idfvss	bddcmumps.f90	/^                    idrhss = 15, idfvss /;"	v	program:bddcmumps
+idglb	bddcmumps.f90	/^                    idrhss = 15, idfvss = 16, idsols = 17, idsol = 18, idglb /;"	v	program:bddcmumps
+idgmist	bddcmumps.f90	/^                    idrhss = 15, idfvss = 16, idsols = 17, idsol = 18, idglb = 19, &$/;"	v	program:bddcmumps
+idint	bddcmumps.f90	/^                    idelm = 10, idrhs = 11, idint /;"	v	program:bddcmumps
+idpar	bddcmumps.f90	/^integer,parameter:: idpar /;"	v	program:bddcmumps
+idrhs	bddcmumps.f90	/^                    idelm = 10, idrhs /;"	v	program:bddcmumps
+idrhss	bddcmumps.f90	/^                    idelm = 10, idrhs = 11, idint = 12, &$/;"	v	program:bddcmumps
+idsol	bddcmumps.f90	/^                    idrhss = 15, idfvss = 16, idsols/;"	v	program:bddcmumps
+idsols	bddcmumps.f90	/^                    idrhss = 15, idfvss = 16, idsols /;"	v	program:bddcmumps
+idtr	bddcmumps.f90	/^                    idgmist = 20, idtr /;"	v	program:bddcmumps
+idtr	module_bddc.f90	/^integer,private ::             idtr /;"	v	module:module_bddc
+ierr	bddcmumps.f90	/^integer:: comm, myid, nproc, ierr$/;"	v	program:bddcmumps
+ierr	test_module_bddc2.f90	/^      integer :: myid, comm, ierr$/;"	v	program:test_module_bddc2
+ierr	test_module_dd.f90	/^      integer :: myid, comm, nproc, ierr$/;"	v	program:test_module_dd
+ierr	test_module_mumps.f90	/^      integer :: comm, ierr$/;"	v	program:test_module_mumps
+ierr	test_module_mumps2.f90	/^      integer :: comm, myid, nproc, ierr$/;"	v	program:test_module_mumps
+ifix	bddcmumps.f90	/^integer,allocatable:: ifix(/;"	v	program:bddcmumps
+ifix	test_module_sm.f90	/^      integer :: ifix(/;"	v	program:test_module_sm
+ifixt	bddcmumps.f90	/^integer,allocatable :: nndft(:), ifixt(/;"	v	program:bddcmumps
+igingn	bddcmumps.f90	/^integer,allocatable :: igingn(/;"	v	program:bddcmumps
+ihntn	bddcmumps.f90	/^integer,allocatable :: nndft(:), ifixt(:), kdoft(:), slavery(:), ihntn(/;"	v	program:bddcmumps
+ihntn	test_module_bddc.f90	/^      integer :: ihntn(/;"	v	program:test_module_bddc
+ihntn	test_module_bddc2.f90	/^      integer :: ihntn(/;"	v	program:test_module_bddc2
+iin	module_dd.f90	/^         integer,allocatable ::  iin(/;"	k	type:subdomain_type
+iingn	test_module_sm.f90	/^      integer ::  iingn(/;"	v	program:test_module_sm
+iintt	bddcmumps.f90	/^integer,allocatable :: igingn(:), iintt(/;"	v	program:bddcmumps
+iivsvn	module_dd.f90	/^         integer,allocatable ::  iivsvn(/;"	k	type:subdomain_type
+im	test_module_sm.f90	/^      integer :: im$/;"	v	program:test_module_sm
+indnt	bddcmumps.f90	/^           ndofs, inod, isol, ndofn, nnodi, ini, indnt,/;"	v	program:bddcmumps
+inet	module_dd.f90	/^         integer,allocatable ::  inet(/;"	k	type:subdomain_type
+inet	test_module_sm.f90	/^      integer :: inet(/;"	v	program:test_module_sm
+inetst	bddcmumps.f90	/^integer,allocatable:: inetst(/;"	v	program:bddcmumps
+inglb	bddcmumps.f90	/^integer,allocatable :: inglb(/;"	v	program:bddcmumps
+inglb	test_module_bddc2.f90	/^      integer,allocatable :: inglb(/;"	v	program:test_module_bddc2
+ini	bddcmumps.f90	/^           ndofs, inod, isol, ndofn, nnodi, ini,/;"	v	program:bddcmumps
+inod	bddcmumps.f90	/^           ndofs, inod,/;"	v	program:bddcmumps
+inodt	bddcmumps.f90	/^integer :: i, j, inodt,/;"	v	program:bddcmumps
+interchange_sort	module_sm.f90	/^SUBROUTINE interchange_sort(/;"	s	subroutine:sm_sort
+iovsvn	module_dd.f90	/^         integer,allocatable ::  iovsvn(/;"	k	type:subdomain_type
+ipiv	module_bddc.f90	/^integer,allocatable,private :: ipiv(/;"	v	module:module_bddc
+ipiv	test_module_bddc.f90	/^      integer, allocatable :: ipiv(/;"	v	program:test_module_bddc
+is_matrix_loaded	module_dd.f90	/^         logical ::             is_matrix_loaded /;"	k	type:subdomain_type
+is_mesh_loaded	module_dd.f90	/^         logical ::             is_mesh_loaded /;"	k	type:subdomain_type
+is_proc_assigned	module_dd.f90	/^         logical ::             is_proc_assigned /;"	k	type:subdomain_type
+is_sub_identified	module_dd.f90	/^         logical ::             is_sub_identified /;"	k	type:subdomain_type
+is_this_the_first_run	bddcmumps.f90	/^logical :: is_this_the_first_run$/;"	v	program:bddcmumps
+isngn	module_dd.f90	/^         integer,allocatable ::  isngn(/;"	k	type:subdomain_type
+isol	bddcmumps.f90	/^           ndofs, inod, isol,/;"	v	program:bddcmumps
+istorage	module_dd.f90	/^         integer :: istorage /;"	k	type:subdomain_type
+isub	bddcmumps.f90	/^integer :: i, j, inodt, iaux, isub,/;"	v	program:bddcmumps
+isub	module_dd.f90	/^         integer ::             isub /;"	k	type:subdomain_type
+iterate_on_reduced	bddcmumps.f90	/^logical,parameter:: iterate_on_reduced /;"	v	program:bddcmumps
+iterate_on_transformed	bddcmumps.f90	/^logical,parameter:: iterate_on_transformed /;"	v	program:bddcmumps
+iterate_on_transformed	test_module_bddc2.f90	/^      logical :: iterate_on_transformed /;"	v	program:test_module_bddc2
+j	bddcmumps.f90	/^integer :: i, j,/;"	v	program:bddcmumps
+j_a11_sparse	module_dd.f90	/^         integer,allocatable  :: j_a11_sparse(/;"	k	type:subdomain_type
+j_a12_sparse	module_dd.f90	/^         integer,allocatable  :: j_a12_sparse(/;"	k	type:subdomain_type
+j_a21_sparse	module_dd.f90	/^         integer,allocatable  :: j_a21_sparse(/;"	k	type:subdomain_type
+j_a22_sparse	module_dd.f90	/^         integer,allocatable  :: j_a22_sparse(/;"	k	type:subdomain_type
+j_a_sparse	module_dd.f90	/^         integer,allocatable  :: j_a_sparse(/;"	k	type:subdomain_type
+j_f_sparse	module_bddc.f90	/^integer,allocatable,private  :: i_f_sparse(:), j_f_sparse(/;"	v	module:module_bddc
+j_sparse	bddcmumps.f90	/^integer,allocatable  :: i_sparse(:), j_sparse(/;"	v	program:bddcmumps
+j_sparse	test_module_bddc2.f90	/^      integer ::  j_sparse(/;"	v	program:test_module_bddc2
+j_sparse	test_module_mumps.f90	/^      integer ::  j_sparse(/;"	v	program:test_module_mumps
+j_sparse	test_module_mumps2.f90	/^      integer ::  j_sparse(/;"	v	program:test_module_mumps
+j_sparse	test_module_sm.f90	/^      integer,allocatable  :: j_sparse(/;"	v	program:test_module_sm
+j_t_sparse	module_bddc.f90	/^integer,allocatable,private  :: i_t_sparse(:), j_t_sparse(/;"	v	module:module_bddc
+kdof	test_module_sm.f90	/^      integer :: kdof(/;"	v	program:test_module_sm
+kdoft	bddcmumps.f90	/^integer,allocatable :: nndft(:), ifixt(:), kdoft(/;"	v	program:bddcmumps
+kdoft	test_module_bddc.f90	/^      integer :: kdoft(/;"	v	program:test_module_bddc
+kdoft	test_module_bddc2.f90	/^      integer :: kdoft(/;"	v	program:test_module_bddc2
+kr	bddcmumps.f90	/^integer,parameter:: kr /;"	v	program:bddcmumps
+kr	module_adaptivity.f90	/^integer,parameter,private  :: kr /;"	v	module:module_adaptivity
+kr	module_bddc.f90	/^integer,parameter,private  :: kr /;"	v	module:module_bddc
+kr	module_dd.f90	/^      integer,parameter,private :: kr /;"	v	module:module_dd
+kr	module_mumps.f90	/^integer,parameter,private:: kr /;"	v	module:module_mumps
+kr	module_sm.f90	/^      integer,parameter,private :: kr /;"	v	module:module_sm
+kr	module_utils.f90	/^integer,parameter,private :: kr /;"	v	module:module_utils
+kr	test_module_bddc.f90	/^      integer,parameter :: kr /;"	v	program:test_module_bddc
+kr	test_module_bddc2.f90	/^      integer,parameter :: kr /;"	v	program:test_module_bddc2
+kr	test_module_dd.f90	/^      integer,parameter :: kr /;"	v	program:test_module_dd
+kr	test_module_mumps.f90	/^      integer,parameter :: kr /;"	v	program:test_module_mumps
+kr	test_module_mumps2.f90	/^      integer,parameter :: kr /;"	v	program:test_module_mumps
+kr	test_module_sm.f90	/^      integer,parameter :: kr /;"	v	program:test_module_sm
+kr	test_module_utils.f90	/^      integer,parameter :: kr /;"	v	program:test_module_dd
+la	bddcmumps.f90	/^integer::  la,/;"	v	program:bddcmumps
+la	module_dd.f90	/^         integer :: la$/;"	k	type:subdomain_type
+la	test_module_bddc2.f90	/^      integer,parameter :: la /;"	v	program:test_module_bddc2
+la	test_module_mumps.f90	/^      integer,parameter :: la /;"	v	program:test_module_mumps
+la	test_module_mumps2.f90	/^      integer,parameter :: la /;"	v	program:test_module_mumps
+la	test_module_sm.f90	/^      integer :: la$/;"	v	program:test_module_sm
+la11	module_dd.f90	/^         integer :: la11$/;"	k	type:subdomain_type
+la11	test_module_sm.f90	/^      integer :: la11,/;"	v	program:test_module_sm
+la12	module_dd.f90	/^         integer :: la12$/;"	k	type:subdomain_type
+la12	test_module_sm.f90	/^      integer :: la11,  la12,/;"	v	program:test_module_sm
+la21	module_dd.f90	/^         integer :: la21$/;"	k	type:subdomain_type
+la21	test_module_sm.f90	/^      integer :: la11,  la12,  la21,/;"	v	program:test_module_sm
+la22	module_dd.f90	/^         integer :: la22$/;"	k	type:subdomain_type
+la22	test_module_sm.f90	/^      integer :: la11,  la12,  la21,  la22$/;"	v	program:test_module_sm
+la_proj	bddcmumps.f90	/^integer :: i, j, inodt, iaux, isub, nnz_proj_est, nnz_tr_proj_est, la_pure, la_proj,/;"	v	program:bddcmumps
+la_pure	bddcmumps.f90	/^integer :: i, j, inodt, iaux, isub, nnz_proj_est, nnz_tr_proj_est, la_pure,/;"	v	program:bddcmumps
+la_transform	bddcmumps.f90	/^integer :: i, j, inodt, iaux, isub, nnz_proj_est, nnz_tr_proj_est, la_pure, la_proj, la_transform,/;"	v	program:bddcmumps
+laux	bddcmumps.f90	/^integer ::             laux$/;"	v	program:bddcmumps
+lavg1	test_module_bddc.f90	/^      integer :: lavg1,/;"	v	program:test_module_bddc
+lavg2	test_module_bddc.f90	/^      integer :: lavg1, lavg2$/;"	v	program:test_module_bddc
+lavgref1	test_module_bddc.f90	/^      integer :: lavgref1,/;"	v	program:test_module_bddc
+lavgref2	test_module_bddc.f90	/^      integer :: lavgref1, lavgref2$/;"	v	program:test_module_bddc
+lbc	test_module_sm.f90	/^      integer :: lbc /;"	v	program:test_module_sm
+lbct	bddcmumps.f90	/^integer::             lrhst,   lfixvt,   lsolt,   lbct /;"	v	program:bddcmumps
+lbuf	module_bddc.f90	/^integer,private :: lbuf$/;"	v	module:module_bddc
+ldp	module_bddc.f90	/^integer,private :: ldp$/;"	v	module:module_bddc
+ldualm1	module_bddc.f90	/^integer,private ::             ldualm1 /;"	v	module:module_bddc
+ldualm2	module_bddc.f90	/^integer,private ::             ldualm1 = 0, ldualm2 /;"	v	module:module_bddc
+ldualrhs	module_bddc.f90	/^integer,private ::             ldualrhs /;"	v	module:module_bddc
+lelm	test_module_sm.f90	/^      integer,parameter :: lelm /;"	v	program:test_module_sm
+level_time	module_bddc.f90	/^integer,private  ::          level_time /;"	v	module:module_bddc
+level_time_max	module_bddc.f90	/^integer,parameter,private :: level_time_max /;"	v	module:module_bddc
+lf_sparse	module_bddc.f90	/^integer,private              :: nnz_f = 0, lf_sparse,/;"	v	module:module_bddc
+lfixv	bddcmumps.f90	/^integer ::            lrhs,   lfixv,/;"	v	program:bddcmumps
+lfixv	test_module_sm.f90	/^      integer :: lfixv /;"	v	program:test_module_sm
+lfixvt	bddcmumps.f90	/^integer::             lrhst,   lfixvt,/;"	v	program:bddcmumps
+lfl1	test_module_bddc.f90	/^      integer :: lfl1,/;"	v	program:test_module_bddc
+lfl2	test_module_bddc.f90	/^      integer :: lfl1, lfl2$/;"	v	program:test_module_bddc
+lfnamex	bddcmumps.f90	/^integer,parameter:: lname1x = 8, lnamex = 15, lfnamex /;"	v	program:bddcmumps
+lfu1	test_module_bddc.f90	/^      integer :: lfu1,/;"	v	program:test_module_bddc
+lfu2	test_module_bddc.f90	/^      integer :: lfu1, lfu2$/;"	v	program:test_module_bddc
+lg1	module_bddc.f90	/^integer,private              :: lg1 /;"	v	module:module_bddc
+lg2	module_bddc.f90	/^integer,private              :: lg1 = 0, lg2 /;"	v	module:module_bddc
+lht	test_module_bddc2.f90	/^      integer  :: lht /;"	v	program:test_module_bddc2
+lidcheck1	test_module_bddc.f90	/^      integer :: lidcheck1,/;"	v	program:test_module_bddc
+lidcheck2	test_module_bddc.f90	/^      integer :: lidcheck1, lidcheck2$/;"	v	program:test_module_bddc
+lifix	bddcmumps.f90	/^integer::            lifix$/;"	v	program:bddcmumps
+lifix	test_module_sm.f90	/^      integer :: lifix /;"	v	program:test_module_sm
+lifixt	bddcmumps.f90	/^integer ::            lnndft,   lifixt,/;"	v	program:bddcmumps
+ligingn	bddcmumps.f90	/^integer ::            ligingn,/;"	v	program:bddcmumps
+lihntn	bddcmumps.f90	/^integer ::            lnndft,   lifixt,   lkdoft,   lslavery,   lihntn$/;"	v	program:bddcmumps
+lihntn	test_module_bddc.f90	/^      integer :: lihntn /;"	v	program:test_module_bddc
+lihntn	test_module_bddc2.f90	/^      integer :: lihntn /;"	v	program:test_module_bddc2
+liin	module_dd.f90	/^         integer ::             liin /;"	k	type:subdomain_type
+liingn	test_module_sm.f90	/^      integer :: liingn /;"	v	program:test_module_sm
+liintt	bddcmumps.f90	/^integer ::            ligingn,   liintt$/;"	v	program:bddcmumps
+liivsvn	module_dd.f90	/^         integer ::             liivsvn /;"	k	type:subdomain_type
+linet	bddcmumps.f90	/^integer:: lname1, ndim, nsub, nelem, ndof, nnod, nnodc, linet,/;"	v	program:bddcmumps
+linet	module_dd.f90	/^         integer ::             linet /;"	k	type:subdomain_type
+linet	test_module_sm.f90	/^      integer,parameter :: lsol = 6, nnod = 6, linet /;"	v	program:test_module_sm
+linets	bddcmumps.f90	/^integer:: nelems , linets$/;"	v	program:bddcmumps
+linetst	bddcmumps.f90	/^integer::            linetst,/;"	v	program:bddcmumps
+linglb	bddcmumps.f90	/^integer ::            linglb,/;"	v	program:bddcmumps
+linglb	test_module_bddc2.f90	/^      integer :: linglb /;"	v	program:test_module_bddc2
+liovsvn	module_dd.f90	/^         integer ::             liovsvn /;"	k	type:subdomain_type
+lipiv	module_bddc.f90	/^integer,private ::            lipiv /;"	v	module:module_bddc
+lipiv	test_module_bddc.f90	/^      integer :: lipiv$/;"	v	program:test_module_bddc
+lisngn	module_dd.f90	/^         integer ::             lisngn /;"	k	type:subdomain_type
+lkdof	test_module_sm.f90	/^      integer :: lkdof /;"	v	program:test_module_sm
+lkdoft	bddcmumps.f90	/^integer ::            lnndft,   lifixt,   lkdoft,/;"	v	program:bddcmumps
+lkdoft	test_module_bddc.f90	/^      integer :: lkdoft /;"	v	program:test_module_bddc
+lkdoft	test_module_bddc2.f90	/^      integer :: lkdoft /;"	v	program:test_module_bddc2
+lm1	test_module_sm.f90	/^      integer,parameter :: lm1 /;"	v	program:test_module_sm
+lm2	test_module_sm.f90	/^      integer,parameter :: lm1 = 5, lm2 /;"	v	program:test_module_sm
+lmask	test_module_sm.f90	/^      integer :: lmask /;"	v	program:test_module_sm
+lname1	bddcmumps.f90	/^integer:: lname1,/;"	v	program:bddcmumps
+lname1x	bddcmumps.f90	/^integer,parameter:: lname1x /;"	v	program:bddcmumps
+lnamex	bddcmumps.f90	/^integer,parameter:: lname1x = 8, lnamex /;"	v	program:bddcmumps
+lnndf	module_dd.f90	/^         integer ::             lnndf /;"	k	type:subdomain_type
+lnndf	test_module_sm.f90	/^      integer :: lnndf /;"	v	program:test_module_sm
+lnndft	bddcmumps.f90	/^integer ::            lnndft,/;"	v	program:bddcmumps
+lnndft	test_module_bddc.f90	/^      integer :: lnndft /;"	v	program:test_module_bddc
+lnndft	test_module_bddc2.f90	/^      integer :: lnndft /;"	v	program:test_module_bddc2
+lnnet	module_dd.f90	/^         integer ::             lnnet /;"	k	type:subdomain_type
+lnnet	test_module_sm.f90	/^      integer :: lnnet /;"	v	program:test_module_sm
+lnnetst	bddcmumps.f90	/^integer::            linetst,   lnnetst$/;"	v	program:bddcmumps
+lnnglb	bddcmumps.f90	/^integer ::            linglb,   lnnglb$/;"	v	program:bddcmumps
+lnnglb	test_module_bddc2.f90	/^      integer :: linglb = 0, lnnglb /;"	v	program:test_module_bddc2
+lones	test_module_sm.f90	/^      integer :: lones /;"	v	program:test_module_sm
+lrest	test_module_bddc2.f90	/^      integer  :: lrest /;"	v	program:test_module_bddc2
+lrhs	bddcmumps.f90	/^integer ::            lrhs,/;"	v	program:bddcmumps
+lrhs	test_module_bddc.f90	/^      integer :: lrhs /;"	v	program:test_module_bddc
+lrhs	test_module_sm.f90	/^      integer :: lrhs /;"	v	program:test_module_sm
+lrhst	bddcmumps.f90	/^integer::             lrhst,/;"	v	program:bddcmumps
+lrhst	test_module_bddc.f90	/^      integer :: lrhst /;"	v	program:test_module_bddc
+lslavery	bddcmumps.f90	/^integer ::            lnndft,   lifixt,   lkdoft,   lslavery,/;"	v	program:bddcmumps
+lslavery	test_module_bddc.f90	/^      integer :: lslavery /;"	v	program:test_module_bddc
+lslavery	test_module_bddc2.f90	/^      integer :: lslavery /;"	v	program:test_module_bddc2
+lsol	bddcmumps.f90	/^integer ::            lrhs,   lfixv,   lsol$/;"	v	program:bddcmumps
+lsol	test_module_bddc.f90	/^      integer,parameter :: lsolt/;"	v	program:test_module_bddc
+lsol	test_module_sm.f90	/^      integer,parameter :: lsol /;"	v	program:test_module_sm
+lsolintt	bddcmumps.f90	/^integer::             lrhst,   lfixvt,   lsolt,   lbct = 0, lsolintt$/;"	v	program:bddcmumps
+lsolt	bddcmumps.f90	/^integer::             lrhst,   lfixvt,   lsolt,/;"	v	program:bddcmumps
+lsolt	test_module_bddc.f90	/^      integer,parameter :: lsolt /;"	v	program:test_module_bddc
+lsolt	test_module_bddc2.f90	/^      integer :: lsolt /;"	v	program:test_module_bddc2
+lsolution	test_module_mumps.f90	/^      integer:: lsolution /;"	v	program:test_module_mumps
+lsolution	test_module_mumps2.f90	/^      integer:: lsolution /;"	v	program:test_module_mumps
+lsub	module_dd.f90	/^      integer, private ::                          lsub$/;"	v	module:module_dd
+lt_sparse	module_bddc.f90	/^integer,private              :: nnz_t = 0, lt_sparse,/;"	v	module:module_bddc
+lxyz1	module_dd.f90	/^         integer ::             lxyz1 /;"	k	type:subdomain_type
+lxyz2	module_dd.f90	/^         integer ::             lxyz2 /;"	k	type:subdomain_type
+lzerocheck1	test_module_bddc.f90	/^      integer :: lzerocheck1,/;"	v	program:test_module_bddc
+lzerocheck2	test_module_bddc.f90	/^      integer :: lzerocheck1, lzerocheck2$/;"	v	program:test_module_bddc
+m	test_module_sm.f90	/^      real(kr) ::          m(/;"	v	program:test_module_sm
+mask	test_module_sm.f90	/^      integer ::  mask(/;"	v	program:test_module_sm
+matrixtype	bddcmumps.f90	/^integer,parameter:: matrixtype /;"	v	program:bddcmumps
+matrixtype	test_module_bddc2.f90	/^      integer :: matrixtype,/;"	v	program:test_module_bddc2
+matrixtype	test_module_dd.f90	/^      integer :: matrixtype,/;"	v	program:test_module_dd
+matrixtype	test_module_mumps.f90	/^      integer :: matrixtype,/;"	v	program:test_module_mumps
+matrixtype	test_module_mumps2.f90	/^      integer :: matrixtype,/;"	v	program:test_module_mumps
+matrixtype	test_module_sm.f90	/^      integer :: matrixtype /;"	v	program:test_module_sm
+maxit	bddcmumps.f90	/^integer:: lname1, ndim, nsub, nelem, ndof, nnod, nnodc, linet, maxit,/;"	v	program:bddcmumps
+module_adaptivity	module_adaptivity.f90	/^module module_adaptivity$/;"	m
+module_bddc	module_bddc.f90	/^module module_bddc$/;"	m
+module_dd	module_dd.f90	/^module module_dd$/;"	m
+module_mumps	module_mumps.f90	/^module module_mumps$/;"	m
+module_sm	module_sm.f90	/^module module_sm$/;"	m
+module_utils	module_utils.f90	/^module module_utils$/;"	m
+mumps_active	module_dd.f90	/^         logical :: mumps_active /;"	k	type:subdomain_type
+mumps_analyze	module_mumps.f90	/^      subroutine mumps_analyze(/;"	s	module:module_mumps
+mumps_assoc_schur	module_mumps.f90	/^      subroutine mumps_assoc_schur(/;"	s	module:module_mumps
+mumps_factorize	module_mumps.f90	/^      subroutine mumps_factorize(/;"	s	module:module_mumps
+mumps_finalize	module_mumps.f90	/^      subroutine mumps_finalize(/;"	s	module:module_mumps
+mumps_get_schur_size	module_mumps.f90	/^      subroutine mumps_get_schur_size(/;"	s	module:module_mumps
+mumps_init	module_mumps.f90	/^      subroutine mumps_init(/;"	s	module:module_mumps
+mumps_load_triplet	module_mumps.f90	/^      subroutine mumps_load_triplet(/;"	s	module:module_mumps
+mumps_resolve	module_mumps.f90	/^subroutine mumps_resolve(/;"	s	module:module_mumps
+mumps_schur	module_dd.f90	/^         type(DMUMPS_STRUC) :: mumps_schur$/;"	k	type:subdomain_type
+mumps_set_info	module_mumps.f90	/^      subroutine mumps_set_info(/;"	s	module:module_mumps
+mumps_set_schur	module_mumps.f90	/^      subroutine mumps_set_schur(/;"	s	module:module_mumps
+mumpsinfo	bddcmumps.f90	/^integer,parameter:: mumpsinfo /;"	v	program:bddcmumps
+mumpsinfo	test_module_bddc2.f90	/^      integer :: matrixtype, mumpsinfo,/;"	v	program:test_module_bddc2
+mumpsinfo	test_module_dd.f90	/^      integer :: matrixtype, mumpsinfo$/;"	v	program:test_module_dd
+mumpsinfo	test_module_mumps.f90	/^      integer :: matrixtype, mumpsinfo$/;"	v	program:test_module_mumps
+mumpsinfo	test_module_mumps2.f90	/^      integer :: matrixtype, mumpsinfo$/;"	v	program:test_module_mumps
+myid	bddcmumps.f90	/^integer:: comm, myid,/;"	v	program:bddcmumps
+myid	test_module_bddc2.f90	/^      integer :: myid,/;"	v	program:test_module_bddc2
+myid	test_module_dd.f90	/^      integer :: myid,/;"	v	program:test_module_dd
+myid	test_module_mumps2.f90	/^      integer :: comm, myid,/;"	v	program:test_module_mumps
+n	test_module_bddc2.f90	/^      int/;"	v	program:test_module_bddc2
+n	test_module_mumps.f90	/^      int/;"	v	program:test_module_mumps
+n	test_module_mumps2.f90	/^      int/;"	v	program:test_module_mumps
+name	bddcmumps.f90	/^character(lnamex/;"	v	program:bddcmumps
+name1	bddcmumps.f90	/^character(lname1x/;"	v	program:bddcmumps
+name1	test_module_utils.f90	/^      character(100) :: name1$/;"	v	program:test_module_dd
+ncolf	module_bddc.f90	/^integer,private              :: nrowf = 0, ncolf /;"	v	module:module_bddc
+ndecrmax	bddcmumps.f90	/^integer:: lname1, ndim, nsub, nelem, ndof, nnod, nnodc, linet, maxit, ndecrmax,/;"	v	program:bddcmumps
+ndim	bddcmumps.f90	/^integer:: lname1, ndim,/;"	v	program:bddcmumps
+ndim	module_dd.f90	/^         integer ::             ndim /;"	k	type:subdomain_type
+ndim	test_module_bddc2.f90	/^      integer :: ndim /;"	v	program:test_module_bddc2
+ndof	bddcmumps.f90	/^integer:: lname1, ndim, nsub, nelem, ndof,/;"	v	program:bddcmumps
+ndof	module_dd.f90	/^         integer ::             ndof /;"	k	type:subdomain_type
+ndofi	module_dd.f90	/^         integer ::             ndofi /;"	k	type:subdomain_type
+ndofn	bddcmumps.f90	/^           ndofs, inod, isol, ndofn,/;"	v	program:bddcmumps
+ndofnt	bddcmumps.f90	/^           ndofs, inod, isol, ndofn, nnodi, ini, indnt, ndofnt$/;"	v	program:bddcmumps
+ndofo	module_dd.f90	/^         integer ::             ndofo /;"	k	type:subdomain_type
+ndofs	bddcmumps.f90	/^integer :: i, j, inodt, iaux, isub, nnz_proj_est, nnz_tr_proj_est, la_pure, la_proj, la_transform,&$/;"	v	program:bddcmumps
+ndoft	bddcmumps.f90	/^integer:: nnodt, ndoft$/;"	v	program:bddcmumps
+nelem	bddcmumps.f90	/^integer:: lname1, ndim, nsub, nelem,/;"	v	program:bddcmumps
+nelem	module_dd.f90	/^         integer ::             nelem /;"	k	type:subdomain_type
+nelem	test_module_sm.f90	/^      integer,parameter :: lsol = 6, nnod = 6, linet = 8, nelem /;"	v	program:test_module_sm
+nelems	bddcmumps.f90	/^integer:: nelems /;"	v	program:bddcmumps
+nglb	bddcmumps.f90	/^integer:: lname1, ndim, nsub, nelem, ndof, nnod, nnodc, linet, maxit, ndecrmax, &$/;"	v	program:bddcmumps
+nglb	test_module_bddc2.f90	/^      integer :: nglb /;"	v	program:test_module_bddc2
+nndf	module_dd.f90	/^         integer,allocatable ::  nndf(/;"	k	type:subdomain_type
+nndf	test_module_sm.f90	/^      integer :: nndf(/;"	v	program:test_module_sm
+nndft	bddcmumps.f90	/^integer,allocatable :: nndft(/;"	v	program:bddcmumps
+nndft	test_module_bddc.f90	/^      integer :: nndft(/;"	v	program:test_module_bddc
+nndft	test_module_bddc2.f90	/^      integer :: nndft(/;"	v	program:test_module_bddc2
+nnet	module_dd.f90	/^         integer,allocatable ::  nnet(/;"	k	type:subdomain_type
+nnet	test_module_sm.f90	/^      integer :: nnet(/;"	v	program:test_module_sm
+nnetst	bddcmumps.f90	/^integer,allocatable:: inetst(:), nnetst(/;"	v	program:bddcmumps
+nnglb	bddcmumps.f90	/^integer,allocatable :: inglb(:), nnglb(/;"	v	program:bddcmumps
+nnglb	test_module_bddc2.f90	/^      integer,allocatable :: inglb(:), nnglb(/;"	v	program:test_module_bddc2
+nnod	bddcmumps.f90	/^integer:: lname1, ndim, nsub, nelem, ndof, nnod,/;"	v	program:bddcmumps
+nnod	module_dd.f90	/^         integer ::             nnod /;"	k	type:subdomain_type
+nnod	test_module_bddc.f90	/^      integer,parameter :: lsolt = 28, nnodt/;"	v	program:test_module_bddc
+nnod	test_module_sm.f90	/^      integer,parameter :: lsol = 6, nnod /;"	v	program:test_module_sm
+nnodc	bddcmumps.f90	/^integer:: lname1, ndim, nsub, nelem, ndof, nnod, nnodc,/;"	v	program:bddcmumps
+nnodi	bddcmumps.f90	/^           ndofs, inod, isol, ndofn, nnodi,/;"	v	program:bddcmumps
+nnodi	module_dd.f90	/^         integer ::             nnodi /;"	k	type:subdomain_type
+nnodi	test_module_sm.f90	/^      integer,parameter :: lsol = 6, nnod = 6, linet = 8, nelem = 2, nnodi /;"	v	program:test_module_sm
+nnodt	bddcmumps.f90	/^integer:: nnodt,/;"	v	program:bddcmumps
+nnodt	test_module_bddc.f90	/^      integer,parameter :: lsolt = 28, nnodt /;"	v	program:test_module_bddc
+nnodt	test_module_bddc2.f90	/^      integer :: lsolt = n, nnodt /;"	v	program:test_module_bddc2
+nnz	bddcmumps.f90	/^integer::  la, nnz$/;"	v	program:bddcmumps
+nnz	module_dd.f90	/^         integer :: nnz$/;"	k	type:subdomain_type
+nnz	test_module_bddc2.f90	/^      integer :: nnz /;"	v	program:test_module_bddc2
+nnz	test_module_mumps.f90	/^      integer :: nnz /;"	v	program:test_module_mumps
+nnz	test_module_mumps2.f90	/^      integer :: nnz$/;"	v	program:test_module_mumps
+nnz	test_module_sm.f90	/^      integer :: nnz$/;"	v	program:test_module_sm
+nnz_f	module_bddc.f90	/^integer,private              :: nnz_f /;"	v	module:module_bddc
+nnz_proj_est	bddcmumps.f90	/^integer :: i, j, inodt, iaux, isub, nnz_proj_est,/;"	v	program:bddcmumps
+nnz_t	module_bddc.f90	/^integer,private              :: nnz_t /;"	v	module:module_bddc
+nnz_tr_proj_est	bddcmumps.f90	/^integer :: i, j, inodt, iaux, isub, nnz_proj_est, nnz_tr_proj_est,/;"	v	program:bddcmumps
+nnz_transform	test_module_bddc2.f90	/^      integer :: matrixtype, mumpsinfo, nnz_transform /;"	v	program:test_module_bddc2
+nnza11	module_dd.f90	/^         integer :: nnza11$/;"	k	type:subdomain_type
+nnza12	module_dd.f90	/^         integer :: nnza12$/;"	k	type:subdomain_type
+nnza21	module_dd.f90	/^         integer :: nnza21$/;"	k	type:subdomain_type
+nnza22	module_dd.f90	/^         integer :: nnza22$/;"	k	type:subdomain_type
+nonzero_bc	bddcmumps.f90	/^logical :: nonzero_bc_/;"	v	program:bddcmumps
+nonzero_bc_loc	bddcmumps.f90	/^logical :: nonzero_bc_loc /;"	v	program:bddcmumps
+npair	module_adaptivity.f90	/^integer,private :: npair /;"	v	module:module_adaptivity
+nproc	bddcmumps.f90	/^integer:: comm, myid, nproc,/;"	v	program:bddcmumps
+nproc	test_module_dd.f90	/^      integer :: myid, comm, nproc,/;"	v	program:test_module_dd
+nproc	test_module_mumps2.f90	/^      integer :: comm, myid, nproc,/;"	v	program:test_module_mumps
+nrowf	module_bddc.f90	/^integer,private              :: nrowf /;"	v	module:module_bddc
+nsub	bddcmumps.f90	/^integer:: lname1, ndim, nsub,/;"	v	program:bddcmumps
+nsub	module_dd.f90	/^         integer ::             nsub /;"	k	type:subdomain_type
+nsub	test_module_dd.f90	/^      integer :: nsub$/;"	v	program:test_module_dd
+nsub_loc	bddcmumps.f90	/^integer:: start, finish, nsub_loc,/;"	v	program:bddcmumps
+nsub_locx	bddcmumps.f90	/^integer:: start, finish, nsub_loc, nsub_locx$/;"	v	program:bddcmumps
+numerical_zero	module_adaptivity.f90	/^real(kr),parameter,private :: numerical_zero /;"	v	module:module_adaptivity
+numerical_zero	module_bddc.f90	/^real(kr),parameter,private :: numerical_zero /;"	v	module:module_bddc
+numerical_zero	module_dd.f90	/^      real(kr),parameter,private :: numerical_zero /;"	v	module:module_dd
+numerical_zero	module_sm.f90	/^      real(kr),parameter,private :: numerical_zero /;"	v	module:module_sm
+ones	test_module_sm.f90	/^      real(kr) :: ones(/;"	v	program:test_module_sm
+pair_subdomains	module_adaptivity.f90	/^integer,allocatable,private :: pair_subdomains(/;"	v	module:module_adaptivity
+pival	bddcmumps.f90	/^real(kr):: tol, pival$/;"	v	program:bddcmumps
+print_solution	bddcmumps.f90	/^logical,parameter:: print_solution /;"	v	program:bddcmumps
+problemname	test_module_dd.f90	/^      character(7) :: problemname /;"	v	program:test_module_dd
+proc	module_dd.f90	/^         integer ::             proc /;"	k	type:subdomain_type
+quick_sort	module_sm.f90	/^RECURSIVE SUBROUTINE quick_sort(/;"	s	subroutine:sm_sort
+rest	test_module_bddc2.f90	/^      real(kr) :: rest(/;"	v	program:test_module_bddc2
+rhs	bddcmumps.f90	/^real(kr),allocatable:: rhs(/;"	v	program:bddcmumps
+rhs	test_module_bddc.f90	/^      real(kr) :: rhs(/;"	v	program:test_module_bddc
+rhs	test_module_mumps.f90	/^      real(kr) :: rhs(/;"	v	program:test_module_mumps
+rhs	test_module_mumps2.f90	/^      real(kr) :: rhs(/;"	v	program:test_module_mumps
+rhs	test_module_sm.f90	/^      real(kr) :: rhs(/;"	v	program:test_module_sm
+rhst	bddcmumps.f90	/^real(kr),allocatable:: rhst(/;"	v	program:bddcmumps
+rhst	test_module_bddc.f90	/^      real(kr) :: rhst(/;"	v	program:test_module_bddc
+rmr	test_module_bddc2.f90	/^      real(kr) :: rmr$/;"	v	program:test_module_bddc2
+schur_mumps	bddcmumps.f90	/^type(DMUMPS_STRUC) :: schur_mumps$/;"	v	program:bddcmumps
+slavery	bddcmumps.f90	/^integer,allocatable :: nndft(:), ifixt(:), kdoft(:), slavery(/;"	v	program:bddcmumps
+slavery	test_module_bddc.f90	/^      integer :: slavery(/;"	v	program:test_module_bddc
+slavery	test_module_bddc2.f90	/^      integer :: slavery(/;"	v	program:test_module_bddc2
+sm_apply_bc	module_sm.f90	/^subroutine sm_apply_bc(/;"	s	module:module_sm
+sm_assembly	module_sm.f90	/^subroutine sm_assembly(/;"	s	module:module_sm
+sm_from_dm	module_sm.f90	/^subroutine sm_from_dm(/;"	s	module:module_sm
+sm_from_dm_emb	module_sm.f90	/^subroutine sm_from_dm_emb(/;"	s	module:module_sm
+sm_from_dmatmult	module_sm.f90	/^subroutine sm_from_dmatmult(/;"	s	module:module_sm
+sm_from_sm_mat_mult	module_sm.f90	/^subroutine sm_from_sm_mat_mult(/;"	s	module:module_sm
+sm_from_sm_mat_mult_emb	module_sm.f90	/^subroutine sm_from_sm_mat_mult_emb(/;"	s	module:module_sm
+sm_from_vec	module_sm.f90	/^subroutine sm_from_vec(/;"	s	module:module_sm
+sm_mat_mult	module_sm.f90	/^subroutine sm_mat_mult(/;"	s	module:module_sm
+sm_pmd_get_length	module_sm.f90	/^subroutine sm_pmd_get_length(/;"	s	module:module_sm
+sm_pmd_get_length_quart	module_sm.f90	/^subroutine sm_pmd_get_length_quart(/;"	s	module:module_sm
+sm_pmd_load	module_sm.f90	/^subroutine sm_pmd_load(/;"	s	module:module_sm
+sm_prepare_rhs	module_sm.f90	/^subroutine sm_prepare_rhs(/;"	s	module:module_sm
+sm_print	module_sm.f90	/^subroutine sm_print(/;"	s	module:module_sm
+sm_showsize	module_sm.f90	/^function sm_showsize(/;"	f	module:module_sm
+sm_sort	module_sm.f90	/^RECURSIVE SUBROUTINE sm_sort(/;"	s	module:module_sm
+sm_to_dm	module_sm.f90	/^subroutine sm_to_dm(/;"	s	module:module_sm
+sm_vec_mult	module_sm.f90	/^subroutine sm_vec_mult(/;"	s	module:module_sm
+sm_vec_mult_full	module_sm.f90	/^      subroutine sm_vec_mult_full$/;"	s	subroutine:sm_vec_mult
+sm_vec_mult_sym	module_sm.f90	/^      subroutine sm_vec_mult_sym$/;"	s	subroutine:sm_vec_mult
+sol	bddcmumps.f90	/^real(kr),allocatable:: rhs(:), fixv(:), sol(/;"	v	program:bddcmumps
+sol	test_module_sm.f90	/^      real(kr) :: sol(/;"	v	program:test_module_sm
+sol_ref_0	test_module_bddc.f90	/^      real(kr) :: sol_ref_0(/;"	v	program:test_module_bddc
+sol_ref_1	test_module_bddc.f90	/^      real(kr) :: sol_ref_1(/;"	v	program:test_module_bddc
+sol_ref_1	test_module_sm.f90	/^      real(kr) :: sol_ref_1(/;"	v	program:test_module_sm
+sol_ref_2	test_module_bddc.f90	/^      real(kr) :: sol_ref_2(/;"	v	program:test_module_bddc
+sol_ref_2	test_module_sm.f90	/^      real(kr) :: sol_ref_2(/;"	v	program:test_module_sm
+sol_ref_3	test_module_sm.f90	/^      real(kr) :: sol_ref_3(/;"	v	program:test_module_sm
+sol_ref_4	test_module_sm.f90	/^      real(kr) :: sol_ref_4(/;"	v	program:test_module_sm
+sol_ref_5	test_module_sm.f90	/^      real(kr) :: sol_ref_5(/;"	v	program:test_module_sm
+sol_ref_6	test_module_sm.f90	/^      real(kr) :: sol_ref_6(/;"	v	program:test_module_sm
+sol_ref_7	test_module_sm.f90	/^      real(kr) :: sol_ref_7(/;"	v	program:test_module_sm
+solintt	bddcmumps.f90	/^real(kr),allocatable:: rhst(:), fixvt(:), solt(:), bct(:),   solintt(/;"	v	program:bddcmumps
+solt	bddcmumps.f90	/^real(kr),allocatable:: rhst(:), fixvt(:), solt(/;"	v	program:bddcmumps
+solution	test_module_mumps.f90	/^      real(kr) :: solution(/;"	v	program:test_module_mumps
+solution	test_module_mumps2.f90	/^      real(kr) :: solution(/;"	v	program:test_module_mumps
+solution_ref	test_module_bddc2.f90	/^      real(kr) :: solution_ref(/;"	v	program:test_module_bddc2
+solution_ref	test_module_mumps.f90	/^      real(kr) :: solution_ref(/;"	v	program:test_module_mumps
+solution_ref	test_module_mumps2.f90	/^      real(kr) :: solution_ref(/;"	v	program:test_module_mumps
+solution_ref2	test_module_bddc2.f90	/^      real(kr) :: solution_ref2(/;"	v	program:test_module_bddc2
+sparsity	bddcmumps.f90	/^real(kr):: sparsity$/;"	v	program:bddcmumps
+start	bddcmumps.f90	/^integer:: start,/;"	v	program:bddcmumps
+sub	module_dd.f90	/^      type(subd/;"	v	module:module_dd
+subdomain_type	module_dd.f90	/^      type subdomain_type$/;"	t	module:module_dd
+t_sparse	module_bddc.f90	/^real(kr),allocatable,private :: t_sparse(/;"	v	module:module_bddc
+t_type	module_bddc.f90	/^integer,private              :: nnz_t = 0, lt_sparse, t_type /;"	v	module:module_bddc
+test_module_bddc	test_module_bddc.f90	/^program test_module_bddc$/;"	p
+test_module_bddc2	test_module_bddc2.f90	/^program test_module_bddc2$/;"	p
+test_module_dd	test_module_dd.f90	/^program test_module_dd$/;"	p
+test_module_dd	test_module_utils.f90	/^program test_module_dd$/;"	p
+test_module_mumps	test_module_mumps.f90	/^program test_module_mumps$/;"	p
+test_module_mumps	test_module_mumps2.f90	/^program test_module_mumps$/;"	p
+test_module_sm	test_module_sm.f90	/^program test_module_sm$/;"	p
+test_mumps	test_module_mumps.f90	/^      type(DMUMPS_STRUC) :: test_mumps$/;"	v	program:test_module_mumps
+test_mumps	test_module_mumps2.f90	/^      type(DMUMPS_STRUC) :: test_mumps$/;"	v	program:test_module_mumps
+time	bddcmumps.f90	/^real(kr):: time$/;"	v	program:bddcmumps
+time_verbose	module_bddc.f90	/^integer,private  ::          time_verbose /;"	v	module:module_bddc
+timeinfo	bddcmumps.f90	/^integer,parameter:: timeinfo /;"	v	program:bddcmumps
+timeinfo	test_module_bddc2.f90	/^      integer :: matrixtype, mumpsinfo, nnz_transform = 0, timeinfo /;"	v	program:test_module_bddc2
+times	module_bddc.f90	/^real(kr),private ::          times(/;"	v	module:module_bddc
+tol	bddcmumps.f90	/^real(kr):: tol,/;"	v	program:bddcmumps
+use_dual_problem	module_bddc.f90	/^logical,private :: use_dual_problem /;"	v	module:module_bddc
+use_preconditioner	bddcmumps.f90	/^logical,parameter:: use_preconditioner /;"	v	program:bddcmumps
+use_projection	module_bddc.f90	/^logical,private :: use_projection /;"	v	module:module_bddc
+use_transform	module_bddc.f90	/^logical,private :: use_transform /;"	v	module:module_bddc
+warning	module_utils.f90	/^subroutine warning(/;"	s	module:module_utils
+weight_approach	bddcmumps.f90	/^integer,parameter:: weight_approach /;"	v	program:bddcmumps
+weight_approach	test_module_bddc2.f90	/^      integer :: weight_approach /;"	v	program:test_module_bddc2
+xyz	module_dd.f90	/^         real(kr),allocatable :: xyz(/;"	k	type:subdomain_type
+zero_int	module_utils.f90	/^subroutine zero_int(/;"	s	module:module_utils
+zero_real	module_utils.f90	/^subroutine zero_real(/;"	s	module:module_utils
+zerocheck	test_module_bddc.f90	/^      real(kr), allocatable :: zerocheck(/;"	v	program:test_module_bddc
