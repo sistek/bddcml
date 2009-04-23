@@ -42,4 +42,4 @@ bddcpp2: \
 	$(FC) -o $@ $^ $(LIBS)
 
 clean:
-	rm -f *~ *.o *.mod bddcpp
+	rm -f *~ *.o *.mod bddcpp bddcpp2
