@@ -1,5 +1,5 @@
 # general setting on system (compiler, flags, libraries)
-include ../../make.inc
+include ../make.inc
 
 # include files needed
 #    parallel

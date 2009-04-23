@@ -1,8 +1,10 @@
 # general setting on system (compiler, flags, libraries)
-include ../../make.inc
+include ../make.inc
 
 # libraries needed
 LIBS = $(ORDERINGSLIB)
+# includes
+INC = -I../bddcmumps
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -11,11 +13,11 @@ LIBS = $(ORDERINGSLIB)
 
 # rules
 
-all: bddcpp
+all: bddcpp bddcpp2
 
 # general rule s for compiling objects
 %.o : %.f90
-	$(FC) -c $<
+	$(FC) $(INC) -c $<
 
 # module dependencies
 bddcpp.o: \
@@ -26,6 +28,14 @@ bddcpp.o: \
 # building binaries
 bddcpp: \
    bddcpp.o \
+   module_parsing.o \
+   module_tecplot.o \
+   module_errors.o 
+	$(FC) -o $@ $^ $(LIBS)
+
+bddcpp2: \
+   bddcpp2.o \
+   ../bddcmumps/module_utils.o \
    module_parsing.o \
    module_tecplot.o \
    module_errors.o 
