@@ -5,13 +5,15 @@ implicit none
 integer,parameter,private :: kr = kind(1.D0)
 
 interface zero
-   module procedure zero_int
-   module procedure zero_real
+   module procedure zero_int_1
+   module procedure zero_int_2
+   module procedure zero_real_1
+   module procedure zero_real_2
 end interface zero
 
 contains
 
-subroutine zero_int(ia,lia)
+subroutine zero_int_1(ia,lia)
 ! zero integer array
 
 integer,intent(in)  :: lia
@@ -22,9 +24,24 @@ integer :: i
 do i = 1,lia
    ia(i) = 0
 end do
-end subroutine zero_int
+end subroutine zero_int_1
 
-subroutine zero_real(x,lx)
+subroutine zero_int_2(ia,lia1,lia2)
+! zero integer array
+
+integer,intent(in)  :: lia1, lia2
+integer,intent(out) ::  ia(lia1,lia2)
+! local
+integer :: i,j
+
+do j = 1,lia2
+   do i = 1,lia1
+      ia(i,j) = 0
+   end do
+end do
+end subroutine zero_int_2
+
+subroutine zero_real_1(x,lx)
 ! zero real array
 
 integer,intent(in)   :: lx
@@ -35,7 +52,22 @@ integer :: i
 do i = 1,lx
    x(i) = 0.0_kr
 end do
-end subroutine zero_real
+end subroutine zero_real_1
+
+subroutine zero_real_2(x,lx1,lx2)
+! zero real array
+
+integer,intent(in)   :: lx1, lx2
+real(kr),intent(out) ::  x(lx1,lx2)
+! local
+integer :: i,j
+
+do j = 1,lx2
+   do i = 1,lx1
+      x(i,j) = 0.0_kr
+   end do
+end do
+end subroutine zero_real_2
 
 !*************************************************
 subroutine getfname(problemname,isub,suffix,fname)

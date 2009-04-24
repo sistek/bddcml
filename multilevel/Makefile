@@ -44,13 +44,11 @@ module_dd.o: \
    module_utils.o 
 
 module_adaptivity.o: \
-   module_adaptivity_comm.o \
    module_dd.o \
    module_utils.o 
 
 lobpcg_mvecmult_f.o: \
    module_dd.o \
-   module_adaptivity_comm.o \
    module_utils.o 
 
 test_module_dd.o: \
@@ -78,7 +76,6 @@ test_module_dd: \
 test_module_adaptivity: \
    test_module_adaptivity.o \
    module_adaptivity.o \
-   module_adaptivity_comm.o \
    module_dd.o \
    ../bddcmumps/module_mumps.o \
    ../bddcmumps/module_sm.o \

@@ -4,7 +4,7 @@ include ../make.inc
 # libraries needed
 LIBS = $(ORDERINGSLIB)
 # includes
-INC = -I../bddcmumps
+INC = -I../multilevel
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -35,7 +35,7 @@ bddcpp: \
 
 bddcpp2: \
    bddcpp2.o \
-   ../bddcmumps/module_utils.o \
+   ../multilevel/module_utils.o \
    module_parsing.o \
    module_tecplot.o \
    module_errors.o 

@@ -29,7 +29,7 @@ integer,parameter:: kr = kind(1.D0)
 integer,parameter:: idpar = 1, idbase = 100, idgmi = 2, ides = 4, idfvs = 3, &
                     idelm = 10, idrhs = 11, iddat = 12, idcn = 13, ides0 = 14, &
                     idrhss = 15, idfvss = 16, idsols = 17, idsol = 18, idglb = 19, &
-                    idgmist = 20, idgmis = 21, idgraph = 22, idint = 23
+                    idgmist = 20, idgmis = 21, idgraph = 22, idint = 23, idpair = 24
 integer,parameter:: lname1x = 8, lnamex = 15, lfnamex = 20
 
 integer:: lname1
@@ -93,8 +93,6 @@ integer :: nc, ios
 
 ! Read basic parameters for allocation
       read(idpar,*) ndim, nsub, nelem, ndof, nnod, nnodc, linet
-      print *, 'I have read these basic parameters.'
-      print *, ndim, nsub, nelem, ndof, nnod, nnodc, linet
 
 !*****************
 ! Select operation
@@ -877,7 +875,8 @@ integer:: inod, jnodi, jnod, isub, jsub, inodi, iglob, iglb, ing, iinglb, iglobn
           indsub, nnewvertex, nnodcs, nnodis, indisn, inodis, inodcs, inodcs1, &
           inodcs2, inodcs3, indi, inewnodes, indinode, ncorrections, &
           indn, nglobn, nnodcpair, nshared, inodsh, ish, nnsub, iisub, &
-          indjsub, inddof, ndofn, point, indnod, nremoved_corners_bc
+          indjsub, inddof, ndofn, point, indnod, nremoved_corners_bc,&
+          ipair, npair
 integer:: indaux(1)
 integer:: nface, nedge, nvertex
 real(kr):: x1, y1, z1, x2, y2, z2, rnd, xish, yish, zish
@@ -934,6 +933,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       read(*,*) yn
       select case (yn)
          case ('Y','y')
+      print *, ndim, nsub, nelem, ndof, nnod, nnodc, linet
             minimizecorners = .true.
          case ('N','n')
             minimizecorners = .false.
@@ -1668,6 +1668,31 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       write(idint,*) igingn
       print *, 'Created file ', trim(name), ' with list of',nnodi,' interface nodes.'
       close(idint)
+
+! Pairs
+      ! prepare data about pairs
+      npair = count(globs%itype.eq.1)
+
+! PAIR - pairs of globs to compute by adaptivity
+      name = name1(1:lname1)//'.PAIR'
+      open (unit=idpair,file=name,status='replace',form='formatted')
+      write(idpair,*) npair
+      ipair = 0
+      do iglob = 1,nglob
+         if (globs(iglob)%itype.eq.1) then
+            ipair = ipair + 1
+
+            write (idpair,*) iglob, globs(iglob)%subdomains(1),globs(iglob)%subdomains(2)
+         end if
+      end do
+      ! check the number
+      if (ipair .ne. npair) then
+         write(*,*) 'GETGLOBS: Check of number of pairs to export failed.'
+         stop
+      end if
+      print *, 'Created file ', trim(name), ' with list of',npair,' pairs for adaptivity.'
+      close(idpair)
+      
 
 ! Clear memory
       do iglob = 1,nglob

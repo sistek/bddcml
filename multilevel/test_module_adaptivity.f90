@@ -9,7 +9,7 @@ program test_module_adaptivity
 
       integer,parameter :: kr = kind(1.D0)
 
-      !  parallel variables
+      ! parallel variables
       integer :: myid, comm, nproc, ierr
 
       integer :: idpair
@@ -22,7 +22,7 @@ program test_module_adaptivity
       integer :: isub
       logical :: remove_original 
 
-      character(7)  :: problemname = 'TESTLAP'
+      character(7)  :: problemname = 'TESTGLB'
       character(20) :: filename
 
       logical :: debug = .true.

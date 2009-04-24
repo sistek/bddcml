@@ -13,10 +13,67 @@ logical,parameter,private :: debug = .true.
 
 ! table of pairs of eigenproblems to compute
 ! structure:
-!  PROC | ISUB | IGLBISUB | JSUB | IGLBJSUB | NVAR
+!  PROC | IGLOB | ISUB | JSUB 
 integer,private            :: lpair_subdomains1 
-integer,parameter,private  :: lpair_subdomains2 = 6
+integer,parameter,private  :: lpair_subdomains2 = 4
 integer,allocatable,private :: pair_subdomains(:,:)
+
+
+integer,private :: comm_calls = 0
+
+integer,private :: comm_myid
+
+integer,private :: neigvec, problemsize
+
+integer,private :: ndofi_i, ndofi_j
+integer,private :: nnodci, nnodcj
+integer,private :: nnodi_i,nnodi_j
+
+integer,private :: comm_myplace1, comm_myplace2 
+integer,private :: comm_myisub, comm_myjsub 
+integer,private :: comm_mygglob
+
+integer,private ::             lbufsend_i,    lbufsend_j
+real(kr),allocatable,private :: bufsend_i(:),  bufsend_j(:)
+integer,private ::             lbufsend   , lbufrecv
+real(kr),allocatable,private :: bufsend(:),  bufrecv(:)
+integer,private ::            lkbufsend   
+integer,allocatable,private :: kbufsend(:)
+integer,private ::            llbufa   
+integer,allocatable,private :: lbufa(:)
+
+! array for serving to eigensolvers
+integer,private ::            ninstructions 
+integer,private ::            linstructions1
+integer,parameter,private ::  linstructions2 = 2
+integer,allocatable,private :: instructions(:,:)
+
+! weigth matrix in interesting variables
+integer,private ::             lweight
+real(kr),allocatable,private :: weight(:)
+
+! dependence of interface variables
+integer,private ::            lpairslavery
+integer,allocatable,private :: pairslavery(:)
+
+! matrix of local constraints D_ij
+integer,private ::             lddij ! leading dimension
+integer,private ::              ldij1,ldij2
+real(kr),allocatable,private ::  dij(:,:)
+
+! MPI related arrays and variables
+integer,private ::            lrequest
+integer,allocatable,private :: request(:)
+integer,private             :: lstatarray1
+integer,private             :: lstatarray2
+integer,allocatable,private :: statarray(:,:)
+integer,private             :: comm_comm
+
+! LAPACK QR related variables
+integer,private ::             ltau
+real(kr),allocatable,private :: tau(:)
+integer,private ::             lwork
+real(kr),allocatable,private :: work(:)
 
 contains
 
@@ -174,7 +231,6 @@ end subroutine
 subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 !*************************************************************************
 ! Subroutine for parallel solution of distributed eigenproblems
-      use module_adaptivity_comm
       use module_dd
       use module_utils
       implicit none
@@ -198,8 +254,8 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer,parameter :: neigvecx = 2
 
 ! local variables
-      integer :: isub, jsub, ipair, iactive_pair, iround, isubgl, jsubgl
-      integer :: lvec, my_pair, myisubgl, myjsubgl, mylvec,&
+      integer :: isub, jsub, ipair, iactive_pair, iround
+      integer :: gglob, my_pair, &
                  nactive_pairs, owner,&
                  place1, place2, pointbuf, i, j, iinstr, indcorner, icommon,&
                  indc_i, indc_j, indi_i, indi_j, ndofn, nconstr, iconstr, inodi,&
@@ -266,6 +322,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer ::  lobpcg_maxit, lobpcg_verbosity
       real(kr) :: lobpcg_tol
 
+      ! MPI related variables
+      integer :: ierr, ireq, nreq
+
 
       ! allocate table for work instructions - the worst case is that in each
       ! round, I have to compute all the subdomains, i.e. 2 for each pair
@@ -304,11 +363,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             call adaptivity_get_pair_data(my_pair,pair_data,lpair_data)
    
-            comm_myisub     = pair_data(2)
-            myisubgl   = pair_data(3)
-            comm_myjsub     = pair_data(4)
-            myjsubgl   = pair_data(5)
-            mylvec     = pair_data(6)
+            comm_mygglob = pair_data(2)
+            comm_myisub  = pair_data(3)
+            comm_myjsub  = pair_data(4)
 
             ! where are these subdomains ?
             call dd_where_is_subdomain(comm_myisub,comm_myplace1)
@@ -326,11 +383,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             
             call adaptivity_get_pair_data(iactive_pair,pair_data,lpair_data)
             owner  = pair_data(1)
-            isub   = pair_data(2)
-            isubgl = pair_data(3)
+            gglob  = pair_data(2)
+            isub   = pair_data(3)
             jsub   = pair_data(4)
-            jsubgl = pair_data(5)
-            lvec   = pair_data(6)
 
             ! where are these subdomains ?
             call dd_where_is_subdomain(isub,place1)
@@ -344,8 +399,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                instructions(ninstructions,1) = owner
                ! subdomain number
                instructions(ninstructions,2) = isub
-               ! glob number
-               instructions(ninstructions,3) = isubgl
             end if
 
             if (myid.eq.place2) then
@@ -356,8 +409,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                instructions(ninstructions,1) = owner
                ! subdomain number
                instructions(ninstructions,2) = jsub
-               ! glob number
-               instructions(ninstructions,3) = jsubgl
             end if
          end do
 
@@ -599,6 +650,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             ldij1 = ndofi_i + ndofi_j
             ldij2 = nconstr
             allocate(dij(ldij1,ldij2))
+            call zero(dij,ldij1,ldij2)
 
             ! prepare arrays kdofi_i and kdofi_j
             lkdofi_i = nnodi_i
@@ -818,8 +870,8 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          ! prepare space for eigenvectors
          ireq = 0
          if (my_pair.ge.0) then
-            neigvec     = min(neigvecx,mylvec)
             problemsize = ndofi_i + ndofi_j
+            neigvec     = min(neigvecx,ndofcomm)
             leigvec = neigvec * problemsize
             leigval = neigvec
             allocate(eigvec(leigvec),eigval(leigval))
@@ -874,7 +926,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          if (my_pair.ge.0) then
             lobpcg_tol   = 1.e-6_kr
             lobpcg_maxit = 100
-            problemsize = ndofi_i + ndofi_j
             lobpcg_verbosity = 0
             if (debug) then
                write(*,*) 'myid =',myid,', I am calling eigensolver for pair ',my_pair
@@ -948,6 +999,264 @@ subroutine adaptivity_fake_lobpcg_driver
          end if
       end do
 
+end subroutine
+
+!*************************************************
+subroutine adaptivity_mvecmult(n,x,lx,y,ly,idoper)
+!*************************************************
+! realizes the multiplications with the strange matrices in the local eigenvalue problems for adaptive BDDC
+
+use module_dd
+use module_utils
+implicit none
+include "mpif.h"
+
+real(kr),external :: ddot
+
+! length of vector
+integer,intent(in) ::   n 
+integer,intent(in) ::  lx 
+real(kr),intent(in) ::  x(lx)
+integer,intent(in) ::  ly 
+real(kr),intent(out) :: y(ly)
+! determine which matrix should be multiplied
+!  1 - A = P(I-RE)'S(I_RE)P
+!  2 - B = PSP
+!  3 - not called from LOBPCG by from fake looper - just perform demanded multiplications by S
+!  -3 - set on exit if iterational process should be stopped now
+integer,intent(inout) ::  idoper 
+
+! local
+integer :: i, indi
+integer :: iinstr, isub, owner, point1, point2, point, length
+
+real(kr) :: xaux(lx)
+real(kr) :: xaux2(lx)
+
+logical :: i_am_slave, all_slaves
+
+integer :: ireq, nreq, ierr
+real(kr) :: spd_check
+
+comm_calls = comm_calls + 1
+print *,'I am in multiply for LOBPCG!, myid = ',comm_myid,'comm_calls =',comm_calls,'idoper =', idoper
+
+! Check if all processors simply called the fake routine - if so, finalize
+if (idoper.eq.3) then
+   i_am_slave = .true.
+else
+   i_am_slave = .false.
+end if
+call MPI_ALLREDUCE(i_am_slave,all_slaves,1,MPI_LOGICAL,MPI_LAND,comm_comm,ierr)
+if (all_slaves) then
+   idoper = -3
+   return
+end if
+
+ireq = 0
+! common operations for A and B - checks and projection to null(D_ij)
+if (idoper.eq.1 .or. idoper.eq.2) then
+   ! check the dimensions
+   if (n .ne. problemsize) then
+       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Vector size mismatch.'
+       call error_exit
+   end if
+   if (lx .ne. ly) then
+       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Data size mismatch: lx,ly',lx,ly
+       call error_exit
+   end if
+   if (lx .ne. n) then
+       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Data size mismatch. lx, n', lx, n
+       call error_exit
+   end if
+
+   ! make temporary copy
+   do i = 1,lx
+      xaux(i) = x(i)
+   end do
+   
+   print *, 'xaux initial = ',xaux
+
+   ! xaux = P xaux
+   call adaptivity_apply_null_projection(xaux,lx)
+   print *, 'xaux after projection = ',xaux
+
+   if (idoper.eq.1) then
+      ! multiply by matrix A - apply (I-RE) or I - R*R^T*D_P
+      !  - apply weigths
+      do i = 1,problemsize
+         xaux2(i) = weight(i) * xaux(i) 
+      end do
+      !  - apply the R^T operator
+      do i = 1,problemsize
+         if (pairslavery(i).ne.0.and.pairslavery(i).ne.i) then
+            indi = pairslavery(i)
+            xaux2(indi) = xaux2(indi) + xaux2(i) 
+         end if
+      end do
+      !  - apply the R operator
+      do i = 1,problemsize
+         if (pairslavery(i).ne.0.and.pairslavery(i).ne.i) then
+            indi = pairslavery(i)
+            xaux2(i) = xaux2(indi)
+         end if
+      end do
+      ! Ix - REx
+      do i = 1,problemsize
+         xaux(i) = xaux(i) - xaux2(i)
+      end do
+   end if
+
+   print *, 'xaux after I -RE = ',xaux
+
+   ! distribute sizes of chunks of eigenvectors
+   ireq = ireq + 1
+   point1 = 1
+   call MPI_ISEND(xaux(point1),ndofi_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
+
+   ireq = ireq + 1
+   point2 = ndofi_i + 1
+   call MPI_ISEND(xaux(point2),ndofi_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
+end if
+
+! What follows is performed independently on from where I was called
+   ! obtain chunks of eigenvectors to multiply them
+do iinstr = 1,ninstructions
+   owner = instructions(iinstr,1)
+   isub  = instructions(iinstr,2)
+
+   ireq = ireq + 1
+   call MPI_IRECV(bufrecv(kbufsend(iinstr)),lbufa(iinstr),MPI_DOUBLE_PRECISION,owner,isub,comm_comm,request(ireq),ierr)
+end do
+nreq = ireq
+
+call MPI_WAITALL(nreq, request, statarray, ierr)
+ireq = 0
+
+! Multiply subdomain vectors by Schur complement
+do iinstr = 1,ninstructions
+   owner = instructions(iinstr,1)
+   isub  = instructions(iinstr,2)
+
+   point  = kbufsend(iinstr)
+   length = lbufa(iinstr)
+   call dd_multiply_by_schur(comm_myid,isub,bufrecv(point),length,bufsend(point),length)
+end do
+
+! distribute multiplied vectors
+do iinstr = 1,ninstructions
+   owner = instructions(iinstr,1)
+   isub  = instructions(iinstr,2)
+
+   ireq = ireq + 1
+   call MPI_ISEND(bufsend(kbufsend(iinstr)),lbufa(iinstr),MPI_DOUBLE_PRECISION,owner,isub,comm_comm,request(ireq),ierr)
+end do
+
+! Continue only of I was called from LOBPCG
+if (idoper.eq.1 .or. idoper.eq.2) then
+   ireq = ireq + 1
+   point1 = 1
+   call MPI_IRECV(xaux(point1),ndofi_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
+
+   ireq = ireq + 1
+   point2 = ndofi_i + 1
+   call MPI_IRECV(xaux(point2),ndofi_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
+end if
+! Wait for all vectors reach their place
+call MPI_WAITALL(nreq, request, statarray, ierr)
+! Continue only of I was called from LOBPCG
+if (idoper.eq.1 .or. idoper.eq.2) then
+
+   ! reverse sign of vector if this is the A
+   if (idoper.eq.1) then
+      do i = 1,problemsize
+         xaux(i) = -xaux(i)
+      end do
+   end if
+
+   print *, 'xaux after Schur = ',xaux
+
+   if (idoper.eq.1) then
+      ! apply (I-RE)^T = (I - E^T R^T) = (I - D_P^T * R * R^T)
+      ! copy the array
+      do i = 1,problemsize
+         xaux2(i) = xaux(i)
+      end do
+      !  - apply the R^T operator
+      do i = 1,problemsize
+         if (pairslavery(i).ne.0.and.pairslavery(i).ne.i) then
+            indi = pairslavery(i)
+            xaux2(indi) = xaux2(indi) + xaux2(i) 
+         end if
+      end do
+      !  - apply the R operator
+      do i = 1,problemsize
+         if (pairslavery(i).ne.0.and.pairslavery(i).ne.i) then
+            indi = pairslavery(i)
+            xaux2(i) = xaux2(indi)
+         end if
+      end do
+      !  - apply weigths D_P
+      do i = 1,problemsize
+         xaux2(i) = weight(i) * xaux2(i) 
+      end do
+      ! Ix - REx
+      do i = 1,problemsize
+         xaux(i) = xaux(i) - xaux2(i)
+      end do
+   end if
+
+   print *, 'xaux after (I-RE)^T = ',xaux
+
+   ! xaux = P xaux
+   call adaptivity_apply_null_projection(xaux,lx)
+   print *, 'xaux after projection = ',xaux
+
+   ! copy result to y
+   do i = 1,lx
+      y(i) = xaux(i)
+   end do
+
+   ! check the positive definiteness 
+   if (debug) then
+      spd_check = ddot(lx,x,1,y,1)
+      write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: SPD check = ',spd_check
+   end if
+
+
+end if
+
+end subroutine
+
+!****************************************************
+subroutine adaptivity_apply_null_projection(vec,lvec)
+!****************************************************
+! Subroutine for application of projection onto null(D_ij)
+! P = I - D^T (DD^T)^-1 D = I - Q_1Q_1^T
+! where D^T = QR = [ Q_1 | Q_2 ] R, is the FULL QR decomposition of D^T, Q_1 has
+! n columns, which corresponds to number of rows in D
+
+      implicit none
+      integer, intent(in) ::    lvec
+      real(kr), intent(inout) :: vec(lvec)
+
+! local variables
+      integer :: lddij, ldvec, i, lapack_info
+
+      ! apply prepared projection using LAPACK as P = (I-Q_1Q_1^T) as P = Q_2Q_2^T,
+      ! where Q
+      lddij = ldij1
+      ldvec = problemsize
+      call DORMQR( 'Left', 'Transpose',     ldij1, 1, ldij2, dij, lddij, &
+                   tau, vec, ldvec, &
+                   work,lwork, lapack_info)
+      ! put zeros in first N positions of vec
+      do i = 1,ldij2
+         vec(i) = 0._kr
+      end do
+      call DORMQR( 'Left', 'Non-Transpose', ldij1, 1, ldij2, dij, lddij, &
+                   tau, vec, ldvec, &
+                   work,lwork, lapack_info)
 end subroutine
 
 !***************************************************************
