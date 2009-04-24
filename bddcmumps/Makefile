@@ -2,18 +2,10 @@
 include ../make.inc
 
 # include files needed
-#    parallel
  INC = $(INCMPI) $(INCMUMPS)
-#    sequential
-#INC = $(INCMPIFAKE) $(INCMUMPS)
 # libraries needed
-#    parallel
-#LIBS = $(MUMPSLIBPAR) $(SCALAPACKLIB) $(BLACSLIB) \
+LIBS = $(MUMPSLIBPAR) $(SCALAPACKLIB) $(BLACSLIB) \
        $(LAPACKLIB) $(BLASLIB) $(ORDERINGSLIB) $(LIBMPI) $(LIBOTHERS)
-#    semi-sequential
-LIBS = $(LIBMPI) $(MUMPSLIBSEQ) $(BLOPEXLINK) \
-       $(LAPACKLIB) $(BLASLIB) $(ORDERINGSLIB) $(LIBOTHERS) 
-OBJLOBPCGDRIVER = ../lobpcg_driver/lobpcg_driver.o
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -27,10 +19,7 @@ TESTS = \
    test_module_mumps2 \
    test_module_sm \
    test_module_bddc \
-   test_module_bddc2 \
-   test_module_dd \
-   test_module_adaptivity \
-   test_module_utils 
+   test_module_bddc2
 
 all: \
    bddcmumps \
@@ -48,24 +37,9 @@ module_bddc.o: \
    module_mumps.o \
    module_sm.o
 
-module_dd.o: \
-   module_mumps.o \
-   module_utils.o \
-   module_sm.o 
-
-module_adaptivity.o: \
-   module_adaptivity_comm.o \
-   module_dd.o \
-   module_utils.o 
-
 bddcmumps.o: \
    module_bddc.o \
    module_sm.o
-
-lobpcg_mvecmult_f.o: \
-   module_dd.o \
-   module_adaptivity_comm.o \
-   module_utils.o 
 
 test_module_mumps.o: \
    module_mumps.o
@@ -82,20 +56,7 @@ test_module_bddc.o: \
 test_module_bddc2.o: \
    module_bddc.o
 
-test_module_dd.o: \
-   module_dd.o
-
-test_module_adaptivity.o: \
-   module_adaptivity.o
-
-test_module_utils.o: \
-   module_utils.o
-
 # building binaries
-
-$(OBJLOBPCGDRIVER) :
-	(cd ../lobpcg_driver ; $(MAKE) )
-
 bddcmumps: \
    bddcmumps.o \
    module_bddc.o \
@@ -131,31 +92,6 @@ test_module_bddc2: \
    module_bddc.o \
    module_mumps.o \
    module_sm.o
-	$(FC) -o $@ $^ $(LIBS)
-
-test_module_dd: \
-   test_module_dd.o \
-   module_dd.o \
-   module_mumps.o \
-   module_sm.o \
-   module_utils.o
-	$(FC) -o $@ $^ $(LIBS)
-
-test_module_adaptivity: \
-   test_module_adaptivity.o \
-   module_adaptivity.o \
-   module_adaptivity_comm.o \
-   module_dd.o \
-   module_mumps.o \
-   module_sm.o \
-   module_utils.o \
-   $(OBJLOBPCGDRIVER) \
-   lobpcg_mvecmult_f.o
-	$(FC) -o $@ $^ $(LIBS)
-
-test_module_utils: \
-   test_module_utils.o \
-   module_utils.o
 	$(FC) -o $@ $^ $(LIBS)
 
 clean:
