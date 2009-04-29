@@ -1,11 +1,11 @@
 module module_dd
 !***************
 ! Module for handling domain decomposition structures
-! Jakub Sistek, Denver, 3/2009
+! Jakub Sistek, Denver, 4/2009
 
 !     definition of MUMPS srtucture
       use dmumps_struc_def
-      use module_mumps
+      use module_mumps_seq
       implicit none
 
 ! type of real variables
@@ -15,6 +15,13 @@ module module_dd
 
 ! debugging 
       logical,parameter,private :: debug = .false.
+
+! type for storing adaptive constraints for selected globs
+      type glob_constraints_type
+         integer :: lmatrix1
+         integer :: lmatrix2
+         real(kr),allocatable :: matrix(:,:)
+      end type glob_constraints_type
 
 ! type for subdomain data
       type subdomain_type
@@ -151,6 +158,10 @@ module module_dd
          integer,allocatable  :: i_c_sparse(:)
          integer,allocatable  :: j_c_sparse(:)
          real(kr),allocatable ::   c_sparse(:)
+
+         ! Space for adaptive constraints
+         integer  ::                               lglob_constraints
+         type(glob_constraints_type),allocatable :: glob_constraints(:)
 
          !  matrix Aaug - augmented subdomain matrix
          integer ::              nnzaaug
@@ -1056,7 +1067,7 @@ subroutine dd_prepare_schur(myid,comm,isub)
 !******************************************
 ! Subroutine for preparing data for computing with reduced problem
       use module_utils
-      use module_mumps
+      use module_mumps_seq
       implicit none
 
       ! processor ID
@@ -1114,6 +1125,131 @@ subroutine dd_prepare_schur(myid,comm,isub)
 
       sub(isub)%is_interior_factorized = .true.
 
+end subroutine
+
+!*****************************************
+subroutine dd_prepare_adaptive_space(myid)
+!*****************************************
+! Subroutine for assemblage of matrix
+      use module_utils
+      implicit none
+      integer,intent(in) :: myid
+
+      ! local vars
+      integer :: isub, nglob
+
+      do isub = 1,lsub
+         if (sub(isub)%proc .eq. myid) then
+
+            ! check the prerequisities
+            if (.not.sub(isub)%is_mesh_loaded) then
+               write(*,*) 'DD_PREPARE_ADAPTIVE_SPACE: Mesh is not loaded for subdomain:', isub
+               call error_exit
+            end if
+
+            nglob = sub(isub)%nglob
+
+            sub(isub)%lglob_constraints = nglob
+            allocate(sub(isub)%glob_constraints(nglob))
+         end if
+      end do
+end subroutine
+
+!***************************************************************************
+subroutine dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2)
+!***************************************************************************
+! Subroutine for assemblage of matrix
+      use module_utils
+      implicit none
+      integer,intent(in) :: isub
+      integer,intent(in) :: gglob
+
+      integer,intent(in) :: lcadapt1, lcadapt2
+      real(kr),intent(in) :: cadapt(lcadapt1,lcadapt2)
+
+      ! local vars
+      integer :: ind_loc, lmatrix1, lmatrix2, nvarglb
+      integer :: i, j, indiv
+
+      ! check the prerequisities
+      if (.not.allocated(sub(isub)%glob_constraints)) then
+         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Array for glob constraints not ready.'
+         call error_exit
+      end if
+
+      ! find local (subdomain) index of the glob from its global number
+      call get_index(gglob,sub(isub)%global_glob_number,sub(isub)%lglobal_glob_number,ind_loc)
+      if (ind_loc.le.0) then
+         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Index of glob not found!'
+         call error_exit
+      end if
+
+      ! prepare space for these constraints in the structure
+      nvarglb = sub(isub)%nglobvar(ind_loc) 
+
+      ! copy transposed selected variables to the global structure
+      lmatrix1 = lcadapt2
+      lmatrix2 = nvarglb
+      sub(isub)%glob_constraints(ind_loc)%lmatrix1 = lmatrix1
+      sub(isub)%glob_constraints(ind_loc)%lmatrix2 = lmatrix2
+      allocate(sub(isub)%glob_constraints(ind_loc)%matrix(lmatrix1,lmatrix2))
+      
+      do i = 1,lmatrix1
+         do j = 1,nvarglb
+            indiv = sub(isub)%igvsivn(ind_loc,j)
+
+            sub(isub)%glob_constraints(ind_loc)%matrix(i,j) = cadapt(indiv,i)
+         end do
+      end do
+
+      if (debug) then
+         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Loading matrix of subdomain ',isub,' local glob #',ind_loc
+         do i = 1,lmatrix1
+            print '(100f15.6)',(sub(isub)%glob_constraints(ind_loc)%matrix(i,j),j = 1,lmatrix2)
+         end do
+      end if
+end subroutine
+
+!**********************************************************************
+subroutine dd_get_adaptive_constraints_size(myid,isub,iglb,lavg1,lavg2)
+!**********************************************************************
+! Subroutine for inquiring sizes to allocate for number of adaptive averages
+      use module_utils
+      implicit none
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain number
+      integer,intent(in) :: isub
+      ! local (subdomain) glob number
+      integer,intent(in) :: iglb
+
+      ! sizes of matrix of averages
+      integer,intent(out) :: lavg1, lavg2
+
+      ! check the prerequisities
+      if (.not.allocated(sub)) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Main DD structure is not ready.'
+         call error_exit
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Not my subdomain ',isub
+         return
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Not my subdomain.'
+         call error_exit
+      end if
+      if (.not.allocated(sub(isub)%glob_constraints)) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Array for glob constraints not ready.'
+         call error_exit
+      end if
+      if (.not.allocated(sub(isub)%glob_constraints(iglb)%matrix)) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Matrix constraints are not allocated.'
+         call error_exit
+      end if
+
+      lavg1 = sub(isub)%glob_constraints(iglb)%lmatrix1
+      lavg2 = sub(isub)%glob_constraints(iglb)%lmatrix2
 end subroutine
 
 !*********************************
@@ -1287,7 +1423,7 @@ subroutine dd_prepare_aug(myid,comm,isub)
 ! |C  0 |
 ! and its factorization
       use module_sm
-      use module_mumps
+      use module_mumps_seq
       use module_utils
       implicit none
 
@@ -1428,7 +1564,7 @@ subroutine dd_prepare_coarse(myid,isub)
 ! Ac = phis^T * A * phis 
 
       use module_sm
-      use module_mumps
+      use module_mumps_seq
       use module_utils
       implicit none
 
@@ -1615,7 +1751,7 @@ subroutine dd_multiply_by_schur(myid,isub,x,lx,y,ly)
 !***************************************************
 ! Subroutine for multiplication of interface vector by Schur complement
       use module_utils
-      use module_mumps
+      use module_mumps_seq
       use module_sm
       implicit none
 
@@ -2077,6 +2213,64 @@ subroutine dd_get_interface_global_numbers(myid, isub, iingn,liingn)
       end do
 end subroutine
 
+!************************************************
+subroutine dd_get_schur(myid, isub, schur,lschur)
+!************************************************
+! Subroutine for explicit construction of Schur complement
+      use module_utils
+      implicit none
+
+      integer,intent(in) :: myid, isub
+      integer,intent(in)  ::  lschur
+      real(kr),intent(out) ::  schur(lschur)
+
+      ! local vars
+      integer :: j, lmat, ndofi, pointschur
+
+      integer              :: le
+      real(kr),allocatable ::  e(:)
+
+      ! check if I store the subdomain
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_GET_SCHUR: myid =',myid,', not my subdomain: ',isub
+         end if
+         return
+      end if
+      ! check if mesh is loaded
+      if (.not. sub(isub)%is_mesh_loaded) then
+         if (debug) then
+            write(*,*) 'DD_GET_SCHUR: myid =',myid,', Mesh not loaded for subdomain: ',isub
+         end if
+         call error_exit
+      end if
+      ! check dimensions
+      ndofi = sub(isub)%ndofi
+      lmat = ndofi*ndofi
+      if (lmat.ne.lschur) then
+         if (debug) then
+            write(*,*) 'DD_GET_SCHUR: myid =',myid,', Interface dimensions mismatch for subdomain ',isub
+         end if
+         call error_exit
+      end if
+
+      pointschur = 1
+      le = ndofi
+      allocate(e(le))
+      do j = 1,ndofi
+         ! construct vector of cartesian basis
+         call zero(e,le)
+         e(j) = 1._kr
+
+         ! get column of S*I
+         call dd_multiply_by_schur(myid,isub,e,le,schur(pointschur),le)
+
+         pointschur = pointschur + ndofi
+      end do
+      deallocate(e)
+
+end subroutine
+
 !***********************************************************
 subroutine dd_get_interface_diagonal(myid, isub, rhoi,lrhoi)
 !***********************************************************
@@ -2150,6 +2344,9 @@ subroutine dd_clear_subdomain(isub)
       implicit none
 ! Index of subdomain whose data I want to deallocate
       integer,intent(in) :: isub
+
+      ! local variables
+      integer :: i
 
       if (.not.allocated(sub).or.isub.gt.lsub) then
          write(*,*) 'DD_CLEAR_SUBDOMAIN: Trying to clear nonexistent subdomain.'
@@ -2262,6 +2459,14 @@ subroutine dd_clear_subdomain(isub)
       end if
 
       ! BDDC matrices
+      if (allocated(sub(isub)%glob_constraints)) then
+         do i = 1,sub(isub)%lglob_constraints
+            if (allocated(sub(isub)%glob_constraints(i)%matrix)) then
+               deallocate(sub(isub)%glob_constraints(i)%matrix)
+            end if
+         end do
+         deallocate(sub(isub)%glob_constraints)
+      end if
       if (allocated(sub(isub)%i_c_sparse)) then
          deallocate(sub(isub)%i_c_sparse)
       end if

@@ -22,6 +22,10 @@ program test_module_adaptivity
       integer :: isub
       logical :: remove_original 
 
+      integer :: i,j, ndofi, nnodi
+      integer :: lschur
+      real(kr),allocatable :: schur(:)
+
       character(7)  :: problemname = 'TESTGLB'
       character(20) :: filename
 
@@ -58,7 +62,19 @@ program test_module_adaptivity
       do isub = 1,nsub
          call dd_prepare_schur(myid,comm,isub)
       end do
+      call dd_prepare_adaptive_space(myid)
 
+      do isub = 1,nsub
+         call dd_get_interface_size(myid,isub,ndofi,nnodi)
+         lschur = ndofi*ndofi
+         allocate (schur(lschur))
+         call dd_get_schur(myid, isub, schur,lschur)
+         print *,'Schur complement matrix. isub = ',isub
+         do i = 1,ndofi
+            print '(100f10.6)',(schur((j-1)*ndofi + i),j = 1,ndofi)
+         end do
+         deallocate(schur)
+      end do
    
       call adaptivity_init(myid,comm,idpair,npair)
 

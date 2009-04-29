@@ -2,7 +2,7 @@
 include ../make.inc
 
 # include files needed
- INC = $(INCMPI) $(INCMUMPS)
+ INC = $(INCMPI) $(INCMUMPS) -I../multilevel/
 # libraries needed
 LIBS = $(MUMPSLIBPAR) $(SCALAPACKLIB) $(BLACSLIB) \
        $(LAPACKLIB) $(BLASLIB) $(ORDERINGSLIB) $(LIBMPI) $(LIBOTHERS)
