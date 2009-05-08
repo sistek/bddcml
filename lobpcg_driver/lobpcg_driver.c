@@ -151,7 +151,7 @@ void mv_load_values (double * eigvec, int nvec, int size, serial_Multi_Vector * 
 }
 
 // Fortran callable subroutine arguments are passed by reference
-extern void lobpcg_driver_(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSITY_LEVEL, int *USE_X_VALUES, real *lambda, real *vec) 
+extern void lobpcg_driver_(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSITY_LEVEL, int *USE_X_VALUES, real *lambda, real *vec, int *ITERATIONS) 
 {
    int n=*N; 
    int nvec=*NVEC; 
@@ -263,6 +263,8 @@ extern void lobpcg_driver_(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOS
    serial_Multi_VectorDestroy(x);
    mv_MultiVectorDestroy(xx);
    free(resid); 
+
+   *ITERATIONS = iterations;
  
 }
 

@@ -12,12 +12,13 @@ program test_module_adaptivity
       ! parallel variables
       integer :: myid, comm, nproc, ierr
 
-      integer :: idpair
+      integer :: idpar, idpair 
       integer :: npair
 
-      integer :: matrixtype, nsub
+      integer :: matrixtype
       ! how many pairs are assigned to a processor
       integer :: npair_locx
+      integer :: ndim, nsub, nelem, ndof, nnod, nnodc, linet
 
       integer :: isub
       logical :: remove_original 
@@ -26,7 +27,8 @@ program test_module_adaptivity
       integer :: lschur
       real(kr),allocatable :: schur(:)
 
-      character(10)  :: problemname = 'TESTGLB3'
+      character(90)  :: problemname 
+      character(100) :: name
       character(100) :: filename
 
       logical :: debug = .true.
@@ -40,6 +42,45 @@ program test_module_adaptivity
       call MPI_COMM_SIZE(comm,nproc,ierr)
 !***************************************************************PARALLEL
 
+! Initial screen
+      if (myid.eq.0) then
+         write(*,'(a)') 'ADAPTIVITY TESTER'
+         write(*,'(a)') '================='
+
+! Name of the problem
+   10    write(*,'(a,$)') 'Name of the problem: '
+         read(*,*) problemname
+         if(problemname.eq.' ') goto 10
+
+      end if
+! Broadcast of name of the problem      
+!***************************************************************PARALLEL
+      call MPI_BCAST(problemname, 90, MPI_CHARACTER, 0, comm, ierr)
+!***************************************************************PARALLEL
+
+      if (myid.eq.0) then
+         name = trim(problemname)//'.PAR'
+         call allocate_unit(idpar)
+         open (unit=idpar,file=name,status='old',form='formatted')
+      end if
+
+! Reading basic properties 
+      if (myid.eq.0) then
+         read(idpar,*) ndim, nsub, nelem, ndof, nnod, nnodc, linet
+      end if
+! Broadcast basic properties of the problem
+!***************************************************************PARALLEL
+      call MPI_BCAST(ndim,     1, MPI_INTEGER,         0, comm, ierr)
+      call MPI_BCAST(nsub,     1, MPI_INTEGER,         0, comm, ierr)
+      call MPI_BCAST(nelem,    1, MPI_INTEGER,         0, comm, ierr)
+      call MPI_BCAST(ndof,     1, MPI_INTEGER,         0, comm, ierr)
+      call MPI_BCAST(nnod,     1, MPI_INTEGER,         0, comm, ierr)
+      call MPI_BCAST(nnodc,    1, MPI_INTEGER,         0, comm, ierr)
+      call MPI_BCAST(linet,    1, MPI_INTEGER,         0, comm, ierr)
+!***************************************************************PARALLEL
+
+
+
       ! open file with description of pairs
       if (myid.eq.0) then
          filename = trim(problemname)//'.PAIR'
@@ -51,7 +92,6 @@ program test_module_adaptivity
       ! SPD matrix
       matrixtype = 1
 
-      nsub = 2
       call dd_init(nsub)
       call dd_distribute_subdomains(nsub,nproc)
       call dd_read_mesh_from_file(myid,trim(problemname))
@@ -64,17 +104,17 @@ program test_module_adaptivity
       end do
       call dd_prepare_adaptive_space(myid)
 
-      do isub = 1,nsub
-         call dd_get_interface_size(myid,isub,ndofi,nnodi)
-         lschur = ndofi*ndofi
-         allocate (schur(lschur))
-         call dd_get_schur(myid, isub, schur,lschur)
-         print *,'Schur complement matrix. isub = ',isub
-         do i = 1,ndofi
-            print '(100f10.6)',(schur((j-1)*ndofi + i),j = 1,ndofi)
-         end do
-         deallocate(schur)
-      end do
+!      do isub = 1,nsub
+!         call dd_get_interface_size(myid,isub,ndofi,nnodi)
+!         lschur = ndofi*ndofi
+!         allocate (schur(lschur))
+!         call dd_get_schur(myid, isub, schur,lschur)
+!         print *,'Schur complement matrix. isub = ',isub
+!         do i = 1,ndofi
+!            print '(100f10.6)',(schur((j-1)*ndofi + i),j = 1,ndofi)
+!         end do
+!         deallocate(schur)
+!      end do
    
       call adaptivity_init(myid,comm,idpair,npair)
 

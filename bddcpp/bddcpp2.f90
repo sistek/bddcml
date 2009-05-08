@@ -1679,11 +1679,15 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       open (unit=idpair,file=name,status='replace',form='formatted')
       write(idpair,*) npair
       ipair = 0
+      iglb  = 0
       do iglob = 1,nglob
-         if (globs(iglob)%itype.eq.1) then
+         if (globs(iglob)%selected) then
+            iglb = iglb + 1
+         end if
+         if (globs(iglob)%itype.eq.1 .and. globs(iglob)%selected) then
             ipair = ipair + 1
 
-            write (idpair,*) iglob, globs(iglob)%subdomains(1),globs(iglob)%subdomains(2)
+            write (idpair,*) iglb, globs(iglob)%subdomains(1),globs(iglob)%subdomains(2)
          end if
       end do
       ! check the number
