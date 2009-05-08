@@ -152,6 +152,7 @@ write(err_unit,err_fmt) mname,msg
 end subroutine
 
 subroutine error_exit
+call flush(6)
 call abort()
 end subroutine
 

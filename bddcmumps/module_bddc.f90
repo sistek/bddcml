@@ -683,6 +683,9 @@ subroutine bddc_dual_solve(myid,g,lg1,lg2,aux,laux, ht,lht)
 ! Local variables
       integer :: lapack_info, ldim
 
+      integer :: lgt1, lgt2
+      real(kr),allocatable :: gt(:,:)
+
 ! Solve the system with weighted residual as right hand side on master processor
 ! Ac^-1 * ht => ht
       call mumps_resolve(bddc_mumps,ht,lht)
@@ -706,7 +709,12 @@ subroutine bddc_dual_solve(myid,g,lg1,lg2,aux,laux, ht,lht)
          end if
          ! add the correction from dual problem 
          ! ht - G^T * dualrhs => ht
-         ht = aux - matmul(transpose(g),dualrhs)
+         lgt1 = lg2
+         lgt2 = lg1
+         allocate(gt(lgt1,lgt2))
+         gt = transpose(g)
+         ht = aux - matmul(gt,dualrhs)
+         deallocate(gt)
       end if
       
       return
@@ -857,6 +865,14 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       integer,allocatable :: iglbntn(:)
       integer  :: laux1, laux2
       real(kr),allocatable :: aux(:,:)
+      integer  :: lft1, lft2
+      real(kr),allocatable :: ft(:,:)
+      integer  :: lht1, lht2
+      real(kr),allocatable :: ht(:,:)
+      integer  :: lrt1, lrt2
+      real(kr),allocatable :: rt(:,:)
+      integer  :: lauxt1, lauxt2
+      real(kr),allocatable :: auxt(:,:)
 
       integer :: iconstr, idofn, lapack_info = 0, indnglb_m, &
                  indnglb_s, iglb, indfline, indnglb, jfline, inodglb, ldim, &
@@ -999,15 +1015,21 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !         call flush(6)
 
 !        find local block of F, such that R^T F = G, store F in G
+         lrt1 = lr2
+         lrt2 = lr1
+         allocate(rt(lrt1,lrt2))
+         rt = transpose(r)
+
          ldim = max(1,lr2)
          nrhs = lg2
-         call DTRTRS( 'L',   'N',   'N', lr2 , nrhs, transpose(r), ldim, g, ldim, lapack_info)
+         call DTRTRS( 'L',   'N',   'N', lr2 , nrhs, rt, ldim, g, ldim, lapack_info)
          if (lapack_info.ne.0) then
             write(*,*) 'Error in LAPACK solution of R^T * F = G :', lapack_info
             call flush(6)
             stop
          end if
          deallocate(r)
+         deallocate(rt)
 
          ! copy block of F stored in G into global F
          do jg = 1,lg2
@@ -1074,12 +1096,17 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 
 
       call bddc_time_start(comm)
+      lft1 = lf2
+      lft2 = lf1
+      allocate(ft(lft1,lft2))
+      ft = transpose(f)
       ! find Ac * F^T => H
       lh1 = lf2
       lh2 = lf1
       allocate(h(lh1,lh2))
       call sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
-                       transpose(f),lf2,lf1, h,lh1,lh2)
+                       ft,lft1,lft2, h,lh1,lh2)
+      deallocate(ft)
       call bddc_time_end(comm,time)
       if (myid.eq.0.and.time_verbose.ge.2) then
          write(*,*) '==========================================='
@@ -1113,10 +1140,15 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       space_left = la - nnz - nnz_new
       scalar     = -1._kr
       store_type = 0
+      lht1 = lh2
+      lht2 = lh1
+      allocate(ht(lht1,lht2))
+      ht = transpose(h)
 !     F^T * H^T
       call sm_from_sm_mat_mult(f_type, nnz_f, j_f_sparse, i_f_sparse, f_sparse, lf_sparse, &
-                               transpose(h),lh2,lh1, store_type,ndoft, &
+                               ht,lht1,lht2, store_type,ndoft, &
                                i_sparse(point),j_sparse(point),a_sparse(point),space_left, nnz_add, scalar)
+      deallocate(ht)
       ! double entries on diagonal
       where (i_sparse(point:point+nnz_add).eq.j_sparse(point:point+nnz_add)) &
             a_sparse(point:point+nnz_add) = 2._kr*a_sparse(point:point+nnz_add)
@@ -1145,9 +1177,14 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       call sm_mat_mult(f_type, nnz_f, i_f_sparse, j_f_sparse, f_sparse, lf_sparse, &
                        h,lh1,lh2, aux,laux1,laux2) 
       ! Multiply (F*H)*F = [F^T*(F*H)^T]^T => H^T
+      lauxt1 = laux2
+      lauxt2 = laux1
+      allocate(auxt(lauxt1,lauxt2))
+      auxt = transpose(aux)
       call sm_mat_mult(f_type, nnz_f, j_f_sparse, i_f_sparse, f_sparse, lf_sparse, &
-                       transpose(aux),laux2,laux1, h,lh1,lh2)
+                       auxt,lauxt1,lauxt2, h,lh1,lh2)
       deallocate(aux)
+      deallocate(auxt)
       call bddc_time_end(comm,time)
       if (myid.eq.0.and.time_verbose.ge.2) then
          write(*,*) '=============================================='
@@ -1160,9 +1197,13 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       space_left = la - nnz - nnz_new
       scalar     = 1._kr
       store_type = 1
+      lht1 = lh2
+      lht2 = lh1
+      allocate(ht(lht1,lht2))
+      ht = transpose(h)
       ! F^T * AUX2
       call sm_from_sm_mat_mult(f_type, nnz_f, j_f_sparse, i_f_sparse, f_sparse, lf_sparse, &
-                               transpose(h),lh2,lh1, store_type, ndoft, &
+                               ht,lht1,lht2, store_type, ndoft, &
                                j_sparse(point),i_sparse(point),a_sparse(point),space_left, nnz_add, scalar)
       nnz_new    = nnz_new + nnz_add
       call bddc_time_end(comm,time)
@@ -1172,6 +1213,7 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          write(*,*) '=============================================='
       end if
       deallocate(h)
+      deallocate(ht)
 
       call bddc_time_end(comm,time)
       if (myid.eq.0.and.time_verbose.ge.2) then

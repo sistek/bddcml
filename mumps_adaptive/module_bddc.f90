@@ -223,6 +223,7 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
 
 ! Prepare transformation of coordinates
       nnz_transform = 0
+      print *,'I am here, use transform =',use_transform,'averages approach is',averages_approach
       if (use_transform) then
          call bddc_time_start(comm)
          call bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lslavery,nnodt,ndoft,kdoft,lkdoft,&
@@ -1193,6 +1194,439 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       return
 end subroutine
 
+!******************************************************************************************************************************************
+subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,nconstrgl,lnconstrgl,&
+                             slavery,lslavery,nnodt,ndoft,kdoft,lkdoft,&
+                             matrixtype,nnz,i_sparse,j_sparse,a_sparse,la, nnz_proj)
+!******************************************************************************************************************************************
+! Subroutine for setting up the projection onto null G
+!!!!! Works only for SYMMETRIC matrices!!!!!
+! A_avg = P*A*P + t(I-P), where P = I - G^T*(G*G^T)^-1*G = I - F^T*F, R^T*F = G, G^T = Q*R, t stabilization parameter
+! Storage in A after projection:
+! A | t*F^T*F | -A*F^T*F | -F^T*F*A | F^T*F*A*F^T*F |
+!nnz|                   nnz_proj                    |
+! For symmetric case, block -F^T*F*A  is obtained by flipping block -A*F^T*F
+! along diagonal and double entries on diagonal.
+! Blocks of projection are assemblaged.
+
+! Use sparse matrices module
+      use module_sm
+       
+      implicit none
+      include "mpif.h"
+
+! Process number
+      integer,intent(in) :: myid
+
+! MPI communicator
+      integer, intent(in) :: comm
+
+! Number of dimensions
+      integer,intent(in) :: ndim
+! Description of globs
+      integer,intent(in) :: nglb
+      integer,intent(in) :: linglb,        lnnglb
+      integer,intent(in) ::  inglb(linglb), nnglb(lnnglb)
+      integer,intent(in) :: lnconstrgl
+      integer,intent(in) ::  nconstrgl(lnconstrgl)
+
+! Description of spcae W_tilde
+      integer,intent(in) :: nnodt, ndoft
+      integer,intent(in) :: lslavery,           lkdoft
+      integer,intent(in) ::  slavery(lslavery),  kdoft(lkdoft)
+
+! Type of matrix
+! 0 - unsymmetric                 
+! 1 - symmetric positive definite 
+! 2 - symmetric general          
+      integer,intent(in) :: matrixtype
+
+! Matrix in sparse format AIJ of local triplets
+      integer,intent(in)     :: nnz, la
+      integer,intent(inout)  :: i_sparse(la), j_sparse(la)
+      real(kr),intent(inout) :: a_sparse(la)
+
+! Number of values added into matrix
+      integer,intent(out) :: nnz_proj
+
+! Local variables
+      integer  :: lg1, lg2
+      real(kr),allocatable :: g(:,:)
+      integer  :: lr1, lr2
+      real(kr),allocatable :: r(:,:)
+      integer :: ltau
+      real(kr),allocatable :: tau(:)
+      integer :: lwork
+      real(kr),allocatable :: work(:)
+      integer ::             lf1 = 0, lf2 = 0
+      real(kr),allocatable :: f(:,:)
+      integer  :: lh1, lh2
+      real(kr),allocatable :: h(:,:)
+      integer  :: liglbntn
+      integer,allocatable :: iglbntn(:)
+      integer  :: liglbvtvn
+      integer,allocatable :: iglbvtvn(:)
+      integer  :: laux1, laux2
+      real(kr),allocatable :: aux(:,:)
+
+      integer :: iconstr, idofn, lapack_info = 0, indnglb_m, &
+                 indnglb_s, iglb, indfline, indnglb, jfline, inodglb, ldim, &
+                 nconstr_loc, nrhs, ndofn, nglbn, nsubglb, &
+                 indinglb, inodt, ig, jg, igtg, jgtg, jnodt, ipoint, jpoint, &
+                 point_a, start_j, i, store_type, jdofn, jggl, jglbn, &
+                 nconstr_glob, nglbv, iline, ipair, iglbv, indjv, point_loc, &
+                 ivt, jvt
+      real(kr):: value
+
+      integer :: ia, ierr, nnz_add, nnz_new, point, space_left, iaux
+      real(kr):: t_stab_loc, t_stab, scalar
+
+      real(kr):: time
+
+      logical :: i_am_master_of_this_glob
+
+! Check the applicability of the routine - symmetric matrices
+      if (matrixtype.ne.1.and.matrixtype.ne.2) then
+         if (myid.eq.0) then
+            write(*,*) 'bddc_P_init: This routine currently works only with symmetric matrices.'
+         end if
+         stop
+      end if
+
+! count number of lines in F
+      indinglb = 0
+      nconstr_loc = 0
+      do iglb = 1,nglb
+         nglbn = nnglb(iglb)
+         indnglb   = inglb(indinglb + 1)
+         indnglb_m = slavery(indnglb)
+         nsubglb   = count(slavery.eq.indnglb_m)
+         nconstr_glob = nconstrgl(iglb)
+
+
+         nconstr_loc = nconstr_loc + nconstr_glob*(nsubglb-1)
+         print *, 'nconstr_loc = ',nconstr_loc
+
+         indinglb = indinglb + nglbn
+      end do
+
+! find stabilization factor t for projection
+      t_stab_loc = 0
+      write(*,*) 'nnz in proj start= ',nnz
+      do ia = 1,nnz
+         if (i_sparse(ia).eq.j_sparse(ia)) then
+            t_stab_loc = max(abs(a_sparse(ia)),t_stab_loc)
+         end if
+      end do
+      call MPI_ALLREDUCE(t_stab_loc,t_stab,1,MPI_DOUBLE_PRECISION,MPI_MAX,comm,ierr)
+      if (myid.eq.0) then
+         write(*,*) 'Stabilization parameter in projection t =',t_stab
+      end if
+
+! Construct F in globs on the subdomain
+      call bddc_time_start(comm)
+
+      lf1 = nconstr_loc
+      lf2 = ndoft
+      allocate(f(lf1,lf2))
+      f = 0._kr
+      indinglb = 0
+      indfline = 0
+      nnz_new  = 0
+      do iglb = 1,nglb
+         nglbn = nnglb(iglb)
+         indnglb   = inglb(indinglb + 1)
+         indnglb_m = slavery(indnglb)
+         if (indnglb_m.eq.indnglb) then
+            i_am_master_of_this_glob = .true.
+         else
+            i_am_master_of_this_glob = .false.
+         end if
+
+         nsubglb   = count(slavery.eq.indnglb_m)
+         nconstr_glob = nconstrgl(iglb)
+         ndofn     = ndim
+         ! only works for same numbers of dof per nodes
+         nglbv     = ndofn * nglbn
+
+         ! Find mapping of glob unknows into W_tilde
+         liglbntn  = nsubglb * nglbn
+         allocate(iglbntn(liglbntn))
+         liglbvtvn = nsubglb * nglbv
+         allocate(iglbvtvn(liglbvtvn))
+         iglbv = 0
+         do inodglb = 1,nglbn
+            indnglb   = inglb(indinglb + inodglb)
+            indnglb_m = slavery(indnglb)
+            iglbntn(inodglb) = indnglb_m
+
+            point = kdoft(indnglb_m)
+            do i = 1,ndofn
+               iglbvtvn(iglbv + i) = point + i
+            end do
+
+            indnglb_s =  0
+            ! loop over columns of G
+            do iconstr = 1,nsubglb-1
+               ! find slaves
+               do inodt = indnglb_s + 1 ,nnodt
+                  if (slavery(inodt).eq.indnglb_m.and.inodt.ne.indnglb_m) then
+                     indnglb_s = inodt
+                     exit
+                  end if
+               end do
+               if (indnglb_s.eq.0) then
+                  write(*,*) 'bddc_P_init: Error in searching slave index.'
+                  call flush(6)
+                  stop
+               end if
+
+               iglbntn(iconstr*nglbn + inodglb) = indnglb_s
+
+               point = kdoft(indnglb_s)
+               point_loc = iconstr * nglbv
+               do i = 1,ndofn
+                  iglbvtvn(point_loc + iglbv + i) = point + i
+               end do
+            end do
+            iglbv = iglbv + ndofn
+         end do
+!         print *, 'iglb =',iglb,'kdoft =',kdoft
+!         print *, 'iglb =',iglb,'mapping =',iglbntn
+!         print *, 'iglb =',iglb,'mapping vars=',iglbvtvn
+
+         ! prepare matrix G - local for glob
+         lg1       = (nsubglb - 1) * nconstr_glob
+         lg2       = nsubglb * nglbv
+         allocate(g(lg1,lg2))
+         g = 0._kr
+         
+         iline = 0
+         do iconstr = 1,nconstr_glob
+            do ipair = 1,nsubglb-1
+               iline = iline + 1
+               g(iline,iconstr)               =  1._kr
+               g(iline,ipair*nglbv + iconstr) = -1._kr
+            end do
+         end do
+!         write(*,*) 'Matrix G'
+!         do i = 1,lg1
+!            write(*,'(30f10.5)') g(i,:)
+!         end do
+
+!        QR decomposition of matrix G^T
+         lr1 = lg2
+         lr2 = lg1
+         allocate(r(lr1,lr2))
+         r = transpose(g)
+         ! LAPACK arrays
+         ltau = lr2
+         allocate(tau(ltau))
+         lwork = lr2
+         allocate(work(lwork))
+         ! leading dimension
+         ldim = max(1,lr1)
+         call DGEQR2( lr1, lr2, r, ldim, tau, work, lapack_info)
+         if (lapack_info.ne.0) then
+            write(*,*) 'bddc_P_init: Error in LAPACK QR factorization of G: ', lapack_info
+            call flush(6)
+            stop
+         end if
+         deallocate(tau,work)
+!         write(*,*) 'Matrix R'
+!         do i = 1,lr1
+!            write(*,'(30f10.5)') r(i,:)
+!         end do
+!         call flush(6)
+
+!        find local block of F, such that R^T F = G, store F in G
+         ldim = max(1,lr2)
+         nrhs = lg2
+         call DTRTRS( 'L',   'N',   'N', lr2 , nrhs, transpose(r), ldim, g, ldim, lapack_info)
+         if (lapack_info.ne.0) then
+            write(*,*) 'Error in LAPACK solution of R^T * F = G :', lapack_info
+            call flush(6)
+            stop
+         end if
+         deallocate(r)
+
+         ! copy block of F stored in G into global F
+         do jg = 1,lg2
+            indjv = iglbvtvn(jg)
+            ! loop over rows of G
+            do ig = 1,lg1
+               ! loop over diagonal of degrees of freedom at the node
+               jfline = ig
+               f(indfline + jfline,indjv) = g(ig,jg)
+            end do
+         end do
+
+         ! add entries from t_stab*F^T*F - for this glob
+         if (i_am_master_of_this_glob) then
+            point_a = nnz + nnz_new
+            ia = 0
+            do igtg = 1,lg2
+               ivt = iglbvtvn(igtg)
+
+               select case (matrixtype)
+                  case(0)
+                     start_j = 1
+                  case(1,2)
+                     start_j = igtg
+                  case default
+                     write(*,*) 'bddc_P_init: Unknown value of MATRIXTYPE.'
+                     stop
+               end select
+               do jgtg = start_j,lg2
+                  jvt = iglbvtvn(jgtg)
+
+                  ia = ia + 1
+                  i_sparse(point_a + ia) = ivt
+                  j_sparse(point_a + ia) = jvt
+                  value = dot_product(g(:,igtg),g(:,jgtg))
+                  a_sparse(point_a + ia) = t_stab*value
+               end do
+            end do
+            nnz_new = nnz_new + ia
+         end if
+
+         deallocate(g)
+         deallocate(iglbntn)
+         deallocate(iglbvtvn)
+         indfline = indfline + nconstr_glob*(nsubglb-1)
+         indinglb = indinglb + nglbn
+      end do
+!      write(*,*) 'myid:',myid,'Matrix F ,lf1 = ',lf1
+!      do i = 1,lf1
+!         write(*,'(150f10.5)') f(i,:)
+!      end do
+      call flush(6)
+      call bddc_time_end(comm,time)
+      if (myid.eq.0.and.time_verbose.ge.2) then
+         write(*,*) '==========================================='
+         write(*,*) 'Time of F construction = ',time
+         write(*,*) '==========================================='
+      end if
+
+
+      call bddc_time_start(comm)
+      ! find Ac * F^T => H
+      lh1 = lf2
+      lh2 = lf1
+      allocate(h(lh1,lh2))
+      call sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
+                       transpose(f),lf2,lf1, h,lh1,lh2)
+      call bddc_time_end(comm,time)
+      if (myid.eq.0.and.time_verbose.ge.2) then
+         write(*,*) '==========================================='
+         write(*,*) 'Time of H construction = ',time
+         write(*,*) '==========================================='
+      end if
+!      write(*,*) 'Matrix H'
+!      do i = 1,lh1
+!         write(*,'(30f10.5)') h(i,:)
+!      end do
+!      call flush(6)
+      
+! Convert F to sparse matrix
+      lf_sparse = count(f.ne.0._kr) 
+      write(*,*) 'myid =',myid,': F allocated to nnz_f =',lf_sparse
+      nrowf     = lf1
+      ncolf     = lf2
+      allocate(i_f_sparse(lf_sparse),j_f_sparse(lf_sparse),f_sparse(lf_sparse))
+      call sm_from_dm(f_type, f,lf1,lf2, i_f_sparse, j_f_sparse, f_sparse, lf_sparse, nnz_f)
+      ! clear memory
+      deallocate(f)
+      write(*,*) 'myid =',myid,': F converted to sparse, nnz_f =',nnz_f
+      call flush(6)
+
+! Add entries from projection to the matrix
+      call bddc_time_start(comm)
+
+      ! add entries from -Ac*F^T*F - F^T*F*Ac = -H*F - (H*F)^T
+      call bddc_time_start(comm)
+      point      = nnz + nnz_new + 1
+      space_left = la - nnz - nnz_new
+      scalar     = -1._kr
+      store_type = 0
+!     F^T * H^T
+      call sm_from_sm_mat_mult(f_type, nnz_f, j_f_sparse, i_f_sparse, f_sparse, lf_sparse, &
+                               transpose(h),lh2,lh1, store_type,ndoft, &
+                               i_sparse(point),j_sparse(point),a_sparse(point),space_left, nnz_add, scalar)
+      ! double entries on diagonal
+      where (i_sparse(point:point+nnz_add).eq.j_sparse(point:point+nnz_add)) &
+            a_sparse(point:point+nnz_add) = 2._kr*a_sparse(point:point+nnz_add)
+      ! reverse the lower triangle into upper and double entries on diagonal
+      do i = point, point+nnz_add
+         if (i_sparse(i).gt.j_sparse(i)) then
+            iaux = i_sparse(i)
+            i_sparse(i) = j_sparse(i)
+            j_sparse(i) = iaux
+         end if
+      end do
+      nnz_new    = nnz_new + nnz_add
+      call bddc_time_end(comm,time)
+      if (myid.eq.0.and.time_verbose.ge.2) then
+         write(*,*) '=============================================='
+         write(*,*) 'Time of 1st matrix-matrix multiplication = ',time
+         write(*,*) '=============================================='
+      end if
+
+      ! add entries from F^T*F*Ac*F^T*F = F^T*((F*H)*F)
+      call bddc_time_start(comm)
+      laux1 = nrowf
+      laux2 = nrowf
+      allocate(aux(laux1,laux2))
+      ! Multiply F*H => aux
+      call sm_mat_mult(f_type, nnz_f, i_f_sparse, j_f_sparse, f_sparse, lf_sparse, &
+                       h,lh1,lh2, aux,laux1,laux2) 
+      ! Multiply (F*H)*F = [F^T*(F*H)^T]^T => H^T
+      call sm_mat_mult(f_type, nnz_f, j_f_sparse, i_f_sparse, f_sparse, lf_sparse, &
+                       transpose(aux),laux2,laux1, h,lh1,lh2)
+      deallocate(aux)
+      call bddc_time_end(comm,time)
+      if (myid.eq.0.and.time_verbose.ge.2) then
+         write(*,*) '=============================================='
+         write(*,*) 'Time of F*H multiplications = ',time
+         write(*,*) '=============================================='
+      end if
+
+      call bddc_time_start(comm)
+      point      = nnz + nnz_new + 1
+      space_left = la - nnz - nnz_new
+      scalar     = 1._kr
+      store_type = 1
+      ! F^T * AUX2
+      call sm_from_sm_mat_mult(f_type, nnz_f, j_f_sparse, i_f_sparse, f_sparse, lf_sparse, &
+                               transpose(h),lh2,lh1, store_type, ndoft, &
+                               j_sparse(point),i_sparse(point),a_sparse(point),space_left, nnz_add, scalar)
+      nnz_new    = nnz_new + nnz_add
+      call bddc_time_end(comm,time)
+      if (myid.eq.0.and.time_verbose.ge.2) then
+         write(*,*) '=============================================='
+         write(*,*) 'Time of 3rd matrix-matrix multiplication = ',time
+         write(*,*) '=============================================='
+      end if
+      deallocate(h)
+
+      call bddc_time_end(comm,time)
+      if (myid.eq.0.and.time_verbose.ge.2) then
+         write(*,*) '=============================================='
+         write(*,*) 'Time of all matrix-matrix multiplications = ',time
+         write(*,*) '=============================================='
+      end if
+
+! Assembly new entries in matrix
+      write(*,*) 'myid =',myid,': Space really needed for projection =',nnz_new
+      call flush(6)
+      call sm_assembly(i_sparse(nnz+1),j_sparse(nnz+1),a_sparse(nnz+1),nnz_new, nnz_proj)
+      write(*,*) 'myid =',myid,': Number of nonzeros from projection nnz_proj =',nnz_proj
+      write(*,*) 'myid =',myid,': Local fill-in by projection nnz_proj/nnz =',float(nnz_proj)/nnz
+      call flush(6)
+
+      return
+end subroutine
+
 !***********************************
 subroutine bddc_P_apply(comm,ht,lht)
 !***********************************
@@ -1441,10 +1875,15 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       real(kr),allocatable :: tdof(:,:)
       integer  :: liglbvgvn
       integer,allocatable :: iglbvgvn(:)
+      integer  ::           lnconstrgl
+      integer,allocatable :: nconstrgl(:)
       integer  ::           lnnglbtr
       integer,allocatable :: nnglbtr(:)
       integer  ::           linglbtr
       integer,allocatable :: inglbtr(:)
+
+      integer  :: ltestm1, ltestm2
+      real(kr),allocatable :: testm(:,:)
 
       integer :: idofn, iglb, indnglb, ndofn, nglbn, indinglb, &
                  iglbn, jglbn, nglbv, iv, jv, &
@@ -1456,6 +1895,8 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
                  nnz_t_est, nnz_t_est_loc, point_t, space_t_left, nnz_t_add
       logical :: correct_sol = .false.
       real(kr):: val, valnew
+
+      integer :: i,j
 
       real(kr):: time
 
@@ -1483,6 +1924,10 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       nglbtr    = 0
       ! nonzeros in T for subdomain
       nnz_t_est = 0
+
+
+      lnconstrgl = nglb
+      allocate(nconstrgl(lnconstrgl))
       do iglb = 1,nglb
          nglbn   = nnglb(iglb)
          indnglb = inglb(indinglb + 1)
@@ -1568,20 +2013,43 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
                iv = iv + ndofn
             end do
             deallocate(t)
+
+
+
          else if (use_adaptive_averages) then
             ! number of averages on glob
             ! same number of subdomains and processors is enforced
             isub = myid + 1
             call dd_get_adaptive_constraints_size(myid,isub,iglb,lavg1,lavg2)
-            print *,'I am here: lavg1 =',lavg1,'lavg2 =',lavg2
+
+!            print *,'I am here: lavg1 =',lavg1,'lavg2 =',lavg2
 
             ! prepare matrix AVG - local for glob, only averages => rectangular
             allocate(avg(lavg1,lavg2))
             ! case of single aritmetic average
-            avg(1,:) = 1._kr
-   
+            call dd_get_adaptive_constraints(myid,isub,iglb,avg,lavg1,lavg2)
+
+! Load matrix to MUMPS
+!      ltestm1 = ndoft
+!      ltestm2 = ndoft
+!      allocate(testm(ltestm1,ltestm2))
+!      call sm_to_dm(matrixtype,i_sparse, j_sparse, a_sparse,nnz, testm,ltestm1,ltestm2)
+!      write(98,'(i8)') ndoft
+!      do i = 1,ltestm1
+!         write(98,'(1000f10.4)') (testm(i,j),j = 1,ltestm2)
+!      end do
+!      deallocate(testm)
+
+!            print *,'Averages:'
+!            do i = 1,lavg1
+!               print '(100f14.6)',(avg(i,j),j = 1,lavg2)
+!            end do
+            ! number of constraints on this glob
+            nconstrgl(iglb) = lavg1
+
+
             ! Number of constraints become the number of nodes in constraint
-            nglbtr = nglbtr + navgn
+            nglbtr = nglbtr + 1
    
    !         write(*,*) 'Matrix Tinv'
    !         do i = 1,lt1
@@ -1591,63 +2059,40 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
    
             ! correct solution if desired
             ! u^hat = T u
-            if (iterate_on_transformed.and.correct_sol) then
-               do iglbn = 1,navgn
-                  indin = inglb(indinglb + iglbn)
-                  pointi = kdoft(indin)
-                  do idofn = 1,ndofn
-                     indi = pointi + idofn
-   
-                     valnew = 0._kr
-                     do jglbn = 1,nglbn
-                        indjn = inglb(indinglb + jglbn)
-                        pointj = kdoft(indjn)
-   
-                        val = avg(iglbn,jglbn)
-                        do jdofn = 1,ndofn
-                           indj = pointj + jdofn
-   
-                           if (solt(indj).ne.0._kr.and.val.ne.0._kr) then
-                              valnew = valnew + val*solt(indj)
-                           end if
-                        end do
-                     end do
-                     solt(indi) = valnew
-                  end do
-               end do
-            end if
+!            if (iterate_on_transformed.and.correct_sol) then
+!               do iglbn = 1,navgn
+!                  indin = inglb(indinglb + iglbn)
+!                  pointi = kdoft(indin)
+!                  do idofn = 1,ndofn
+!                     indi = pointi + idofn
+!   
+!                     valnew = 0._kr
+!                     do jglbn = 1,nglbn
+!                        indjn = inglb(indinglb + jglbn)
+!                        pointj = kdoft(indjn)
+!   
+!                        val = avg(iglbn,jglbn)
+!                        do jdofn = 1,ndofn
+!                           indj = pointj + jdofn
+!   
+!                           if (solt(indj).ne.0._kr.and.val.ne.0._kr) then
+!                              valnew = valnew + val*solt(indj)
+!                           end if
+!                        end do
+!                     end do
+!                     solt(indi) = valnew
+!                  end do
+!               end do
+!            end if
    
    ! Find inverse of the matrix T
-            lt1 = nglbn
-            lt2 = nglbn
-            allocate(t(lt1,lt2))
-            call bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
-            deallocate(avg)
-   
-   !         write(*,*) 'Matrix Tinv after inversion'
-   !         do i = 1,lt1
-   !            write(*,'(30f10.5)') t(i,:)
-   !         end do
-   !         call flush(6)
-   
-   ! Inflate the inversion of matrix from nodes to globs
-            nglbv = ndofn*nglbn
+            nglbv  = lavg2
             ltdof1 = nglbv
             ltdof2 = nglbv
             allocate(tdof(ltdof1,ltdof2))
-            tdof = 0._kr
-            iv = 0
-            do iglbn = 1,nglbn
-               jv = 0
-               do jglbn = 1,nglbn
-                  do idofn = 1,ndofn
-                     tdof(iv + idofn, jv + idofn) = t(iglbn,jglbn)
-                  end do
-                  jv = jv + ndofn
-               end do
-               iv = iv + ndofn
-            end do
-            deallocate(t)
+            call bddc_T_inverse(avg,lavg1,lavg2,tdof,ltdof1,ltdof2)
+            deallocate(avg)
+   
          else 
             write(*,*) 'BDDC_T_INIT: No averages implied.'
             call error_exit
@@ -1703,7 +2148,7 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          deallocate(iglbvgvn)
 
          ! add nonzeros in T to counter
-         nnz_t_est_loc = ndofn*navgn*nglbn + 2*(nglbv - navgn*ndofn)
+         nnz_t_est_loc = lavg1*lavg2 + 2*(nglbv - lavg1)
          nnz_t_est     = nnz_t_est + nnz_t_est_loc
 
          indinglb = indinglb + nglbn
@@ -1851,9 +2296,15 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !      call sm_print(6,i_sparse,j_sparse,a_sparse,la,nnz+nnz_transform)
 ! Set-up projection after transformation
       call bddc_time_start(comm)
-      call bddc_P_init(myid,comm,ndim,nglbtr,inglbtr,linglbtr,nnglbtr,lnnglbtr,&
-                       slavery,lslavery,nnodt,ndoft,kdoft,lkdoft,&
-                       matrixtype,nnz+nnz_transform,i_sparse,j_sparse,a_sparse,la, nnz_proj)
+      if (use_adaptive_averages) then
+         call bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
+                                nconstrgl,lnconstrgl,slavery,lslavery,nnodt,ndoft,kdoft,lkdoft,&
+                                matrixtype,nnz+nnz_transform,i_sparse,j_sparse,a_sparse,la, nnz_proj)
+      else
+         call bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
+                          slavery,lslavery,nnodt,ndoft,kdoft,lkdoft,&
+                          matrixtype,nnz+nnz_transform,i_sparse,j_sparse,a_sparse,la, nnz_proj)
+      end if
       call bddc_time_end(comm,time)
       if (myid.eq.0.and.time_verbose.ge.1) then
          write(*,*) '================================================================'
@@ -1862,6 +2313,7 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          call flush(6)
       end if
 
+      deallocate(nconstrgl)
       deallocate(nnglbtr)
       deallocate(inglbtr)
 
@@ -1954,6 +2406,14 @@ subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
       integer,allocatable ::  ipiv(:)
       integer              :: laux
       real(kr),allocatable ::  aux(:)
+
+! LAPACK variables
+      integer             :: lapack_info, ldavg
+      integer              :: lwork
+      real(kr),allocatable ::  work(:)
+      integer              :: ltau
+      real(kr),allocatable ::  tau(:)
+      
        
 ! Check dimensions of arrays
       if (lavg1.gt.lavg2) then
@@ -1968,8 +2428,18 @@ subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
       ! Prepare array for permutations
       lipiv = lavg2
       allocate(ipiv(lipiv))
+      ipiv = 0
+      ltau = lavg1
+      allocate(tau(ltau))
+      lwork = 3*lavg2 + 1
+      allocate(work(lwork))
 
-      call bddc_T_LU(avg,lavg1,lavg2,ipiv,lipiv)
+!      call bddc_T_LU(avg,lavg1,lavg2,ipiv,lipiv)
+      ldavg = lavg1
+      call DGEQP3( lavg1, lavg2, avg, ldavg, ipiv, tau, work, lwork, lapack_info )
+      deallocate(tau)
+      deallocate(work)
+
       call bddc_T_blinv(avg,lavg1,lavg2)
 
       ! construct new array T

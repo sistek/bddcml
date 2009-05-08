@@ -1,4 +1,4 @@
-DIRS = bddcmumps bddcpp lobpcg_driver mumps_adaptive multilevel
+DIRS = bddcmumps bddcpp lobpcg_driver multilevel mumps_adaptive 
 
 ##################################################################
 # Targets

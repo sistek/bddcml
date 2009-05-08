@@ -9,6 +9,8 @@ program bddcmumps
 
 ! module for using DD
 use module_dd
+! module for using adaptivity
+use module_adaptivity
 ! module for using sparse matrices 
 use module_sm
 ! module for using BDDC preconditioner
@@ -54,6 +56,7 @@ logical,parameter:: iterate_on_reduced = .true.
 
 ! Iterate on transformed problem ? (This option does not work in combination
 ! with iterations on reduced problem above.)
+! do not please change this
 logical,parameter:: iterate_on_transformed = .false.
 
 ! Level of messages of timing
@@ -140,6 +143,7 @@ real(kr):: sparsity
 ! Local variables
 integer :: i, j, inodt, iaux, isub, nnz_proj_est, nnz_tr_proj_est, la_pure, la_proj, la_transform,&
            ndofs, inod, isol, ndofn, nnodi, ini, indnt, ndofnt
+integer :: npair, npair_locx, idpair
 
 ! auxiliary array
 integer ::             laux
@@ -211,6 +215,11 @@ logical :: remove_original
 ! SOL - global solution
          name = name1(1:lname1)//'.SOL'
          open (unit=idsol,file=name,status='replace',form='unformatted')
+
+! PAIR - open file with description of pairs
+         name = name1(1:lname1)//'.PAIR'
+         call allocate_unit(idpair)
+         open (unit=idpair,file=name,status='old',form='formatted')
       end if
 
 ! Reading basic properties 
@@ -252,8 +261,8 @@ logical :: remove_original
 ! Initialize DD
       call dd_init(nsub)
       call dd_distribute_subdomains(nsub,nproc)
-      call dd_read_mesh_from_file(myid,name(1:lname1))
-      call dd_read_matrix_from_file(myid,name(1:lname1),matrixtype)
+      call dd_read_mesh_from_file(myid,name1(1:lname1))
+      call dd_read_matrix_from_file(myid,name1(1:lname1),matrixtype)
       call dd_assembly_local_matrix(myid)
       remove_original = .false.
       call dd_matrix_tri2blocktri(myid,remove_original)
@@ -261,6 +270,15 @@ logical :: remove_original
          call dd_prepare_schur(myid,comm,isub)
       end do
       call dd_prepare_adaptive_space(myid)
+
+      call adaptivity_init(myid,comm,idpair,npair)
+      print *, 'I am processor ',myid,': nproc = ',nproc, 'nsub = ',nsub
+      call adaptivity_assign_pairs(npair,nproc,npair_locx)
+      call adaptivity_print_pairs(myid)
+      call adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
+
+
+
 
 ! Check the demanded number of processors
       if (nproc.ne.nsub) then
@@ -713,6 +731,7 @@ logical :: remove_original
       end if
 
 ! Clear memory
+      call adaptivity_finalize
       call dd_finalize
 
       ! Finalize the instance of MUMPS for Schur complement

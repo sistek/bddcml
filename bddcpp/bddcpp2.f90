@@ -30,7 +30,8 @@ integer,parameter:: idpar = 1, idbase = 100, idgmi = 2, ides = 4, idfvs = 3, &
                     idelm = 10, idrhs = 11, iddat = 12, idcn = 13, ides0 = 14, &
                     idrhss = 15, idfvss = 16, idsols = 17, idsol = 18, idglb = 19, &
                     idgmist = 20, idgmis = 21, idgraph = 22, idint = 23, idpair = 24
-integer,parameter:: lname1x = 8, lnamex = 15, lfnamex = 20
+
+integer,parameter:: lname1x = 8, lnamex = 100, lfnamex = 20
 
 integer:: lname1
 integer:: ndim, nsub, nelem, ndof, nnod, nnodc

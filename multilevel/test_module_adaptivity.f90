@@ -26,8 +26,8 @@ program test_module_adaptivity
       integer :: lschur
       real(kr),allocatable :: schur(:)
 
-      character(7)  :: problemname = 'TESTGLB'
-      character(20) :: filename
+      character(10)  :: problemname = 'TESTGLB3'
+      character(100) :: filename
 
       logical :: debug = .true.
 
@@ -42,7 +42,7 @@ program test_module_adaptivity
 
       ! open file with description of pairs
       if (myid.eq.0) then
-         filename = problemname//'.PAIR'
+         filename = trim(problemname)//'.PAIR'
          call allocate_unit(idpair)
          open (unit=idpair,file=filename,status='old',form='formatted')
       end if
@@ -54,8 +54,8 @@ program test_module_adaptivity
       nsub = 2
       call dd_init(nsub)
       call dd_distribute_subdomains(nsub,nproc)
-      call dd_read_mesh_from_file(myid,problemname)
-      call dd_read_matrix_from_file(myid,problemname,matrixtype)
+      call dd_read_mesh_from_file(myid,trim(problemname))
+      call dd_read_matrix_from_file(myid,trim(problemname),matrixtype)
       call dd_assembly_local_matrix(myid)
       remove_original = .false.
       call dd_matrix_tri2blocktri(myid,remove_original)

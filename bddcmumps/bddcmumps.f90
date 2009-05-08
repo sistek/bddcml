@@ -144,6 +144,7 @@ real(kr),allocatable :: aux(:)
 logical :: nonzero_bc_loc = .false. , nonzero_bc
 logical :: is_this_the_first_run
 
+logical :: match_mask(2)
 
 ! MPI initialization
 !***************************************************************PARALLEL
@@ -574,9 +575,11 @@ logical :: is_this_the_first_run
       ! Construct g - reduced RHS
 
       ! Multiply the block of the matrix A21 and rhst
+            match_mask(1) = .true.
+            match_mask(2) = .false.
             call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                              solintt,lsolintt, solt,lsolt, &
-                             iintt,liintt,(/.true.,.false./))
+                             iintt,liintt,match_mask)
             call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,solt,lsolt)
 
             where (iintt.eq.0) rhst = 0.0_kr
@@ -607,9 +610,12 @@ logical :: is_this_the_first_run
             ! Multiply the block of the matrix A12 and p
             laux = lsolt
             allocate(aux(laux))
+            ! A12 * solt
+            match_mask(1) = .false.
+            match_mask(2) = .true.
             call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                              solt,lsolt, aux,laux, &
-                             iintt,liintt, (/.false.,.true./))
+                             iintt,liintt, match_mask)
             call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,aux,laux)
             aux = -aux
             ! Solve the system for given rhs
@@ -826,6 +832,8 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
       integer :: nw, nwx  
       real(kr) :: cond
 
+      logical :: match_mask(2)
+
       !integer :: i
 
 ! Beginning of mesuring time
@@ -890,10 +898,16 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 !*****************************************************************MPI
       if (nonzero_initial_solution) then
          if (iterate_on_reduced) then
+            ! A21 * sol
+            match_mask(1) = .true.
+            match_mask(2) = .false.
             call sm_vec_mult(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, sol,lsol, ap,lap, &
-                             iintt,liintt, (/.true.,.false./))
+                             iintt,liintt,match_mask)
+            ! A22 * sol
+            match_mask(1) = .true.
+            match_mask(2) = .true.
             call sm_vec_mult(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, sol,lsol, h,lh, &
-                             iintt,liintt, (/.true.,.true./))
+                             iintt,liintt,match_mask)
             ap = ap + h
          else
             call sm_vec_mult(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, sol,lsol, ap,lap)
@@ -944,9 +958,11 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
       if (iterate_on_reduced) then
 ! Project p onto the space of energy minimal functions over interiors
          ! Multiply the block of the matrix A12 and p
+         match_mask(1) = .false.
+         match_mask(2) = .true.
          call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                           p,lp, ap,lap, &
-                          iintt,liintt, (/.false.,.true./))
+                          iintt,liintt, match_mask)
          call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
          ap = -ap
          ! Solve the system for given rhs
@@ -997,10 +1013,16 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
             call flush(6)
          end if
          if (iterate_on_reduced) then
+            ! A21 * p
+            match_mask(1) = .true.
+            match_mask(2) = .false.
             call sm_vec_mult(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, p,lp, ap,lap, &
-                             iintt,liintt, (/.true.,.false./))
+                             iintt,liintt, match_mask)
+            ! A22 * p
+            match_mask(1) = .true.
+            match_mask(2) = .true.
             call sm_vec_mult(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, p,lp, h,lh, &
-                             iintt,liintt, (/.true.,.true./))
+                             iintt,liintt, match_mask)
             ap = ap + h
          else
             call sm_vec_mult(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, p,lp, ap,lap)
@@ -1100,9 +1122,11 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          if (iterate_on_reduced) then
 ! Project p onto the space of energy minimal functions over interiors
             ! Multiply the block of the matrix A12 and p
+            match_mask(1) = .false.
+            match_mask(2) = .true.
             call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                              h,lh, ap,lap, &
-                             iintt,liintt, (/.false.,.true./))
+                             iintt,liintt, match_mask)
             call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
             ap = -ap
             ! Solve the system for given rhs

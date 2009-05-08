@@ -9,10 +9,10 @@ integer,parameter,private  :: kr = kind(1.D0)
 real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! treshold on eigenvalues to define an adaptive constraint
-real(kr),parameter,private :: treshold_eigval = 0.9_kr
+real(kr),parameter,private :: treshold_eigval = 1.5_kr
 
 ! debugging 
-logical,parameter,private :: debug = .true.
+logical,parameter,private :: debug = .false.
 
 ! table of pairs of eigenproblems to compute
 ! structure:
@@ -254,7 +254,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer,intent(in) :: nproc
 
 ! Maximal number of eigenvectors per problem
-      integer,parameter :: neigvecx = 4
+      integer,parameter :: neigvecx = 10 
 
 ! local variables
       integer :: isub, jsub, ipair, iactive_pair, iround
@@ -323,11 +323,13 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer ::            lcommon_interface
       integer,allocatable :: common_interface(:)
 
+      real(kr),external :: ddot
+      real(kr) :: norm
       ! LAPACK QR related variables
       integer :: lapack_info
 
       ! LOBPCG related variables
-      integer ::  lobpcg_maxit, lobpcg_verbosity
+      integer ::  lobpcg_maxit, lobpcg_verbosity, use_vec_values
       real(kr) :: lobpcg_tol
 
       ! MPI related variables
@@ -701,11 +703,11 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             end do
          end if
 
-         if (my_pair.ge.0) then
-            do i = 1,ldij1
-               print *,(dij(i,j),j = 1,ldij2)
-            end do
-         end if
+!         if (my_pair.ge.0) then
+!            do i = 1,ldij1
+!               print *,(dij(i,j),j = 1,ldij2)
+!            end do
+!         end if
 
          ! Prepare projection onto null D_ij
          if (my_pair.ge.0) then
@@ -725,12 +727,12 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             ! in space of D_ij are now stored factors R and Householder reflectors v
          end if
 
-         if (my_pair.ge.0) then
-            print *,'Factors of D_ij^T after QR'
-            do i = 1,ldij1
-               print *,(dij(i,j),j = 1,ldij2)
-            end do
-         end if
+!         if (my_pair.ge.0) then
+!            print *,'Factors of D_ij^T after QR'
+!            do i = 1,ldij1
+!               print *,(dij(i,j),j = 1,ldij2)
+!            end do
+!         end if
 
 
          ! prepare operator (I-R_ijE_ij)
@@ -761,12 +763,12 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
          print *, 'All messages in pack 7 received, MPI is fun!.'
-         if (my_pair.ge.0) then
-            print *, 'rhoi_i'
-            print *,  rhoi_i
-            print *, 'rhoi_j'
-            print *,  rhoi_j
-         end if
+!         if (my_pair.ge.0) then
+!            print *, 'rhoi_i'
+!            print *,  rhoi_i
+!            print *, 'rhoi_j'
+!            print *,  rhoi_j
+!         end if
 
          ! get data about common interface
          ireq = 0
@@ -875,7 +877,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             print *,'Pair slavery:', pairslavery
 
             deallocate(rhoicomm)
-            print *, 'weight',weight
+!            print *, 'weight',weight
          end if
 
 
@@ -937,25 +939,53 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          comm_myid = myid
          if (my_pair.ge.0) then
             lobpcg_tol   = 1.e-6_kr
-            lobpcg_maxit = 100
+            lobpcg_maxit = 10000
             lobpcg_verbosity = 0
+            use_vec_values = 0
+            if (use_vec_values .eq. 1) then
+              ! read initial guess of vectors
+               write(*,*) 'neigvec =',neigvec,'problemsize =',problemsize
+               open(unit = 99,file='start_guess.txt')
+               do i = 1,problemsize
+                  read(99,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+               end do
+               close(99)
+
+               !eigvec = 0._kr
+               !do i = 1,neigvec
+               !   do j = 1,i
+               !      eigvec((i-1)*problemsize + j) = 1._kr
+               !   end do
+               !end do
+            end if
+               
             if (debug) then
                write(*,*) 'myid =',myid,', I am calling eigensolver for pair ',my_pair
             end if
-            call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,eigval,eigvec)
+            call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,use_vec_values,eigval,eigvec)
             ! turn around the eigenvalues to be the largest
             eigval = -eigval
             print *, 'eigval ='
-            print '(f13.7)', eigval
+            print '(f20.10)', eigval
             print *, 'x ='
             do i = 1,problemsize
                print '(30f13.7)', (eigvec((j-1)*problemsize + i),j = 1,neigvec)
             end do
+            !do i = 1,problemsize
+            !   write(88, '(30e15.5)'), (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+            !end do
          end if
          call adaptivity_fake_lobpcg_driver
 
          ! select eigenvectors of eigenvalues exceeding treshold
          if (my_pair.ge.0) then
+         ! debug
+            open (89,file = 'vectors.txt')
+            do i = 1,problemsize
+               read(89,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+            end do
+            close(89)
+
             nadaptive = count(eigval.ge.treshold_eigval)
             if (debug) then
                write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: I am going to add ',nadaptive,' constraints for pair ',my_pair
@@ -974,15 +1004,18 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          if (my_pair.ge.0) then
             print *,' Constraints to be added on pair ',my_pair
             do i = 1,problemsize
-               write(*,'(100f10.6)') (constraints(i,j),j = 1,nadaptive)
+               write(*,'(100f15.3)') (constraints(i,j),j = 1,nadaptive)
             end do
+            call flush(6)
          end if
+
 
          ! REALLOCATE BUFFERS
          deallocate(bufrecv,bufsend)
          if (my_pair.ge.0) then
             deallocate(bufsend_i,bufsend_j)
          end if
+
 
          ! distribute adaptive constraints to slaves
          ! prepare space for these constraints
@@ -1093,7 +1126,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             print *,'myid = ',myid, 'cadapt:'
             do i = 1,ndofi
-               print '(10f12.8)',(cadapt(i,j),j = 1,lcadapt2)
+               print '(10f16.7)',(cadapt(i,j),j = 1,lcadapt2)
             end do
 
             ! load constraints into DD structure 
@@ -1154,7 +1187,7 @@ subroutine adaptivity_fake_lobpcg_driver
       do 
          call lobpcg_mvecmult_f(n,x,lx,y,ly,idoper)
          ! stopping criterion
-         if (idoper .ne. 3) then
+         if (idoper .eq. -3) then
             exit
          end if
       end do
@@ -1200,7 +1233,7 @@ integer :: ireq, nreq, ierr
 real(kr) :: spd_check
 
 comm_calls = comm_calls + 1
-print *,'I am in multiply for LOBPCG!, myid = ',comm_myid,'comm_calls =',comm_calls,'idoper =', idoper
+!print *,'I am in multiply for LOBPCG!, myid = ',comm_myid,'comm_calls =',comm_calls,'idoper =', idoper
 
 ! Check if all processors simply called the fake routine - if so, finalize
 if (idoper.eq.3) then
@@ -1236,11 +1269,11 @@ if (idoper.eq.1 .or. idoper.eq.2) then
       xaux(i) = x(i)
    end do
    
-   print '(a,100f10.6)', 'xaux initial = ',xaux
+!   print '(a,100f10.6)', 'xaux initial = ',xaux
 
    ! xaux = P xaux
    call adaptivity_apply_null_projection(xaux,lx)
-   print '(a,100f10.6)', 'xaux after projection = ',xaux
+!   print '(a,100f10.6)', 'xaux after projection = ',xaux
 
    if (idoper.eq.1) then
       ! apply (I-RE) xaux = (I-RR'D_P) xaux
@@ -1254,7 +1287,7 @@ if (idoper.eq.1 .or. idoper.eq.2) then
       do i = 1,problemsize
          xaux(i) = xaux(i) - xaux2(i)
       end do
-      print '(a,100f10.6)', 'xaux after I -RE = ',xaux
+!      print '(a,100f10.6)', 'xaux after I -RE = ',xaux
    end if
 
 
@@ -1316,14 +1349,14 @@ call MPI_WAITALL(nreq, request, statarray, ierr)
 ! Continue only of I was called from LOBPCG
 if (idoper.eq.1 .or. idoper.eq.2) then
 
-   ! reverse sign of vector if this is the A
+   ! reverse sign of vector if this is the A (required for LOBPCG)
    if (idoper.eq.1) then
       do i = 1,problemsize
          xaux(i) = -xaux(i)
       end do
    end if
 
-   print '(a,100f10.6)','xaux after Schur = ',xaux
+!   print '(a,100f10.6)','xaux after Schur = ',xaux
 
    if (idoper.eq.1) then
       ! apply (I-RE)^T = (I - E^T R^T) = (I - D_P^T * R * R^T)
@@ -1341,12 +1374,12 @@ if (idoper.eq.1 .or. idoper.eq.2) then
       do i = 1,problemsize
          xaux(i) = xaux(i) - xaux3(i)
       end do
-      print '(a,100f10.6)', 'xaux after (I-RE)^T = ',xaux
+!      print '(a,100f10.6)', 'xaux after (I-RE)^T = ',xaux
    end if
 
    ! xaux = P xaux
    call adaptivity_apply_null_projection(xaux,lx)
-   print '(a,100f10.6)', 'xaux after projection = ',xaux
+!   print '(a,100f10.6)', 'xaux after projection = ',xaux
 
    ! copy result to y
    do i = 1,lx

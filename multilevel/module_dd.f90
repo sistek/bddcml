@@ -1104,24 +1104,24 @@ subroutine dd_prepare_schur(myid,comm,isub)
       sub(isub)%is_mumps_interior_active = .true.
 
       ! Initialize MUMPS
-      call mumps_init(sub(isub)%mumps_interior_block,comm,sub(isub)%matrixtype)
+      call mumps_init_seq(sub(isub)%mumps_interior_block,comm,sub(isub)%matrixtype)
       ! Level of information from MUMPS
       if (debug) then
          mumpsinfo = 2
       else
          mumpsinfo = 0
       end if
-      call mumps_set_info(sub(isub)%mumps_interior_block,mumpsinfo)
+      call mumps_set_info_seq(sub(isub)%mumps_interior_block,mumpsinfo)
       ! Load matrix to MUMPS
       ndofo  = sub(isub)%ndofo
       nnza11 = sub(isub)%nnza11
       la11   = sub(isub)%la11
-      call mumps_load_triplet(sub(isub)%mumps_interior_block,ndofo,nnza11,&
+      call mumps_load_triplet_seq(sub(isub)%mumps_interior_block,ndofo,nnza11,&
                               sub(isub)%i_a11_sparse,sub(isub)%j_a11_sparse,sub(isub)%a11_sparse,la11)
       ! Analyze matrix
-      call mumps_analyze(sub(isub)%mumps_interior_block) 
+      call mumps_analyze_seq(sub(isub)%mumps_interior_block) 
       ! Factorize matrix 
-      call mumps_factorize(sub(isub)%mumps_interior_block) 
+      call mumps_factorize_seq(sub(isub)%mumps_interior_block) 
 
       sub(isub)%is_interior_factorized = .true.
 
@@ -1187,6 +1187,12 @@ subroutine dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2)
       ! prepare space for these constraints in the structure
       nvarglb = sub(isub)%nglobvar(ind_loc) 
 
+      if (nvarglb.gt.lcadapt1) then
+         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Dimension of matrix of averages is smaller than number of variables on glob.'
+         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: nvarglb =',nvarglb, 'lcadapt1 =',lcadapt1
+         call error_exit
+      end if
+
       ! copy transposed selected variables to the global structure
       lmatrix1 = lcadapt2
       lmatrix2 = nvarglb
@@ -1250,6 +1256,56 @@ subroutine dd_get_adaptive_constraints_size(myid,isub,iglb,lavg1,lavg2)
 
       lavg1 = sub(isub)%glob_constraints(iglb)%lmatrix1
       lavg2 = sub(isub)%glob_constraints(iglb)%lmatrix2
+end subroutine
+
+!*********************************************************************
+subroutine dd_get_adaptive_constraints(myid,isub,iglb,avg,lavg1,lavg2)
+!*********************************************************************
+! Subroutine for getting adaptive averages from the structure
+      use module_utils
+      implicit none
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain number
+      integer,intent(in) :: isub
+      ! local (subdomain) glob number
+      integer,intent(in) :: iglb
+
+      ! matrix of averages
+      integer,intent(in) ::  lavg1, lavg2
+      real(kr),intent(out) :: avg(lavg1,lavg2)
+
+      ! local variables
+      integer :: i,j
+
+      ! check the prerequisities
+      if (.not.allocated(sub)) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Main DD structure is not ready.'
+         call error_exit
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Not my subdomain ',isub
+         return
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Not my subdomain.'
+         call error_exit
+      end if
+      if (.not.allocated(sub(isub)%glob_constraints)) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Array for glob constraints not ready.'
+         call error_exit
+      end if
+      if (sub(isub)%glob_constraints(iglb)%lmatrix1.ne.lavg1 .or. sub(isub)%glob_constraints(iglb)%lmatrix2.ne.lavg2) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Matrix dimensions for averages do not match.'
+         call error_exit
+      end if
+
+      do j = 1,lavg2
+         do i = 1,lavg1
+            avg(i,j) = sub(isub)%glob_constraints(iglb)%matrix(i,j)
+         end do
+      end do
+
 end subroutine
 
 !*********************************
@@ -1525,7 +1581,7 @@ subroutine dd_prepare_aug(myid,comm,isub)
          ! even if the original matrix is SPD:
          aaugmatrixtype = 2
       end if
-      call mumps_init(sub(isub)%mumps_aug,comm,aaugmatrixtype)
+      call mumps_init_seq(sub(isub)%mumps_aug,comm,aaugmatrixtype)
 
       ! Verbosity level of MUMPS
       if (debug) then
@@ -1533,7 +1589,7 @@ subroutine dd_prepare_aug(myid,comm,isub)
       else
          mumpsinfo = 0
       end if
-      call mumps_set_info(sub(isub)%mumps_aug,mumpsinfo)
+      call mumps_set_info_seq(sub(isub)%mumps_aug,mumpsinfo)
 
       ! Load matrix to MUMPS
       ndof     = sub(isub)%ndof
@@ -1542,12 +1598,12 @@ subroutine dd_prepare_aug(myid,comm,isub)
 
       nnzaaug = sub(isub)%nnzaaug
       laaug   = sub(isub)%laaug
-      call mumps_load_triplet(sub(isub)%mumps_aug,ndofaaug,nnzaaug,&
-                              sub(isub)%i_aaug_sparse,sub(isub)%j_aaug_sparse,sub(isub)%aaug_sparse,laaug)
+      call mumps_load_triplet_seq(sub(isub)%mumps_aug,ndofaaug,nnzaaug,&
+                                  sub(isub)%i_aaug_sparse,sub(isub)%j_aaug_sparse,sub(isub)%aaug_sparse,laaug)
       ! Analyze matrix
-      call mumps_analyze(sub(isub)%mumps_aug) 
+      call mumps_analyze_seq(sub(isub)%mumps_aug) 
       ! Factorize matrix 
-      call mumps_factorize(sub(isub)%mumps_aug) 
+      call mumps_factorize_seq(sub(isub)%mumps_aug) 
 
       sub(isub)%is_aug_factorized = .true.
 
@@ -1627,7 +1683,7 @@ subroutine dd_prepare_coarse(myid,isub)
 
       ! solve the system with multiple RHS
       nrhs = nconstr
-      call mumps_resolve(sub(isub)%mumps_aug,phis,lphis,nrhs)
+      call mumps_resolve_seq(sub(isub)%mumps_aug,phis,lphis,nrhs)
 
       if (debug) then
          write(*,*) 'Subdomain ',isub,' coarse basis functions phis:'
@@ -1809,7 +1865,7 @@ subroutine dd_multiply_by_schur(myid,isub,x,lx,y,ly)
                           x,lx, aux1,laux1)
 
          ! resolve interior problem by MUMPS
-         call mumps_resolve(sub(isub)%mumps_interior_block,aux1,laux1)
+         call mumps_resolve_seq(sub(isub)%mumps_interior_block,aux1,laux1)
          
          if (sub(isub)%istorage .eq. 4) then
             is_symmetric_storage = .true.
@@ -2455,7 +2511,7 @@ subroutine dd_clear_subdomain(isub)
          deallocate(sub(isub)%a22_sparse)
       end if
       if (sub(isub)%is_mumps_interior_active) then
-         call mumps_finalize(sub(isub)%mumps_interior_block)
+         call mumps_finalize_seq(sub(isub)%mumps_interior_block)
       end if
 
       ! BDDC matrices
@@ -2493,7 +2549,7 @@ subroutine dd_clear_subdomain(isub)
       end if
 
       if (sub(isub)%is_mumps_aug_active) then
-         call mumps_finalize(sub(isub)%mumps_aug)
+         call mumps_finalize_seq(sub(isub)%mumps_aug)
       end if
 
       sub(isub)%is_mesh_loaded          = .false.

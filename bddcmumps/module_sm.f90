@@ -594,7 +594,7 @@ subroutine sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
       logical,optional,intent(in)  ::  match(2)
 
 ! Local variables
-      logical :: present_all, present_any, use_mask, offdiagblock=.false.
+      logical :: present_all, present_any, use_mask
 
 ! Handle optional arguments
       present_all  = present(lmask) .and. present(mask) .and. present(match)
@@ -605,11 +605,6 @@ subroutine sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
       end if
       if (present_any) then
          use_mask = .true.
-         if (.not.(match(1).eqv.match(2))) then
-            offdiagblock = .true.
-         else
-            offdiagblock = .false.
-         end if
       else
          use_mask = .false.
       end if
@@ -629,31 +624,71 @@ subroutine sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
       select case (matrixtype)
       case (0)
          ! matrix is stored whole
-         call sm_vec_mult_full
+         if (use_mask) then
+            call sm_vec_mult_full(nnz, i_sparse, j_sparse, a_sparse, la, &
+                                  vec_in,lvec_in, vec_out,lvec_out, &
+                                  mask,lmask,match)
+         else
+            call sm_vec_mult_full(nnz, i_sparse, j_sparse, a_sparse, la, &
+                                  vec_in,lvec_in, vec_out,lvec_out)
+         end if
       case (1,2)
          ! only one triangle of matrix is stored
-         call sm_vec_mult_sym
+         if (use_mask) then
+            call sm_vec_mult_sym(nnz, i_sparse, j_sparse, a_sparse, la, &
+                                 vec_in,lvec_in, vec_out,lvec_out, &
+                                 mask,lmask,match)
+         else
+            call sm_vec_mult_sym(nnz, i_sparse, j_sparse, a_sparse, la, &
+                                 vec_in,lvec_in, vec_out,lvec_out)
+         end if
       case default
          write(*,*) 'sm_vec_mult: Unknown type of matrix. Maybe MATRIXTYPE not set.'
          stop
       end select
 
-! default optional parameters
-      offdiagblock = .false.
-
       return
-
-contains
+end subroutine
 
 !*******************************************************************
-      subroutine sm_vec_mult_full
+subroutine sm_vec_mult_full(nnz, i_sparse, j_sparse, a_sparse, la, &
+                            vec_in,lvec_in, vec_out,lvec_out, &
+                            mask,lmask,match)
 !*******************************************************************
 ! Subroutine for multiplication of FULL sparse matrix in IJA format 
 ! with a vector vec_in, result in vec_out
 
+      implicit none
+! Matrix in IJA sparse format
+      integer,intent(in) :: nnz, la
+      integer,intent(in) :: i_sparse(la), j_sparse(la)
+      real(kr),intent(in):: a_sparse(la)
+
+! Vectors
+      integer,intent(in)  :: lvec_in, lvec_out
+      real(kr),intent(in) :: vec_in(lvec_in)
+      real(kr),intent(out):: vec_out(lvec_out)
+
+! Blocks of matrix
+      ! selects a block of matrix, e.g. corresponding to interface
+      integer,optional,intent(in)  :: lmask
+      integer,optional,intent(in)  ::  mask(:)
+      ! describes, if the row and column index should be selected in mask
+      ! true true   -> interface block    A_22
+      ! true false  -> intermediate block A_21
+      ! false true  -> intermediate block A_12
+      ! false false -> interior block     A_11
+      logical,optional,intent(in)  ::  match(2)
+
 ! local variables
       integer:: ia, indi, indj
-      logical:: rowmatch, colmatch
+      logical:: use_mask, rowmatch, colmatch
+
+      if (present(mask)) then
+         use_mask = .true.
+      else
+         use_mask = .false.
+      end if
 
 ! Do the multiplication for each non-zero entry
       do ia = 1,nnz
@@ -681,18 +716,53 @@ contains
       end do
 
       return
-      end subroutine
+end subroutine
 
-!*******************************
-      subroutine sm_vec_mult_sym
-!*******************************
+!******************************************************************
+subroutine sm_vec_mult_sym(nnz, i_sparse, j_sparse, a_sparse, la, &
+                           vec_in,lvec_in, vec_out,lvec_out, &
+                           mask,lmask,match)
+!******************************************************************
 ! Subroutine for multiplication of SYMMETRIC sparse matrix in IJA format 
 ! with a vector vec_in, result in vec_out
 ! Only upper triangle of the matrix is stored
+      implicit none
+
+! Matrix in IJA sparse format
+      integer,intent(in) :: nnz, la
+      integer,intent(in) :: i_sparse(la), j_sparse(la)
+      real(kr),intent(in):: a_sparse(la)
+
+! Vectors
+      integer,intent(in)  :: lvec_in, lvec_out
+      real(kr),intent(in) :: vec_in(lvec_in)
+      real(kr),intent(out):: vec_out(lvec_out)
+
+! Blocks of matrix
+      ! selects a block of matrix, e.g. corresponding to interface
+      integer,optional,intent(in)  :: lmask
+      integer,optional,intent(in)  ::  mask(:)
+      ! describes, if the row and column index should be selected in mask
+      ! true true   -> interface block    A_22
+      ! true false  -> intermediate block A_21
+      ! false true  -> intermediate block A_12
+      ! false false -> interior block     A_11
+      logical,optional,intent(in)  ::  match(2)
 
 ! local variables
       integer:: ia, indi, indj
-      logical:: rowmatch, colmatch, multnormal = .false., multtranspose = .false.
+      logical:: use_mask, rowmatch, colmatch, multnormal = .false., multtranspose = .false., offdiagblock=.false.
+
+      if (present(mask)) then
+         use_mask = .true.
+         if (.not.(match(1).eqv.match(2))) then
+            offdiagblock = .true.
+         else
+            offdiagblock = .false.
+         end if
+      else
+         use_mask = .false.
+      end if
 
 ! Do the multiplication for each non-zero entry and its transpose
       do ia = 1,nnz
@@ -735,8 +805,10 @@ contains
          end if
       end do
 
+! default optional parameters
+      offdiagblock = .false.
+
       return
-      end subroutine
 end subroutine
 
 !****************************************************************************
@@ -1291,8 +1363,8 @@ subroutine sm_to_dm(matrixtype, i_sparse,j_sparse,a_sparse,la, m,lm1,lm2)
 
 ! Input matrix in sparse format IJA
       integer,intent(in)  :: la
-      integer,intent(out) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(out):: a_sparse(la)
+      integer,intent(in) :: i_sparse(la), j_sparse(la)
+      real(kr),intent(in):: a_sparse(la)
 
 ! Output dense matrix
       integer,intent(in)  :: lm1, lm2

@@ -7,9 +7,9 @@ integer,parameter,private:: kr = kind(1.D0)
 
 contains
 
-!*************************************************
-      subroutine mumps_init(mumps,comm,matrixtype)
-!*************************************************
+!*****************************************************
+      subroutine mumps_init_seq(mumps,comm,matrixtype)
+!*****************************************************
 ! Initializes run of MUMPS
       use dmumps_struc_def
       implicit none
@@ -38,9 +38,9 @@ contains
       return
       end subroutine
 
-!***********************************************
-      subroutine mumps_set_info(mumps,mumpsinfo)
-!***********************************************
+!***************************************************
+      subroutine mumps_set_info_seq(mumps,mumpsinfo)
+!***************************************************
 ! Defines level of information from MUMPS printed to screen (unit 6)
       use dmumps_struc_def
       implicit none
@@ -84,9 +84,9 @@ contains
       return
       end subroutine
 
-!*****************************************************************************
-      subroutine mumps_load_triplet(mumps,n,nnz,i_sparse,j_sparse,a_sparse,la)
-!*****************************************************************************
+!*********************************************************************************
+      subroutine mumps_load_triplet_seq(mumps,n,nnz,i_sparse,j_sparse,a_sparse,la)
+!*********************************************************************************
 ! Associates parts of MUMPS structure with program data.
 ! Subroutine for loading local triplets of distributed sparse matrix in IJA format
 ! i_sparse, j_sparse, a_sparse are non-zero entries in IJA
@@ -119,9 +119,9 @@ contains
       return
       end subroutine
 
-!*******************************************************************
-      subroutine mumps_set_schur(mumps,listvar_schur,llistvar_schur)
-!*******************************************************************
+!***********************************************************************
+      subroutine mumps_set_schur_seq(mumps,listvar_schur,llistvar_schur)
+!***********************************************************************
 ! Associates parts of MUMPS structure with program data.
 ! Subroutine for setting Schur complement dimension and variables
 
@@ -146,9 +146,9 @@ contains
       return
       end subroutine
 
-!************************************
-      subroutine mumps_analyze(mumps)
-!************************************
+!****************************************
+      subroutine mumps_analyze_seq(mumps)
+!****************************************
 ! Performs the analysis of matrix by MUMPS.
       use dmumps_struc_def
       implicit none
@@ -161,9 +161,9 @@ contains
       return
       end subroutine
 
-!*****************************************************
-      subroutine mumps_get_schur_size(mumps,mloc,nloc)
-!*****************************************************
+!*********************************************************
+      subroutine mumps_get_schur_size_seq(mumps,mloc,nloc)
+!*********************************************************
 ! Return size of local block of Schur complement
 
       use dmumps_struc_def
@@ -178,9 +178,9 @@ contains
       return
       end subroutine
 
-!**********************************************************
-      subroutine mumps_assoc_schur(mumps,schur,lschur,mloc)
-!**********************************************************
+!**************************************************************
+      subroutine mumps_assoc_schur_seq(mumps,schur,lschur,mloc)
+!**************************************************************
 ! Associates parts of MUMPS structure with program data.
 ! Subroutine for setting Schur complement dimension and variables
 
@@ -201,9 +201,9 @@ contains
       return
       end subroutine
 
-!**************************************
-      subroutine mumps_factorize(mumps)
-!**************************************
+!******************************************
+      subroutine mumps_factorize_seq(mumps)
+!******************************************
 ! Performs factorization of matrix by MUMPS
       use dmumps_struc_def
       implicit none
@@ -216,9 +216,9 @@ contains
       return
       end subroutine
 
-!********************************************
-subroutine mumps_resolve(mumps,rhs,lrhs,nrhs)
-!********************************************
+!************************************************
+subroutine mumps_resolve_seq(mumps,rhs,lrhs,nrhs)
+!************************************************
 ! Performs backward step of multifrontal algorithm by MUMPS
 ! in the beginning, RHS contains RHS
 ! in the end, RHS contains solution
@@ -251,9 +251,9 @@ subroutine mumps_resolve(mumps,rhs,lrhs,nrhs)
       return
       end subroutine
          
-!*************************************
-      subroutine mumps_finalize(mumps)
-!*************************************
+!*****************************************
+      subroutine mumps_finalize_seq(mumps)
+!*****************************************
 ! Destroy the instance (deallocate internal data structures)
       use dmumps_struc_def
       implicit none

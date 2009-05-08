@@ -115,14 +115,50 @@ void mv_extract_values (serial_Multi_Vector * x_p, double * eigvec, int nvec)
    
 }
 
+void mv_load_values (double * eigvec, int nvec, int size, serial_Multi_Vector * x_p)
+{
+   serial_Multi_Vector *x = (serial_Multi_Vector *) x_p;
+   double  *x_data; 
+   double * src;
+   double * dest;
+   int * x_active_ind;
+   int i;
+   int j;
+   int idest;
+
+   // Perform checks
+   assert(x->size = size);
+   assert(x->num_active_vectors = nvec);
+
+
+   x_data = x->data;
+   x_active_ind = x->active_indices;
+
+   idest = 0;
+   for(i=0; i<nvec; i++)
+   {
+      src  = eigvec + idest*size;
+      dest = x_data + x_active_ind[i]*size;
+
+      // copy particular eigenvector
+      for(j=0; j<size; j++)
+      {
+	 dest[j] = src[j];
+      }
+      idest = idest + 1;
+   }
+   
+}
+
 // Fortran callable subroutine arguments are passed by reference
-extern void lobpcg_driver_(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSITY_LEVEL, real *lambda, real *vec) 
+extern void lobpcg_driver_(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSITY_LEVEL, int *USE_X_VALUES, real *lambda, real *vec) 
 {
    int n=*N; 
    int nvec=*NVEC; 
    real tol=*TOL;
    int maxit=*MAXIT; 
    int verbosity_level=*VERBOSITY_LEVEL; 
+   int use_x_values=*USE_X_VALUES; 
 
  // lobpcg data
    serial_Multi_Vector * x;
@@ -139,8 +175,20 @@ extern void lobpcg_driver_(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOS
    x = serial_Multi_VectorCreate(n, nvec);
    serial_Multi_VectorInitialize(x);
 
-  /* fill it with random numbers */
-   serial_Multi_VectorSetRandomValues(x, 1);
+   if (use_x_values == 1)
+   {
+      /* use predefined values in vec */
+      mv_load_values (vec, nvec, n, x);
+   }
+   else if (use_x_values == 0)
+   {
+      /* fill it with random numbers */
+      serial_Multi_VectorSetRandomValues(x, 1);
+   }
+   else
+   {
+      printf("\nLOBPCG_DRIVER: unknown value of use supplied values as start %d \n",use_x_values);
+   }
 
 /* get memory for eigenvalues, eigenvalue history, residual norms, residual norms history */
    // memory is already prepared for eigenvalues
