@@ -151,7 +151,7 @@ void mv_load_values (double * eigvec, int nvec, int size, serial_Multi_Vector * 
 }
 
 // Fortran callable subroutine arguments are passed by reference
-extern void lobpcg_driver_(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSITY_LEVEL, int *USE_X_VALUES, real *lambda, real *vec, int *ITERATIONS) 
+extern void lobpcg_driver_(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSITY_LEVEL, int *USE_X_VALUES, real *lambda, real *vec, int *ITERATIONS, int *IERR) 
 {
    int n=*N; 
    int nvec=*NVEC; 
@@ -251,13 +251,14 @@ extern void lobpcg_driver_(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOS
           0
           );
 
-   if (ierr)
-   {
-      printf("LOBPCG exited with nonzero code: %d \n",ierr);
-   }
+/*   if (ierr)
+     { 
+        printf("LOBPCG exited with nonzero code: %d \n",ierr); 
+     }
+*/
 
 /* print eigenvectors to file */
-   serial_Multi_VectorPrint(x, "eigenvectors");
+/*   serial_Multi_VectorPrint(x, "eigenvectors"); */
    mv_extract_values (x, vec, nvec);
 
    serial_Multi_VectorDestroy(x);
@@ -265,6 +266,7 @@ extern void lobpcg_driver_(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOS
    free(resid); 
 
    *ITERATIONS = iterations;
+   *IERR       = ierr;
  
 }
 
