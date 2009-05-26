@@ -1672,7 +1672,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 
 ! Pairs
       ! prepare data about pairs
-      npair = count(globs%itype.eq.1)
+      npair = count(globs%itype.eq.1.and. globs%selected)
 
 ! PAIR - pairs of globs to compute by adaptivity
       name = name1(1:lname1)//'.PAIR'
@@ -1824,6 +1824,7 @@ integer:: idsmd
 !  * INET(LINET) * NNET(LNNET) * NNDF(LNNDF) * XYF(LXYF) *
       name = name1(1:lname1)//'.GMIS'
       open (unit=idgmi,file=name,status='old',form='formatted')
+      rewind idgmis
 
 ! FVS - fixed variables
 !  * IFIX(LIFIX) * FIXV(LFIXV) * 

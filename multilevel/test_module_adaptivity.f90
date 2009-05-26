@@ -23,15 +23,9 @@ program test_module_adaptivity
       integer :: isub
       logical :: remove_original 
 
-      integer :: i,j, ndofi, nnodi
-      integer :: lschur
-      real(kr),allocatable :: schur(:)
-
       character(90)  :: problemname 
       character(100) :: name
       character(100) :: filename
-
-      logical :: debug = .true.
 
       ! MPI initialization
 !***************************************************************PARALLEL
@@ -120,10 +114,6 @@ program test_module_adaptivity
 
       print *, 'I am processor ',myid,': nproc = ',nproc, 'nsub = ',nsub
       call adaptivity_assign_pairs(npair,nproc,npair_locx)
-
-      if (debug) then
-         call adaptivity_print_pairs(myid)
-      end if
 
       call adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 

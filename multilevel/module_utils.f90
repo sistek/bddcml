@@ -156,6 +156,85 @@ call flush(6)
 call abort()
 end subroutine
 
+!****************************************************
+subroutine build_operator(op_routine,mat,lmat1,lmat2)
+!****************************************************
+! Subroutine for building explicit matrix corresponding to an implicit operator
+      implicit none
+      integer,intent(in) :: lmat1, lmat2
+      real(kr),intent(out) ::  mat(lmat1,lmat2)
+
+! local vars
+      integer  ::             lvec
+      real(kr),allocatable ::  vec(:)
+
+      integer  :: i,j
+
+      lvec = lmat1
+      allocate (vec(lvec))
+
+      ! allocate columns of identity to apply the operator
+      do j = 1,lmat1
+         call zero(vec,lvec)
+
+         vec(j) = 1._kr
+
+         call op_routine(vec,lvec)
+         ! copy result to matrix
+         do i = 1,lmat1
+            mat(i,j) = vec(i)
+         end do
+      end do
+
+      deallocate(vec)
+end subroutine
+
+!****************************************************************************
+subroutine get_array_union(array1,larray1,array2,larray2,union,lunion,nunion)
+!****************************************************************************
+! Subroutine for getting union of two integer arrays ordered
+      implicit none
+! input arrays
+      integer,intent(in) :: larray1,         larray2
+      integer,intent(in) ::  array1(larray1), array2(larray2)
+! output union of arrays 
+      integer,intent(in)  :: lunion
+      integer,intent(out) ::  union(lunion)
+! number of entries in union
+      integer,intent(out) ::  nunion
+
+! local vars
+      integer :: i, ivalid
+      real(kr) :: valid
+
+      ! join arrays to large array
+      do i = 1,larray1
+         union(i) = array1(i)
+      end do
+      do i = 1,larray2
+         union(larray1 + i) = array2(i)
+      end do
+
+      ! sort input arrays
+      call iquick_sort(union,lunion)
+
+      ! remove multiplicities
+      ivalid = 1
+      valid  = union(1)
+      do i = 2,lunion
+         if (union(i).ne.valid) then
+            ivalid = ivalid + 1
+            valid = union(i)
+            union(ivalid) = valid
+         end if
+      end do
+      nunion = ivalid
+
+      ! pad the rest with zeros
+      do i = nunion + 1,lunion
+         union(i) = 0
+      end do
+end subroutine
 !********************************************************************************************************
 subroutine get_array_intersection(array1,larray1,array2,larray2,intersection,lintersection,nintersection)
 !********************************************************************************************************

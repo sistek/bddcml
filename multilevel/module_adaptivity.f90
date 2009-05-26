@@ -12,7 +12,7 @@ real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 real(kr),parameter,private :: treshold_eigval = 1.5_kr
 
 ! debugging 
-logical,parameter,private :: debug = .true.
+logical,parameter,private :: debug = .false.
 
 ! table of pairs of eigenproblems to compute
 ! structure:
@@ -254,7 +254,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer,intent(in) :: nproc
 
 ! Maximal number of eigenvectors per problem
-      integer,parameter :: neigvecx = 10 
+      integer,parameter :: neigvecx = 6
 
 ! local variables
       integer :: isub, jsub, ipair, iactive_pair, iround
@@ -324,7 +324,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer,allocatable :: common_interface(:)
 
       real(kr),external :: ddot
-      real(kr) :: norm
+
       ! LAPACK QR related variables
       integer :: lapack_info
 
@@ -335,7 +335,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       ! MPI related variables
       integer :: ierr, ireq, nreq
       
-
       ! allocate table for work instructions - the worst case is that in each
       ! round, I have to compute all the subdomains, i.e. 2 for each pair
       linstructions1 = 2*nproc
@@ -464,7 +463,10 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             call error_exit
          end if
          call MPI_WAITALL(nreq, request, statarray, ierr)
-         print *,'I am ',myid, 'All messages in pack 1 received, MPI is fun!.'
+         if (debug) then
+            print *,'I am ',myid, 'All messages in pack 1 received, MPI is fun!.'
+            call flush(6)
+         end if
 
          if (my_pair.ge.0) then
             write(90+myid,*) 'ndofi_i',ndofi_i,'ndofi_j',ndofi_j
@@ -492,7 +494,10 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
-         print *,'I am ',myid, 'All messages in pack 2 received, MPI is fun!.'
+         if (debug) then
+            print *,'I am ',myid, 'All messages in pack 2 received, MPI is fun!.'
+            call flush(6)
+         end if
 
          if (my_pair.ge.0) then
             write(90+myid,*) 'nnodci',nnodci,'nnodcj',nnodcj
@@ -520,13 +525,17 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
-         print *,'I am ',myid, 'All messages in pack 2.5 received, MPI is fun!.'
+         if (debug) then
+            print *,'I am ',myid, 'All messages in pack 2.5 received, MPI is fun!.'
+            call flush(6)
+         end if
          if (my_pair.ge.0) then
             write(90+myid,*) 'nnodi_i',nnodi_i,'nnodi_j',nnodi_j
          end if
 
          ! allocate space for corners
          if (my_pair.ge.0) then
+            problemsize = ndofi_i + ndofi_j
             lglobal_corner_number_i = nnodci
             lglobal_corner_number_j = nnodcj
             allocate(global_corner_number_i(lglobal_corner_number_i),global_corner_number_j(lglobal_corner_number_j))
@@ -570,8 +579,10 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
-         print *, 'All messages in pack 3 received, MPI is fun!.'
-         call flush(6)
+         if (debug) then
+            print *, 'All messages in pack 3 received, MPI is fun!.'
+            call flush(6)
+         end if
          if (my_pair.ge.0) then
             write(90+myid,*) 'global_corner_number_i'
             write(90+myid,*)  global_corner_number_i
@@ -605,8 +616,10 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
-         print *,'I am ',myid, 'All messages in pack 4 received, MPI is fun!.'
-         call flush(6)
+         if (debug) then
+            print *,'I am ',myid, 'All messages in pack 4 received, MPI is fun!.'
+            call flush(6)
+         end if
 
          ! get numbers of dof on interface
          ireq = 0
@@ -635,19 +648,25 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
-         print *,'I am ',myid, 'All messages in pack 5 received, MPI is fun!.'
-         call flush(6)
+         if (debug) then
+            print *,'I am ',myid, 'All messages in pack 5 received, MPI is fun!.'
+            call flush(6)
+         end if
          if (my_pair.ge.0) then
             write(90+myid,*) 'nndfi_i'
             write(90+myid,*)  nndfi_i
             write(90+myid,*) 'nndfi_j'
             write(90+myid,*)  nndfi_j
+            write(90+myid,*) 'icnsin_i'
+            write(90+myid,*)  icnsin_i
+            write(90+myid,*) 'icnsin_j'
+            write(90+myid,*)  icnsin_j
          end if
 
          ! find intersection of corners
-         lcommon_corners = min(lglobal_corner_number_i,lglobal_corner_number_j)
-         allocate(common_corners(lcommon_corners))
          if (my_pair.ge.0) then
+            lcommon_corners = min(lglobal_corner_number_i,lglobal_corner_number_j)
+            allocate(common_corners(lcommon_corners))
             call get_array_intersection(global_corner_number_i,lglobal_corner_number_i,&
                                         global_corner_number_j,lglobal_corner_number_j,&
                                         common_corners,lcommon_corners,ncommon_corners)
@@ -661,10 +680,18 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                indcorner = common_corners(icommon)
                ! find index of this corner
                call get_index(indcorner,global_corner_number_i,lglobal_corner_number_i,indc_i) 
-               indi_i = icnsin_i(indc_i)
-               ndofn  = nndfi_i(indi_i)
+               if (indc_i.gt.0 ) then
+                  indi_i = icnsin_i(indc_i)
+                  ndofn  = nndfi_i(indi_i)
 
-               nconstr = nconstr + ndofn
+                  nconstr = nconstr + ndofn
+               else
+                  call get_index(indcorner,global_corner_number_j,lglobal_corner_number_j,indc_j) 
+                  indi_j = icnsin_j(indc_j)
+                  ndofn  = nndfi_j(indi_j)
+
+                  nconstr = nconstr + ndofn
+               end if
             end do
             ! prepare space for dense matrix D_ij
             ldij1 = ndofi_i + ndofi_j
@@ -690,21 +717,34 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                indcorner = common_corners(icommon)
                ! find index of this corner
                call get_index(indcorner,global_corner_number_i,lglobal_corner_number_i,indc_i) 
-               indi_i = icnsin_i(indc_i)
-               ndofn  = nndfi_i(indi_i)
-               call get_index(indcorner,global_corner_number_i,lglobal_corner_number_i,indc_j) 
-               indi_j = icnsin_j(indc_j)
+               if (indc_i.gt.0) then
+                  indi_i = icnsin_i(indc_i)
+                  ndofn  = nndfi_i(indi_i)
+               end if
+               call get_index(indcorner,global_corner_number_j,lglobal_corner_number_j,indc_j) 
+               if (indc_j.gt.0) then
+                  indi_j = icnsin_j(indc_j)
+                  ndofn  = nndfi_i(indi_i)
+               end if
 
                shift = ndofi_i
-               pointv_i = kdofi_i(indi_i)
-               pointv_j = kdofi_j(indi_j)
+               if (indc_i.gt.0) then
+                  pointv_i = kdofi_i(indi_i)
+               end if
+               if (indc_j.gt.0) then
+                  pointv_j = kdofi_j(indi_j)
+               end if
                do i = 1,ndofn
                   iconstr = iconstr + 1
 
                   ! contribution of subdomain i
-                  dij(pointv_i+i,iconstr)       = 1._kr
+                  if (indc_i.gt.0) then
+                     dij(pointv_i+i,iconstr)       = 1._kr
+                  end if
                   ! contribution of subdomain j
-                  dij(shift+pointv_j+i,iconstr) = -1._kr
+                  if (indc_j.gt.0) then
+                     dij(shift+pointv_j+i,iconstr) = -1._kr
+                  end if
                end do
             end do
          end if
@@ -733,14 +773,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             ! in space of D_ij are now stored factors R and Householder reflectors v
          end if
 
-!         if (my_pair.ge.0) then
-!            print *,'Factors of D_ij^T after QR'
-!            do i = 1,ldij1
-!               print *,(dij(i,j),j = 1,ldij2)
-!            end do
-!         end if
-
-
          ! prepare operator (I-R_ijE_ij)
          ! get data about interface weigths
          ireq = 0
@@ -768,8 +800,10 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
-         print *,'I am ',myid, 'All messages in pack 7 received, MPI is fun!.'
-         call flush(6)
+         if (debug) then
+            print *,'I am ',myid, 'All messages in pack 7 received, MPI is fun!.'
+            call flush(6)
+         end if
          if (my_pair.ge.0) then
             write(90+myid,*)'rhoi_i'
             write(90+myid,*) rhoi_i
@@ -804,8 +838,10 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
-         print *, 'I am ',myid,'All messages in pack 8 received, MPI is fun!.'
-         call flush(6)
+         if (debug) then
+            print *, 'I am ',myid,'All messages in pack 8 received, MPI is fun!.'
+            call flush(6)
+         end if
          if (my_pair.ge.0) then
             write(90+myid,*)'iingn_i'
             write(90+myid,*) iingn_i
@@ -853,7 +889,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             ! prepare vector of mask and weigths representing (I - R_ij E_ij)
             lweight = ndofi_i + ndofi_j
             allocate(weight(lweight))
-            call zero(weight,lweight)
+            do i = 1,problemsize
+               weight(i) = 1._kr
+            end do
 
             lpairslavery = ndofi_i + ndofi_j
             allocate(pairslavery(lpairslavery))
@@ -892,7 +930,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          ! prepare space for eigenvectors
          ireq = 0
          if (my_pair.ge.0) then
-            problemsize = ndofi_i + ndofi_j
             neigvec     = min(neigvecx,ndofcomm)
             leigvec = neigvec * problemsize
             leigval = neigvec
@@ -925,16 +962,16 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          ! prepare arrays kbufsend and 
          lkbufsend = ninstructions
          allocate(kbufsend(lkbufsend))
-         kbufsend(1)  = 1
-         do i = 2,ninstructions
-            kbufsend(i) = kbufsend(i-1) + lbufa(i-1)
-         end do
-         print *, 'I am ',myid,'All messages in pack 9 received, MPI is fun!.'
-         print *, 'myid',myid,'lbufa'
-         print *,  lbufa
-         print *, 'myid',myid,'kbufsend'
-         print *,  kbufsend
-         call flush(6)
+         if (lkbufsend.gt.0) then
+            kbufsend(1)  = 1
+            do i = 2,ninstructions
+               kbufsend(i) = kbufsend(i-1) + lbufa(i-1)
+            end do
+         end if
+         if (debug) then
+            print *, 'I am ',myid,'All messages in pack 9 received, MPI is fun!.'
+            call flush(6)
+         end if
          lbufsend = 0
          do i = 1,ninstructions
             lbufsend = lbufsend + lbufa(i)
@@ -959,13 +996,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                   read(99,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
                end do
                close(99)
-
-               !eigvec = 0._kr
-               !do i = 1,neigvec
-               !   do j = 1,i
-               !      eigvec((i-1)*problemsize + j) = 1._kr
-               !   end do
-               !end do
             end if
                
             if (debug) then
@@ -980,7 +1010,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             end if
             ! turn around the eigenvalues to be the largest
             eigval = -eigval
-            write(*,*) 'eigval ='
+            write(*,*) 'eigval for pair:',my_pair,' between subdomains ',comm_myisub,' and',comm_myjsub
             write(*,'(f20.10)') eigval
             write(90+myid,*) 'x ='
             do i = 1,problemsize
@@ -994,12 +1024,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
          ! select eigenvectors of eigenvalues exceeding treshold
          if (my_pair.ge.0) then
-         ! debug
-!            open (89,file = 'vectors.txt')
-!            do i = 1,problemsize
-!               read(89,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
-!            end do
-!            close(89)
 
             nadaptive = count(eigval.ge.treshold_eigval)
             if (debug) then
@@ -1012,7 +1036,8 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             ! construct constraints out of these eigenvectors
             ioper = 1 ! multiply by A
             do j = 1,nadaptive
-               call adaptivity_mvecmult(problemsize,eigvec((j-1)*problemsize + 1),problemsize,constraints(1,j),problemsize,ioper)
+               call adaptivity_mvecmult(problemsize,eigvec((j-1)*problemsize + 1),&
+                    problemsize,constraints(1,j),problemsize,ioper)
             end do
          end if
          call adaptivity_fake_lobpcg_driver
@@ -1022,7 +1047,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             do i = 1,problemsize
                write(90+myid,'(100f15.3)') (constraints(i,j),j = 1,nadaptive)
             end do
-            call flush(6)
+            call flush(90+myid)
          end if
 
          ! REALLOCATE BUFFERS
@@ -1059,16 +1084,16 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
          ! prepare arrays kbufsend and 
-         kbufsend(1)  = 1
-         do i = 2,ninstructions
-            kbufsend(i) = kbufsend(i-1) + lbufa(i-1)
-         end do
-         print *, 'myid =',myid,'All messages in pack 10 received, MPI is fun!.'
-         call flush(6)
-         print *, 'myid',myid,'lbufa'
-         print *,  lbufa
-         print *, 'myid',myid,'kbufsend'
-         print *,  kbufsend
+         if (lkbufsend .gt. 0) then
+            kbufsend(1)  = 1
+            do i = 2,ninstructions
+               kbufsend(i) = kbufsend(i-1) + lbufa(i-1)
+            end do
+         end if
+         if (debug) then
+            print *, 'myid =',myid,'All messages in pack 10 received, MPI is fun!.'
+            call flush(6)
+         end if
          lbufsend = 0
          do i = 1,ninstructions
             lbufsend = lbufsend + lbufa(i)
@@ -1099,11 +1124,15 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             end do
 
             ! distribute chunks of eigenvectors
-            ireq = ireq + 1
-            call MPI_ISEND(bufsend_i,lbufsend_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            if (lbufsend_i .gt. 0) then
+               ireq = ireq + 1
+               call MPI_ISEND(bufsend_i,lbufsend_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            end if
 
-            ireq = ireq + 1
-            call MPI_ISEND(bufsend_j,lbufsend_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            if (lbufsend_j .gt. 0) then
+               ireq = ireq + 1
+               call MPI_ISEND(bufsend_j,lbufsend_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            end if
          end if
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
@@ -1111,13 +1140,17 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             gglob = instructions(iinstr,3)
             call dd_get_interface_size(myid,isub,ndofi,nnodi)
 
-            ireq = ireq + 1
-            call MPI_IRECV(bufrecv(kbufsend(iinstr)),lbufa(iinstr),MPI_DOUBLE_PRECISION,owner,isub,comm,request(ireq),ierr)
+            if (lbufa(iinstr) .gt. 0) then
+               ireq = ireq + 1
+               call MPI_IRECV(bufrecv(kbufsend(iinstr)),lbufa(iinstr),MPI_DOUBLE_PRECISION,owner,isub,comm,request(ireq),ierr)
+            end if
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
-         print *, 'myid =',myid,'All messages in pack 11 received, MPI is fun!.'
-         call flush(6)
+         if (debug) then
+            print *, 'myid =',myid,'All messages in pack 11 received, MPI is fun!.'
+            call flush(6)
+         end if
 
          ! processors now own data of adaptively found constraints on their subdomains, they have to filter globs and load them into the structure
          do iinstr = 1,ninstructions
@@ -1137,7 +1170,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             do j = 1,nadaptive_rcv
                do i = 1,ndofi
                   ind = ind + 1
-                  cadapt(i,j) = bufrecv(ind)
+                  cadapt(i,j) = bufrecv(pointbuf + ind)
                end do
             end do
 
@@ -1147,7 +1180,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             end do
 
             ! load constraints into DD structure 
-            print *, 'myid =',myid,'loading: isub,gglob', isub,gglob
             call dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2)
 
             deallocate(cadapt)
@@ -1248,11 +1280,8 @@ real(kr) :: xaux3(lx)
 logical :: i_am_slave, all_slaves
 
 integer :: ireq, nreq, ierr
-real(kr) :: spd_check
 
 comm_calls = comm_calls + 1
-!print *,'I am in multiply for LOBPCG!, myid = ',comm_myid,'comm_calls =',comm_calls,'idoper =', idoper
-!call flush(6)
 
 ! Check if all processors simply called the fake routine - if so, finalize
 if (idoper.eq.3) then
@@ -1286,8 +1315,6 @@ ireq = ireq + 1
 call MPI_ISEND(do_i_compute,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
 nreq = ireq
 call MPI_WAITALL(nreq, request, statarray, ierr)
-!print *, 'I am ',comm_myid,'All messages in pack 50 received, MPI is fun!.'
-!call flush(6)
 
 ireq = 0
 ! common operations for A and B - checks and projection to null(D_ij)
@@ -1311,11 +1338,8 @@ if (idoper.eq.1 .or. idoper.eq.2) then
       xaux(i) = x(i)
    end do
    
-!   print '(a,100f10.6)', 'xaux initial = ',xaux
-
    ! xaux = P xaux
    call adaptivity_apply_null_projection(xaux,lx)
-!   print '(a,100f10.6)', 'xaux after projection = ',xaux
 
    if (idoper.eq.1) then
       ! apply (I-RE) xaux = (I-RR'D_P) xaux
@@ -1329,7 +1353,6 @@ if (idoper.eq.1 .or. idoper.eq.2) then
       do i = 1,problemsize
          xaux(i) = xaux(i) - xaux2(i)
       end do
-!      print '(a,100f10.6)', 'xaux after I -RE = ',xaux
    end if
 
 
@@ -1357,8 +1380,6 @@ do iinstr = 1,ninstructions
 end do
 nreq = ireq
 call MPI_WAITALL(nreq, request, statarray, ierr)
-!print *, 'I am ',comm_myid,'All messages in pack 51 received, MPI is fun!.'
-!call flush(6)
 
 ! Multiply subdomain vectors by Schur complement
 do iinstr = 1,ninstructions
@@ -1400,8 +1421,6 @@ end if
 ! Wait for all vectors reach their place
 nreq = ireq
 call MPI_WAITALL(nreq, request, statarray, ierr)
-!print *, 'I am ',comm_myid,'All messages in pack 52 received, MPI is fun!.'
-!call flush(6)
 
 ! Continue only of I was called from LOBPCG
 if (idoper.eq.1 .or. idoper.eq.2) then
@@ -1412,8 +1431,6 @@ if (idoper.eq.1 .or. idoper.eq.2) then
          xaux(i) = -xaux(i)
       end do
    end if
-
-!   print '(a,100f10.6)','xaux after Schur = ',xaux
 
    if (idoper.eq.1) then
       ! apply (I-RE)^T = (I - E^T R^T) = (I - D_P^T * R * R^T)
@@ -1431,23 +1448,15 @@ if (idoper.eq.1 .or. idoper.eq.2) then
       do i = 1,problemsize
          xaux(i) = xaux(i) - xaux3(i)
       end do
-!      print '(a,100f10.6)', 'xaux after (I-RE)^T = ',xaux
    end if
 
    ! xaux = P xaux
    call adaptivity_apply_null_projection(xaux,lx)
-!   print '(a,100f10.6)', 'xaux after projection = ',xaux
 
    ! copy result to y
    do i = 1,lx
       y(i) = xaux(i)
    end do
-
-   ! check the positive definiteness 
-!   if (debug) then
-!      spd_check = ddot(lx,x,1,y,1)
-!      write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: SPD check = ',spd_check
-!   end if
 
 end if
 

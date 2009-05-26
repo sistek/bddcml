@@ -1,6 +1,6 @@
 #*********** Compiler
-FC = gfortran -O3 -fbounds-check
-#FC = gfortran -g -C -Wall -fbounds-check
+#FC = gfortran -O3 -fbounds-check
+FC = gfortran -g -C -Wall -fbounds-check
 
 CC = gcc -g -Wall
 
