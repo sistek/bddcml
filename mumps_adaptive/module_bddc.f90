@@ -1211,6 +1211,7 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
 
 ! Use sparse matrices module
       use module_sm
+      use module_utils
        
       implicit none
       include "mpif.h"
@@ -1278,6 +1279,9 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
                  ivt, jvt
       real(kr):: value
 
+      ! LAPACK arrays
+      integer :: ldimr, ldimg
+
       integer :: ia, ierr, nnz_add, nnz_new, point, space_left, iaux
       real(kr):: t_stab_loc, t_stab, scalar
 
@@ -1305,13 +1309,13 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
 
 
          nconstr_loc = nconstr_loc + nconstr_glob*(nsubglb-1)
-         print *, 'nconstr_loc = ',nconstr_loc
 
          indinglb = indinglb + nglbn
       end do
+      print *, 'myid =',myid,'nconstr_loc = ',nconstr_loc
 
 ! find stabilization factor t for projection
-      t_stab_loc = 0
+      t_stab_loc = 0._kr
       write(*,*) 'nnz in proj start= ',nnz
       do ia = 1,nnz
          if (i_sparse(ia).eq.j_sparse(ia)) then
@@ -1391,9 +1395,9 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
             end do
             iglbv = iglbv + ndofn
          end do
-!         print *, 'iglb =',iglb,'kdoft =',kdoft
-!         print *, 'iglb =',iglb,'mapping =',iglbntn
-!         print *, 'iglb =',iglb,'mapping vars=',iglbvtvn
+!         print *, 'myid =',myid,'iglb =',iglb,'kdoft =',kdoft
+!         print *, 'myid =',myid,'iglb =',iglb,'mapping =',iglbntn
+!         print *, 'myid =',myid,'iglb =',iglb,'mapping vars=',iglbvtvn
 
          ! prepare matrix G - local for glob
          lg1       = (nsubglb - 1) * nconstr_glob
@@ -1409,10 +1413,11 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
                g(iline,ipair*nglbv + iconstr) = -1._kr
             end do
          end do
-!         write(*,*) 'Matrix G'
-!         do i = 1,lg1
-!            write(*,'(30f10.5)') g(i,:)
-!         end do
+         !write(*,*) 'myid =',myid,'iglb =',iglb,'Matrix G','lg1,lg2',lg1,lg2
+         !do i = 1,lg1
+         !   write(*,'(30f10.5)') g(i,:)
+         !end do
+         !call flush(6)
 
 !        QR decomposition of matrix G^T
          lr1 = lg2
@@ -1433,22 +1438,28 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
             stop
          end if
          deallocate(tau,work)
-!         write(*,*) 'Matrix R'
-!         do i = 1,lr1
-!            write(*,'(30f10.5)') r(i,:)
-!         end do
-!         call flush(6)
+         !write(*,*) 'myid =',myid,'iglb =',iglb,'Matrix R'
+         !do i = 1,lr1
+         !   write(*,'(30f10.5)') r(i,:)
+         !end do
+         !call flush(6)
 
 !        find local block of F, such that R^T F = G, store F in G
-         ldim = max(1,lr2)
+         ldimr = max(1,lr1)
+         ldimg = max(1,lg1)
          nrhs = lg2
-         call DTRTRS( 'L',   'N',   'N', lr2 , nrhs, transpose(r), ldim, g, ldim, lapack_info)
+         call DTRTRS( 'U',   'T',   'N', lr2 , nrhs, r, ldimr, g, ldimg, lapack_info)
          if (lapack_info.ne.0) then
             write(*,*) 'Error in LAPACK solution of R^T * F = G :', lapack_info
             call flush(6)
             stop
          end if
          deallocate(r)
+         !write(*,*) 'myid =',myid,'iglb =',iglb,'Matrix F','lg1,lg2',lg1,lg2
+         !do i = 1,lg1
+         !   write(*,'(30f10.5)') g(i,:)
+         !end do
+         !call flush(6)
 
          ! copy block of F stored in G into global F
          do jg = 1,lg2
@@ -1457,7 +1468,9 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
             do ig = 1,lg1
                ! loop over diagonal of degrees of freedom at the node
                jfline = ig
-               f(indfline + jfline,indjv) = g(ig,jg)
+               if (abs(g(ig,jg)).gt.numerical_zero) then
+                  f(indfline + jfline,indjv) = g(ig,jg)
+               end if
             end do
          end do
 
@@ -1496,11 +1509,12 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
          indfline = indfline + nconstr_glob*(nsubglb-1)
          indinglb = indinglb + nglbn
       end do
-!      write(*,*) 'myid:',myid,'Matrix F ,lf1 = ',lf1
-!      do i = 1,lf1
-!         write(*,'(150f10.5)') f(i,:)
-!      end do
-      call flush(6)
+      !write(*,*) 'myid:',myid,'Matrix F^T ,lf1 = ',lf1
+      !do i = 1,lf2
+      !   write(90+myid,'(150f10.5)') f(:,i)
+      !end do
+      !call flush(6)
+      !call flush(90+myid)
       call bddc_time_end(comm,time)
       if (myid.eq.0.and.time_verbose.ge.2) then
          write(*,*) '==========================================='
@@ -1522,11 +1536,12 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
          write(*,*) 'Time of H construction = ',time
          write(*,*) '==========================================='
       end if
-!      write(*,*) 'Matrix H'
-!      do i = 1,lh1
-!         write(*,'(30f10.5)') h(i,:)
-!      end do
-!      call flush(6)
+      !write(*,*) 'myid:',myid,'Matrix H'
+      !do i = 1,lh1
+      !   write(90+myid,'(30f10.5)') h(i,:)
+      !end do
+      !call flush(6)
+      !call flush(90+myid)
       
 ! Convert F to sparse matrix
       lf_sparse = count(f.ne.0._kr) 
@@ -1614,6 +1629,12 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
          write(*,*) '=============================================='
          write(*,*) 'Time of all matrix-matrix multiplications = ',time
          write(*,*) '=============================================='
+      end if
+
+
+      if (nnz_new.gt.la) then
+         write(*,*) 'BDDC_P_ADAPT_INIT: No space left for entries of projection.'
+         call error_exit
       end if
 
 ! Assembly new entries in matrix
@@ -1900,6 +1921,10 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 
       real(kr):: time
 
+      integer :: iunit
+      character(1) :: avgstring, substring
+      character(100) :: avgfile
+
 ! Check the applicability of the routine - symmetric matrices
       if (matrixtype.ne.1.and.matrixtype.ne.2) then
          if (myid.eq.0) then
@@ -1986,7 +2011,7 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
             lt1 = nglbn
             lt2 = nglbn
             allocate(t(lt1,lt2))
-            call bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
+            call bddc_T_inverse(myid,avg,lavg1,lavg2,t,lt1,lt2)
             deallocate(avg)
    
    !         write(*,*) 'Matrix Tinv after inversion'
@@ -2024,10 +2049,31 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 
 !            print *,'I am here: lavg1 =',lavg1,'lavg2 =',lavg2
 
+            ! debug - with aritmetic averages
+            !lavg1 = 3
             ! prepare matrix AVG - local for glob, only averages => rectangular
             allocate(avg(lavg1,lavg2))
             ! case of single aritmetic average
             call dd_get_adaptive_constraints(myid,isub,iglb,avg,lavg1,lavg2)
+            !debug
+            !write(substring ,'(i1)') myid+1
+            !write(avgstring ,'(i1)') iglb
+            !!avgfile = 'sub_'//substring//'_avg_'//avgstring//'_arithmetic.txt'
+            !avgfile = 'sub_'//substring//'_avg_'//avgstring//'.txt'
+
+            !print *,'myid =',myid,'opening file',trim(avgfile)
+
+            !call allocate_unit(iunit)
+            !open(iunit,file=trim(avgfile),status='old',form='formatted')
+            !do i = 1,lavg1
+            !   read(iunit,*) (avg(i,j),j = 1,lavg2)
+            !end do
+            !close(iunit)
+            
+            !print *,'Averages:'
+            !do i = 1,lavg1
+            !   print '(100f14.6)',(avg(i,j),j = 1,lavg2)
+            !end do
 
 ! Load matrix to MUMPS
 !      ltestm1 = ndoft
@@ -2040,10 +2086,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !      end do
 !      deallocate(testm)
 
-!            print *,'Averages:'
-!            do i = 1,lavg1
-!               print '(100f14.6)',(avg(i,j),j = 1,lavg2)
-!            end do
             ! number of constraints on this glob
             nconstrgl(iglb) = lavg1
 
@@ -2090,7 +2132,7 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
             ltdof1 = nglbv
             ltdof2 = nglbv
             allocate(tdof(ltdof1,ltdof2))
-            call bddc_T_inverse(avg,lavg1,lavg2,tdof,ltdof1,ltdof2)
+            call bddc_T_inverse(myid,avg,lavg1,lavg2,tdof,ltdof1,ltdof2)
             deallocate(avg)
    
          else 
@@ -2130,6 +2172,12 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
             end do
             iv = iv + ndofn
          end do
+
+         !write(*,*) 'myid =',myid,'array iglbvgvn'
+         !write(*,*) iglbvgvn
+         !write(*,*) 'myid =',myid,'array inglb'
+         !write(*,*) inglb
+         !call flush(6)
 
 ! Find new entries in the matrix from Ac*T
          point = nnz + nnz_new
@@ -2380,9 +2428,9 @@ subroutine bddc_T_apply(comm,vec,lvec,transposed)
       return
 end subroutine
 
-!***************************************************
-subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
-!***************************************************
+!********************************************************
+subroutine bddc_T_inverse(myid,avg,lavg1,lavg2,t,lt1,lt2)
+!********************************************************
 ! Subroutine for generation of transformation matrix T based on averages on glob
 ! stored in AVG.
 ! Performs LU factorization with column permutation 
@@ -2391,7 +2439,8 @@ subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
 ! ang lower block of L without identity on diagonal
        
       implicit none
-
+! processor ID
+      integer :: myid
 ! rectangular matrix
       integer, intent(in)    :: lavg1, lavg2
       real(kr),intent(inout) ::  avg(lavg1,lavg2)
@@ -2413,6 +2462,10 @@ subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
       real(kr),allocatable ::  work(:)
       integer              :: ltau
       real(kr),allocatable ::  tau(:)
+
+      integer :: i,j
+      integer ::  nvalid
+      real(kr) :: tresh_diag
       
        
 ! Check dimensions of arrays
@@ -2434,18 +2487,57 @@ subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
       lwork = 3*lavg2 + 1
       allocate(work(lwork))
 
+      write(90+myid,*) 'Averages before triangularization:'
+      do i = 1,lavg1
+         write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
+      end do
+      call flush(90+myid)
 !      call bddc_T_LU(avg,lavg1,lavg2,ipiv,lipiv)
-      ldavg = lavg1
+      ldavg = max(1,lavg1)
       call DGEQP3( lavg1, lavg2, avg, ldavg, ipiv, tau, work, lwork, lapack_info )
       deallocate(tau)
       deallocate(work)
+      ! zero AVG below diagonal
+      do i = 2,lavg1
+         do j = 1,i-1
+            avg(i,j) = 0._kr
+         end do
+      end do
+      write(90+myid,*) 'Averages after triangularization:'
+      write(90+myid,*) 'ipiv =',ipiv
+      do i = 1,lavg1
+         write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
+      end do
+      call flush(90+myid)
 
-      call bddc_T_blinv(avg,lavg1,lavg2)
+      ! determine number of valid averages for stable inverse check values bellow treshold
+      if (lavg1.gt.0) then
+         tresh_diag = numerical_zero*avg(1,1)
+      else
+         tresh_diag = 0._kr
+      end if
+
+      nvalid = 0
+      do i = 1,lavg1
+         if (abs(avg(i,i)).lt.tresh_diag) then
+            exit
+         else
+            nvalid = nvalid + 1
+         end if
+      end do
+
+      call bddc_T_blinv(avg(1:nvalid,:),nvalid,lavg2)
+      write(90+myid,*) 'Averages after inversion:'
+      write(90+myid,*) 'ipiv =',ipiv
+      do i = 1,nvalid
+         write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
+      end do
+      call flush(90+myid)
 
       ! construct new array T
       t = 0._kr
-      t(1:lavg1,:) = avg
-      do irow = lavg1 + 1,lt1
+      t(1:nvalid,:) = avg(1:nvalid,:)
+      do irow = nvalid + 1,lt1
          t(irow,irow) = 1._kr
       end do
 
@@ -2461,6 +2553,12 @@ subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
             t(indrow,:) = aux
          end if
       end do
+      write(90+myid,*) 'T'
+      write(90+myid,*) 'ipiv =',ipiv
+      do i = 1,lt1
+         write(90+myid,'(100f14.6)') (t(i,j),j = 1,lt2)
+      end do
+      call flush(90+myid)
 
       deallocate(aux)
       deallocate(ipiv)
@@ -2573,9 +2671,6 @@ subroutine bddc_T_blinv(avg,lavg1,lavg2)
 ! Local variables
       integer  :: lapack_info, jcol, ldim
 
-      integer             :: lipiv
-      integer,allocatable ::  ipiv(:)
-
       integer              :: lwork
       real(kr),allocatable ::  work(:)
       
@@ -2585,24 +2680,17 @@ subroutine bddc_T_blinv(avg,lavg1,lavg2)
          stop
       end if
 
-! Prepare array of row permutations - trivial
-      lipiv = lavg1
-      allocate(ipiv(lipiv))
-      do jcol = 1,lavg1
-         ipiv(jcol) = jcol
-      end do
-
 ! Invert the first block of AVG using LAPACK
       lwork = max(1,lavg1)
       allocate(work(lwork))
       ldim  = max(1,lavg1)
-      call DGETRI(lavg1, avg, ldim, ipiv, work, lwork, lapack_info)
+      call DTRTI2( 'U', 'N', lavg1, avg, ldim, lapack_info)
+
       if (lapack_info.ne.0) then
          write(*,*) 'Error in Lapack factorization of transformation matrix'
          stop
       end if
       deallocate(work)
-      deallocate(ipiv)
 
 ! Calculate -A^-1*B
       if (lavg2.gt.lavg1) then

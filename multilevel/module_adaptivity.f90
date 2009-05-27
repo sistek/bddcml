@@ -9,7 +9,7 @@ integer,parameter,private  :: kr = kind(1.D0)
 real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! treshold on eigenvalues to define an adaptive constraint
-real(kr),parameter,private :: treshold_eigval = 1.5_kr
+real(kr),parameter,private :: treshold_eigval = 2._kr
 
 ! debugging 
 logical,parameter,private :: debug = .false.
@@ -254,7 +254,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer,intent(in) :: nproc
 
 ! Maximal number of eigenvectors per problem
-      integer,parameter :: neigvecx = 20 
+      integer,parameter :: neigvecx = 10 
 
 ! local variables
       integer :: isub, jsub, ipair, iactive_pair, iround
@@ -1030,10 +1030,10 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          if (my_pair.ge.0) then
 
             nadaptive = count(eigval.ge.treshold_eigval)
-            if (debug) then
-               write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: I am going to add ',nadaptive,' constraints for pair ',my_pair
-               call flush(6)
-            end if
+
+            write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: I am going to add ',nadaptive,' constraints for pair ',my_pair
+            call flush(6)
+
             lconstraints1 = problemsize
             lconstraints2 = nadaptive
             allocate(constraints(lconstraints1,lconstraints2))
@@ -1046,13 +1046,13 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end if
          call adaptivity_fake_lobpcg_driver
 
-         if (my_pair.ge.0) then
-            !write(90+myid,*) 'Constraints to be added on pair ',my_pair
-            !do i = 1,problemsize
-            !   write(90+myid,'(100f15.3)') (constraints(i,j),j = 1,nadaptive)
-            !end do
-            !call flush(90+myid)
-         end if
+         !if (my_pair.ge.0) then
+         !   write(*,*) 'Constraints to be added on pair ',my_pair
+         !   do i = 1,problemsize
+         !      write(*,'(100f15.3)') (constraints(i,j),j = 1,nadaptive)
+         !   end do
+         !   call flush(6)
+         !end if
 
          ! REALLOCATE BUFFERS
          deallocate(bufrecv,bufsend)

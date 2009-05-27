@@ -274,7 +274,7 @@ logical :: remove_original
       call adaptivity_init(myid,comm,idpair,npair)
       print *, 'I am processor ',myid,': nproc = ',nproc, 'nsub = ',nsub
       call adaptivity_assign_pairs(npair,nproc,npair_locx)
-      call adaptivity_print_pairs(myid)
+      !call adaptivity_print_pairs(myid)
       call adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
 
