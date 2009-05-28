@@ -2487,11 +2487,11 @@ subroutine bddc_T_inverse(myid,avg,lavg1,lavg2,t,lt1,lt2)
       lwork = 3*lavg2 + 1
       allocate(work(lwork))
 
-      write(90+myid,*) 'Averages before triangularization:'
-      do i = 1,lavg1
-         write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
-      end do
-      call flush(90+myid)
+      !write(90+myid,*) 'Averages before triangularization:'
+      !do i = 1,lavg1
+      !   write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
+      !end do
+      !call flush(90+myid)
 !      call bddc_T_LU(avg,lavg1,lavg2,ipiv,lipiv)
       ldavg = max(1,lavg1)
       call DGEQP3( lavg1, lavg2, avg, ldavg, ipiv, tau, work, lwork, lapack_info )
@@ -2503,12 +2503,12 @@ subroutine bddc_T_inverse(myid,avg,lavg1,lavg2,t,lt1,lt2)
             avg(i,j) = 0._kr
          end do
       end do
-      write(90+myid,*) 'Averages after triangularization:'
-      write(90+myid,*) 'ipiv =',ipiv
-      do i = 1,lavg1
-         write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
-      end do
-      call flush(90+myid)
+      !write(90+myid,*) 'Averages after triangularization:'
+      !write(90+myid,*) 'ipiv =',ipiv
+      !do i = 1,lavg1
+      !   write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
+      !end do
+      !call flush(90+myid)
 
       ! determine number of valid averages for stable inverse check values bellow treshold
       if (lavg1.gt.0) then
@@ -2525,14 +2525,18 @@ subroutine bddc_T_inverse(myid,avg,lavg1,lavg2,t,lt1,lt2)
             nvalid = nvalid + 1
          end if
       end do
+      if (nvalid.lt.lavg1) then
+         write(*,*) 'BDDC_T_INVERSE: WARNING - Number of added averages was reduced due to linear dependence.'
+      end if
 
       call bddc_T_blinv(avg(1:nvalid,:),nvalid,lavg2)
-      write(90+myid,*) 'Averages after inversion:'
-      write(90+myid,*) 'ipiv =',ipiv
-      do i = 1,nvalid
-         write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
-      end do
-      call flush(90+myid)
+
+      !write(90+myid,*) 'Averages after inversion:'
+      !write(90+myid,*) 'ipiv =',ipiv
+      !do i = 1,nvalid
+      !   write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
+      !end do
+      !call flush(90+myid)
 
       ! construct new array T
       t = 0._kr
@@ -2553,12 +2557,12 @@ subroutine bddc_T_inverse(myid,avg,lavg1,lavg2,t,lt1,lt2)
             t(indrow,:) = aux
          end if
       end do
-      write(90+myid,*) 'T'
-      write(90+myid,*) 'ipiv =',ipiv
-      do i = 1,lt1
-         write(90+myid,'(100f14.6)') (t(i,j),j = 1,lt2)
-      end do
-      call flush(90+myid)
+      !write(90+myid,*) 'T'
+      !write(90+myid,*) 'ipiv =',ipiv
+      !do i = 1,lt1
+      !   write(90+myid,'(100f14.6)') (t(i,j),j = 1,lt2)
+      !end do
+      !call flush(90+myid)
 
       deallocate(aux)
       deallocate(ipiv)

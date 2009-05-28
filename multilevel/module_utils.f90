@@ -4,6 +4,8 @@ module module_utils
 implicit none
 integer,parameter,private :: kr = kind(1.D0)
 
+real(kr),parameter :: numerical_zero = 1.e-14
+
 interface zero
    module procedure zero_int_1
    module procedure zero_int_2
@@ -403,6 +405,70 @@ subroutine get_index(ivalue,iarray,liarray,iindex)
             exit
          end if
       end do
+end subroutine
+
+!************************************
+subroutine condtri(nw,nwx,w,lw, cond)
+!************************************
+! Routine that estimates condition number of a real symmetric tridiagonal matrix 
+! using LAPACK
+
+! used dimension of matrix
+      integer,intent(in) :: nw
+! allocated size of matrix (leading dimension)
+      integer,intent(in) :: nwx
+
+! tridiagonal matrix
+      integer,intent(in) :: lw
+      real(kr),intent(in) :: w(lw)
+
+! estimate of the condition number
+      real(kr),intent(out) :: cond
+
+! local variables
+
+! arrays on stack
+      ! diagonal of the matrix
+      real(kr) :: d(nw)
+      real(kr) :: e(nw-1)
+
+      ! auxiliary variables
+      integer ::  iaux
+      real(kr) :: raux(1)
+
+      real(kr) :: eigmax, eigmin
+      integer ::  i
+
+      ! LAPACK
+      integer :: lapack_info
+
+      ! prepare data for LAPACK
+      ! diagonal
+      do i = 1,nw
+         d(i) = w((i-1)*nwx + i)
+      end do
+      ! subdiagonal
+      do i = 1,nw-1
+         e(i) = w((i-1)*nwx + i + 1)
+      end do
+
+      ! LAPACK routine for searching eigenvalues (returned in ascending order)
+      iaux = 1
+      call DSTEV( 'N', nw, d, e, raux, iaux, raux, lapack_info)
+
+      ! compute condition number
+      eigmax = d(nw)
+      eigmin = d(1)
+      if (eigmin.lt.1._kr) then
+         write(*,*) 'CONDTRI: WARNING - Lowest eigenvalue is less than 1.'
+         eigmin = 1._kr
+      end if
+      if (abs(eigmin).gt.numerical_zero) then
+         cond = eigmax/eigmin
+      else
+         cond = huge(cond)
+      end if
+
 end subroutine
 
 end module module_utils

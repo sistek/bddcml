@@ -9,7 +9,7 @@ integer,parameter,private  :: kr = kind(1.D0)
 real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! treshold on eigenvalues to define an adaptive constraint
-real(kr),parameter,private :: treshold_eigval = 2._kr
+real(kr),parameter,private :: treshold_eigval = 3._kr
 
 ! debugging 
 logical,parameter,private :: debug = .false.
@@ -254,7 +254,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer,intent(in) :: nproc
 
 ! Maximal number of eigenvectors per problem
-      integer,parameter :: neigvecx = 10 
+      integer,parameter :: neigvecx = 20 
 
 ! local variables
       integer :: isub, jsub, ipair, iactive_pair, iround
