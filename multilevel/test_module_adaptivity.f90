@@ -10,7 +10,7 @@ program test_module_adaptivity
       integer,parameter :: kr = kind(1.D0)
 
       ! parallel variables
-      integer :: myid, comm, nproc, ierr
+      integer :: myid, comm_self, comm_all, nproc, ierr
 
       integer :: idpar, idpair 
       integer :: npair
@@ -31,9 +31,10 @@ program test_module_adaptivity
 !***************************************************************PARALLEL
       call MPI_INIT(ierr)
       ! Communicator
-      comm = MPI_COMM_WORLD
-      call MPI_COMM_RANK(comm,myid,ierr)
-      call MPI_COMM_SIZE(comm,nproc,ierr)
+      comm_all  = MPI_COMM_WORLD
+      comm_self = MPI_COMM_SELF
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
 !***************************************************************PARALLEL
 
 ! Initial screen
@@ -49,7 +50,7 @@ program test_module_adaptivity
       end if
 ! Broadcast of name of the problem      
 !***************************************************************PARALLEL
-      call MPI_BCAST(problemname, 90, MPI_CHARACTER, 0, comm, ierr)
+      call MPI_BCAST(problemname, 90, MPI_CHARACTER, 0, comm_all, ierr)
 !***************************************************************PARALLEL
 
       if (myid.eq.0) then
@@ -64,13 +65,13 @@ program test_module_adaptivity
       end if
 ! Broadcast basic properties of the problem
 !***************************************************************PARALLEL
-      call MPI_BCAST(ndim,     1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(nsub,     1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(nelem,    1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(ndof,     1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(nnod,     1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(nnodc,    1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(linet,    1, MPI_INTEGER,         0, comm, ierr)
+      call MPI_BCAST(ndim,     1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(nsub,     1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(nelem,    1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(ndof,     1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(nnod,     1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(nnodc,    1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(linet,    1, MPI_INTEGER,         0, comm_all, ierr)
 !***************************************************************PARALLEL
 
 
@@ -94,7 +95,7 @@ program test_module_adaptivity
       remove_original = .false.
       call dd_matrix_tri2blocktri(myid,remove_original)
       do isub = 1,nsub
-         call dd_prepare_schur(myid,comm,isub)
+         call dd_prepare_schur(myid,comm_self,isub)
       end do
       call dd_prepare_adaptive_space(myid)
 
@@ -110,12 +111,12 @@ program test_module_adaptivity
 !         deallocate(schur)
 !      end do
    
-      call adaptivity_init(myid,comm,idpair,npair)
+      call adaptivity_init(myid,comm_all,idpair,npair)
 
       print *, 'I am processor ',myid,': nproc = ',nproc, 'nsub = ',nsub
       call adaptivity_assign_pairs(npair,nproc,npair_locx)
 
-      call adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
+      call adaptivity_solve_eigenvectors(myid,comm_all,npair_locx,npair,nproc)
 
       call adaptivity_finalize
    

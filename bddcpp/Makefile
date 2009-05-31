@@ -2,7 +2,7 @@
 include ../make.inc
 
 # libraries needed
-LIBS = $(ORDERINGSLIB)
+LIBS = $(ORDERINGSLIB) $(LAPACKLIB) $(BLASLIB)
 # includes
 INC = -I../multilevel
 ##############################################################

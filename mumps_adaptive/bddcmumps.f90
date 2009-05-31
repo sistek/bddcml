@@ -93,7 +93,7 @@ integer:: lname1, ndim, nsub, nelem, ndof, nnod, nnodc, linet, maxit, ndecrmax, 
 real(kr):: tol, pival
 
 ! Variables for communication
-integer:: comm, myid, nproc, ierr
+integer:: comm_all, comm_self, myid, nproc, ierr
 integer:: start, finish, nsub_loc, nsub_locx
 
 ! Mesh description in W_hat
@@ -159,15 +159,16 @@ logical :: remove_original
 
 ! MPI initialization
 !***************************************************************PARALLEL
-! Communicator
-      comm = MPI_COMM_WORLD
+! Communicators
+      comm_all  = MPI_COMM_WORLD
+      comm_self = MPI_COMM_SELF
       call MPI_INIT(ierr)
-      call MPI_COMM_RANK(comm,myid,ierr)
-      call MPI_COMM_SIZE(comm,nproc,ierr)
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
 !***************************************************************PARALLEL
 
 ! Beginning of mesuring time
-      call bddc_time_start(comm)
+      call bddc_time_start(comm_all)
       
 ! Initial screen
       if (myid.eq.0) then
@@ -185,8 +186,8 @@ logical :: remove_original
       end if
 ! Broadcast of name of the problem      
 !***************************************************************PARALLEL
-      call MPI_BCAST(name1, 8, MPI_CHARACTER, 0, comm, ierr)
-      call MPI_BCAST(lname1,  1, MPI_INTEGER, 0, comm, ierr)
+      call MPI_BCAST(name1, 8, MPI_CHARACTER, 0, comm_all, ierr)
+      call MPI_BCAST(lname1,  1, MPI_INTEGER, 0, comm_all, ierr)
 !***************************************************************PARALLEL
 
 ! Open disk files on root processor
@@ -245,20 +246,21 @@ logical :: remove_original
       end if
 ! Broadcast basic properties of the problem
 !***************************************************************PARALLEL
-      call MPI_BCAST(ndim,     1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(nsub,     1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(nelem,    1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(ndof,     1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(nnod,     1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(nnodc,    1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(linet,    1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(tol,      1, MPI_DOUBLE_PRECISION,0, comm, ierr)
-      call MPI_BCAST(maxit,    1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(ndecrmax, 1, MPI_INTEGER,         0, comm, ierr)
-      call MPI_BCAST(pival,    1, MPI_DOUBLE_PRECISION,0, comm, ierr)
+      call MPI_BCAST(ndim,     1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(nsub,     1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(nelem,    1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(ndof,     1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(nnod,     1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(nnodc,    1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(linet,    1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(tol,      1, MPI_DOUBLE_PRECISION,0, comm_all, ierr)
+      call MPI_BCAST(maxit,    1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(ndecrmax, 1, MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(pival,    1, MPI_DOUBLE_PRECISION,0, comm_all, ierr)
 !***************************************************************PARALLEL
 
 ! Initialize DD
+      call bddc_time_start(comm_all)
       call dd_init(nsub)
       call dd_distribute_subdomains(nsub,nproc)
       call dd_read_mesh_from_file(myid,name1(1:lname1))
@@ -267,18 +269,30 @@ logical :: remove_original
       remove_original = .false.
       call dd_matrix_tri2blocktri(myid,remove_original)
       do isub = 1,nsub
-         call dd_prepare_schur(myid,comm,isub)
+         call dd_prepare_schur(myid,comm_self,isub)
       end do
-      call dd_prepare_adaptive_space(myid)
+      call bddc_time_end(comm_all,time)
+      if (myid.eq.0.and.timeinfo.ge.1) then
+         write(*,*) '==================================='
+         write(*,*) 'Time of DD structure setup = ',time
+         write(*,*) '==================================='
+         call flush(6)
+      end if
 
-      call adaptivity_init(myid,comm,idpair,npair)
-      print *, 'I am processor ',myid,': nproc = ',nproc, 'nsub = ',nsub
+
+      call bddc_time_start(comm_all)
+      call dd_prepare_adaptive_space(myid)
+      call adaptivity_init(myid,comm_all,idpair,npair)
       call adaptivity_assign_pairs(npair,nproc,npair_locx)
       !call adaptivity_print_pairs(myid)
-      call adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
-
-
-
+      call adaptivity_solve_eigenvectors(myid,comm_all,npair_locx,npair,nproc)
+      call bddc_time_end(comm_all,time)
+      if (myid.eq.0.and.timeinfo.ge.1) then
+         write(*,*) '==================================='
+         write(*,*) 'Time of adaptivity setup = ',time
+         write(*,*) '==================================='
+         call flush(6)
+      end if
 
 ! Check the demanded number of processors
       if (nproc.ne.nsub) then
@@ -333,8 +347,8 @@ logical :: remove_original
          read(idfvs,*) fixv
       end if
 !*****************************************************************MPI
-      call MPI_BCAST(ifix,lifix, MPI_INTEGER,          0, comm, ierr)
-      call MPI_BCAST(fixv,lfixv, MPI_DOUBLE_PRECISION, 0, comm, ierr)
+      call MPI_BCAST(ifix,lifix, MPI_INTEGER,          0, comm_all, ierr)
+      call MPI_BCAST(fixv,lfixv, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
 !*****************************************************************MPI
       ! convert IFIX and FIXV to W_tilde
       lifixt = ndoft
@@ -366,7 +380,7 @@ logical :: remove_original
             deallocate(igingn)
          end if
 !*****************************************************************MPI
-         call MPI_BCAST(iintt,liintt, MPI_INTEGER,        0, comm, ierr)
+         call MPI_BCAST(iintt,liintt, MPI_INTEGER,        0, comm_all, ierr)
 !*****************************************************************MPI
          call bddc_R_int(nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,iintt,liintt)
       end if
@@ -415,8 +429,8 @@ logical :: remove_original
             read(idglb,*) nglb, linglb
          end if
          !***************************************************************PARALLEL
-         call MPI_BCAST(nglb, 1, MPI_INTEGER, 0, comm, ierr)
-         call MPI_BCAST(linglb, 1, MPI_INTEGER, 0, comm, ierr)
+         call MPI_BCAST(nglb, 1, MPI_INTEGER, 0, comm_all, ierr)
+         call MPI_BCAST(linglb, 1, MPI_INTEGER, 0, comm_all, ierr)
          !***************************************************************PARALLEL
          linglb = linglb
          lnnglb = nglb
@@ -427,8 +441,8 @@ logical :: remove_original
             close(idglb)
          end if
          !***************************************************************PARALLEL
-         call MPI_BCAST(inglb,linglb, MPI_INTEGER, 0, comm, ierr)
-         call MPI_BCAST(nnglb,lnnglb, MPI_INTEGER, 0, comm, ierr)
+         call MPI_BCAST(inglb,linglb, MPI_INTEGER, 0, comm_all, ierr)
+         call MPI_BCAST(nnglb,lnnglb, MPI_INTEGER, 0, comm_all, ierr)
          !***************************************************************PARALLEL
       case(2,3)
          ! For projection and transformation, LOCAL glob description is used
@@ -505,7 +519,7 @@ logical :: remove_original
          read(idrhs) rhs
       end if
 !***************************************************************PARALLEL
-      call MPI_BCAST(rhs,lrhs, MPI_DOUBLE_PRECISION, 0, comm, ierr)
+      call MPI_BCAST(rhs,lrhs, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
 !***************************************************************PARALLEL
       ! convert rhs to W_tilde
       call bddc_convert_ht(nnod,nnodt,nndft,lnndft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft,rhs,lrhs,rhst,lrhst)
@@ -537,7 +551,7 @@ logical :: remove_original
          nonzero_bc_loc = .true.
       end if
 !*****************************************************************MPI
-      call MPI_ALLREDUCE(nonzero_bc_loc,nonzero_bc,1,MPI_LOGICAL,MPI_LOR,comm,ierr)
+      call MPI_ALLREDUCE(nonzero_bc_loc,nonzero_bc,1,MPI_LOGICAL,MPI_LOR,comm_all,ierr)
 !*****************************************************************MPI
       ! If there are nonzero Dirichlet BC, we will need array BCT to eliminate them
       if (nonzero_bc) then
@@ -547,7 +561,7 @@ logical :: remove_original
       ! eliminate natural BC
       call sm_apply_bc(ifixt,lifixt,fixvt,lfixvt,i_sparse,j_sparse,a_sparse,la_pure, bct,lbct)
       if (nonzero_bc) then
-         call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,bct,lbct)
+         call bddc_RRT(comm_all,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,bct,lbct)
       end if
 ! Prepare RHS
       call sm_prepare_rhs(ifixt,lifixt,bct,lbct,rhst,lrhst)
@@ -560,7 +574,7 @@ logical :: remove_original
             call sm_apply_bc(iintt,liintt,aux,laux,i_sparse,j_sparse,a_sparse,la_pure, bct,lbct)
             deallocate(aux)
             if (nonzero_bc) then
-               call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,bct,lbct)
+               call bddc_RRT(comm_all,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,bct,lbct)
             end if
             call sm_prepare_rhs(iintt,liintt,bct,lbct,rhst,lrhst)
          end if
@@ -588,7 +602,7 @@ logical :: remove_original
       if (iterate_on_reduced) then
          if (is_this_the_first_run) then
             ! Initialize MUMPS
-            call mumps_init(schur_mumps,comm,matrixtype)
+            call mumps_init(schur_mumps,comm_all,matrixtype)
             ! Level of information from MUMPS
             call mumps_set_info(schur_mumps,mumpsinfo)
             ! Load matrix to MUMPS
@@ -600,7 +614,7 @@ logical :: remove_original
             ! Solve the system for given rhs
             call mumps_resolve(schur_mumps,rhst,lrhst)
 !*****************************************************************MPI
-            call MPI_BCAST(rhst,lrhst, MPI_DOUBLE_PRECISION, 0, comm, ierr)
+            call MPI_BCAST(rhst,lrhst, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
 !*****************************************************************MPI
 
             ! Now rhst contains solution in interior nodes u_0
@@ -616,7 +630,7 @@ logical :: remove_original
             call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                              solintt,lsolintt, solt,lsolt, &
                              iintt,liintt,(/.true.,.false./))
-            call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,solt,lsolt)
+            call bddc_RRT(comm_all,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,solt,lsolt)
 
             where (iintt.eq.0) rhst = 0.0_kr
 
@@ -649,12 +663,12 @@ logical :: remove_original
             call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                              solt,lsolt, aux,laux, &
                              iintt,liintt, (/.false.,.true./))
-            call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,aux,laux)
+            call bddc_RRT(comm_all,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,aux,laux)
             aux = -aux
             ! Solve the system for given rhs
             call mumps_resolve(schur_mumps,aux,laux)
 !*****************************************************************MPI
-            call MPI_BCAST(aux,laux, MPI_DOUBLE_PRECISION, 0, comm, ierr)
+            call MPI_BCAST(aux,laux, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
 !*****************************************************************MPI
             where(iintt.eq.0) solt = aux
             deallocate(aux)
@@ -679,7 +693,7 @@ logical :: remove_original
       end if
 
 ! Call PCG for solution of the system
-      call bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
+      call bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
                    mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
                    nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, nndft,lnndft, iintt,liintt, &
                    idtr, schur_mumps, rhst,lrhst,tol,maxit,ndecrmax,solt,lsolt)
@@ -752,7 +766,7 @@ logical :: remove_original
       deallocate(sol)
 
 ! End of mesuring time
-      call bddc_time_end(comm,time)
+      call bddc_time_end(comm_all,time)
       if (myid.eq.0.and.timeinfo.ge.1) then
          write(*,*) '=========================='
          write(*,*) 'Time of whole run = ',time
@@ -770,7 +784,7 @@ logical :: remove_original
 end program
 
 !******************************************************************************************************
-subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
+subroutine bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
                    mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
                    nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft,nndft,lnndft, iintt, liintt,&
                    idtr, schur_mumps, res,lres,tol,maxit,ndecrmax,sol,lsol)
@@ -834,7 +848,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
       integer,intent(in) ::  ihntn(lihntn), slavery(lslavery), kdoft(lkdoft), nndft(lnndft), iintt(liintt)
 
 ! Variables for communication
-      integer,intent(in):: comm, myid
+      integer,intent(in):: comm_all, myid
 
 ! Disk unit for transformation
       integer,intent(in):: idtr
@@ -875,7 +889,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
       !integer :: i
 
 ! Beginning of mesuring time
-      call bddc_time_start(comm)
+      call bddc_time_start(comm_all)
       
 ! Prepare fields for PCG - residual will be associated with RHS
       lp   = ndoft
@@ -898,13 +912,13 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 
 !****************************************************************************BDDC
 ! Beginning of mesuring time
-      call bddc_time_start(comm)
+      call bddc_time_start(comm_all)
 ! Initialize an instance of the MUMPS package
-      call bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transformed,ndoft,nnz,i_sparse,j_sparse,a_sparse,la, &
+      call bddc_init(myid,comm_all,matrixtype,mumpsinfo,timeinfo,iterate_on_transformed,ndoft,nnz,i_sparse,j_sparse,a_sparse,la, &
                      weight_approach,averages_approach,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
                      nnodt,nndft,lnndft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, &
                      sol,lsol, res,lres, nnz_transform,idtr)
-      call bddc_time_end(comm,time)
+      call bddc_time_end(comm_all,time)
       if (myid.eq.0.and.timeinfo.ge.1) then
          write(*,*) 'Initialized BDDC'
          write(*,*) '===================================='
@@ -932,7 +946,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
       end if
 !*****************************************************************MPI
       call MPI_ALLREDUCE(nonzero_initial_solution_loc,nonzero_initial_solution,1, &
-                         MPI_LOGICAL,MPI_LOR,comm,ierr)
+                         MPI_LOGICAL,MPI_LOR,comm_all,ierr)
 !*****************************************************************MPI
       if (nonzero_initial_solution) then
          if (iterate_on_reduced) then
@@ -944,7 +958,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          else
             call sm_vec_mult(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, sol,lsol, ap,lap)
          end if
-         call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
+         call bddc_RRT(comm_all,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
          res = res - ap
       end if
       if (iterate_on_reduced) then
@@ -956,7 +970,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
      
 ! determine norm of initial rhs
 ! ||rhs||
-      normrhs = bddc_normvec(comm,res,lres)
+      normrhs = bddc_normvec(comm_all,res,lres)
 
 ! Check of zero right hand side => all zero solution
       if (.not.any(res.ne.0.0_kr)) then
@@ -983,9 +997,9 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 !      write(*,*) 'myid = ',myid,'res before preconditioner'
 !      write(*,'(f15.9)') res(ihntn)
       if (use_preconditioner) then
-         call bddc_M(myid,comm,iterate_on_transformed,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,res,lres,p,lp,rmr)
+         call bddc_M(myid,comm_all,iterate_on_transformed,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,res,lres,p,lp,rmr)
       else
-         call bddc_M_fake(comm,res,lres,p,lp,rmr)
+         call bddc_M_fake(comm_all,res,lres,p,lp,rmr)
       end if
       if (iterate_on_reduced) then
 ! Project p onto the space of energy minimal functions over interiors
@@ -993,12 +1007,12 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                           p,lp, ap,lap, &
                           iintt,liintt, (/.false.,.true./))
-         call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
+         call bddc_RRT(comm_all,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
          ap = -ap
          ! Solve the system for given rhs
          call mumps_resolve(schur_mumps,ap,lap)
 !*****************************************************************MPI
-         call MPI_BCAST(ap,lap, MPI_DOUBLE_PRECISION, 0, comm, ierr)
+         call MPI_BCAST(ap,lap, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
 !*****************************************************************MPI
          where(iintt.eq.0) p = ap
 ! debug
@@ -1029,7 +1043,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
       lastres = 1.0_kr
 
 ! Measure time of all iterations
-      call bddc_time_start(comm)
+      call bddc_time_start(comm_all)
 !***********************************************************************
 !*************************MAIN LOOP OVER ITERATIONS*********************
 !***********************************************************************
@@ -1037,7 +1051,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 
 ! Multiplication of P by local system matrix 
 ! ap = A*p
-         call bddc_time_start(comm)
+         call bddc_time_start(comm_all)
          if (myid.eq.0) then
             write(*,*) ' Multiplication by system matrix'
             call flush(6)
@@ -1052,7 +1066,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
             call sm_vec_mult(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, p,lp, ap,lap)
          end if
 
-         call bddc_time_end(comm,time)
+         call bddc_time_end(comm_all,time)
          if (myid.eq.0.and.timeinfo.ge.2) then
             write(*,*) '===================================='
             write(*,*) 'Time of matrix multiplication = ',time
@@ -1064,11 +1078,11 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 ! pap = p*ap 
          pap_loc = dot_product(p,ap)
 !***************************************************************************MPI
-         call MPI_ALLREDUCE(pap_loc,pap,1,MPI_DOUBLE_PRECISION,MPI_SUM,comm,ierr)
+         call MPI_ALLREDUCE(pap_loc,pap,1,MPI_DOUBLE_PRECISION,MPI_SUM,comm_all,ierr)
 !***************************************************************************MPI
 
 ! Make the AP global (AFTER PAP computation!)
-         call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
+         call bddc_RRT(comm_all,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
 
 ! Control of positive definitenes of system matrix
          if (pap.le.0.0_kr) then
@@ -1076,7 +1090,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
                write(*,*) ' System matrix not positive definite!, pap =',pap
                call flush(6)
             end if
-!            call MPI_ABORT(comm, 78, ierr)
+!            call MPI_ABORT(comm_all, 78, ierr)
          end if
 
 ! Determination of step lenght ALPHA
@@ -1091,7 +1105,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 
 ! Determine global norm of RES
 ! ||res||
-         normres  = bddc_normvec(comm,res,lres)
+         normres  = bddc_normvec(comm_all,res,lres)
 
 ! Evaluation of relative residual
          relres = normres/normrhs
@@ -1137,11 +1151,11 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          if (myid.eq.0) then
             write(*,*) ' Action of preconditioner'
          end if
-         call bddc_time_start(comm)
+         call bddc_time_start(comm_all)
          if (use_preconditioner) then
-            call bddc_M(myid,comm,iterate_on_transformed,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,res,lres,h,lh,rmr)
+            call bddc_M(myid,comm_all,iterate_on_transformed,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,res,lres,h,lh,rmr)
          else
-            call bddc_M_fake(comm,res,lres,h,lh,rmr)
+            call bddc_M_fake(comm_all,res,lres,h,lh,rmr)
          end if
          if (iterate_on_reduced) then
 ! Project p onto the space of energy minimal functions over interiors
@@ -1149,17 +1163,17 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
             call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                              h,lh, ap,lap, &
                              iintt,liintt, (/.false.,.true./))
-            call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
+            call bddc_RRT(comm_all,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
             ap = -ap
             ! Solve the system for given rhs
             call mumps_resolve(schur_mumps,ap,lap)
 !*****************************************************************MPI
-            call MPI_BCAST(ap,lap, MPI_DOUBLE_PRECISION, 0, comm, ierr)
+            call MPI_BCAST(ap,lap, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
 !*****************************************************************MPI
             where(iintt.eq.0) h = ap
          end if
 
-         call bddc_time_end(comm,time)
+         call bddc_time_end(comm_all,time)
          if (myid.eq.0.and.timeinfo.ge.2) then
             write(*,*) '===================================='
             write(*,*) 'Time of preconditioning = ',time
@@ -1192,7 +1206,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
       end do
 !*************************END OF MAIN CYCLE OVER ITERATIONS*************
 ! End of mesuring time
-      call bddc_time_end(comm,time)
+      call bddc_time_end(comm_all,time)
       if (myid.eq.0.and.timeinfo.ge.1) then
          write(*,*) '===================================='
          write(*,*) 'Time of all iterations = ',time
@@ -1215,7 +1229,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 
 ! Transform solution back to original variables
       if (iterate_on_transformed) then
-         call bddc_T_apply(comm,sol,lsol)
+         call bddc_T_apply(comm_all,sol,lsol)
       end if
 
 
@@ -1223,7 +1237,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
    77 continue
 
 ! End of mesuring time
-      call bddc_time_end(comm,time)
+      call bddc_time_end(comm_all,time)
       if (myid.eq.0.and.timeinfo.ge.1) then
          write(*,*) '===================================='
          write(*,*) 'Time of PCG routine = ',time

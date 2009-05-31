@@ -12,7 +12,7 @@ real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 real(kr),parameter,private :: treshold_eigval = 3._kr
 
 ! debugging 
-logical,parameter,private :: debug = .false.
+logical,parameter,private :: debug = .true.
 
 ! table of pairs of eigenproblems to compute
 ! structure:
@@ -117,8 +117,8 @@ subroutine adaptivity_init(myid,comm,idpair,npair)
             pair_subdomains(ipair,1) = -1
             read(idpair,*) (pair_subdomains(ipair,j), j = 2,lpair_subdomains2)
          end do
+         close(idpair)
       end if
-      close(idpair)
       ldata = lpair_subdomains1*lpair_subdomains2
 !*****************************************************************MPI
       call MPI_BCAST(pair_subdomains,ldata, MPI_INTEGER, 0, comm, ierr)
@@ -254,7 +254,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer,intent(in) :: nproc
 
 ! Maximal number of eigenvectors per problem
-      integer,parameter :: neigvecx = 20 
+      integer,parameter :: neigvecx = 10 
 
 ! local variables
       integer :: isub, jsub, ipair, iactive_pair, iround

@@ -10,7 +10,7 @@ program test_module_dd
       integer :: matrixtype
 
       !  parallel variables
-      integer :: myid, comm, nproc, ierr
+      integer :: myid, comm_all, comm_self, nproc, ierr
 
       integer :: nsub, isub
 
@@ -30,9 +30,10 @@ program test_module_dd
 !***************************************************************PARALLEL
       call MPI_INIT(ierr)
       ! Communicator
-      comm = MPI_COMM_WORLD
-      call MPI_COMM_RANK(comm,myid,ierr)
-      call MPI_COMM_SIZE(comm,nproc,ierr)
+      comm_all  = MPI_COMM_WORLD
+      comm_self = MPI_COMM_SELF
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
 !***************************************************************PARALLEL
 
       print *, 'I am processor ',myid,': Hello nproc =',nproc
@@ -60,7 +61,7 @@ program test_module_dd
 
       ! prepare Schur complements
       do isub = 1,nsub
-         call dd_prepare_schur(myid,comm,isub)
+         call dd_prepare_schur(myid,comm_self,isub)
       end do
 
       ! test who owns data for subdomain
@@ -91,7 +92,7 @@ program test_module_dd
 
       ! prepare augmented matrix for BDDC
       do isub = 1,nsub
-         call dd_prepare_aug(myid,comm,isub)
+         call dd_prepare_aug(myid,comm_self,isub)
       end do
 
       ! prepare coarse space basis functions for BDDC

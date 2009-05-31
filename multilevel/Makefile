@@ -8,10 +8,10 @@ include ../make.inc
 #INC = $(INCMPIFAKE) $(INCMUMPS)
 # libraries needed
 #    parallel
-#LIBS = $(MUMPSLIBPAR) $(SCALAPACKLIB) $(BLACSLIB) \
-       $(LAPACKLIB) $(BLASLIB) $(ORDERINGSLIB) $(LIBMPI) $(LIBOTHERS)
+LIBS = $(MUMPSLIBPAR) $(SCALAPACKLIB) $(BLACSLIB) \
+       $(LAPACKLIB) $(BLASLIB) $(ORDERINGSLIB) $(BLOPEXLINK) $(LIBMPI) $(LIBOTHERS)
 #    semi-sequential
-LIBS = $(LIBMPI) $(MUMPSLIBSEQ) $(BLOPEXLINK) \
+#LIBS = $(LIBMPI) $(MUMPSLIBSEQ) $(BLOPEXLINK) \
        $(LAPACKLIB) $(BLASLIB) $(ORDERINGSLIB) $(LIBOTHERS) 
 OBJLOBPCGDRIVER = ../lobpcg_driver/lobpcg_driver.o
 ##############################################################
@@ -39,7 +39,7 @@ all: \
 
 # module dependencies
 module_dd.o: \
-   module_mumps_seq.o \
+   ../bddcmumps/module_mumps.o \
    ../bddcmumps/module_sm.o \
    module_utils.o 
 
@@ -68,7 +68,7 @@ $(OBJLOBPCGDRIVER) :
 test_module_dd: \
    test_module_dd.o \
    module_dd.o \
-   module_mumps_seq.o \
+   ../bddcmumps/module_mumps.o \
    ../bddcmumps/module_sm.o \
    module_utils.o
 	$(FC) -o $@ $^ $(LIBS)
@@ -77,7 +77,7 @@ test_module_adaptivity: \
    test_module_adaptivity.o \
    module_adaptivity.o \
    module_dd.o \
-   module_mumps_seq.o \
+   ../bddcmumps/module_mumps.o \
    ../bddcmumps/module_sm.o \
    module_utils.o \
    $(OBJLOBPCGDRIVER) \

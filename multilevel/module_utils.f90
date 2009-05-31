@@ -163,6 +163,7 @@ subroutine build_operator(op_routine,mat,lmat1,lmat2)
 !****************************************************
 ! Subroutine for building explicit matrix corresponding to an implicit operator
       implicit none
+      external :: op_routine
       integer,intent(in) :: lmat1, lmat2
       real(kr),intent(out) ::  mat(lmat1,lmat2)
 

@@ -4,7 +4,7 @@ include ../make.inc
 # include files needed
  INC = $(INCMPI) $(INCMUMPS) -I../multilevel/
 # libraries needed
-LIBS = $(MUMPSLIBPAR) $(MUMPSLIBSEQ) $(SCALAPACKLIB) $(BLACSLIB) $(BLOPEXLINK) \
+LIBS = $(MUMPSLIBPAR) $(SCALAPACKLIB) $(BLACSLIB) $(BLOPEXLINK) \
        $(LAPACKLIB) $(BLASLIB) $(ORDERINGSLIB) $(LIBMPI) $(LIBOTHERS)
 OBJLOBPCGDRIVER = ../lobpcg_driver/lobpcg_driver.o
 ##############################################################
@@ -46,7 +46,6 @@ bddcmumps: \
    $(OBJLOBPCGDRIVER) \
    ../multilevel/lobpcg_mvecmult_f.o \
    module_mumps.o \
-   ../multilevel/module_mumps_seq.o \
    module_sm.o \
    condest.o \
    ../multilevel/module_utils.o 
