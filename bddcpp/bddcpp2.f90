@@ -1824,7 +1824,7 @@ integer:: idsmd
 !  * INET(LINET) * NNET(LNNET) * NNDF(LNNDF) * XYF(LXYF) *
       name = name1(1:lname1)//'.GMIS'
       open (unit=idgmi,file=name,status='old',form='formatted')
-      rewind idgmis
+      rewind idgmi
 
 ! FVS - fixed variables
 !  * IFIX(LIFIX) * FIXV(LFIXV) * 

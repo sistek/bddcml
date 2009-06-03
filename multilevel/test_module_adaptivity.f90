@@ -27,6 +27,8 @@ program test_module_adaptivity
       character(100) :: name
       character(100) :: filename
 
+      real(kr) :: timeaux, timeaux1, timeaux2
+
       ! MPI initialization
 !***************************************************************PARALLEL
       call MPI_INIT(ierr)
@@ -83,10 +85,14 @@ program test_module_adaptivity
          open (unit=idpair,file=filename,status='old',form='formatted')
       end if
    
-      print *, 'I am processor ',myid,': Hello nproc =',nproc
       ! SPD matrix
       matrixtype = 1
 
+!*******************************************AUX
+! Measure time spent in DD module
+      call MPI_BARRIER(comm_all,ierr)
+      timeaux1 = MPI_WTIME()
+!*******************************************AUX
       call dd_init(nsub)
       call dd_distribute_subdomains(nsub,nproc)
       call dd_read_mesh_from_file(myid,trim(problemname))
@@ -98,7 +104,17 @@ program test_module_adaptivity
          call dd_prepare_schur(myid,comm_self,isub)
       end do
       call dd_prepare_adaptive_space(myid)
-
+!*******************************************AUX
+! Measure time spent in DD module
+      call MPI_BARRIER(comm_all,ierr)
+      timeaux2 = MPI_WTIME()
+      timeaux = timeaux2 - timeaux1
+      if (myid.eq.0) then
+         write(*,*) '***************************************'
+         write(*,*) 'Time spent in DD setup is ',timeaux,' s'
+         write(*,*) '***************************************'
+      end if
+!*******************************************AUX
 !      do isub = 1,nsub
 !         call dd_get_interface_size(myid,isub,ndofi,nnodi)
 !         lschur = ndofi*ndofi
@@ -110,7 +126,11 @@ program test_module_adaptivity
 !         end do
 !         deallocate(schur)
 !      end do
-   
+!*******************************************AUX
+! Measure time spent in adaptivity
+      call MPI_BARRIER(comm_all,ierr)
+      timeaux1 = MPI_WTIME()
+!*******************************************AUX
       call adaptivity_init(myid,comm_all,idpair,npair)
 
       print *, 'I am processor ',myid,': nproc = ',nproc, 'nsub = ',nsub
@@ -119,9 +139,20 @@ program test_module_adaptivity
       call adaptivity_solve_eigenvectors(myid,comm_all,npair_locx,npair,nproc)
 
       call adaptivity_finalize
+
+!*******************************************AUX
+! Measure time spent in adaptivity
+      call MPI_BARRIER(comm_all,ierr)
+      timeaux2 = MPI_WTIME()
+      timeaux = timeaux2 - timeaux1
+      if (myid.eq.0) then
+         write(*,*) '***************************************'
+         write(*,*) 'Time spent in adaptivity is ',timeaux,' s'
+         write(*,*) '***************************************'
+      end if
+!*******************************************AUX
    
       call dd_finalize
-      print *, 'I am processor ',myid,': Hello 2'
 
       ! close file with description of pairs
       if (myid.eq.0) then

@@ -25,6 +25,9 @@ LIBMPI = -L/usr/lib/mpich/lib -lmpich
 LIBMPIFAKE = -L/home/sistek/lib -lmpiseq
 LIBOTHERS = -lpthread
 
+ #**********Preprocessor defs for calling Fortran from C (-DAdd_ or -DAdd__ or -DUPPER)
+CDEFS   = -DAdd_
+
 BLOPEX=/home/sistek/programy/lobpcg/blopex
 BLOPEXLIB=-L$(BLOPEX)/blopex_abstract/lib -lBLOPEX
 BLOPEXOBJ=$(BLOPEX)/blopex_serial/multivector/multi_vector.o $(BLOPEX)/blopex_serial/pcg_multi/pcg_multi.o $(BLOPEX)/blopex_serial/matmultivec/matmultivec.o

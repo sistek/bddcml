@@ -12,7 +12,7 @@ real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 real(kr),parameter,private :: treshold_eigval = 3._kr
 
 ! debugging 
-logical,parameter,private :: debug = .true.
+logical,parameter,private :: debug = .false.
 
 ! table of pairs of eigenproblems to compute
 ! structure:
@@ -1008,10 +1008,10 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                write(*,'(a,i4,a,i6)') 'ADAPTIVITY_SOLVE_EIGENVECTORS: WARNING - LOBPCG exited with nonzero code ',ierr, &
                                       ' for pair',my_pair
             end if
-            if (debug) then
+            !if (debug) then
                write(*,*) 'myid =',myid,', LOBPCG converged in ',lobpcg_iter,' iterations.'
                call flush(6)
-            end if
+            !end if
             ! turn around the eigenvalues to be the largest
             eigval = -eigval
             write(*,*) 'eigval for pair:',my_pair,' between subdomains ',comm_myisub,' and',comm_myjsub

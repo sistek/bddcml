@@ -2,7 +2,7 @@
 include ../make.inc
 
 # include files needed
- INC = $(INCMPI) $(INCMUMPS) -I../multilevel/
+ INC = $(INCMPI) $(INCMUMPS) -I../multilevel -I../bddcmumps
 # libraries needed
 LIBS = $(MUMPSLIBPAR) $(SCALAPACKLIB) $(BLACSLIB) $(BLOPEXLINK) \
        $(LAPACKLIB) $(BLASLIB) $(ORDERINGSLIB) $(LIBMPI) $(LIBOTHERS)
@@ -29,12 +29,16 @@ all: \
 
 # module dependencies
 module_bddc.o: \
-   module_mumps.o \
-   module_sm.o
+   ../bddcmumps/module_mumps.o \
+   ../bddcmumps/module_sm.o \
+   ../multilevel/module_utils.o \
+   ../multilevel/module_dd.o
 
 bddcmumps.o: \
    module_bddc.o \
-   module_sm.o
+   ../bddcmumps/module_sm.o \
+   ../multilevel/module_dd.o \
+   ../multilevel/module_adaptivity.o
 
 # building binaries
 bddcmumps: \
@@ -45,9 +49,8 @@ bddcmumps: \
    ../lobpcg_driver/lobpcg_driver.o \
    $(OBJLOBPCGDRIVER) \
    ../multilevel/lobpcg_mvecmult_f.o \
-   module_mumps.o \
-   module_sm.o \
-   condest.o \
+   ../bddcmumps/module_mumps.o \
+   ../bddcmumps/module_sm.o \
    ../multilevel/module_utils.o 
 	$(FC) -o $@ $^ $(LIBS)
 

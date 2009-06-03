@@ -1,5 +1,5 @@
 # general setting on system (compiler, flags, libraries)
-include ../../make.inc
+include ../make.inc
 
 # libraries needed
 
@@ -19,7 +19,7 @@ all: lobpcg_driver.o
 	$(FC) -c $<
 
 %.o : %.c
-	$(CC) $(INC) -c $<
+	$(CC) $(INC) $(CDEFS) -c $<
 
 clean:
 	rm -f *~ *.o 
