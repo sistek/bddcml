@@ -1,0 +1,162 @@
+# general setting on system (compiler, flags, libraries)
+include ../make.inc
+
+# include files needed
+INC = $(INCMPI) $(INCMUMPS) 
+# libraries needed
+LIBS = $(LIBMUMPS) $(LIBSCALAPACK) $(LIBBLACS) \
+       $(LIBLAPACK) $(LIBBLAS) $(LIBMETIS) $(LIBPORD) $(LIBMPI) \
+       $(LIBPTHREAD)
+##############################################################
+# GNU Make automatic variables:
+# $@ - target
+# $^ - all prerequisities
+# $< - first prerequisity
+
+# rules
+
+TESTS = \
+   test_module_utils \
+   test_module_adaptivity \
+   test_module_dd \
+   test_module_mumps \
+   test_module_mumps2 \
+   test_module_sm \
+   test_module_bddc \
+   test_module_bddc2
+
+OBJ = \
+   lobpcg_mvecmult_f.o \
+   module_adaptivity.o \
+   module_dd.o \
+   module_mumps.o \
+   module_parsing.o \
+   module_sm.o \
+   module_tecplot.o \
+   module_utils.o
+
+all: \
+   modules tests
+
+modules: $(OBJ)
+
+tests: $(TESTS)
+
+
+# general rule s for compiling objects
+%.o : %.f90
+	$(MPFC) $(MPFFLAGS) $(INC) -c $<
+
+%.o : %.f
+	$(MPFC) $(MPFFLAGS) $(INC) -c $<
+
+%.o : %.c
+	$(MPCC) $(MPCFLAGS) $(INC) -c $<
+
+# module dependencies
+module_bddc.o: \
+   module_dd.o \
+   module_mumps.o \
+   module_sm.o \
+   module_utils.o 
+
+module_adaptivity.o: \
+   module_dd.o \
+   module_utils.o 
+
+module_dd.o: \
+   module_mumps.o \
+   module_sm.o \
+   module_utils.o 
+
+module_sm.o: \
+   module_utils.o 
+
+test_module_mumps.o: \
+   module_mumps.o
+
+test_module_mumps2.o: \
+   module_mumps.o
+
+test_module_sm.o: \
+   module_sm.o
+
+test_module_bddc.o: \
+   module_bddc.o 
+
+test_module_bddc2.o: \
+   module_bddc.o
+
+test_module_adaptivity.o: \
+   module_adaptivity.o \
+   module_dd.o
+
+test_module_dd.o: \
+   module_dd.o
+
+test_module_utils.o: \
+   module_utils.o
+
+lobpcg_mvecmult_f.o: module_adaptivity.o
+
+# building binaries
+test_module_mumps: \
+   test_module_mumps.o \
+   module_mumps.o
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+
+test_module_mumps2: \
+   test_module_mumps2.o \
+   module_mumps.o
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+
+test_module_sm: \
+   test_module_sm.o \
+   module_sm.o \
+   module_utils.o
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+
+test_module_bddc: \
+   test_module_bddc.o \
+   module_bddc.o \
+   module_dd.o \
+   module_mumps.o \
+   module_sm.o \
+   module_utils.o
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+
+test_module_bddc2: \
+   test_module_bddc2.o \
+   module_bddc.o \
+   module_dd.o \
+   module_mumps.o \
+   module_sm.o \
+   module_utils.o
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+
+test_module_adaptivity: \
+   test_module_adaptivity.o \
+   module_adaptivity.o \
+   module_dd.o \
+   module_mumps.o \
+   module_sm.o \
+   module_utils.o \
+   ../lobpcg_driver/lobpcg_driver.o \
+   lobpcg_mvecmult_f.o
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) $(BLOPEXLINK)
+
+test_module_dd: \
+   test_module_dd.o \
+   module_dd.o \
+   module_mumps.o \
+   module_sm.o \
+   module_utils.o 
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+
+test_module_utils: \
+   test_module_utils.o \
+   module_utils.o 
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+
+clean:
+	-rm -f *.o *.mod $(TESTS)
