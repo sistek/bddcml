@@ -750,6 +750,8 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 ! Use module MUMPS
       use module_mumps
 
+! Use module with utilities
+      use module_utils
 
       implicit none
       include "mpif.h"
@@ -1184,7 +1186,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          write(*,*) '================================================'
          write(*,*) 'ESTIMATION OF CONDITION NUMBER BY LANCZOS METHOD'
          nwx = maxit + 1
-         call condest(nw,nwx,w,wchol,lw,x,y, cond)
+         call condtri(nw,nwx,w,lw, cond)
          write(*,*) 'Condition number cond = ',cond
          write(*,*) '================================================'
       end if

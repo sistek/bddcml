@@ -2,10 +2,11 @@
 include ../make.inc
 
 # include files needed
- INC = $(INCMPI) $(INCMUMPS) -I../multilevel/
+ INC = $(INCMPI) $(INCMUMPS) -I../common_blocks/
 # libraries needed
-LIBS = $(MUMPSLIBPAR) $(SCALAPACKLIB) $(BLACSLIB) \
-       $(LAPACKLIB) $(BLASLIB) $(ORDERINGSLIB) $(LIBMPI) $(LIBOTHERS)
+LIBS = $(LIBMUMPS) $(LIBSCALAPACK) $(LIBBLACS) \
+       $(LIBPORD) $(LIBMETIS) $(LIBLAPACK) $(LIBBLAS) $(LIBMPI) \
+       $(LIBPTHREAD)
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -13,86 +14,32 @@ LIBS = $(MUMPSLIBPAR) $(SCALAPACKLIB) $(BLACSLIB) \
 # $< - first prerequisity
 
 # rules
-
-TESTS = \
-   test_module_mumps \
-   test_module_mumps2 \
-   test_module_sm \
-   test_module_bddc \
-   test_module_bddc2
-
 all: \
-   bddcmumps \
-   $(TESTS)
+   bddcmumps
 
 # general rule s for compiling objects
 %.o : %.f90
-	$(FC) $(INC) -c $<
-
-%.o : %.f
-	$(FC) $(INC) -c $<
+	$(MPFC) $(MPFFLAGS) $(INC) -c $<
 
 # module dependencies
 module_bddc.o: \
-   module_mumps.o \
-   module_sm.o
+   ../common_blocks/module_mumps.o \
+   ../common_blocks/module_sm.o
 
 bddcmumps.o: \
    module_bddc.o \
-   module_sm.o
-
-test_module_mumps.o: \
-   module_mumps.o
-
-test_module_mumps2.o: \
-   module_mumps.o
-
-test_module_sm.o: \
-   module_sm.o
-
-test_module_bddc.o: \
-   module_bddc.o
-
-test_module_bddc2.o: \
-   module_bddc.o
+   ../common_blocks/module_mumps.o \
+   ../common_blocks/module_sm.o \
+   ../common_blocks/module_utils.o
 
 # building binaries
 bddcmumps: \
    bddcmumps.o \
    module_bddc.o \
-   module_mumps.o \
-   module_sm.o \
-   condest.o
-	$(FC) -o $@ $^ $(LIBS)
-
-test_module_mumps: \
-   test_module_mumps.o \
-   module_mumps.o
-	$(FC) -o $@ $^ $(LIBS)
-
-test_module_mumps2: \
-   test_module_mumps2.o \
-   module_mumps.o
-	$(FC) -o $@ $^ $(LIBS)
-
-test_module_sm: \
-   test_module_sm.o \
-   module_sm.o
-	$(FC) -o $@ $^ $(LIBS)
-
-test_module_bddc: \
-   test_module_bddc.o \
-   module_bddc.o \
-   module_mumps.o \
-   module_sm.o
-	$(FC) -o $@ $^ $(LIBS)
-
-test_module_bddc2: \
-   test_module_bddc2.o \
-   module_bddc.o \
-   module_mumps.o \
-   module_sm.o
-	$(FC) -o $@ $^ $(LIBS)
+   ../common_blocks/module_mumps.o \
+   ../common_blocks/module_sm.o \
+   ../common_blocks/module_utils.o
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
 
 clean:
-	-rm -f *.o *.mod bddcmumps $(TESTS)
+	-rm -f *.o *.mod bddcmumps

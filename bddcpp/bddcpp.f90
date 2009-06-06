@@ -156,7 +156,7 @@ subroutine exptecplotonesubzones
 !     one zone per subdomain
 !***********************************************************************
 use module_tecplot
-use module_errors
+use module_utils
 implicit none
       
 ! Local variables
@@ -244,7 +244,7 @@ logical :: exportcorners
          name = name1(1:lname1)//'.CN'
          open (unit=idcn,file=name,status='old',form='formatted', iostat=ios)
          if(ios.ne.0) then
-            call error('exptecplotonesubzones','File '//trim(name)//' does not exist, corners will not be exported.')
+            call error('EXPTECPLOTONESUBZONES','File '//trim(name)//' does not exist, corners will not be exported.')
          else
             ! read number of corners
             read(idcn,*) nnodc
@@ -386,7 +386,7 @@ subroutine exptecplotsolution
 !     Subroutine for export to TECPLOT file of solution
 !***********************************************************************
 use module_tecplot
-use module_errors
+use module_utils
 implicit none
       
 ! Local variables
@@ -824,7 +824,7 @@ subroutine getglobs
 !     Also creates set of corners such that each pair of subdomains 
 !     sharing a face is joint by at least three corners.
 !***********************************************************************
-use module_errors
+use module_utils
 implicit none
 
 ! Local variables

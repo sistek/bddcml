@@ -163,7 +163,7 @@ subroutine exptecplotonesubzones
 !     one zone per subdomain
 !***********************************************************************
 use module_tecplot
-use module_errors
+use module_utils
 implicit none
       
 ! Local variables
@@ -393,7 +393,7 @@ subroutine exptecplotsolution
 !     Subroutine for export to TECPLOT file of solution
 !***********************************************************************
 use module_tecplot
-use module_errors
+use module_utils
 implicit none
       
 ! Local variables
@@ -836,7 +836,7 @@ subroutine getglobs
 !     Also creates set of corners such that each pair of subdomains 
 !     sharing a face is joint by at least three corners.
 !***********************************************************************
-use module_errors
+use module_utils
 implicit none
 
 ! Local variables

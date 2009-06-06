@@ -3,7 +3,7 @@ include ../make.inc
 
 # libraries needed
 
-INC=$(BLOPEXINC)
+INC=$(INCBLOPEX)
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -15,11 +15,8 @@ INC=$(BLOPEXINC)
 all: lobpcg_driver.o
 
 # general rule s for compiling objects
-%.o : %.f90
-	$(FC) -c $<
-
 %.o : %.c
-	$(CC) $(INC) $(CDEFS) -c $<
+	$(MPCC) $(MPCFLAGS) $(CDEFS) $(INC) -c $<
 
 clean:
 	rm -f *~ *.o 
