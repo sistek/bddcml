@@ -13,7 +13,7 @@ INC = -I../common_blocks
 
 # rules
 
-all: bddcpp bddcpp2
+all: bddcpp
 
 # general rule s for compiling objects
 %.o : %.f90
@@ -21,11 +21,6 @@ all: bddcpp bddcpp2
 
 # module dependencies
 bddcpp.o: \
-   ../common_blocks/module_parsing.o \
-   ../common_blocks/module_tecplot.o \
-   ../common_blocks/module_utils.o
-
-bddcpp2.o: \
    ../common_blocks/module_parsing.o \
    ../common_blocks/module_tecplot.o \
    ../common_blocks/module_utils.o
@@ -38,12 +33,5 @@ bddcpp: \
    ../common_blocks/module_utils.o 
 	$(FC) $(FFLAGS) -o $@ $^ $(LIBS)
 
-bddcpp2: \
-   bddcpp2.o \
-   ../common_blocks/module_parsing.o \
-   ../common_blocks/module_tecplot.o \
-   ../common_blocks/module_utils.o 
-	$(FC) $(FFLAGS) -o $@ $^ $(LIBS)
-
 clean:
-	rm -f *~ *.o *.mod bddcpp bddcpp2
+	rm -f *~ *.o *.mod bddcpp
