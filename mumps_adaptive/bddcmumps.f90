@@ -156,6 +156,8 @@ logical :: is_this_the_first_run
 ! variables for module DD
 logical :: remove_original
 
+character(100) :: filename, problemname
+
 
 ! MPI initialization
 !***************************************************************PARALLEL
@@ -527,8 +529,9 @@ logical :: remove_original
       deallocate(rhs)
 
 ! ELMS - element stiffness matrices of subdomain - structure:
-      call bddc_getfname(name1,lname1,isub,'EMSO',fname)
-      open(unit=idelm,file=fname,status='old',form='unformatted')
+      problemname = name1(1:lname1)
+      call getfname(trim(problemname),isub,'ELM',filename)
+      open(unit=idelm,file=filename,status='old',form='unformatted')
       call sm_pmd_load(idelm,nelems,inetst,linetst,nnetst,lnnetst,nndft,lnndft,kdoft,lkdoft,&
                        i_sparse, j_sparse, a_sparse, la_pure)
       close(idelm)

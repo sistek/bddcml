@@ -1697,7 +1697,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       end if
       print *, 'Created file ', trim(name), ' with list of',npair,' pairs for adaptivity.'
       close(idpair)
-      
+
 
 ! Clear memory
       do iglob = 1,nglob
@@ -2315,7 +2315,7 @@ integer:: idsmd
 
       return
 end subroutine create_sub_files
-         
+ 
 !***********************************************************************
 subroutine createtilde
 !***********************************************************************

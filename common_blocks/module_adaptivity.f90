@@ -3,16 +3,38 @@ module module_adaptivity
 ! Module for adaptive search of constraints for BDDC preconditioner
 ! Jakub Sistek, Denver, 3/2009
 
+!=================================================
+! basic parameters related to adaptivity
 ! type of reals
 integer,parameter,private  :: kr = kind(1.D0)
 ! numerical zero
 real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! treshold on eigenvalues to define an adaptive constraint
-real(kr),parameter,private :: treshold_eigval = 3._kr
+! eigenvectors for eigenvalues above this value are used for creation of constraints 
+real(kr),parameter,private :: treshold_eigval = 5._kr
+! LOBPCG related variables
+! maximal number of LOBPCG iterations
+integer,parameter ::  lobpcg_maxit = 100
+! precision of LOBPCG solver - worst residual
+real(kr),parameter :: lobpcg_tol   = 1.e-5_kr
+! maximal number of eigenvectors per problem
+! this number is used for sufficient size of problems 
+! for small problems, size of glob is used
+integer,parameter ::  neigvecx     = 20 
+! verbosity of LOBPCG solver
+! 0 - no output
+! 1 - some output
+! 2 - maximal output
+integer,parameter ::  lobpcg_verbosity = 0
+! loading old values of initial guess of eigenvectors
+! 0 - generate new random vectors
+! 1 - use given vectors
+integer,parameter ::  use_vec_values = 0
 
 ! debugging 
 logical,parameter,private :: debug = .false.
+!=================================================
 
 ! table of pairs of eigenproblems to compute
 ! structure:
@@ -78,6 +100,13 @@ real(kr),allocatable,private :: tau(:)
 integer,private ::             lwork
 real(kr),allocatable,private :: work(:)
 
+! auxiliary arrays (necessary in each LOBPCG iteration)
+
+integer ::             comm_lxaux
+real(kr),allocatable :: comm_xaux(:)
+integer ::             comm_lxaux2
+real(kr),allocatable :: comm_xaux2(:)
+
 contains
 
 !*************************************************
@@ -127,6 +156,15 @@ subroutine adaptivity_init(myid,comm,idpair,npair)
       ! print what is loaded
       if (debug) then
          call adaptivity_print_pairs(myid)
+      end if
+
+      if (myid.eq.0) then
+         write(*,*) 'ADAPTIVITY SETUP====================='
+         write(*,*) 'treshold for selection: ', treshold_eigval
+         write(*,*) 'max LOBPCG iterations: ',  lobpcg_maxit
+         write(*,*) 'LOBPCG tolerance: ',  lobpcg_tol
+         write(*,*) 'max number of computed eigenvectors: ', neigvecx
+         write(*,*) 'END ADAPTIVITY SETUP================='
       end if
 
       return
@@ -253,9 +291,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 ! Number of processors
       integer,intent(in) :: nproc
 
-! Maximal number of eigenvectors per problem
-      integer,parameter :: neigvecx = 10 
-
 ! local variables
       integer :: isub, jsub, ipair, iactive_pair, iround
       integer :: gglob, my_pair, &
@@ -329,8 +364,8 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer :: lapack_info
 
       ! LOBPCG related variables
-      integer ::  lobpcg_maxit, lobpcg_verbosity, use_vec_values, lobpcg_iter
-      real(kr) :: lobpcg_tol
+      integer ::  lobpcg_iter ! final number of iterations
+      real(kr)::   est, est_loc
 
       ! MPI related variables
       integer :: ierr, ireq, nreq
@@ -685,12 +720,12 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                   ndofn  = nndfi_i(indi_i)
 
                   nconstr = nconstr + ndofn
-               else
-                  call get_index(indcorner,global_corner_number_j,lglobal_corner_number_j,indc_j) 
-                  indi_j = icnsin_j(indc_j)
-                  ndofn  = nndfi_j(indi_j)
-
-                  nconstr = nconstr + ndofn
+!               else
+!                  call get_index(indcorner,global_corner_number_j,lglobal_corner_number_j,indc_j) 
+!                  indi_j = icnsin_j(indc_j)
+!                  ndofn  = nndfi_j(indi_j)
+!
+!                  nconstr = nconstr + ndofn
                end if
             end do
             ! prepare space for dense matrix D_ij
@@ -930,7 +965,10 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          ! prepare space for eigenvectors
          ireq = 0
          if (my_pair.ge.0) then
-            neigvec     = min(neigvecx,ndofcomm)
+            neigvec     = min(neigvecx,ndofcomm-nconstr)
+            if (neigvec.ne.neigvecx) then
+               write (*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: Number of vectors reduced to',neigvec,' for pair',my_pair
+            end if
             leigvec = neigvec * problemsize
             leigval = neigvec
             allocate(eigvec(leigvec),eigval(leigval))
@@ -984,10 +1022,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          comm_comm = comm
          comm_myid = myid
          if (my_pair.ge.0) then
-            lobpcg_tol   = 1.e-5_kr
-            lobpcg_maxit = 1000
-            lobpcg_verbosity = 0
-            use_vec_values = 0
             if (use_vec_values .eq. 1) then
               ! read initial guess of vectors
                write(*,*) 'neigvec =',neigvec,'problemsize =',problemsize
@@ -1002,6 +1036,11 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                write(*,*) 'myid =',myid,', I am calling eigensolver for pair ',my_pair
                call flush(6)
             end if
+
+            ! prepare auxiliary space used in each iteration of eigensolver
+            comm_lxaux  = problemsize
+            comm_lxaux2 = problemsize
+            allocate(comm_xaux(comm_lxaux),comm_xaux2(comm_lxaux2))
             call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,use_vec_values,&
                                eigval,eigvec,lobpcg_iter,ierr)
             if (ierr.ne.0) then
@@ -1012,6 +1051,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                write(*,*) 'myid =',myid,', LOBPCG converged in ',lobpcg_iter,' iterations.'
                call flush(6)
             !end if
+
             ! turn around the eigenvalues to be the largest
             eigval = -eigval
             write(*,*) 'eigval for pair:',my_pair,' between subdomains ',comm_myisub,' and',comm_myjsub
@@ -1027,12 +1067,20 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call adaptivity_fake_lobpcg_driver
 
          ! select eigenvectors of eigenvalues exceeding treshold
+         est_loc = 0._kr
          if (my_pair.ge.0) then
 
             nadaptive = count(eigval.ge.treshold_eigval)
 
             write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: I am going to add ',nadaptive,' constraints for pair ',my_pair
             call flush(6)
+
+            ! find estimator of condition number
+            if (nadaptive.lt.neigvec) then
+               est_loc = eigval(nadaptive + 1)
+            else
+               est_loc = 0.0_kr
+            end if
 
             lconstraints1 = problemsize
             lconstraints2 = nadaptive
@@ -1043,8 +1091,16 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                call adaptivity_mvecmult(problemsize,eigvec((j-1)*problemsize + 1),&
                     problemsize,constraints(1,j),problemsize,ioper)
             end do
+            ! clean auxiliary arrays
+            deallocate(comm_xaux,comm_xaux2)
          end if
          call adaptivity_fake_lobpcg_driver
+
+         call MPI_ALLREDUCE(est_loc,est,1,MPI_DOUBLE_PRECISION,MPI_MAX,comm_comm,ierr)
+         if (myid.eq.0) then
+            write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: Expected estimated condition number: ',est
+            call flush(6)
+         end if
 
          !if (my_pair.ge.0) then
          !   write(*,*) 'Constraints to be added on pair ',my_pair
@@ -1230,7 +1286,7 @@ subroutine adaptivity_fake_lobpcg_driver
       integer :: idoper
 
       ! these have no meaning and are present only for matching the arguments
-      integer :: n, lx = 0, ly = 0
+      integer :: n = 0, lx = 0, ly = 0
       real(kr) :: x , y
 
 
@@ -1276,10 +1332,6 @@ integer,intent(inout) ::  idoper
 ! local
 integer :: i
 integer :: iinstr, isub, owner, point1, point2, point, length, do_i_compute, is_active
-
-real(kr) :: xaux(lx)
-real(kr) :: xaux2(lx)
-real(kr) :: xaux3(lx)
 
 logical :: i_am_slave, all_slaves
 
@@ -1336,38 +1388,56 @@ if (idoper.eq.1 .or. idoper.eq.2) then
        write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Data size mismatch. lx, n', lx, n
        call error_exit
    end if
+   ! are arrays allocated ?
+   if (.not.allocated(comm_xaux) .or. .not.allocated(comm_xaux2)) then
+       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Auxiliary arrays not allocated.','idoper =',idoper
+       call error_exit
+   end if
+   ! correct size ?
+   if (comm_lxaux .ne. comm_lxaux2) then
+       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Array size not match.'
+       call error_exit
+   end if
+   ! correct size ?
+   if (comm_lxaux .ne. lx) then
+       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Array size not match.'
+       call error_exit
+   end if
 
    ! make temporary copy
    do i = 1,lx
-      xaux(i) = x(i)
+      comm_xaux(i) = x(i)
    end do
    
    ! xaux = P xaux
-   call adaptivity_apply_null_projection(xaux,lx)
+   call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
 
    if (idoper.eq.1) then
+      ! make temporary copy
+      do i = 1,lx
+         comm_xaux2(i) = comm_xaux(i)
+      end do
       ! apply (I-RE) xaux = (I-RR'D_P) xaux
       !  - apply weights
-      call adaptivity_apply_weights(weight,lweight,xaux,lx,xaux2,lx)
+      call adaptivity_apply_weights(weight,lweight,comm_xaux2,comm_lxaux2)
       !  - apply the R^T operator
-      call adaptivity_apply_RT(pairslavery,lpairslavery,xaux2,lx)
+      call adaptivity_apply_RT(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2)
       !  - apply the R operator
-      call adaptivity_apply_R(pairslavery,lpairslavery,xaux2,lx)
+      call adaptivity_apply_R(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2)
       ! Ix - REx
       do i = 1,problemsize
-         xaux(i) = xaux(i) - xaux2(i)
+         comm_xaux(i) = comm_xaux(i) - comm_xaux2(i)
       end do
    end if
-
 
    ! distribute sizes of chunks of eigenvectors
    ireq = ireq + 1
    point1 = 1
-   call MPI_ISEND(xaux(point1),ndofi_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
+   call MPI_ISEND(comm_xaux(point1),ndofi_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
 
    ireq = ireq + 1
    point2 = ndofi_i + 1
-   call MPI_ISEND(xaux(point2),ndofi_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
+   call MPI_ISEND(comm_xaux(point2),ndofi_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
 end if
 
 ! What follows is performed independently on from where I was called
@@ -1415,11 +1485,11 @@ end do
 if (idoper.eq.1 .or. idoper.eq.2) then
    ireq = ireq + 1
    point1 = 1
-   call MPI_IRECV(xaux(point1),ndofi_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
+   call MPI_IRECV(comm_xaux(point1),ndofi_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
 
    ireq = ireq + 1
    point2 = ndofi_i + 1
-   call MPI_IRECV(xaux(point2),ndofi_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
+   call MPI_IRECV(comm_xaux(point2),ndofi_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
 end if
 
 ! Wait for all vectors reach their place
@@ -1432,7 +1502,7 @@ if (idoper.eq.1 .or. idoper.eq.2) then
    ! reverse sign of vector if this is the A (required for LOBPCG)
    if (idoper.eq.1) then
       do i = 1,problemsize
-         xaux(i) = -xaux(i)
+         comm_xaux(i) = -comm_xaux(i)
       end do
    end if
 
@@ -1440,26 +1510,26 @@ if (idoper.eq.1 .or. idoper.eq.2) then
       ! apply (I-RE)^T = (I - E^T R^T) = (I - D_P^T * R * R^T)
       ! copy the array
       do i = 1,problemsize
-         xaux2(i) = xaux(i)
+         comm_xaux2(i) = comm_xaux(i)
       end do
       !  - apply the R^T operator
-      call adaptivity_apply_RT(pairslavery,lpairslavery,xaux2,lx)
+      call adaptivity_apply_RT(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2)
       !  - apply the R operator
-      call adaptivity_apply_R(pairslavery,lpairslavery,xaux2,lx)
+      call adaptivity_apply_R(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2)
       !  - apply weights
-      call adaptivity_apply_weights(weight,lweight,xaux2,lx,xaux3,lx)
+      call adaptivity_apply_weights(weight,lweight,comm_xaux2,comm_lxaux2)
       ! Ix - E'R'x
       do i = 1,problemsize
-         xaux(i) = xaux(i) - xaux3(i)
+         comm_xaux(i) = comm_xaux(i) - comm_xaux2(i)
       end do
    end if
 
    ! xaux = P xaux
-   call adaptivity_apply_null_projection(xaux,lx)
+   call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
 
    ! copy result to y
    do i = 1,lx
-      y(i) = xaux(i)
+      y(i) = comm_xaux(i)
    end do
 
 end if
@@ -1498,9 +1568,9 @@ subroutine adaptivity_apply_null_projection(vec,lvec)
                    work,lwork, lapack_info)
 end subroutine
 
-!**************************************************************************
-subroutine adaptivity_apply_weights(dp,ldp,vec_in,lvec_in,vec_out,lvec_out)
-!**************************************************************************
+!***************************************************
+subroutine adaptivity_apply_weights(dp,ldp,vec,lvec)
+!***************************************************
 ! Subroutine for application of weight matrix D_P on vector VEC 
 ! D_P - stored as diagonal
 ! vec_out = D_P * vec_in
@@ -1508,22 +1578,20 @@ subroutine adaptivity_apply_weights(dp,ldp,vec_in,lvec_in,vec_out,lvec_out)
       implicit none
       integer, intent(in)  :: ldp
       real(kr), intent(in) ::  dp(ldp)
-      integer, intent(in)  :: lvec_in
-      real(kr), intent(in) ::  vec_in(lvec_in)
-      integer, intent(in)  :: lvec_out
-      real(kr), intent(out) :: vec_out(lvec_out)
+      integer, intent(in)  ::    lvec
+      real(kr), intent(inout) ::  vec(lvec)
 
 ! local variables
       integer :: i
 
       ! check the length of vector for data
-      if (ldp .ne. lvec_in .or. lvec_out .ne. lvec_in) then
+      if (ldp .ne. lvec) then
          write(*,*) 'ADAPTIVITY_APPLY_WEIGHTS: Data size does not match.'
          call error_exit
       end if
 
-      do i = 1,lvec_in
-         vec_out(i) = dp(i) * vec_in(i) 
+      do i = 1,lvec
+         vec(i) = dp(i) * vec(i) 
       end do
 end subroutine
 

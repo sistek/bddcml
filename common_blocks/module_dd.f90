@@ -1630,24 +1630,17 @@ subroutine dd_prepare_coarse(myid,isub)
       integer,intent(in) :: isub
 
       ! local vars
-      integer ::  ndof, nconstr, ndofaaug, ndofi, matrixtype, lc, nnzc
+      integer ::  ndof, nconstr, ndofaaug, ndofi, matrixtype
       integer ::  ndofc
-      integer ::  i, j, indphis, nrhs, matrixtypeaux,&
-                  indphisstart, indaphisstart, indi, icoarsem, lcoarsem
+      integer ::  i, j, indphis, nrhs, &
+                  indphisstart, indi, icoarsem, lcoarsem
       integer ::  lphisi1, lphisi2
 
       integer ::             lphis
       real(kr),allocatable :: phis(:)
 
-      integer ::             laphis
-      real(kr),allocatable :: aphis(:)
-
       integer ::             lac1, lac2
       real(kr),allocatable :: ac(:,:)
-
-      ! variables for dgemm
-      integer  :: ldphis, ldaphis, ldac
-      real(kr) :: alpha, beta
 
       ! check the prerequisities
       if (sub(isub)%proc .ne. myid) then
@@ -1692,48 +1685,16 @@ subroutine dd_prepare_coarse(myid,isub)
          end do
       end if
 
-      ! Build subdomain coarse matrix
-      ! 1. perform multiplication A*phis by the fact that A*phis = -C^T*lambda 
-      ! C^T * lambda => aphis
-      laphis = ndof*nconstr
-      allocate(aphis(laphis))
-
-      matrixtypeaux = 0 ! matrix C is nonsymmetric
-      nnzc = sub(isub)%nnzc
-      lc   = sub(isub)%lc
-      do j = 1,nconstr
-         ! call matrix C as transposed
-         indphisstart  = (j-1)*ndofaaug + ndof + 1
-         indaphisstart = (j-1)*ndof + 1
-         call sm_vec_mult(matrixtypeaux, nnzc, sub(isub)%j_c_sparse, sub(isub)%i_c_sparse, sub(isub)%c_sparse, lc, &
-                          phis(indphisstart),nconstr, aphis(indaphisstart),ndof)
-      end do
-      if (debug) then
-         write(*,*) 'Subdomain ',isub,' coarse basis functions aphis:'
-         do i = 1,ndof
-            write(*,'(100f13.6)') (aphis((j-1)*ndof+ i),j = 1,nconstr)
-         end do
-      end if
-
-      ! 2. build the local matrix Ac = phis^T * A * phis, i.e. Ac = phis^T * (-aphis)
-      ! use level-3 BLAS
+      ! Build subdomain coarse matrix by the fact that phis^T*A*phis = -lambda 
       lac1 = nconstr
       lac2 = nconstr
       allocate(ac(lac1,lac2))
-
-      alpha   = -1._kr
-      ldphis  = ndofaaug
-      ldaphis = ndof
-      beta    = 0._kr
-      ldac    = lac1
-      if (kr .eq. 8) then
-         call dgemm('T','N',nconstr,nconstr,ndof,alpha,phis,ldphis,aphis,ldaphis,beta,ac,ldac)
-      else if (kr .eq. 4) then
-         call sgemm('T','N',nconstr,nconstr,ndof,alpha,phis,ldphis,aphis,ldaphis,beta,ac,ldac)
-      else
-         write(*,*) 'DD_PREPARE_COARSE: Precision ',kr,' not supported.'
-         call error_exit
-      end if
+      do j = 1,nconstr
+         indphisstart  = (j-1)*ndofaaug + ndof
+         do i = 1,nconstr
+            ac(i,j) = -phis(indphisstart + i)
+         end do
+      end do
       if (debug) then
          write(*,*) 'Subdomain ',isub,' coarse matrix:'
          do i = 1,nconstr
@@ -1798,7 +1759,6 @@ subroutine dd_prepare_coarse(myid,isub)
       sub(isub)%is_coarse_prepared = .true.
 
       deallocate(ac)
-      deallocate(aphis)
       deallocate(phis)
 end subroutine
 

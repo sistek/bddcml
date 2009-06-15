@@ -29,14 +29,17 @@ integer,parameter:: kr = kind(1.D0)
 integer,parameter:: idpar = 1, idbase = 100, idgmi = 2, ides = 4, idfvs = 3, &
                     idelm = 10, idrhs = 11, iddat = 12, idcn = 13, ides0 = 14, &
                     idrhss = 15, idfvss = 16, idsols = 17, idsol = 18, idglb = 19, &
-                    idgmist = 20, idgmis = 21, idgraph = 22, idint = 23
-integer,parameter:: lname1x = 8, lnamex = 15, lfnamex = 20
+                    idgmist = 20, idgmis = 21, idgraph = 22, idint = 23, idpair = 24
+
+integer,parameter:: lname1x = 8, lnamex = 100, lfnamex = 20
 
 integer:: lname1
 integer:: ndim, nsub, nelem, ndof, nnod, nnodc
 
-integer ::           linet,   lnnet,   lnndf,   lkinet,   liets,   lkmynodes,   lkinodes,   lkneibnodes,   lkdof
-integer,allocatable:: inet(:), nnet(:), nndf(:), kinet(:), iets(:), kmynodes(:), kinodes(:), kneibnodes(:), kdof(:)
+integer ::           linet,   lnnet,   lnndf,   lkinet,   liets,   lkmynodes,   lkinodes,   lkneibnodes,   lkdof,   lkadjsnodes
+integer,allocatable:: inet(:), nnet(:), nndf(:), kinet(:), iets(:), kmynodes(:), kinodes(:), kneibnodes(:), kdof(:), kadjsnodes(:)
+integer ::           linodc
+integer,allocatable:: inodc(:)
  
 integer ::           lifix
 integer,allocatable:: ifix(:)
@@ -106,6 +109,7 @@ integer :: nc, ios
       print '("8 - export solution to TECPLOT")'
       print '("9 - select corner nodes (random selection from interface)")'
       print '("10- create file ES from ES0")'
+      print '("11- create subdomain mesh files SMD")'
       print '("0 - quit")'
       print '("your choice: ",$)'; read *,nc
       print '("===================")'
@@ -117,7 +121,7 @@ integer :: nc, ios
             call meshdivide
             goto 20
          case (3)
-            call createem
+            call createem(name1(1:lname1))
             goto 20
          case (4)
             call getglobs
@@ -139,6 +143,9 @@ integer :: nc, ios
             goto 20
          case (10)
             call es0toes
+            goto 20
+         case (11)
+            call create_sub_files(name1(1:lname1))
             goto 20
          case (0)
             write(*,*) 'O.K.'
@@ -606,16 +613,21 @@ logical :: elasticity = .false.
 end subroutine exptecplotsolution
 
 !***********************************************************************
-subroutine createem
+subroutine createem(problemname)
 !***********************************************************************
 !     Subroutine for creation files with element matrices for subdomains
 !***********************************************************************
+use module_utils
 implicit none
+
+character(*),intent(in) :: problemname
 
 ! Local variables
 integer :: idelms
 integer :: i, inod, indn, idofn, ine, isub, nne, lelmx, nevab, ndofn, nevax, point, ie, &
            indsub
+
+character(100) :: filename
 
       write(*,*) 'Generating subdomain files with element matrices...'
 
@@ -678,9 +690,9 @@ integer :: i, inod, indn, idofn, ine, isub, nne, lelmx, nevab, ndofn, nevax, poi
       if (nsub.le.1024) then
 ! open a file for each subdomain and distribute element like cards in one pass through element matrices.
          do isub = 1,nsub
-            call bddc_getfname(name1,lname1,isub,'EMSO',fname)
+            call getfname(problemname,isub,'ELM',filename)
             idelms = idbase + isub
-            open(unit=idelms, file=fname, status='replace', form='unformatted')
+            open(unit=idelms, file=filename, status='replace', form='unformatted')
          end do
 !        Write the element matrix to a proper file
          do ie = 1,nelem
@@ -698,9 +710,9 @@ integer :: i, inod, indn, idofn, ine, isub, nne, lelmx, nevab, ndofn, nevax, poi
 !     Create element files one by one in NSUB passes through element matrices -
 !     it is slow but robust
          do isub = 1,nsub
-            call bddc_getfname(name1,lname1,isub,'EMSO',fname)
+            call getfname(problemname,isub,'ELM',filename)
             idelms = idbase + 1
-            open(unit=idelms, file=fname, status='replace', form='unformatted')
+            open(unit=idelms, file=filename, status='replace', form='unformatted')
             rewind idelm
             do ie = 1,nelem
                indsub = iets(ie)
@@ -864,7 +876,8 @@ integer:: inod, jnodi, jnod, isub, jsub, inodi, iglob, iglb, ing, iinglb, iglobn
           indsub, nnewvertex, nnodcs, nnodis, indisn, inodis, inodcs, inodcs1, &
           inodcs2, inodcs3, indi, inewnodes, indinode, ncorrections, &
           indn, nglobn, nnodcpair, nshared, inodsh, ish, nnsub, iisub, &
-          indjsub, inddof, ndofn, point, indnod, nremoved_corners_bc
+          indjsub, inddof, ndofn, point, indnod, nremoved_corners_bc,&
+          ipair, npair
 integer:: indaux(1)
 integer:: nface, nedge, nvertex
 real(kr):: x1, y1, z1, x2, y2, z2, rnd, xish, yish, zish
@@ -1656,6 +1669,35 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       print *, 'Created file ', trim(name), ' with list of',nnodi,' interface nodes.'
       close(idint)
 
+! Pairs
+      ! prepare data about pairs
+      npair = count(globs%itype.eq.1.and. globs%selected)
+
+! PAIR - pairs of globs to compute by adaptivity
+      name = name1(1:lname1)//'.PAIR'
+      open (unit=idpair,file=name,status='replace',form='formatted')
+      write(idpair,*) npair
+      ipair = 0
+      iglb  = 0
+      do iglob = 1,nglob
+         if (globs(iglob)%selected) then
+            iglb = iglb + 1
+         end if
+         if (globs(iglob)%itype.eq.1 .and. globs(iglob)%selected) then
+            ipair = ipair + 1
+
+            write (idpair,*) iglb, globs(iglob)%subdomains(1),globs(iglob)%subdomains(2)
+         end if
+      end do
+      ! check the number
+      if (ipair .ne. npair) then
+         write(*,*) 'GETGLOBS: Check of number of pairs to export failed.'
+         stop
+      end if
+      print *, 'Created file ', trim(name), ' with list of',npair,' pairs for adaptivity.'
+      close(idpair)
+
+
 ! Clear memory
       do iglob = 1,nglob
          deallocate(globs(iglob)%nodes)
@@ -1736,6 +1778,543 @@ character(1) :: yn
       end if
 end subroutine globselection
 
+!***********************************************************************
+subroutine create_sub_files(problemname)
+!***********************************************************************
+!     Subroutine for creation of subdomain files
+!***********************************************************************
+use module_utils
+implicit none
+
+! name of problem
+character(*),intent(in) :: problemname
+
+integer ::            linets,   lnnets,   lnndfs,   lifixs,   lkdofs,   lisngns
+integer,allocatable :: inets(:), nnets(:), nndfs(:), ifixs(:), kdofs(:), isngns(:)
+integer ::            liins,   liivsvns,   liovsvns
+integer,allocatable :: iins(:), iivsvns(:), iovsvns(:)
+integer ::            lglobal_corner_numbers,   licnsins
+integer,allocatable :: global_corner_numbers(:), icnsins(:)
+integer::            linglb,   lnnglb
+integer,allocatable:: inglb(:), nnglb(:)
+integer::            lglobal_glob_numbers
+integer,allocatable:: global_glob_numbers(:)
+integer::            lnglobvars
+integer,allocatable:: nglobvars(:)
+integer::            ligvsivns1, ligvsivns2
+integer,allocatable:: igvsivns(:,:)
+
+integer ::            lrhss,   lfixvs,   lxyzs1, lxyzs2
+real(kr),allocatable:: rhss(:), fixvs(:), xyzs(:,:)
+
+character(100) :: filename
+
+! local variables
+integer :: nglb
+integer:: isub, ie, inc, ndofn, nne, &
+          inod, idofn, indifixs, indifix, indnc, indnnets, indrhs, indrhss, &
+          inods, jsub, pointinet, pointinets, i, j, indn, idofis, idofos, inodis, &
+          indns, indins, inodcs, iglbn, nglbn, iglb, iglobs, indn1,&
+          nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs
+integer:: nadjs, nnodcs, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs
+integer:: idsmd
+
+! GMIS - basic mesh data - structure:
+!  * INET(LINET) * NNET(LNNET) * NNDF(LNNDF) * XYF(LXYF) *
+      name = name1(1:lname1)//'.GMIS'
+      open (unit=idgmi,file=name,status='old',form='formatted')
+      rewind idgmi
+
+! FVS - fixed variables
+!  * IFIX(LIFIX) * FIXV(LFIXV) * 
+      name = name1(1:lname1)//'.FVS'
+      open (unit=idfvs,file=name,status='old',form='formatted')
+
+! RHS - Right Hand Side
+      name = name1(1:lname1)//'.RHS'
+      open (unit=idrhs,file=name,status='old',form='unformatted')
+
+! ES - list of global element numbers in subdomains - structure:
+      name = name1(1:lname1)//'.ES'
+      open (unit=ides,file=name,status='old',form='formatted')
+
+! CN - list of global corner nodes - structure:
+      name = name1(1:lname1)//'.CN'
+      open (unit=idcn,file=name,status='old',form='formatted')
+
+! Import global data******************************
+! Mesh data
+! read fields INET, NNET, NNDF from file IDGMI
+      lnnet = nelem
+      lnndf = nnod
+      lkinet= nelem
+      lkdof = nnod
+      allocate(inet(linet),nnet(lnnet),nndf(lnndf),x(lx),y(ly),z(lz),&
+               kinet(lkinet),kdof(lkdof))
+      lxyz1 = nnod
+      lxyz2 = ndim
+      allocate(xyz(lxyz1,lxyz2))
+      read(idgmi,*) inet
+      read(idgmi,*) nnet
+      read(idgmi,*) nndf
+! read fields INET, NNET, NNDF from file IDGMI
+      read(idgmi,*) xyz
+      close(idgmi)
+
+! Creation of field KINET(NELEM) with addresses before first global node of element IE in field inet
+      kinet(1) = 0
+      do ie = 2,nelem
+         kinet(ie) = kinet(ie-1) + nnet(ie-1)
+      end do
+! create array KDOF
+      kdof(1) = 0
+      do inod = 2,nnod
+         kdof(inod) = kdof(inod-1) + nndf(inod-1)
+      end do
+
+! Boundary conditions
+! read fields IFIX
+      lifix = ndof
+      lfixv = ndof
+      allocate(ifix(lifix),fixv(lfixv))
+      read(idfvs,*) ifix
+      read(idfvs,*) fixv
+
+! Right hand side
+! read fields RHS
+      lrhs = ndof
+      allocate(rhs(lrhs))
+      read(idrhs) rhs
+
+! Division of elements into subdomains
+! read field IETS from file IDES
+      liets = nelem
+      allocate(iets(liets))
+      read(ides,*) iets
+
+! Corners
+! read file CN
+      read(idcn,*) nnodc
+      linodc = nnodc
+      allocate(inodc(linodc))
+      read(idcn,*) inodc
+
+! Globs
+! GLB - list of globs
+      name = name1(1:lname1)//'.GLB'
+      open (unit=idglb,file=name,status='old',form='formatted')
+      read(idglb,*) nglb, linglb
+      linglb = linglb
+      lnnglb = nglb
+      allocate (inglb(linglb),nnglb(lnnglb))
+      read(idglb,*) inglb
+      read(idglb,*) nnglb
+      close(idglb)
+
+! End of reading global data**********************
+
+! Prepare subdomain data
+      lkmynodes   = nnod
+      lkadjsnodes = nnod
+      lkinodes    = nnod
+      allocate(kmynodes(lkmynodes),kinodes(lkinodes),kadjsnodes(lkadjsnodes))
+
+! Recognize interface
+      kinodes = 0
+      do isub = 1,nsub
+! Creation of field kmynodes(nnod) - local usage of global nodes
+! if global node is in my subdomain, assigned 1, else remains 0
+         call pp_mark_sub_nodes(isub,nelem,iets,liets,inet,linet,nnet,lnnet,&
+                                kinet,lkinet,kmynodes,lkmynodes)
+! Mark interface nodes
+         where(kmynodes.eq.1) kinodes = kinodes + 1
+      end do
+
+! Begin loop over subdomains
+      do isub = 1,nsub
+
+! Creation of field kmynodes(nnod) - local usage of global nodes
+         call pp_mark_sub_nodes(isub,nelem,iets,liets,inet,linet,nnet,lnnet,kinet,lkinet,kmynodes,lkmynodes)
+
+! find local number of nodes on subdomain NNODS
+         nnods = count(kmynodes.ne.0)
+
+! find local number of DOF on subdomain NDOFS
+         ndofs = sum(kmynodes*nndf)
+
+
+! find number of adjacent subdomains NADJS
+         nadjs = 0
+         do jsub = 1,nsub
+            if (jsub.ne.isub) then
+               call pp_mark_sub_nodes(jsub,nelem,iets,liets,inet,linet,nnet,lnnet,&
+                                      kinet,lkinet,kadjsnodes,lkadjsnodes)
+               if (any(kmynodes.eq.1.and.kadjsnodes.eq.1)) then
+                  nadjs = nadjs + 1
+               end if
+            end if
+         end do
+
+! find local number of elements on subdomain NELEMS
+         nelems = count(iets.eq.isub)
+
+! create subdomain description of MESH
+         linets = 0
+         do ie = 1,nelem
+            if (iets(ie).eq.isub) then
+               linets = linets + nnet(ie)
+            end if
+         end do
+         lnnets = nelems
+         lnndfs = nnods
+         lkdofs = nnods
+         allocate(inets(linets),nnets(lnnets),nndfs(lnndfs),kdofs(lkdofs))
+         lisngns = nnods
+         allocate(isngns(lisngns))
+         pointinet  = 0
+         pointinets = 0
+         indnnets   = 0
+         do ie = 1,nelem
+            nne = nnet(ie)
+            if (iets(ie).eq.isub) then
+               inets(pointinets+1:pointinets+nne) = -inet(pointinet+1:pointinet+nne)
+               indnnets = indnnets + 1
+               nnets(indnnets) = nne
+               pointinets = pointinets + nne
+            end if
+            pointinet = pointinet + nne
+         end do
+         inods = 0
+         do inod = 1,nnod
+            if (kmynodes(inod).eq.1) then
+               inods = inods + 1
+               nndfs(inods) = nndf(inod)
+               isngns(inods) = inod
+               ! fix inet
+               where (inets.eq.-inod) inets = inods
+            end if
+         end do
+! create array kdofs
+         kdofs(1) = 0
+         do inods = 2,nnods
+            kdofs(inods) = kdofs(inods-1) + nndfs(inods-1)
+         end do
+
+! find number of interface nodes
+         nnodis = 0 
+         ndofis = 0
+         ndofos = 0
+         do inods = 1,nnods
+            indn = isngns(inods)
+
+            if (kinodes(indn).gt.1) then
+               nnodis = nnodis + 1
+               ndofis = ndofis + nndfs(inods)
+            else
+               ndofos = ndofos + nndfs(inods)
+            end if
+         end do
+! generate mapping of interface nodes to subdomain nodes and the same for dofs 
+         liins = nnodis
+         allocate(iins(liins))
+         liivsvns = ndofis
+         allocate(iivsvns(liivsvns))
+         liovsvns = ndofos
+         allocate(iovsvns(liovsvns))
+
+         inodis = 0
+         idofis = 0
+         idofos = 0
+         do inods = 1,nnods
+            indn = isngns(inods)
+            ndofn  = nndfs(inods)
+
+            if (kinodes(indn).gt.1) then
+               inodis = inodis + 1
+
+               iins(inodis) = inods
+               do idofn = 1,ndofn 
+                  idofis = idofis + 1
+
+                  iivsvns(idofis) = kdofs(inods) + idofn
+               end do
+            else
+               do idofn = 1,ndofn 
+                  idofos = idofos + 1
+
+                  iovsvns(idofos) = kdofs(inods) + idofn
+               end do
+            end if
+         end do
+
+! find number of coarse nodes on subdomain NNODCS
+         nnodcs = 0
+         do inc = 1,nnodc
+            indnc = inodc(inc)
+            if (kmynodes(indnc).eq.1) then
+               nnodcs = nnodcs + 1
+            end if
+         end do
+
+! find mapping of corners
+         lglobal_corner_numbers = nnodcs
+         allocate(global_corner_numbers(lglobal_corner_numbers))
+         licnsins = nnodcs
+         allocate(icnsins(licnsins))
+
+         inodcs = 0
+         do inc = 1,nnodc
+            indnc = inodc(inc)
+            if (kmynodes(indnc).eq.1) then
+               inodcs = inodcs + 1
+
+               ! mapping to global corner numbers
+               global_corner_numbers(inodcs) = inc
+               ! mapping to subdomain interface numbers
+               call get_index(indnc,isngns,lisngns,indns)
+               if (indns .eq. -1) then
+                  write(*,*) 'CREATE_SUB_FILES: Index of subdomain node not found.'
+                  stop
+               end if
+               call get_index(indns,iins,liins,indins)
+               if (indins .eq. -1) then
+                  write(*,*) 'CREATE_SUB_FILES: Index of subdomain interface node not found.'
+                  stop
+               end if
+               icnsins(inodcs) = indins
+            end if
+         end do
+
+! find local number of globs NGLOBS
+         nglobs     = 0
+         pointinglb = 0
+         do iglb = 1,nglb
+            nglbn = nnglb(iglb)
+
+            ! touch first node in glob
+            indn1 = inglb(pointinglb + 1)
+
+            if (kmynodes(indn1).eq.1) then
+               nglobs = nglobs + 1
+            end if
+
+            pointinglb = pointinglb + nglbn
+         end do
+
+! mapping of globs
+         lglobal_glob_numbers = nglobs
+         allocate(global_glob_numbers(lglobal_glob_numbers))
+         lnglobvars = nglobs
+         allocate(nglobvars(lnglobvars))
+
+         iglobs     = 0
+         pointinglb = 0
+         do iglb = 1,nglb
+            nglbn = nnglb(iglb)
+
+            ! touch first node in glob
+            indn1 = inglb(pointinglb + 1)
+
+            if (kmynodes(indn1).eq.1) then
+
+               iglobs = iglobs + 1
+
+               nglbv = 0
+               do iglbn = 1,nglbn
+                  ndofn = nndf(pointinglb + iglbn)
+
+                  nglbv = nglbv + ndofn
+               end do
+
+               nglobvars(iglobs) = nglbv
+               global_glob_numbers(iglobs) = iglb
+            end if
+
+            pointinglb = pointinglb + nglbn
+         end do
+
+         ligvsivns1 = nglobs
+         ligvsivns2 = maxval(nglobvars)
+         allocate(igvsivns(ligvsivns1,ligvsivns2))
+         iglobs     = 0
+         pointinglb = 0
+         do iglb = 1,nglb
+            nglbn = nnglb(iglb)
+
+            ! touch first node in glob
+            indn1 = inglb(pointinglb + 1)
+
+            if (kmynodes(indn1).eq.1) then
+
+               iglobs = iglobs + 1
+
+               iglbv = 0
+               do iglbn = 1,nglbn
+                  
+                  indng  = inglb(pointinglb + iglbn)
+                  ndofn = nndf(indn)
+
+                  call get_index(indng,isngns,lisngns,indns)
+                  if (indns .eq. -1) then
+                     write(*,*) 'CREATE_SUB_FILES: Index of subdomain node not found.'
+                     stop
+                  end if
+
+                  do idofn = 1,ndofn
+                     iglbv = iglbv + 1
+
+                     indvs = kdofs(indns) + idofn
+                     call get_index(indvs,iivsvns,liivsvns,indivs)
+                     if (indivs .eq. -1) then
+                        write(*,*) 'CREATE_SUB_FILES: Index of subdomain interface dof not found.'
+                        write(*,*) 'indng =',indng,'indns =',indns,'indvs = ',indvs,'indivs = ',indivs, 'isub = ',isub
+                        write(*,*) 'iivsvns = ',iivsvns
+                        stop
+                     end if
+
+                     igvsivns(iglobs,iglbv) = indivs
+                  end do
+               end do
+            end if
+
+            pointinglb = pointinglb + nglbn
+         end do
+
+
+
+! coordinates of subdomain nodes
+         lxyzs1 = nnods
+         lxyzs2 = ndim
+         allocate(xyzs(lxyzs1,lxyzs2))
+         do j = 1,ndim
+            do i = 1,nnods
+               indn = isngns(i)
+
+               xyzs(i,j) = xyz(indn,j)
+            end do
+         end do
+
+! make subdomain boundary conditions - IFIXS and FIXVS
+         lifixs = ndofs
+         lfixvs = ndofs
+         allocate(ifixs(lifixs),fixvs(lfixvs))
+         ifixs = 0
+         fixvs = 0._kr
+         indifixs = 0
+         do inod = 1,nnod
+            if (kmynodes(inod).eq.1) then
+               ndofn   = nndf(inod)
+               indifix = kdof(inod)
+               do idofn = 1,ndofn
+                  indifixs = indifixs + 1
+                  indifix  = indifix + 1
+                  if (ifix(indifix).ne.0) then
+                     ifixs(indifixs) = indifixs
+                     fixvs(indifixs) = fixv(indifix)
+                  end if
+               end do
+            end if
+         end do
+
+         lrhss = ndofs
+         allocate(rhss(lrhss))
+         indrhss = 0
+         do inod = 1,nnod
+            if (kmynodes(inod).eq.1) then
+               ndofn   = nndf(inod)
+               indrhs  = kdof(inod)
+               do idofn = 1,ndofn
+                  indrhss = indrhss + 1
+                  indrhs  = indrhs  + 1
+                  rhss(indrhss) = rhs(indrhs)
+               end do
+            end if
+         end do
+
+! ---export subdomain file
+         ! open subdomain SMD file with mesh description
+         call getfname(problemname,isub,'SMD',filename)
+         write(*,*) 'CREATE_SUB_FILES: Creating file: ', trim(filename)
+         call allocate_unit(idsmd)
+         open (unit=idsmd,file=trim(filename),status='replace',form='formatted')
+
+         ! ---header
+         write(idsmd,*) nelems, nnods, ndofs, ndim
+
+         ! ---NNDF array
+         ! ---NNET array
+         write(idsmd,*) nndfs
+         write(idsmd,*) nnets
+
+         ! ---INET array
+         write(idsmd,*) inets
+
+         ! ---ISNGN array
+         write(idsmd,*) isngns
+
+         ! --- coordinates
+         write(idsmd,*) xyzs
+
+         ! ---interface data
+         write(idsmd,*) nnodis
+         write(idsmd,*) ndofis
+         write(idsmd,*) ndofos
+         write(idsmd,*) iins
+         write(idsmd,*) iivsvns
+         write(idsmd,*) iovsvns
+
+         ! --- boundary conditions
+         write(idsmd,*) ifixs
+         write(idsmd,*) fixvs
+
+         ! --- corners 
+         write(idsmd,*) nnodcs
+         write(idsmd,*) global_corner_numbers
+         write(idsmd,*) icnsins
+
+         ! --- globs
+         write(idsmd,*) nglobs
+         write(idsmd,*) global_glob_numbers
+         write(idsmd,*) nglobvars
+         do iglobs = 1,nglobs
+            ! glob variables
+            write(idsmd,*) (igvsivns(iglobs,ivar),ivar = 1,nglobvars(iglobs))
+         end do
+
+         close(idsmd)
+
+         deallocate(igvsivns)
+         deallocate(nglobvars)
+         deallocate(global_glob_numbers)
+         deallocate(icnsins)
+         deallocate(global_corner_numbers)
+         deallocate(iovsvns)
+         deallocate(iivsvns)
+         deallocate(iins)
+         deallocate(xyzs)
+         deallocate(rhss)
+         deallocate(ifixs,fixvs)
+         deallocate(inets,nnets,nndfs,kdofs)
+         deallocate(isngns)
+
+! Finish loop over subdomains
+      end do
+
+! Clear memory
+      deallocate(inglb,nnglb)
+      deallocate(inodc)
+      deallocate(ifix,fixv)
+      deallocate(kinet)
+      deallocate(kdof)
+      deallocate(kmynodes,kinodes,kadjsnodes)
+      deallocate(inet,nnet,nndf)
+      deallocate(iets)
+      deallocate(xyz)
+      deallocate(rhs)
+
+      return
+end subroutine create_sub_files
+ 
 !***********************************************************************
 subroutine createtilde
 !***********************************************************************

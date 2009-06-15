@@ -13,6 +13,8 @@ use module_sm
 use module_bddc
 ! module for using MUMPS
 use module_mumps
+! module with auxiliary utilities
+use module_utils
       
 implicit none
 include "mpif.h"
@@ -145,6 +147,8 @@ logical :: nonzero_bc_loc = .false. , nonzero_bc
 logical :: is_this_the_first_run
 
 logical :: match_mask(2)
+
+character(100) :: filename, problemname
 
 ! MPI initialization
 !***************************************************************PARALLEL
@@ -475,8 +479,9 @@ logical :: match_mask(2)
       deallocate(rhs)
 
 ! ELMS - element stiffness matrices of subdomain - structure:
-      call bddc_getfname(name1,lname1,isub,'EMSO',fname)
-      open(unit=idelm,file=fname,status='old',form='unformatted')
+      problemname = name1(1:lname1)
+      call getfname(trim(problemname),isub,'ELM',filename)
+      open(unit=idelm,file=filename,status='old',form='unformatted')
       call sm_pmd_load(idelm,nelems,inetst,linetst,nnetst,lnnetst,nndft,lnndft,kdoft,lkdoft,&
                        i_sparse, j_sparse, a_sparse, la_pure)
       close(idelm)
