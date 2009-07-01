@@ -269,7 +269,7 @@ logical :: exportcorners
       open (unit=iddat,file=name,status='replace',form='formatted')
 
 ! write header
-      call tecplot_header(iddat,ndim,name1,lname1,'"SUBDOMAIN"')
+      call tecplot_header(iddat,ndim,name1,'"SUBDOMAIN"')
 
 ! Creation of field KINET(NELEM) with addresses before first global node of element IE in field inet
       lkinet = nelem
@@ -541,21 +541,21 @@ logical :: elasticity = .false.
             nvar = 3
             allocate(cellcentered(nvar))
             cellcentered = .false.
-            call tecplot_header(iddat,ndim,name1,lname1,'"VX", "VY", "P"')
+            call tecplot_header(iddat,ndim,name1,'"VX", "VY", "P"')
          else if (ndim.eq.3) then
             nvar = 4
             allocate(cellcentered(nvar))
             cellcentered = .false.
-            call tecplot_header(iddat,ndim,name1,lname1,'"VX", "VY", "VZ", "P"')
+            call tecplot_header(iddat,ndim,name1,'"VX", "VY", "VZ", "P"')
          end if
       else if (elasticity) then
          if (ndim.eq.2) then
             nvar = 3
             allocate(cellcentered(nvar))
             cellcentered = .false.
-            call tecplot_header(iddat,ndim,name1,lname1,'"DX", "DY", "DMAGNITUDE", "XDEF", "YDEF" ')
+            call tecplot_header(iddat,ndim,name1,'"DX", "DY", "DMAGNITUDE", "XDEF", "YDEF" ')
          else if (ndim.eq.3) then
-            call tecplot_header(iddat,ndim,name1,lname1,'"DX", "DY", "DZ", "DMAGNITUDE", "XDEF", "YDEF", "ZDEF" ')
+            call tecplot_header(iddat,ndim,name1,'"DX", "DY", "DZ", "DMAGNITUDE", "XDEF", "YDEF", "ZDEF" ')
             nvar = 4
             allocate(cellcentered(nvar))
             cellcentered = .false.
@@ -1597,7 +1597,13 @@ type(neighbouring_type), allocatable :: neighbourings(:)
          open (unit=idglb,file=name,status='replace',form='formatted')
 
 ! transform the globs into pmd-style arrays
-         nglb = count(globs%selected)
+         nglb  = count(globs%selected)
+         nedge = count(globs%selected .and. globs%itype.eq.2)
+         nface = count(globs%selected .and. globs%itype.eq.1)
+         if (nglb .ne. nedge + nface) then
+            write(*,*) 'Number of globs does not agree with number of edges and faces'
+         end if
+
 ! determine length of array inglb
          linglb = 0
          do iglob = 1,nglob
@@ -1613,8 +1619,21 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 ! fill arrays 
          iglb   = 0
          iinglb = 0
+         ! first with edges
          do iglob = 1,nglob
-            if (globs(iglob)%selected) then
+            if (globs(iglob)%selected .and. globs(iglob)%itype .eq. 2) then
+               iglb = iglb + 1
+               nng  = globs(iglob)%nnod
+               nnglb(iglb) = nng
+               do ing = 1,nng
+                  iinglb = iinglb + 1
+                  inglb(iinglb) = igingn(globs(iglob)%nodes(ing))
+               end do
+            end if
+         end do
+         ! now with faces
+         do iglob = 1,nglob
+            if (globs(iglob)%selected .and. globs(iglob)%itype .eq. 1) then
                iglb = iglb + 1
                nng  = globs(iglob)%nnod
                nnglb(iglb) = nng
@@ -1629,6 +1648,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
          write(idglb,'(2i15)') nglb, linglb
          write(idglb,'(4i15)') inglb
          write(idglb,'(4i15)') nnglb
+         write(idglb,'(2i12)') nedge, nface
          
          close(idglb)
          print *, 'Created file ', trim(name),' with a list of selected ',nglb,' globs.'
@@ -1678,13 +1698,10 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       open (unit=idpair,file=name,status='replace',form='formatted')
       write(idpair,*) npair
       ipair = 0
-      iglb  = 0
       do iglob = 1,nglob
-         if (globs(iglob)%selected) then
-            iglb = iglb + 1
-         end if
          if (globs(iglob)%itype.eq.1 .and. globs(iglob)%selected) then
             ipair = ipair + 1
+            iglb = nnewvertex + nedge + ipair
 
             write (idpair,*) iglb, globs(iglob)%subdomains(1),globs(iglob)%subdomains(2)
          end if
@@ -1696,7 +1713,6 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       end if
       print *, 'Created file ', trim(name), ' with list of',npair,' pairs for adaptivity.'
       close(idpair)
-
 
 ! Clear memory
       do iglob = 1,nglob
@@ -1799,6 +1815,8 @@ integer::            linglb,   lnnglb
 integer,allocatable:: inglb(:), nnglb(:)
 integer::            lglobal_glob_numbers
 integer,allocatable:: global_glob_numbers(:)
+integer::            lglob_type
+integer,allocatable:: glob_type(:)
 integer::            lnglobvars
 integer,allocatable:: nglobvars(:)
 integer::            ligvsivns1, ligvsivns2
@@ -1816,7 +1834,7 @@ integer:: isub, ie, inc, ndofn, nne, &
           inods, jsub, pointinet, pointinets, i, j, indn, idofis, idofos, inodis, &
           indns, indins, inodcs, iglbn, nglbn, iglb, iglobs, indn1,&
           nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs
-integer:: nadjs, nnodcs, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs
+integer:: nadjs, nnodcs, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs, nedge, nface
 integer:: idsmd
 
 ! GMIS - basic mesh data - structure:
@@ -1909,6 +1927,7 @@ integer:: idsmd
       allocate (inglb(linglb),nnglb(lnnglb))
       read(idglb,*) inglb
       read(idglb,*) nnglb
+      read(idglb,*) nedge, nface
       close(idglb)
 
 ! End of reading global data**********************
@@ -2106,6 +2125,8 @@ integer:: idsmd
          allocate(global_glob_numbers(lglobal_glob_numbers))
          lnglobvars = nglobs
          allocate(nglobvars(lnglobvars))
+         lglob_type = nglobs
+         allocate(glob_type(lglob_type))
 
          iglobs     = 0
          pointinglb = 0
@@ -2132,6 +2153,13 @@ integer:: idsmd
 
             pointinglb = pointinglb + nglbn
          end do
+
+         ! set type of glob
+         glob_type = 1
+         where (global_glob_numbers .le. nedge) glob_type = 2
+
+         ! shift numbering behind corners
+         global_glob_numbers = global_glob_numbers + nnodc
 
          ligvsivns1 = nglobs
          ligvsivns2 = maxval(nglobvars)
@@ -2280,12 +2308,14 @@ integer:: idsmd
             ! glob variables
             write(idsmd,*) (igvsivns(iglobs,ivar),ivar = 1,nglobvars(iglobs))
          end do
+         write(idsmd,*) glob_type
 
          close(idsmd)
 
          deallocate(igvsivns)
          deallocate(nglobvars)
          deallocate(global_glob_numbers)
+         deallocate(glob_type)
          deallocate(icnsins)
          deallocate(global_corner_numbers)
          deallocate(iovsvns)

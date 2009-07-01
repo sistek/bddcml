@@ -103,6 +103,13 @@ program test_module_adaptivity
       do isub = 1,nsub
          call dd_prepare_schur(myid,comm_self,isub)
       end do
+      do isub = 1,nsub
+         call dd_get_cnodes(myid,isub)
+      end do
+      do isub = 1,nsub
+         call dd_prepare_c(myid,isub)
+      end do
+
       call dd_prepare_adaptive_space(myid)
 !*******************************************AUX
 ! Measure time spent in DD module

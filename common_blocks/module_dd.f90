@@ -23,6 +23,28 @@ module module_dd
          real(kr),allocatable :: matrix(:,:)
       end type glob_constraints_type
 
+! type for storing adaptive constraints for selected globs
+      type cnode_type
+         integer :: itype              ! type of coarse node (1 - face, 2 - edge, 3 - corner)
+         logical :: used               ! should this glob be applied in computation?
+         logical :: adaptive = .false. ! should adaptive constraints be applied at this glob?
+         integer ::             lxyz
+         real(kr),allocatable :: xyz(:) ! coordinates
+         ! where the glob maps to
+         integer :: global_cnode_number ! embedding into coarse nodes
+         integer :: ncdof              ! number of coarse degrees of freedom
+         integer,allocatable :: igcdof(:) ! indices of global coarse dof
+         ! where it maps from
+         integer :: nnod               ! number of nodes it contains
+         integer,allocatable :: insin(:)  ! indices of glob nodes in subdomain interface numbering
+         integer :: nvar               ! number of variables it contains
+         integer,allocatable :: ivsivn(:)  ! indices of glob variables in subdomain interface numbering
+         ! constraints on glob
+         integer :: lmatrix1 ! = ncdof
+         integer :: lmatrix2 ! = nvar
+         real(kr),allocatable :: matrix(:,:)
+      end type cnode_type
+
 ! type for subdomain data
       type subdomain_type
          logical ::             is_sub_identified = .false.
@@ -74,7 +96,7 @@ module module_dd
          real(kr),allocatable :: bc(:)        ! BC array - eliminated entries of stiffness matrix multiplied by values of fixed variables 
 
          ! description of corners
-         integer ::             nnodc                  ! number of coarse nodes on subdomain
+         integer ::             nnodc                  ! number of corners on subdomain
          integer ::             lglobal_corner_number  ! length of array GLOBAL_CORNER_NUMBER
          integer, allocatable :: global_corner_number(:) ! global numbers of these corners - length NNODC
          integer ::             licnsin                 ! length of array ICNSIN
@@ -91,9 +113,17 @@ module module_dd
          integer ::             ligvsivn1              ! number of rows of IGVSIVN array
          integer ::             ligvsivn2              ! number of cols of IGVSIVN array
          integer, allocatable :: igvsivn(:,:)          ! IGVSIVN array - indices of glob variables in subdomain interface numbering
+         integer ::             lglob_type             ! length of array GLOB_TYPE
+         integer, allocatable :: glob_type(:)          ! type of globs ( 1 - face, 2 - edge)
                                                        ! data are stored by rows
          integer ::             lngdf                  ! length of array NGDF
          integer, allocatable :: ngdf(:)               ! number of degrees of freedom associated with a glob (e.g. number of averages on glob) - lenght NGLOB
+
+         ! common description of joint coarse nodes/dofs
+         logical ::                     is_cnodes_loaded = .false. ! are coarse nodes activated?
+         integer ::                     ncnodes ! number of coarse nodes (including corners and globs)
+         type(cnode_type),allocatable :: cnodes(:) ! structure with all information about coarse nodes
+
       
          ! subdomain matrix 
          logical :: is_matrix_loaded = .false.
@@ -158,6 +188,8 @@ module module_dd
          integer,allocatable  :: i_c_sparse(:)
          integer,allocatable  :: j_c_sparse(:)
          real(kr),allocatable ::   c_sparse(:)
+         integer ::              lindrowc ! indices of rows in C matrix in global coarse dof
+         integer,allocatable  ::  indrowc(:)
 
          ! Space for adaptive constraints
          integer  ::                               lglob_constraints
@@ -277,6 +309,8 @@ subroutine dd_read_mesh_from_file(myid,problemname)
       integer, allocatable ::  icnsin(:)
       integer ::              lglobal_glob_number
       integer, allocatable ::  global_glob_number(:)
+      integer ::              lglob_type
+      integer, allocatable ::  glob_type(:)
       integer ::              lnglobvar 
       integer, allocatable ::  nglobvar(:)
       integer ::              ligvsivn1, ligvsivn2
@@ -367,6 +401,9 @@ subroutine dd_read_mesh_from_file(myid,problemname)
                   igvsivn(iglob,ivar) = 0
                end do
             end do
+            lglob_type = nglob
+            allocate(glob_type(lglob_type))
+            read(idsmd,*) glob_type
 
             close(idsmd)
             if (debug) then
@@ -380,7 +417,7 @@ subroutine dd_read_mesh_from_file(myid,problemname)
                               iin,liin, iivsvn,liivsvn, iovsvn,liovsvn,&
                               global_corner_number,lglobal_corner_number, icnsin,licnsin,&
                               global_glob_number,lglobal_glob_number,nglobvar,lnglobvar,&
-                              igvsivn,ligvsivn1,ligvsivn2)
+                              igvsivn,ligvsivn1,ligvsivn2,glob_type,lglob_type)
             call dd_load_bc(myid,isub, ifix,lifix, fixv,lfixv)
 
             if (debug) then
@@ -393,6 +430,7 @@ subroutine dd_read_mesh_from_file(myid,problemname)
             deallocate (xyz)
             deallocate (iin, iivsvn, iovsvn)
             deallocate (ifix,fixv)
+            deallocate (glob_type)
             deallocate (global_glob_number,nglobvar)
             deallocate (igvsivn)
             deallocate (global_corner_number,icnsin)
@@ -630,7 +668,7 @@ subroutine dd_load_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo
                         iin,liin, iivsvn,liivsvn, iovsvn,liovsvn, &
                         global_corner_number,lglobal_corner_number, icnsin,licnsin,&
                         global_glob_number,lglobal_glob_number, nglobvar,lnglobvar,&
-                        igvsivn,ligvsivn1,ligvsivn2)
+                        igvsivn,ligvsivn1,ligvsivn2,glob_type,lglob_type)
 !*********************************************************************************
 ! Subroutine for loading mesh data into sub structure
       implicit none
@@ -650,6 +688,8 @@ subroutine dd_load_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo
       integer,intent(in) ::  global_glob_number(lglobal_glob_number), nglobvar(lnglobvar)
       integer,intent(in) :: ligvsivn1, ligvsivn2
       integer,intent(in) ::  igvsivn(ligvsivn1,ligvsivn2)
+      integer,intent(in) :: lglob_type
+      integer,intent(in) ::  glob_type(lglob_type)
 
       ! local vars
       integer :: i, j
@@ -761,6 +801,12 @@ subroutine dd_load_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo
          do j = 1,ligvsivn2
             sub(isub)%igvsivn(i,j) = igvsivn(i,j)
          end do
+      end do
+
+      sub(isub)%lglob_type = lglob_type
+      allocate(sub(isub)%glob_type(lglob_type))
+      do i = 1,lglob_type
+         sub(isub)%glob_type(i) = glob_type(i)
       end do
 
       sub(isub)%is_mesh_loaded = .true.
@@ -1295,7 +1341,8 @@ subroutine dd_get_adaptive_constraints(myid,isub,iglb,avg,lavg1,lavg2)
          write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Array for glob constraints not ready.'
          call error_exit
       end if
-      if (sub(isub)%glob_constraints(iglb)%lmatrix1.ne.lavg1 .or. sub(isub)%glob_constraints(iglb)%lmatrix2.ne.lavg2) then
+      if (sub(isub)%glob_constraints(iglb)%lmatrix1.ne.lavg1 .or. &
+          sub(isub)%glob_constraints(iglb)%lmatrix2.ne.lavg2) then
          write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Matrix dimensions for averages do not match.'
          call error_exit
       end if
@@ -1308,8 +1355,293 @@ subroutine dd_get_adaptive_constraints(myid,isub,iglb,avg,lavg1,lavg2)
 
 end subroutine
 
+!**********************************
+subroutine dd_get_cnodes(myid,isub)
+!**********************************
+! Subroutine for preparing data for computing with reduced problem
+      use module_sm
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain
+      integer,intent(in) :: isub
+
+      ! local vars
+      integer ::             nnodc
+      integer ::             nglob
+      integer ::             ncnodes, lcnodes
+      integer ::             icnode
+      integer ::             inodc, indnode, indinode, i, kcdof, ncdof, nvar, iglob, nnodgl
+      integer ::             lxyz
+
+
+      ! check the prerequisities
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_GET_CNODES: myid =',myid,'Subdomain', isub,' is not mine.'
+         end if
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_CNODES: Mesh is not loaded for subdomain:', isub
+         call error_exit
+      end if
+
+      ! determine number of coarse nodes
+      nnodc = sub(isub)%nnodc
+      nglob = sub(isub)%nglob
+      ncnodes = nnodc + nglob
+      sub(isub)%ncnodes = ncnodes
+
+      lcnodes = ncnodes
+      allocate(sub(isub)%cnodes(lcnodes))
+
+      ! set counter
+      icnode = 0
+
+      ! copy corners
+      do inodc = 1,nnodc
+         icnode = icnode + 1
+
+         ! type of coarse node - corner
+         sub(isub)%cnodes(icnode)%itype = 3
+         ! is coarse node used?
+         sub(isub)%cnodes(icnode)%used  = .true.
+         ! global number
+         sub(isub)%cnodes(icnode)%global_cnode_number  = sub(isub)%global_corner_number(inodc)
+         ! number of coarse dof it contains
+         ncdof = sub(isub)%ndim
+         sub(isub)%cnodes(icnode)%ncdof = ncdof
+         ! number of nodes where it maps from
+         sub(isub)%cnodes(icnode)%nnod = 1
+         ! number of variables it maps from 
+         nvar = sub(isub)%ndim
+         sub(isub)%cnodes(icnode)%nvar = nvar
+
+         ! fill coordinates
+         lxyz = sub(isub)%ndim
+         sub(isub)%cnodes(icnode)%lxyz = lxyz
+         allocate(sub(isub)%cnodes(icnode)%xyz(lxyz))
+         indinode = sub(isub)%icnsin(inodc)
+         indnode  = sub(isub)%iin(indinode)
+         sub(isub)%cnodes(icnode)%xyz = sub(isub)%xyz(indnode,:)
+
+         ! fill coarse node dof
+         allocate(sub(isub)%cnodes(icnode)%igcdof(ncdof))
+         kcdof = (sub(isub)%global_corner_number(inodc)-1)*nvar 
+         do i = 1,ncdof
+            sub(isub)%cnodes(icnode)%igcdof(i) = kcdof + i
+         end do
+
+         ! fill coarse node nodes
+         allocate(sub(isub)%cnodes(icnode)%insin(1))
+         sub(isub)%cnodes(icnode)%insin(1) = indinode
+
+         ! fill coarse nodes variables
+         allocate(sub(isub)%cnodes(icnode)%ivsivn(nvar))
+         do i = 1,nvar
+            sub(isub)%cnodes(icnode)%ivsivn(i) = (indinode-1)*nvar + i
+         end do
+
+      end do
+
+      ! copy globs
+      do iglob = 1,nglob
+         icnode = icnode + 1
+
+         ! type of coarse node - corner
+         sub(isub)%cnodes(icnode)%itype = sub(isub)%glob_type(iglob)
+         ! is coarse node used?
+         if (sub(isub)%glob_type(iglob) .eq. 2) then
+            sub(isub)%cnodes(icnode)%used  = .true.
+         else
+            sub(isub)%cnodes(icnode)%used  = .false.
+         end if
+
+         ! global number
+         sub(isub)%cnodes(icnode)%global_cnode_number = sub(isub)%global_glob_number(iglob)
+         ! number of coarse dof it contains
+         ! ndim for arithmetic averages
+         ncdof = sub(isub)%ndim
+         sub(isub)%cnodes(icnode)%ncdof = ncdof
+         ! number of nodes where it maps from
+         nnodgl = sub(isub)%nglobvar(iglob)/sub(isub)%ndim
+         sub(isub)%cnodes(icnode)%nnod = nnodgl
+         ! number of variables it maps from 
+         nvar = sub(isub)%nglobvar(iglob)
+         sub(isub)%cnodes(icnode)%nvar = nvar
+
+         ! fill coordinates
+         lxyz = sub(isub)%ndim
+         sub(isub)%cnodes(icnode)%lxyz = lxyz
+         allocate(sub(isub)%cnodes(icnode)%xyz(lxyz))
+         sub(isub)%cnodes(icnode)%xyz = 0.
+
+         ! fill coarse node dof
+         allocate(sub(isub)%cnodes(icnode)%igcdof(ncdof))
+         kcdof = (sub(isub)%global_glob_number(iglob)-1)*nvar
+         do i = 1,ncdof
+            sub(isub)%cnodes(icnode)%igcdof(i) = kcdof + i
+         end do
+
+         ! fill coarse node nodes
+         ! not for globs
+
+         ! fill coarse nodes variables
+         allocate(sub(isub)%cnodes(icnode)%ivsivn(nvar))
+         do i = 1,nvar
+            sub(isub)%cnodes(icnode)%ivsivn(i) = sub(isub)%igvsivn(iglob,i)
+         end do
+
+         sub(isub)%is_cnodes_loaded = .true.
+
+      end do
+
+      return
+end subroutine
+
 !*********************************
 subroutine dd_prepare_c(myid,isub)
+!*********************************
+! Subroutine for preparing data for computing with reduced problem
+      use module_sm
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain
+      integer,intent(in) :: isub
+
+      ! local vars
+      integer ::             nnzc
+      integer ::             lc
+      integer,allocatable ::  i_c_sparse(:)
+      integer,allocatable ::  j_c_sparse(:)
+      real(kr),allocatable ::   c_sparse(:)
+
+      integer ::              lkdof
+      real(kr),allocatable ::  kdof(:)
+
+      integer :: nnod
+      integer :: inod,& 
+                 nconstr, icdof, icn, inzc, irowc, ivar, ncdof, &
+                 ncnodes, nrowc, nvar, lindrowc
+
+      ! check the prerequisities
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_PREPARE_C: myid =',myid,'Subdomain', isub,' is not mine.'
+         end if
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_PREPARE_C: Mesh is not loaded for subdomain:', isub
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_matrix_loaded) then
+         write(*,*) 'DD_PREPARE_C: Matrix is not loaded for subdomain:', isub
+         call error_exit
+      end if
+
+      ! find number of rows in C (constraints)
+      nrowc = 0
+      ! find number of nonzeros in C
+      nnzc  = 0
+
+      ncnodes = sub(isub)%ncnodes
+      do icn = 1,ncnodes
+         if (sub(isub)%cnodes(icn)%used) then
+            nrowc = nrowc + sub(isub)%cnodes(icn)%ncdof
+            nnzc  = nnzc + sub(isub)%cnodes(icn)%nvar
+         end if
+      end do
+      nconstr = nrowc
+
+
+      ! Creation of field KDOF(NNOD) with addresses before first global
+      ! dof of node
+      nnod  = sub(isub)%nnod
+      lkdof = nnod
+      allocate(kdof(lkdof))
+      kdof(1) = 0
+      do inod = 2,nnod
+         kdof(inod) = kdof(inod-1) + sub(isub)%nndf(inod-1)
+      end do
+
+      lc   = nnzc
+      allocate (i_c_sparse(lc),j_c_sparse(lc),c_sparse(lc))
+
+      lindrowc = nrowc
+      sub(isub)%lindrowc = lindrowc
+      allocate(sub(isub)%indrowc(lindrowc))
+
+      ! create constraints from corners and mapping from local coarse dof to
+      ! global coarse dof
+      irowc = 0
+      inzc  = 0
+      do icn = 1,ncnodes
+         if (sub(isub)%cnodes(icn)%used) then
+
+            if (sub(isub)%cnodes(icn)%itype .eq. 3) then
+               ! for corners, do not read matrices but construct the sparse matrix directly
+               nvar = sub(isub)%cnodes(icn)%nvar
+               do ivar = 1,nvar
+                  irowc = irowc + 1
+                  inzc  = inzc  + 1
+
+                  i_c_sparse(inzc) = irowc
+                  j_c_sparse(inzc) = sub(isub)%cnodes(icn)%ivsivn(ivar)
+                  c_sparse(inzc)   = 1._kr
+
+                  sub(isub)%indrowc(irowc) = sub(isub)%cnodes(icn)%igcdof(ivar)
+               end do
+            else if (sub(isub)%cnodes(icn)%itype .eq. 2 .or. &
+                     (sub(isub)%cnodes(icn)%itype .eq. 1 .and.&
+                      sub(isub)%cnodes(icn)%adaptive .eqv. .false.)) then
+               ! for edges, use arithmetic averages
+               nvar  = sub(isub)%cnodes(icn)%nvar
+               ncdof = sub(isub)%cnodes(icn)%ncdof
+               do icdof = 1,ncdof
+                  irowc = irowc + 1
+
+                  do ivar = icdof,nvar,ncdof
+                     inzc  = inzc  + 1
+
+                     i_c_sparse(inzc) = irowc
+                     j_c_sparse(inzc) = sub(isub)%cnodes(icn)%ivsivn(ivar)
+                     c_sparse(inzc)   = 1._kr
+                  end do
+
+                  sub(isub)%indrowc(irowc) = sub(isub)%cnodes(icn)%igcdof(icdof)
+               end do
+            else
+            ! TODO continue here to add adaptive constraints
+            !   if (sub(isub)%cnodes(icn)%adaptive) then
+            ! also number of nonzeros has to be changed
+               continue
+            end if
+         end if
+      end do
+
+      ! check number
+      if (inzc.ne.lc) then
+         write(*,*) 'DD_PREPARE_C: Check of sparse matrix lenght failed for subdomain', isub
+         call error_exit
+      end if
+      
+      ! load the new matrix directly to the structure
+      call dd_load_c(myid,isub,nconstr,i_c_sparse, j_c_sparse, c_sparse, lc, nnzc)
+
+      deallocate (i_c_sparse,j_c_sparse,c_sparse)
+      deallocate (kdof)
+
+end subroutine
+
+!*********************************
+subroutine dd_prepare_c2(myid,isub)
 !*********************************
 ! Subroutine for preparing data for computing with reduced problem
       use module_sm
@@ -1495,6 +1827,7 @@ subroutine dd_prepare_aug(myid,comm,isub)
       integer ::  nnzaaug, laaug, ndofaaug
       integer ::  i, iaaug
       integer ::  mumpsinfo, aaugmatrixtype
+      integer ::  icol, icoli
 
       ! check the prerequisities
       if (sub(isub)%proc .ne. myid) then
@@ -1548,7 +1881,9 @@ subroutine dd_prepare_aug(myid,comm,isub)
       ! copy entries of right block of C^T with proper shift in columns
       do i = 1,nnzc
          iaaug = iaaug + 1
-         sub(isub)%i_aaug_sparse(iaaug) = sub(isub)%j_c_sparse(i) 
+         icoli = sub(isub)%j_c_sparse(i)
+         icol  = sub(isub)%iivsvn(icoli)
+         sub(isub)%i_aaug_sparse(iaaug) = icol
          sub(isub)%j_aaug_sparse(iaaug) = sub(isub)%i_c_sparse(i) + ndof
          sub(isub)%aaug_sparse(iaaug)   = sub(isub)%c_sparse(i)   
       end do
@@ -1556,8 +1891,10 @@ subroutine dd_prepare_aug(myid,comm,isub)
          ! unsymmetric case: apply lower block of C
          do i = 1,nnzc
             iaaug = iaaug + 1
+            icoli = sub(isub)%j_c_sparse(i)
+            icol  = sub(isub)%iivsvn(icoli)
             sub(isub)%i_aaug_sparse(iaaug) = sub(isub)%i_c_sparse(i) + ndof
-            sub(isub)%j_aaug_sparse(iaaug) = sub(isub)%i_c_sparse(i)
+            sub(isub)%j_aaug_sparse(iaaug) = icol
             sub(isub)%aaug_sparse(iaaug)   = sub(isub)%c_sparse(i)   
          end do
       end if
@@ -1962,9 +2299,9 @@ subroutine dd_get_interface_size(myid,isub,ndofi,nnodi)
 
 end subroutine
 
-!***************************************************
-subroutine dd_get_number_of_corners(myid,isub,nnodc)
-!***************************************************
+!****************************************************
+subroutine dd_get_number_of_crows(myid,isub,lindrowc)
+!****************************************************
 ! Subroutine for finding size of subdomain data
       implicit none
 ! processor ID
@@ -1972,47 +2309,105 @@ subroutine dd_get_number_of_corners(myid,isub,nnodc)
 ! Index of subdomain whose data I want to get
       integer,intent(in) :: isub
 ! Number of corners
-      integer,intent(out) :: nnodc
+      integer,intent(out) :: lindrowc
 
       if (.not.allocated(sub).or.isub.gt.lsub) then
-         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Trying to localize nonexistent subdomain.'
-         nnodc = -1
+         write(*,*) 'DD_GET_NUMBER_OF_CROWS: Trying to localize nonexistent subdomain.'
+         lindrowc = -1
          return
       end if
       if (.not.sub(isub)%is_sub_identified) then
-         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Subdomain is not identified.'
-         nnodc = -2
+         write(*,*) 'DD_GET_NUMBER_OF_CROWS: Subdomain is not identified.'
+         lindrowc = -2
          return
       end if
       if (sub(isub)%isub .ne. isub) then
-         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Subdomain has strange number.'
-         nnodc = -3
+         write(*,*) 'DD_GET_NUMBER_OF_CROWS: Subdomain has strange number.'
+         lindrowc = -3
          return
       end if
       if (.not.sub(isub)%is_proc_assigned) then
-         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Processor is not assigned.'
-         nnodc = -4
+         write(*,*) 'DD_GET_NUMBER_OF_CROWS: Processor is not assigned.'
+         lindrowc = -4
          return
       end if
       if (sub(isub)%proc .ne. myid) then
-         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Subdomain ',isub,' is not mine, myid = ',myid
-         nnodc = -5
+         write(*,*) 'DD_GET_NUMBER_OF_CROWS: Subdomain ',isub,' is not mine, myid = ',myid
+         lindrowc = -5
          return
       end if
       if (.not.sub(isub)%is_mesh_loaded) then
-         write(*,*) 'DD_GET_NUMBER_OF_CORNERS: Mesh is not loaded yet for subdomain ',isub
-         nnodc = -6
+         write(*,*) 'DD_GET_NUMBER_OF_CROWS: Mesh is not loaded yet for subdomain ',isub
+         lindrowc = -6
+         return
+      end if
+      if (.not.sub(isub)%is_cnodes_loaded) then
+         write(*,*) 'DD_GET_NUMBER_OF_CROWS: Coarse nodes not loaded yet for subdomain ',isub
+         lindrowc = -6
          return
       end if
 
       ! if all checks are OK, return subdomain interface size
-      nnodc = sub(isub)%nnodc
+      lindrowc = sub(isub)%lindrowc
 
 end subroutine
 
-!****************************************************************************************
-subroutine dd_get_subdomain_corners(myid,isub,global_corner_number,lglobal_corner_number)
-!****************************************************************************************
+!***********************************************
+subroutine dd_get_number_of_cnnz(myid,isub,nnzc)
+!***********************************************
+! Subroutine for finding size of subdomain data
+      implicit none
+! processor ID
+      integer,intent(in) :: myid
+! Index of subdomain whose data I want to get
+      integer,intent(in) :: isub
+! Number of corners
+      integer,intent(out) :: nnzc
+
+      if (.not.allocated(sub).or.isub.gt.lsub) then
+         write(*,*) 'DD_GET_NUMBER_OF_CNNZ: Trying to localize nonexistent subdomain.'
+         nnzc = -1
+         return
+      end if
+      if (.not.sub(isub)%is_sub_identified) then
+         write(*,*) 'DD_GET_NUMBER_OF_CNNZ: Subdomain is not identified.'
+         nnzc = -2
+         return
+      end if
+      if (sub(isub)%isub .ne. isub) then
+         write(*,*) 'DD_GET_NUMBER_OF_CNNZ: Subdomain has strange number.'
+         nnzc = -3
+         return
+      end if
+      if (.not.sub(isub)%is_proc_assigned) then
+         write(*,*) 'DD_GET_NUMBER_OF_CNNZ: Processor is not assigned.'
+         nnzc = -4
+         return
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_NUMBER_OF_CNNZ: Subdomain ',isub,' is not mine, myid = ',myid
+         nnzc = -5
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_NUMBER_OF_CNNZ: Mesh is not loaded yet for subdomain ',isub
+         nnzc = -6
+         return
+      end if
+      if (.not.sub(isub)%is_c_loaded) then
+         write(*,*) 'DD_GET_NUMBER_OF_CNNZ: Matrix C not loaded yet for subdomain ',isub
+         nnzc = -6
+         return
+      end if
+
+      ! if all checks are OK, return subdomain interface size
+      nnzc = sub(isub)%nnzc
+
+end subroutine
+
+!************************************************************
+subroutine dd_get_subdomain_crows(myid,isub,indrowc,lindrowc)
+!************************************************************
 ! Subroutine for getting corner nodes
       implicit none
 ! processor ID
@@ -2020,56 +2415,51 @@ subroutine dd_get_subdomain_corners(myid,isub,global_corner_number,lglobal_corne
 ! Index of subdomain whose data I want to get
       integer,intent(in) :: isub
 ! Corners
-      integer,intent(in) :: lglobal_corner_number
-      integer,intent(out) :: global_corner_number(lglobal_corner_number)
+      integer,intent(in) :: lindrowc
+      integer,intent(out) :: indrowc(lindrowc)
 ! local vars
-      integer :: nnodc, i
+      integer :: i
 
       if (.not.allocated(sub).or.isub.gt.lsub) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Trying to localize nonexistent subdomain.'
+         write(*,*) 'DD_GET_SUBDOMAIN_CROWS: Trying to localize nonexistent subdomain.'
          return
       end if
       if (.not.sub(isub)%is_sub_identified) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Subdomain is not identified.'
+         write(*,*) 'DD_GET_SUBDOMAIN_CROWS: Subdomain is not identified.'
          return
       end if
       if (sub(isub)%isub .ne. isub) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Subdomain has strange number.'
+         write(*,*) 'DD_GET_SUBDOMAIN_CROWS: Subdomain has strange number.'
          return
       end if
       if (.not.sub(isub)%is_proc_assigned) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Processor is not assigned.'
+         write(*,*) 'DD_GET_SUBDOMAIN_CROWS: Processor is not assigned.'
          return
       end if
       if (sub(isub)%proc .ne. myid) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Subdomain ',isub,' is not mine, myid = ',myid
+         write(*,*) 'DD_GET_SUBDOMAIN_CROWS: Subdomain ',isub,' is not mine, myid = ',myid
          return
       end if
       if (.not.sub(isub)%is_mesh_loaded) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Mesh is not loaded yet for subdomain ',isub
+         write(*,*) 'DD_GET_SUBDOMAIN_CROWS: Mesh is not loaded yet for subdomain ',isub
          return
       end if
-      if (.not.sub(isub)%is_mesh_loaded) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Mesh is not loaded yet for subdomain ',isub
-         return
-      end if
-      if (sub(isub)%nnodc .ne. lglobal_corner_number) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS: Size of array for corners not consistent.'
-         write(*,*) 'nnodc :', sub(isub)%nnodc, 'array size: ',lglobal_corner_number
+      if (sub(isub)%lindrowc .ne. lindrowc) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CROWS: Size of array for corners not consistent.'
+         write(*,*) 'lindrowc :', sub(isub)%lindrowc, 'array size: ',lindrowc
          return
       end if
 
-      ! if all checks are OK, return subdomain interface size
-      nnodc = sub(isub)%nnodc
-      do i = 1,nnodc
-         global_corner_number(i) = sub(isub)%global_corner_number(i)
+      ! if all checks are OK, return number of cnodes on subdomain
+      do i = 1,lindrowc
+         indrowc(i) = sub(isub)%indrowc(i)
       end do
 
 end subroutine
 
-!****************************************************************
-subroutine dd_get_subdomain_corners_map(myid,isub,icnsin,licnsin)
-!****************************************************************
+!**************************************************************************
+subroutine dd_get_subdomain_cmap(myid,isub,i_c_sparse,j_c_sparse,lc_sparse)
+!**************************************************************************
 ! Subroutine for getting corner nodes embedding into interface
       implicit none
 ! processor ID
@@ -2077,49 +2467,53 @@ subroutine dd_get_subdomain_corners_map(myid,isub,icnsin,licnsin)
 ! Index of subdomain whose data I want to get
       integer,intent(in) :: isub
 ! Corners mapping
-      integer,intent(in) :: licnsin
-      integer,intent(out) :: icnsin(licnsin)
+      integer,intent(in) ::  lc_sparse
+      integer,intent(out) :: i_c_sparse(lc_sparse), j_c_sparse(lc_sparse)
+
 ! local vars
-      integer :: nnodc, i
+      integer :: nnzc, i
 
       if (.not.allocated(sub).or.isub.gt.lsub) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Trying to localize nonexistent subdomain.'
+         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Trying to localize nonexistent subdomain.'
          return
       end if
       if (.not.sub(isub)%is_sub_identified) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Subdomain is not identified.'
+         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Subdomain is not identified.'
          return
       end if
       if (sub(isub)%isub .ne. isub) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Subdomain has strange number.'
+         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Subdomain has strange number.'
          return
       end if
       if (.not.sub(isub)%is_proc_assigned) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Processor is not assigned.'
+         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Processor is not assigned.'
          return
       end if
       if (sub(isub)%proc .ne. myid) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Subdomain ',isub,' is not mine, myid = ',myid
+         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Subdomain ',isub,' is not mine, myid = ',myid
          return
       end if
       if (.not.sub(isub)%is_mesh_loaded) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Mesh is not loaded yet for subdomain ',isub
+         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Mesh is not loaded yet for subdomain ',isub
          return
       end if
-      if (.not.sub(isub)%is_mesh_loaded) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Mesh is not loaded yet for subdomain ',isub
+      if (.not.sub(isub)%is_c_loaded) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Matrix C is not loaded yet for subdomain ',isub
          return
       end if
-      if (sub(isub)%nnodc .ne. licnsin) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CORNERS_MAP: Size of array for corners not consistent.'
-         write(*,*) 'nnodc :', sub(isub)%nnodc, 'array size: ',licnsin 
+      if (sub(isub)%lc .ne. lc_sparse) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Size of array for corners not consistent.'
+         write(*,*) 'nnodc :', sub(isub)%lc, 'array size: ',lc_sparse 
          return
       end if
 
       ! if all checks are OK, return subdomain interface size
-      nnodc = sub(isub)%nnodc
-      do i = 1,nnodc
-         icnsin(i) = sub(isub)%icnsin(i)
+      nnzc = sub(isub)%nnzc
+      do i = 1,nnzc
+         i_c_sparse(i) = sub(isub)%i_c_sparse(i)
+      end do
+      do i = 1,nnzc
+         j_c_sparse(i) = sub(isub)%j_c_sparse(i)
       end do
 
 end subroutine
@@ -2362,7 +2756,7 @@ subroutine dd_clear_subdomain(isub)
       integer,intent(in) :: isub
 
       ! local variables
-      integer :: i
+      integer :: i, j
 
       if (.not.allocated(sub).or.isub.gt.lsub) then
          write(*,*) 'DD_CLEAR_SUBDOMAIN: Trying to clear nonexistent subdomain.'
@@ -2421,10 +2815,32 @@ subroutine dd_clear_subdomain(isub)
       if (allocated(sub(isub)%igvsivn)) then
          deallocate(sub(isub)%igvsivn)
       end if
+      if (allocated(sub(isub)%glob_type)) then
+         deallocate(sub(isub)%glob_type)
+      end if
       if (allocated(sub(isub)%ngdf)) then
          deallocate(sub(isub)%ngdf)
       end if
-      ! matrices
+      if (allocated(sub(isub)%cnodes)) then
+         do j = 1,sub(isub)%ncnodes
+            if (allocated(sub(isub)%cnodes(j)%xyz)) then
+               deallocate(sub(isub)%cnodes(j)%xyz)
+            end if
+            if (allocated(sub(isub)%cnodes(j)%igcdof)) then
+               deallocate(sub(isub)%cnodes(j)%igcdof)
+            end if
+            if (allocated(sub(isub)%cnodes(j)%insin)) then
+               deallocate(sub(isub)%cnodes(j)%insin)
+            end if
+            if (allocated(sub(isub)%cnodes(j)%ivsivn)) then
+               deallocate(sub(isub)%cnodes(j)%ivsivn)
+            end if
+            if (allocated(sub(isub)%cnodes(j)%matrix)) then
+               deallocate(sub(isub)%cnodes(j)%matrix)
+            end if
+         end do
+         deallocate(sub(isub)%cnodes)
+      end if
       if (allocated(sub(isub)%i_a_sparse)) then
          deallocate(sub(isub)%i_a_sparse)
       end if
@@ -2491,6 +2907,9 @@ subroutine dd_clear_subdomain(isub)
       end if
       if (allocated(sub(isub)%c_sparse)) then
          deallocate(sub(isub)%c_sparse)
+      end if
+      if (allocated(sub(isub)%indrowc)) then
+         deallocate(sub(isub)%indrowc)
       end if
       if (allocated(sub(isub)%i_aaug_sparse)) then
          deallocate(sub(isub)%i_aaug_sparse)
@@ -2565,6 +2984,11 @@ subroutine dd_print_sub(myid)
          write(*,*) '     number of corners:       ', sub(isub)%nnodc
          write(*,*) '*** GLOB INFO :               '
          write(*,*) '     number of globs:         ', sub(isub)%nglob
+         write(*,*) '*** COARSE NODES INFO :       '
+         write(*,*) '     number of coarse nodes:  ', sub(isub)%ncnodes
+         do i = 1,sub(isub)%ncnodes
+            call dd_print_cnode(isub,i)
+         end do
          write(*,*) '*** MATRIX INFO :             '
          write(*,*) '     matrix loaded:           ', sub(isub)%is_matrix_loaded
          write(*,*) '     matrix blocked:          ', sub(isub)%is_blocked
@@ -2612,6 +3036,32 @@ subroutine dd_print_sub(myid)
       end do
       write(*,*) '******************************'
 
+end subroutine
+
+!*************************************
+subroutine dd_print_cnode(isub,icnode)
+!*************************************
+! Subroutine for printing content of one coarse node
+      implicit none
+
+      integer,intent(in) :: isub, icnode
+
+! basic structure
+      write(*,*) '****** start coarse node export '
+      write(*,*) '     coarse node number:      ', icnode
+      write(*,*) '     type of coarse node:     ', sub(isub)%cnodes(icnode)%itype
+      write(*,*) '     used for constraints?:   ', sub(isub)%cnodes(icnode)%used
+      write(*,*) '     coordinates:             ', sub(isub)%cnodes(icnode)%xyz
+      write(*,*) '****** where it maps to? '
+      write(*,*) '     global coarse node number:', sub(isub)%cnodes(icnode)%global_cnode_number
+      write(*,*) '     number of coarse degrees of freedom:', sub(isub)%cnodes(icnode)%ncdof
+      write(*,*) '     indices of coarse dof:', sub(isub)%cnodes(icnode)%igcdof
+!      write(*,*) '****** where it maps from? '
+!      write(*,*) '     number of nodes it contains:', sub(isub)%cnodes(icnode)%nnod
+!      write(*,*) '     indices of nodes on subdomain int:', sub(isub)%cnodes(icnode)%insin
+      write(*,*) '     number of nodes it contains:', sub(isub)%cnodes(icnode)%nvar
+      write(*,*) '     indices of variables on subdomain int:', sub(isub)%cnodes(icnode)%ivsivn
+      write(*,*) '****** end coarse nodes export '
 end subroutine
 
 !*********************

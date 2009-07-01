@@ -19,6 +19,7 @@ TESTS = \
    test_module_utils \
    test_module_adaptivity \
    test_module_dd \
+   test_module_dd2 \
    test_module_mumps \
    test_module_mumps2 \
    test_module_sm \
@@ -94,6 +95,9 @@ test_module_adaptivity.o: \
 test_module_dd.o: \
    module_dd.o
 
+test_module_dd2.o: \
+   module_dd.o
+
 test_module_utils.o: \
    module_utils.o
 
@@ -147,6 +151,14 @@ test_module_adaptivity: \
 
 test_module_dd: \
    test_module_dd.o \
+   module_dd.o \
+   module_mumps.o \
+   module_sm.o \
+   module_utils.o 
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+
+test_module_dd2: \
+   test_module_dd2.o \
    module_dd.o \
    module_mumps.o \
    module_sm.o \

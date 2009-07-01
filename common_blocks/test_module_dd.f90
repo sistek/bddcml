@@ -84,6 +84,12 @@ program test_module_dd
       call dd_multiply_by_schur(myid,isub,x,lx,y,ly)
       write(*,*) 'I am ',myid,'y =',y
 
+      ! auxiliary routine, until reading directly the globs
+      isub = 1
+      call dd_get_cnodes(myid,isub)
+      isub = 2
+      call dd_get_cnodes(myid,isub)
+
       ! test who owns data for subdomain
       isub = 1
       call dd_prepare_c(myid,isub)

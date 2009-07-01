@@ -5,11 +5,11 @@ integer,parameter,private :: kr = kind(1.D0)
 
 contains
 
-!**********************************************************
-subroutine tecplot_header(iddat,ndim,name1,lname1,varnames)
-!**********************************************************
+!***************************************************
+subroutine tecplot_header(iddat,ndim,name1,varnames)
+!***************************************************
 ! Subroutine for export header to TECPLOT file
-!**********************************************************
+!***************************************************
 implicit none
 
 ! disk unit
@@ -17,8 +17,7 @@ integer, intent(in) :: iddat
 ! number of dimensions
 integer, intent(in) :: ndim
 ! problem name
-integer, intent(in) :: lname1
-character(lname1),intent(in)    :: name1
+character(*),intent(in)    :: name1
 ! variable names (excluding coordinates)
 character(*),optional,intent(in) :: varnames
 
@@ -26,7 +25,7 @@ character(*),optional,intent(in) :: varnames
 character(13) :: coordstring
 
 ! write title
-write(iddat,*) 'TITLE = "',name1(1:lname1),'"'
+write(iddat,*) 'TITLE = "',trim(name1),'"'
 
 ! write names of variables
 if      (ndim.eq.3) then
@@ -232,6 +231,93 @@ integer :: ie, nne, i, indinet
 
 return
 end subroutine tecplot_connectivity_table
+
+!********************************************************************
+subroutine tecplot_get_point_data_header(iddat,nvar,ordered,nx,ny,nz)
+!********************************************************************
+! Subroutine for exporting a the finite element conectivity table
+!********************************************************************
+use module_parsing
+implicit none
+
+! disk unit
+integer, intent(in) :: iddat
+! number of variables in the file
+integer, intent(out) :: nvar
+! is the set ordered
+logical, intent(out) :: ordered
+! number of points in x, y and z
+integer, intent(out) :: nx, ny, nz
+
+! initialize counter of lines
+fileline = 0
+
+do
+   call rdline(iddat)
+!   print *,'line',trim(line), 'kstring',kstring
+   call getstring
+
+!   print *,'string:',trim(string)
+   if (trim(string).eq.'VARIABLES') then 
+      exit
+   end if
+end do
+
+call getstring
+if (kstring.eq.0) then
+   call rdline(iddat)
+end if
+
+nvar = 0
+do
+   call getstring
+   if (trim(string).eq.'ZONE') then
+      exit
+   end if
+!   print *,'string:',trim(string)
+
+   nvar = nvar + 1
+
+   if (kstring.eq.0) then
+      call rdline(iddat)
+   end if
+end do
+
+do 
+   if (kstring.eq.0) then
+      call rdline(iddat)
+   end if
+   call getstring
+
+   if (string(1:2).eq.'I=') then
+      read(string(3:),*) nx
+      if (kstring.eq.0) then
+         call rdline(iddat)
+      end if
+      call getstring
+      read(string(3:),*) ny
+      if (kstring.eq.0) then
+         call rdline(iddat)
+      end if
+      call getstring
+      read(string(3:),*) nz
+      exit
+   end if
+end do
+
+! pad the rest of the file up to values
+do 
+   call rdline(iddat)
+   if (line(1:3).eq.'DT=') then
+      do while (kstring.ne.0)
+         call getstring
+      end do
+      exit
+   end if
+end do
+
+return
+end subroutine tecplot_get_point_data_header
 
 end module module_tecplot
 
