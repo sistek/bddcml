@@ -1961,7 +1961,7 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
                  ibuf, ia, &
                  point, space_left, store_type, &
                  iglbntr, nglbntr, indinglbtr, nglbtr, navgn, indi, indin, &
-                 indj, indjn, jdofn, pointi, pointj, isub
+                 indj, indjn, jdofn, pointi, pointj, isub, nnodc, icnode
       integer :: nnz_right, nnz_left, nnz_new, nnz_add, nnz_transform_as, &
                  nnz_t_est, nnz_t_est_loc, point_t, space_t_left, nnz_t_add
       logical :: correct_sol = .false.
@@ -2095,16 +2095,25 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
             ! number of averages on glob
             ! same number of subdomains and processors is enforced
             isub = myid + 1
-            call dd_get_adaptive_constraints_size(myid,isub,iglb,lavg1,lavg2)
+            call dd_get_subdomain_corner_number(myid,isub,nnodc)
 
-!            print *,'I am here: lavg1 =',lavg1,'lavg2 =',lavg2
+            icnode = nnodc + iglb
+            call dd_get_adaptive_constraints_size(myid,isub,icnode,lavg1,lavg2)
+
+            ! number of constraints on this glob
+            nconstrgl(iglb) = lavg1
+
+            !if (lavg1.eq.0) then
+            !   print *,'I am here: lavg1 =',lavg1,'lavg2 =',lavg2
+            !   cycle
+            !end if
 
             ! debug - with aritmetic averages
             !lavg1 = 3
             ! prepare matrix AVG - local for glob, only averages => rectangular
             allocate(avg(lavg1,lavg2))
             ! case of single aritmetic average
-            call dd_get_adaptive_constraints(myid,isub,iglb,avg,lavg1,lavg2)
+            call dd_get_adaptive_constraints(myid,isub,icnode,avg,lavg1,lavg2)
             !debug
             !write(substring ,'(i1)') myid+1
             !write(avgstring ,'(i1)') iglb
@@ -2135,9 +2144,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !         write(98,'(1000f10.4)') (testm(i,j),j = 1,ltestm2)
 !      end do
 !      deallocate(testm)
-
-            ! number of constraints on this glob
-            nconstrgl(iglb) = lavg1
 
 
             ! Number of constraints become the number of nodes in constraint
@@ -2203,6 +2209,9 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          do iv = 1,nglbv
             tdof(iv,iv) = tdof(iv,iv) - 1._kr
          end do
+         if (lavg1.eq.0) then
+            tdof = 0._kr
+         end if
 
 !         write(*,*) 'Matrix Tdof after subtracting identity'
 !         do i = 1,ltdof1

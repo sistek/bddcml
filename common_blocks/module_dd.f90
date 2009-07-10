@@ -17,17 +17,11 @@ module module_dd
       logical,parameter,private :: debug = .false.
 
 ! type for storing adaptive constraints for selected globs
-      type glob_constraints_type
-         integer :: lmatrix1
-         integer :: lmatrix2
-         real(kr),allocatable :: matrix(:,:)
-      end type glob_constraints_type
-
-! type for storing adaptive constraints for selected globs
       type cnode_type
          integer :: itype              ! type of coarse node (1 - face, 2 - edge, 3 - corner)
          logical :: used               ! should this glob be applied in computation?
-         logical :: adaptive = .false. ! should adaptive constraints be applied at this glob?
+         logical :: adaptive   = .false. ! should adaptive constraints be applied at this glob?
+         logical :: arithmetic = .false. ! should arithmetic constraints be applied at this glob?
          integer ::             lxyz
          real(kr),allocatable :: xyz(:) ! coordinates
          ! where the glob maps to
@@ -190,10 +184,6 @@ module module_dd
          real(kr),allocatable ::   c_sparse(:)
          integer ::              lindrowc ! indices of rows in C matrix in global coarse dof
          integer,allocatable  ::  indrowc(:)
-
-         ! Space for adaptive constraints
-         integer  ::                               lglob_constraints
-         type(glob_constraints_type),allocatable :: glob_constraints(:)
 
          !  matrix Aaug - augmented subdomain matrix
          integer ::              nnzaaug
@@ -1173,32 +1163,60 @@ subroutine dd_prepare_schur(myid,comm,isub)
 
 end subroutine
 
-!*****************************************
-subroutine dd_prepare_adaptive_space(myid)
-!*****************************************
+!*********************************************************
+subroutine dd_load_arithmetic_constraints(myid,isub,itype)
+!*********************************************************
 ! Subroutine for assemblage of matrix
       use module_utils
       implicit none
       integer,intent(in) :: myid
+      integer,intent(in) :: isub
+      integer,intent(in) :: itype ! type of globs (2 - edges)
 
       ! local vars
-      integer :: isub, nglob
+      integer :: icnode, lmatrix1, lmatrix2, ncnodes
+      integer :: i, j
 
-      do isub = 1,lsub
-         if (sub(isub)%proc .eq. myid) then
+      ! check the prerequisities
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_LOAD_ARITHMETIC_CONSTRAINTS: myid =',myid,'Subdomain', isub,' is not mine.'
+         end if
+         return
+      end if
+      if (.not.allocated(sub(isub)%cnodes)) then
+         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Array for cnodes not ready.'
+         call error_exit
+      end if
 
-            ! check the prerequisities
-            if (.not.sub(isub)%is_mesh_loaded) then
-               write(*,*) 'DD_PREPARE_ADAPTIVE_SPACE: Mesh is not loaded for subdomain:', isub
-               call error_exit
-            end if
+      ! get number of coarse nodes
+      ncnodes = sub(isub)%ncnodes
+      ! generate arithmetic averages on coarse nodes of prescribed type (e.g. edges)
+      do icnode = 1,ncnodes
+         if (sub(isub)%cnodes(icnode)%itype .eq. itype) then
+         
+            lmatrix1 = sub(isub)%cnodes(icnode)%ncdof
+            lmatrix2 = sub(isub)%cnodes(icnode)%nvar
 
-            nglob = sub(isub)%nglob
+            sub(isub)%cnodes(icnode)%lmatrix1 = lmatrix1
+            sub(isub)%cnodes(icnode)%lmatrix2 = lmatrix2
+            allocate(sub(isub)%cnodes(icnode)%matrix(lmatrix1,lmatrix2))
 
-            sub(isub)%lglob_constraints = nglob
-            allocate(sub(isub)%glob_constraints(nglob))
+            call zero(sub(isub)%cnodes(icnode)%matrix,lmatrix1,lmatrix2)
+
+            do i = 1,lmatrix1
+               do j = i,lmatrix2,lmatrix1
+                  sub(isub)%cnodes(icnode)%matrix(i,j) = 1._kr
+               end do
+            end do
+            !print *, 'Matrix C for an edge'
+            !do i = 1,lmatrix1
+            !   print '(100f5.1)', (sub(isub)%cnodes(icnode)%matrix(i,j),j=1,lmatrix2)
+            !end do
+            sub(isub)%cnodes(icnode)%arithmetic = .true.
          end if
       end do
+
 end subroutine
 
 !***************************************************************************
@@ -1218,20 +1236,20 @@ subroutine dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2)
       integer :: i, j, indiv
 
       ! check the prerequisities
-      if (.not.allocated(sub(isub)%glob_constraints)) then
-         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Array for glob constraints not ready.'
+      if (.not.allocated(sub(isub)%cnodes)) then
+         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Array for cnodes not ready.'
          call error_exit
       end if
 
       ! find local (subdomain) index of the glob from its global number
-      call get_index(gglob,sub(isub)%global_glob_number,sub(isub)%lglobal_glob_number,ind_loc)
+      call get_index(gglob,sub(isub)%cnodes%global_cnode_number,sub(isub)%ncnodes,ind_loc)
       if (ind_loc.le.0) then
          write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Index of glob not found!'
          call error_exit
       end if
 
       ! prepare space for these constraints in the structure
-      nvarglb = sub(isub)%nglobvar(ind_loc) 
+      nvarglb = sub(isub)%cnodes(ind_loc)%nvar 
 
       if (nvarglb.gt.lcadapt1) then
          write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Dimension of matrix of averages is smaller than number of variables on glob.'
@@ -1242,22 +1260,23 @@ subroutine dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2)
       ! copy transposed selected variables to the global structure
       lmatrix1 = lcadapt2
       lmatrix2 = nvarglb
-      sub(isub)%glob_constraints(ind_loc)%lmatrix1 = lmatrix1
-      sub(isub)%glob_constraints(ind_loc)%lmatrix2 = lmatrix2
-      allocate(sub(isub)%glob_constraints(ind_loc)%matrix(lmatrix1,lmatrix2))
+      sub(isub)%cnodes(ind_loc)%lmatrix1 = lmatrix1
+      sub(isub)%cnodes(ind_loc)%lmatrix2 = lmatrix2
+      allocate(sub(isub)%cnodes(ind_loc)%matrix(lmatrix1,lmatrix2))
       
       do i = 1,lmatrix1
          do j = 1,nvarglb
-            indiv = sub(isub)%igvsivn(ind_loc,j)
+            indiv = sub(isub)%cnodes(ind_loc)%ivsivn(j)
 
-            sub(isub)%glob_constraints(ind_loc)%matrix(i,j) = cadapt(indiv,i)
+            sub(isub)%cnodes(ind_loc)%matrix(i,j) = cadapt(indiv,i)
          end do
       end do
+      sub(isub)%cnodes(ind_loc)%adaptive = .true.
 
       if (debug) then
          write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Loading matrix of subdomain ',isub,' local glob #',ind_loc
          do i = 1,lmatrix1
-            print '(100f15.6)',(sub(isub)%glob_constraints(ind_loc)%matrix(i,j),j = 1,lmatrix2)
+            print '(100f15.6)',(sub(isub)%cnodes(ind_loc)%matrix(i,j),j = 1,lmatrix2)
          end do
       end if
 end subroutine
@@ -1291,17 +1310,18 @@ subroutine dd_get_adaptive_constraints_size(myid,isub,iglb,lavg1,lavg2)
          write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Not my subdomain.'
          call error_exit
       end if
-      if (.not.allocated(sub(isub)%glob_constraints)) then
-         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Array for glob constraints not ready.'
+      if (.not.allocated(sub(isub)%cnodes)) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Array for coarse nodes constraints not ready.'
          call error_exit
       end if
-      if (.not.allocated(sub(isub)%glob_constraints(iglb)%matrix)) then
+      if (.not.allocated(sub(isub)%cnodes(iglb)%matrix)) then
+         write(*,*) 'isub',isub,'iglb',iglb,'type',sub(isub)%cnodes(iglb)%itype
          write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Matrix constraints are not allocated.'
          call error_exit
       end if
 
-      lavg1 = sub(isub)%glob_constraints(iglb)%lmatrix1
-      lavg2 = sub(isub)%glob_constraints(iglb)%lmatrix2
+      lavg1 = sub(isub)%cnodes(iglb)%lmatrix1
+      lavg2 = sub(isub)%cnodes(iglb)%lmatrix2
 end subroutine
 
 !*********************************************************************
@@ -1337,19 +1357,19 @@ subroutine dd_get_adaptive_constraints(myid,isub,iglb,avg,lavg1,lavg2)
          write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Not my subdomain.'
          call error_exit
       end if
-      if (.not.allocated(sub(isub)%glob_constraints)) then
-         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Array for glob constraints not ready.'
+      if (.not.allocated(sub(isub)%cnodes)) then
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Array for coarse nodes constraints not ready.'
          call error_exit
       end if
-      if (sub(isub)%glob_constraints(iglb)%lmatrix1.ne.lavg1 .or. &
-          sub(isub)%glob_constraints(iglb)%lmatrix2.ne.lavg2) then
+      if (sub(isub)%cnodes(iglb)%lmatrix1.ne.lavg1 .or. &
+          sub(isub)%cnodes(iglb)%lmatrix2.ne.lavg2) then
          write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Matrix dimensions for averages do not match.'
          call error_exit
       end if
 
       do j = 1,lavg2
          do i = 1,lavg1
-            avg(i,j) = sub(isub)%glob_constraints(iglb)%matrix(i,j)
+            avg(i,j) = sub(isub)%cnodes(iglb)%matrix(i,j)
          end do
       end do
 
@@ -2457,6 +2477,48 @@ subroutine dd_get_subdomain_crows(myid,isub,indrowc,lindrowc)
 
 end subroutine
 
+!*********************************************************
+subroutine dd_get_subdomain_corner_number(myid,isub,nnodc)
+!*********************************************************
+! Subroutine for getting corner nodes
+      implicit none
+! processor ID
+      integer,intent(in) :: myid
+! Index of subdomain whose data I want to get
+      integer,intent(in) :: isub
+! Corners
+      integer,intent(out) :: nnodc
+
+      if (.not.allocated(sub).or.isub.gt.lsub) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CONRER_NUMBER: Trying to localize nonexistent subdomain.'
+         return
+      end if
+      if (.not.sub(isub)%is_sub_identified) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CONRER_NUMBER: Subdomain is not identified.'
+         return
+      end if
+      if (sub(isub)%isub .ne. isub) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CONRER_NUMBER: Subdomain has strange number.'
+         return
+      end if
+      if (.not.sub(isub)%is_proc_assigned) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CONRER_NUMBER: Processor is not assigned.'
+         return
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CONRER_NUMBER: Subdomain ',isub,' is not mine, myid = ',myid
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_SUBDOMAIN_CONRER_NUMBER: Mesh is not loaded yet for subdomain ',isub
+         return
+      end if
+
+      ! if all checks are OK, return number of corners on subdomain
+      nnodc = sub(isub)%nnodc
+
+end subroutine
+
 !**************************************************************************
 subroutine dd_get_subdomain_cmap(myid,isub,i_c_sparse,j_c_sparse,lc_sparse)
 !**************************************************************************
@@ -2756,7 +2818,7 @@ subroutine dd_clear_subdomain(isub)
       integer,intent(in) :: isub
 
       ! local variables
-      integer :: i, j
+      integer :: j
 
       if (.not.allocated(sub).or.isub.gt.lsub) then
          write(*,*) 'DD_CLEAR_SUBDOMAIN: Trying to clear nonexistent subdomain.'
@@ -2891,14 +2953,6 @@ subroutine dd_clear_subdomain(isub)
       end if
 
       ! BDDC matrices
-      if (allocated(sub(isub)%glob_constraints)) then
-         do i = 1,sub(isub)%lglob_constraints
-            if (allocated(sub(isub)%glob_constraints(i)%matrix)) then
-               deallocate(sub(isub)%glob_constraints(i)%matrix)
-            end if
-         end do
-         deallocate(sub(isub)%glob_constraints)
-      end if
       if (allocated(sub(isub)%i_c_sparse)) then
          deallocate(sub(isub)%i_c_sparse)
       end if

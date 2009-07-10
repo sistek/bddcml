@@ -20,7 +20,7 @@ program test_module_adaptivity
       integer :: npair_locx
       integer :: ndim, nsub, nelem, ndof, nnod, nnodc, linet
 
-      integer :: isub
+      integer :: isub, glob_type
       logical :: remove_original 
 
       character(90)  :: problemname 
@@ -109,8 +109,12 @@ program test_module_adaptivity
       do isub = 1,nsub
          call dd_prepare_c(myid,isub)
       end do
+      ! load arithmetic averages on edges
+      glob_type = 2
+      do isub = 1,nsub
+         call dd_load_arithmetic_constraints(myid,isub,glob_type)
+      end do
 
-      call dd_prepare_adaptive_space(myid)
 !*******************************************AUX
 ! Measure time spent in DD module
       call MPI_BARRIER(comm_all,ierr)

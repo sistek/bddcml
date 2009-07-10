@@ -143,26 +143,26 @@ program test_module_sm
 
       write(*,*) 'Check the masked array multiplication'
       matrixtype = 1
-      call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
-                       ones,lones, sol,lsol, mask,lmask, (/.false.,.false./))
+      call sm_vec_mult_mask(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
+                            ones,lones, sol,lsol, mask,lmask, (/.false.,.false./))
 ! Visual check of result
       write(*,*) 'Position | Solution by module | Reference solution '
       write(*,'(i6,8x, f12.7,8x, f12.7)') ( i, sol(i), sol_ref_4(i), i = 1, lsol)
 
-      call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
-                       ones,lones, sol,lsol, mask,lmask, (/.true.,.false./))
+      call sm_vec_mult_mask(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
+                            ones,lones, sol,lsol, mask,lmask, (/.true.,.false./))
 ! Visual check of result
       write(*,*) 'Position | Solution by module | Reference solution '
       write(*,'(i6,8x, f12.7,8x, f12.7)') ( i, sol(i), sol_ref_5(i), i = 1, lsol)
 
-      call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
-                       ones,lones, sol,lsol, mask,lmask, (/.false.,.true./))
+      call sm_vec_mult_mask(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
+                            ones,lones, sol,lsol, mask,lmask, (/.false.,.true./))
 ! Visual check of result
       write(*,*) 'Position | Solution by module | Reference solution '
       write(*,'(i6,8x, f12.7,8x, f12.7)') ( i, sol(i), sol_ref_6(i), i = 1, lsol)
 
-      call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
-                       ones,lones, sol,lsol, mask,lmask, (/.true.,.true./))
+      call sm_vec_mult_mask(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
+                            ones,lones, sol,lsol, mask,lmask, (/.true.,.true./))
 ! Visual check of result
       write(*,*) 'Position | Solution by module | Reference solution '
       write(*,'(i6,8x, f12.7,8x, f12.7)') ( i, sol(i), sol_ref_7(i), i = 1, lsol)

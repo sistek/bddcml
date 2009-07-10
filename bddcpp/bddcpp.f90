@@ -687,7 +687,7 @@ character(100) :: filename
       allocate(elm(lelmx))
 
 ! If number of subdomains is not extensive,
-      if (nsub.le.1024) then
+      if (nsub.le.1000) then
 ! open a file for each subdomain and distribute element like cards in one pass through element matrices.
          do isub = 1,nsub
             call getfname(problemname,isub,'ELM',filename)

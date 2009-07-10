@@ -12,7 +12,7 @@ real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! treshold on eigenvalues to define an adaptive constraint
 ! eigenvectors for eigenvalues above this value are used for creation of constraints 
-real(kr),parameter,private :: treshold_eigval = 5._kr
+real(kr),parameter,private :: treshold_eigval = 2._kr
 ! LOBPCG related variables
 ! maximal number of LOBPCG iterations
 integer,parameter ::  lobpcg_maxit = 100
@@ -368,7 +368,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
       ! LOBPCG related variables
       integer ::  lobpcg_iter ! final number of iterations
-      real(kr)::   est, est_loc
+      real(kr)::   est = 0, est_round, est_loc
 
       ! MPI related variables
       integer :: ierr, ireq, nreq
@@ -639,6 +639,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             ireq = ireq + 1
             call MPI_ISEND(indrowc,lindrowc,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
             deallocate(indrowc)
          end do
          nreq = ireq
@@ -683,6 +684,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             ireq = ireq + 1
             call MPI_ISEND(i_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
             deallocate(i_c_sparse,j_c_sparse)
          end do
          nreq = ireq
@@ -712,6 +714,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             ireq = ireq + 1
             call MPI_ISEND(j_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
             deallocate(i_c_sparse,j_c_sparse)
          end do
          nreq = ireq
@@ -754,6 +757,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             ireq = ireq + 1
             call MPI_ISEND(nndfi,nnodi,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
             deallocate(nndfi)
          end do
          nreq = ireq
@@ -814,7 +818,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                if (any(indirow.eq.common_crows)) then
                   indjcol_loc = j_c_sparse_i(ic)
 
-                  call get_index(indirow,common_crows,ncommon_crows,inddrow) 
+                  call get_index(indirow,common_crows,lcommon_crows,inddrow) 
 
                   dij(indjcol_loc,inddrow) = 1._kr
                end if
@@ -828,7 +832,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                   ! shift the index
                   indjcol_loc = j_c_sparse_j(ic) + ndofi_i
 
-                  call get_index(indirow,common_crows,ncommon_crows,inddrow) 
+                  call get_index(indirow,common_crows,lcommon_crows,inddrow) 
 
                   dij(indjcol_loc,inddrow) = -1._kr
                end if
@@ -918,6 +922,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             ireq = ireq + 1
             call MPI_ISEND(rhoi,ndofi,MPI_DOUBLE_PRECISION,owner,isub,comm,request(ireq),ierr)
+            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
             deallocate(rhoi)
          end do
          nreq = ireq
@@ -956,6 +961,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             ireq = ireq + 1
             call MPI_ISEND(iingn,nnodi,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
             deallocate(iingn)
          end do
          nreq = ireq
@@ -1183,12 +1189,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end if
          call adaptivity_fake_lobpcg_driver
 
-         call MPI_ALLREDUCE(est_loc,est,1,MPI_DOUBLE_PRECISION,MPI_MAX,comm_comm,ierr)
-         if (myid.eq.0) then
-            write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: Expected estimated condition number: ',est
-            call flush(6)
-         end if
-
+         call MPI_ALLREDUCE(est_loc,est_round,1,MPI_DOUBLE_PRECISION,MPI_MAX,comm_comm,ierr)
          !if (my_pair.ge.0) then
          !   write(*,*) 'Constraints to be added on pair ',my_pair
          !   do i = 1,problemsize
@@ -1354,7 +1355,17 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             deallocate(j_c_sparse_i,j_c_sparse_j)
             deallocate(indrowc_i,indrowc_j)
          end if
+
+         ! find estimate of cindition number
+         est = max(est,est_round)
+
       end do ! loop over rounds of eigenvalue pairs
+
+      if (myid.eq.0) then
+         write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: Expected estimated condition number: ',est
+         call flush(6)
+      end if
+
 
       deallocate(statarray)
       deallocate(request)

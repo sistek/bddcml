@@ -301,6 +301,15 @@ do
       end if
       call getstring
       read(string(3:),*) nz
+      if (kstring.eq.0) then
+         call rdline(iddat)
+      end if
+      call getstring
+      if (string.eq.'ZONETYPE=Ordered') then
+         ordered = .true.
+      else
+         ordered = .false.
+      end if
       exit
    end if
 end do
