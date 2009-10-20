@@ -10,10 +10,9 @@ integer,parameter,private  :: kr = kind(1.D0)
 ! numerical zero
 real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
-! threshold on eigenvalues to define an adaptive constraint
+! treshold on eigenvalues to define an adaptive constraint
 ! eigenvectors for eigenvalues above this value are used for creation of constraints 
-real(kr),parameter,private :: threshold_eigval_default = 2._kr
-logical,parameter,private  :: read_threshold_from_file = .true.
+real(kr),parameter,private :: treshold_eigval = 5._kr
 ! LOBPCG related variables
 ! maximal number of LOBPCG iterations
 integer,parameter ::  lobpcg_maxit = 100
@@ -22,7 +21,7 @@ real(kr),parameter :: lobpcg_tol   = 1.e-5_kr
 ! maximal number of eigenvectors per problem
 ! this number is used for sufficient size of problems 
 ! for small problems, size of glob is used
-integer,parameter ::  neigvecx     = 10  
+integer,parameter ::  neigvecx     = 20 
 ! verbosity of LOBPCG solver
 ! 0 - no output
 ! 1 - some output
@@ -32,8 +31,6 @@ integer,parameter ::  lobpcg_verbosity = 0
 ! 0 - generate new random vectors
 ! 1 - use given vectors
 integer,parameter ::  use_vec_values = 0
-
-real(kr),private :: threshold_eigval
 
 ! debugging 
 logical,parameter,private :: debug = .false.
@@ -54,7 +51,7 @@ integer,private :: comm_myid
 integer,private :: neigvec, problemsize
 
 integer,private :: ndofi_i, ndofi_j
-integer,private :: lindrowc_i, lindrowc_j
+integer,private :: ncnodei, ncnodej
 integer,private :: nnodi_i,nnodi_j
 
 integer,private :: comm_myplace1, comm_myplace2 
@@ -133,8 +130,6 @@ subroutine adaptivity_init(myid,comm,idpair,npair)
       integer :: ldata
 
       integer :: ipair, j
-      integer :: idthresh
-      real(kr) :: threshold_file
 
 ! read pairs to be computed data
       if (myid.eq.0) then
@@ -163,29 +158,9 @@ subroutine adaptivity_init(myid,comm,idpair,npair)
          call adaptivity_print_pairs(myid)
       end if
 
-! set threshold
-      if (read_threshold_from_file) then
-         ! root reads the value
-         if (myid.eq.0) then
-            call allocate_unit(idthresh)
-            open (unit=idthresh,file='threshold.txt',status='old',form='formatted')
-
-            read(idthresh,*) threshold_file
-            close(idthresh)
-         end if
-         ! broadcast it among processors
-!*****************************************************************MPI
-         call MPI_BCAST(threshold_file,1, MPI_DOUBLE_PRECISION, 0, comm, ierr)
-!*****************************************************************MPI
-         ! set the threshold
-         threshold_eigval = threshold_file
-      else
-         threshold_eigval = threshold_eigval_default
-      end if
-
       if (myid.eq.0) then
          write(*,*) 'ADAPTIVITY SETUP====================='
-         write(*,*) 'threshold for selection: ', threshold_eigval
+         write(*,*) 'treshold for selection: ', treshold_eigval
          write(*,*) 'max LOBPCG iterations: ',  lobpcg_maxit
          write(*,*) 'LOBPCG tolerance: ',  lobpcg_tol
          write(*,*) 'max number of computed eigenvectors: ', neigvecx
@@ -320,15 +295,14 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer :: isub, jsub, ipair, iactive_pair, iround
       integer :: gglob, my_pair, &
                  nactive_pairs, owner,&
-                 place1, place2, pointbuf, i, j, iinstr, icommon,&
-                 indi_i, indi_j, ndofn, inodi,&
-                 shift, indcommon, ndofcomm, idofn, irhoicomm,&
-                 point_i, point_j, indiv, nadaptive, ioper, nadaptive_rcv, ind, &
-                 nnzc_i, nnzc_j, inddrow, ic, indirow, indirow_loc, indjcol_loc
+                 place1, place2, pointbuf, i, j, iinstr, indcorner, icommon,&
+                 indc_i, indc_j, indi_i, indi_j, ndofn, nconstr, iconstr, inodi,&
+                 pointv_i, pointv_j, shift, indcommon, ndofcomm, idofn, irhoicomm,&
+                 point_i, point_j, indiv, nadaptive, ioper, nadaptive_rcv, ind
 
       integer :: ndofi
+      integer :: ncnode
       integer :: nnodi
-      integer :: nnzc
 
 
       integer ::            lpair_data
@@ -347,19 +321,17 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       real(kr),allocatable :: eigval(:)
 
       ! coarse nodes information
-      integer ::            ncommon_crows
-      integer ::            lindrowc_i,   lindrowc_j
-      integer,allocatable :: indrowc_i(:), indrowc_j(:)
-      integer ::            lindrowc
-      integer,allocatable :: indrowc(:)
-      integer ::            lc_sparse_i
-      integer,allocatable :: i_c_sparse_i(:),j_c_sparse_i(:)
-      integer ::            lc_sparse_j
-      integer,allocatable :: i_c_sparse_j(:),j_c_sparse_j(:)
-      integer ::            lc_sparse
-      integer,allocatable :: i_c_sparse(:),j_c_sparse(:)
-      integer ::            lcommon_crows
-      integer,allocatable :: common_crows(:)
+      integer ::            ncommon_cnodes
+      integer ::            lglobal_cnode_number_i,   lglobal_cnode_number_j
+      integer,allocatable :: global_cnode_number_i(:), global_cnode_number_j(:)
+      integer ::            lglobal_cnode_number
+      integer,allocatable :: global_cnode_number(:)
+      integer ::            lcommon_cnodes
+      integer,allocatable :: common_cnodes(:)
+      integer ::            licnsin_i,   licnsin_j
+      integer,allocatable :: icnsin_i(:), icnsin_j(:)
+      integer ::            licnsin
+      integer,allocatable :: icnsin(:)
       integer ::            lnndfi_i,   lnndfi_j
       integer,allocatable :: nndfi_i(:), nndfi_j(:)
       integer ::            lnndfi
@@ -393,7 +365,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
       ! LOBPCG related variables
       integer ::  lobpcg_iter ! final number of iterations
-      real(kr)::   est = 0, est_round, est_loc
+      real(kr)::   est, est_loc
 
       ! MPI related variables
       integer :: ierr, ireq, nreq
@@ -535,25 +507,25 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          !   write(90+myid,*) 'ndofi_i',ndofi_i,'ndofi_j',ndofi_j
          !end if
 
-         !  get number of rows in C find common subset
+         !  get number of coarse nodes to find common subset
          ireq = 0
          if (my_pair.ge.0) then
             ! receive numbers of coarse nodes
 
             ireq = ireq + 1
-            call MPI_IRECV(lindrowc_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(ncnodei,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(lindrowc_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(ncnodej,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
          end if
          ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_number_of_crows(myid,isub,lindrowc)
+            call dd_get_number_of_cnodes(myid,isub,ncnode)
 
             ireq = ireq + 1
-            call MPI_ISEND(lindrowc,1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+            call MPI_ISEND(ncnode,1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
@@ -563,38 +535,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end if
 
          !if (my_pair.ge.0) then
-         !   write(*,*) 'lindrowc_i',lindrowc_i,'lindrowc_j',lindrowc_j
-         !end if
-
-         !  get number of nonzeros in C 
-         ireq = 0
-         if (my_pair.ge.0) then
-            ! receive numbers of coarse nodes
-
-            ireq = ireq + 1
-            call MPI_IRECV(nnzc_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
-
-            ireq = ireq + 1
-            call MPI_IRECV(nnzc_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
-         end if
-         ! send sizes of subdomains involved in problems
-         do iinstr = 1,ninstructions
-            owner = instructions(iinstr,1)
-            isub  = instructions(iinstr,2)
-            call dd_get_number_of_cnnz(myid,isub,nnzc)
-
-            ireq = ireq + 1
-            call MPI_ISEND(nnzc,1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
-         end do
-         nreq = ireq
-         call MPI_WAITALL(nreq, request, statarray, ierr)
-         if (debug) then
-            write(*,*) 'I am ',myid, 'All messages in pack 2.2 received, MPI is fun!.'
-            call flush(6)
-         end if
-
-         !if (my_pair.ge.0) then
-         !   write(*,*) 'nnzc_i',nnzc_i,'nnzc_j',nnzc_j
+         !   write(90+myid,*) 'ncnodei',ncnodei,'ncnodej',ncnodej
          !end if
 
          !  get number of nodes on interface
@@ -627,11 +568,15 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          !   write(90+myid,*) 'nnodi_i',nnodi_i,'nnodi_j',nnodi_j
          !end if
 
-
-         ! allocate space for coarse nodes
+         ! allocate space for corners
          if (my_pair.ge.0) then
             problemsize = ndofi_i + ndofi_j
-            allocate(indrowc_i(lindrowc_i),indrowc_j(lindrowc_j))
+            lglobal_corner_number_i = ncnodei
+            lglobal_corner_number_j = ncnodej
+            allocate(global_corner_number_i(lglobal_corner_number_i),global_corner_number_j(lglobal_corner_number_j))
+            licnsin_i = ncnodei
+            licnsin_j = ncnodej
+            allocate(icnsin_i(licnsin_i),icnsin_j(licnsin_j))
             lnndfi_i = nnodi_i
             lnndfi_j = nnodi_j
             allocate(nndfi_i(lnndfi_i),nndfi_j(lnndfi_j))
@@ -642,30 +587,30 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             liingn_j = nnodi_j
             allocate(iingn_i(liingn_i),iingn_j(liingn_j))
          end if
-         ! get data about coarse nodes
+         ! get data about corners
          ireq = 0
          if (my_pair.ge.0) then
-            ! receive global numbers of coarse nodes
+            ! receive global numbers of corners
 
             ireq = ireq + 1
-            call MPI_IRECV(indrowc_i,lindrowc_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(global_corner_number_i,ncnodei,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(indrowc_j,lindrowc_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(global_corner_number_j,ncnodej,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
          end if
          ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_number_of_crows(myid,isub,lindrowc)
+            call dd_get_number_of_corners(myid,isub,ncnode)
 
-            allocate(indrowc(lindrowc))
-            call dd_get_subdomain_crows(myid,isub,indrowc,lindrowc)
+            lglobal_corner_number = ncnode
+            allocate(global_corner_number(lglobal_corner_number))
+            call dd_get_subdomain_corners(myid,isub,global_corner_number,lglobal_corner_number)
 
             ireq = ireq + 1
-            call MPI_ISEND(indrowc,lindrowc,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
-            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
-            deallocate(indrowc)
+            call MPI_ISEND(global_corner_number,ncnode,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+            deallocate(global_corner_number)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
@@ -674,95 +619,47 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             call flush(6)
          end if
          !if (my_pair.ge.0) then
-         !   write(*,*) 'indrowc_i'
-         !   write(*,*)  indrowc_i
-         !   write(*,*) 'indrowc_j'
-         !   write(*,*)  indrowc_j
-         !   call flush(6)
+         !   write(90+myid,*) 'global_corner_number_i'
+         !   write(90+myid,*)  global_corner_number_i
+         !   write(90+myid,*) 'global_corner_number_j'
+         !   write(90+myid,*)  global_corner_number_j
          !end if
-
-         if (my_pair.ge.0) then
-            lc_sparse_i = nnzc_i
-            lc_sparse_j = nnzc_j
-            allocate(i_c_sparse_i(lc_sparse_i),i_c_sparse_j(lc_sparse_j))
-            allocate(j_c_sparse_i(lc_sparse_i),j_c_sparse_j(lc_sparse_j))
-         end if
-
-         ! get data about coarse nodes
+         ! get data about corners
          ireq = 0
          if (my_pair.ge.0) then
-            ireq = ireq + 1
-            call MPI_IRECV(i_c_sparse_i,lc_sparse_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            ! receive global numbers of corners
 
             ireq = ireq + 1
-            call MPI_IRECV(i_c_sparse_j,lc_sparse_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(icnsin_i,ncnodei,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+
+            ireq = ireq + 1
+            call MPI_IRECV(icnsin_j,ncnodej,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
          end if
          ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_number_of_cnnz(myid,isub,nnzc)
+            call dd_get_number_of_corners(myid,isub,ncnode)
 
-            lc_sparse = nnzc
-            allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse))
-            call dd_get_subdomain_cmap(myid,isub,i_c_sparse,j_c_sparse,lc_sparse)
+            licnsin = ncnode
+            allocate(icnsin(licnsin))
+            call dd_get_subdomain_corners_map(myid,isub,icnsin,licnsin)
 
             ireq = ireq + 1
-            call MPI_ISEND(i_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
-            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
-            deallocate(i_c_sparse,j_c_sparse)
+            call MPI_ISEND(icnsin,ncnode,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+            deallocate(icnsin)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
-            write(*,*) 'I am ',myid, 'All messages in pack 4.1 received, MPI is fun!.'
+            write(*,*) 'I am ',myid, 'All messages in pack 4 received, MPI is fun!.'
             call flush(6)
          end if
-         ! get data about coarse nodes
-         ireq = 0
-         if (my_pair.ge.0) then
-            ireq = ireq + 1
-            call MPI_IRECV(j_c_sparse_i,lc_sparse_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
-
-            ireq = ireq + 1
-            call MPI_IRECV(j_c_sparse_j,lc_sparse_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
-         end if
-         ! send sizes of subdomains involved in problems
-         do iinstr = 1,ninstructions
-            owner = instructions(iinstr,1)
-            isub  = instructions(iinstr,2)
-            call dd_get_number_of_cnnz(myid,isub,nnzc)
-
-            lc_sparse = nnzc
-            allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse))
-            call dd_get_subdomain_cmap(myid,isub,i_c_sparse,j_c_sparse,lc_sparse)
-
-            ireq = ireq + 1
-            call MPI_ISEND(j_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
-            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
-            deallocate(i_c_sparse,j_c_sparse)
-         end do
-         nreq = ireq
-         call MPI_WAITALL(nreq, request, statarray, ierr)
-         if (debug) then
-            write(*,*) 'I am ',myid, 'All messages in pack 4.2 received, MPI is fun!.'
-            call flush(6)
-         end if
-         !if (my_pair.ge.0) then
-         !   write(*,*) 'i_c_sparse_i'
-         !   write(*,*)  i_c_sparse_i
-         !   write(*,*) 'j_c_sparse_i'
-         !   write(*,*)  j_c_sparse_i
-         !   write(*,*) 'i_c_sparse_j'
-         !   write(*,*)  i_c_sparse_j
-         !   write(*,*) 'j_c_sparse_j'
-         !   write(*,*)  j_c_sparse_j
-         !end if
 
          ! get numbers of dof on interface
          ireq = 0
          if (my_pair.ge.0) then
-            ! receive global numbers of coarse nodes
+            ! receive global numbers of corners
 
             ireq = ireq + 1
             call MPI_IRECV(nndfi_i,nnodi_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
@@ -782,7 +679,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             ireq = ireq + 1
             call MPI_ISEND(nndfi,nnodi,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
-            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
             deallocate(nndfi)
          end do
          nreq = ireq
@@ -802,22 +698,39 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          !   write(90+myid,*)  icnsin_j
          !end if
 
-         ! find intersection of coarse nodes
+         ! find intersection of corners
          if (my_pair.ge.0) then
-            lcommon_crows = min(lindrowc_i,lindrowc_j)
-            allocate(common_crows(lcommon_crows))
-            call get_array_intersection(indrowc_i,lindrowc_i,&
-                                        indrowc_j,lindrowc_j,&
-                                        common_crows,lcommon_crows,ncommon_crows)
+            lcommon_corners = min(lglobal_corner_number_i,lglobal_corner_number_j)
+            allocate(common_corners(lcommon_corners))
+            call get_array_intersection(global_corner_number_i,lglobal_corner_number_i,&
+                                        global_corner_number_j,lglobal_corner_number_j,&
+                                        common_corners,lcommon_corners,ncommon_corners)
          end if
-
-         !print *,'common_crows', common_crows(1:ncommon_crows)
 
          ! build matrix D_ij^T for the pair of subdomains
          if (my_pair.ge.0) then
+            ! first determine the size of D_ij
+            nconstr = 0
+            do icommon = 1,ncommon_corners
+               indcorner = common_corners(icommon)
+               ! find index of this corner
+               call get_index(indcorner,global_corner_number_i,lglobal_corner_number_i,indc_i) 
+               if (indc_i.gt.0 ) then
+                  indi_i = icnsin_i(indc_i)
+                  ndofn  = nndfi_i(indi_i)
+
+                  nconstr = nconstr + ndofn
+!               else
+!                  call get_index(indcorner,global_corner_number_j,lglobal_corner_number_j,indc_j) 
+!                  indi_j = icnsin_j(indc_j)
+!                  ndofn  = nndfi_j(indi_j)
+!
+!                  nconstr = nconstr + ndofn
+               end if
+            end do
             ! prepare space for dense matrix D_ij
             ldij1 = ndofi_i + ndofi_j
-            ldij2 = ncommon_crows
+            ldij2 = nconstr
             allocate(dij(ldij1,ldij2))
             call zero(dij,ldij1,ldij2)
 
@@ -834,77 +747,48 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                kdofi_j(inodi) = kdofi_j(inodi-1) + nndfi_j(inodi-1)
             end do
 
-            ! join C_i and C_j together to make the matrix D_ij = [C_i  -C_j] on common rows
-            ! C_i
-            do ic = 1,nnzc_i
-               indirow_loc = i_c_sparse_i(ic)
-               indirow     = indrowc_i(indirow_loc)
-
-               if (any(indirow.eq.common_crows)) then
-                  indjcol_loc = j_c_sparse_i(ic)
-
-                  call get_index(indirow,common_crows,lcommon_crows,inddrow) 
-
-                  dij(indjcol_loc,inddrow) = 1._kr
+            iconstr = 0
+            do icommon = 1,ncommon_corners
+               indcorner = common_corners(icommon)
+               ! find index of this corner
+               call get_index(indcorner,global_corner_number_i,lglobal_corner_number_i,indc_i) 
+               if (indc_i.gt.0) then
+                  indi_i = icnsin_i(indc_i)
+                  ndofn  = nndfi_i(indi_i)
                end if
-            end do
-            ! C_j
-            do ic = 1,nnzc_j
-               indirow_loc = i_c_sparse_j(ic)
-               indirow     = indrowc_j(indirow_loc)
-
-               if (any(indirow.eq.common_crows)) then
-                  ! shift the index
-                  indjcol_loc = j_c_sparse_j(ic) + ndofi_i
-
-                  call get_index(indirow,common_crows,lcommon_crows,inddrow) 
-
-                  dij(indjcol_loc,inddrow) = -1._kr
+               call get_index(indcorner,global_corner_number_j,lglobal_corner_number_j,indc_j) 
+               if (indc_j.gt.0) then
+                  indi_j = icnsin_j(indc_j)
+                  ndofn  = nndfi_i(indi_i)
                end if
-            end do
-               
-!            iconstr = 0
-!            do icommon = 1,ncommon_crows
-!               indcrow = common_crows(icommon)
-               ! find index of this row
-!               call get_index(indcrow,indrowc_i,lindrowc_i,indc_i) 
-!               if (indc_i.gt.0) then
-!                  indi_i = icnsin_i(indc_i)
-!                  ndofn  = nndfi_i(indi_i)
-!               end if
-!               call get_index(indcnode,indrowc_j,lindrowc_j,indc_j) 
-!               if (indc_j.gt.0) then
-!                  indi_j = icnsin_j(indc_j)
-!                  ndofn  = nndfi_i(indi_i)
-!               end if
 
-!               shift = ndofi_i
-!               if (indc_i.gt.0) then
-!                  pointv_i = kdofi_i(indi_i)
-!               end if
-!               if (indc_j.gt.0) then
-!                  pointv_j = kdofi_j(indi_j)
-!               end if
-!               do i = 1,ndofn
-!                  iconstr = iconstr + 1
-!
-!                  ! contribution of subdomain i
-!                  if (indc_i.gt.0) then
-!                     dij(pointv_i+i,iconstr)       = 1._kr
-!                  end if
-!                  ! contribution of subdomain j
-!                  if (indc_j.gt.0) then
-!                     dij(shift+pointv_j+i,iconstr) = -1._kr
-!                  end if
-!               end do
-!            end do
+               shift = ndofi_i
+               if (indc_i.gt.0) then
+                  pointv_i = kdofi_i(indi_i)
+               end if
+               if (indc_j.gt.0) then
+                  pointv_j = kdofi_j(indi_j)
+               end if
+               do i = 1,ndofn
+                  iconstr = iconstr + 1
+
+                  ! contribution of subdomain i
+                  if (indc_i.gt.0) then
+                     dij(pointv_i+i,iconstr)       = 1._kr
+                  end if
+                  ! contribution of subdomain j
+                  if (indc_j.gt.0) then
+                     dij(shift+pointv_j+i,iconstr) = -1._kr
+                  end if
+               end do
+            end do
          end if
 
-         !if (my_pair.ge.0) then
-         !   do i = 1,ldij1
-         !      write(*,'(100f4.1)') (dij(i,j),j = 1,ldij2)
-         !   end do
-         !end if
+!         if (my_pair.ge.0) then
+!            do i = 1,ldij1
+!               print *,(dij(i,j),j = 1,ldij2)
+!            end do
+!         end if
 
          ! Prepare projection onto null D_ij
          if (my_pair.ge.0) then
@@ -947,7 +831,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             ireq = ireq + 1
             call MPI_ISEND(rhoi,ndofi,MPI_DOUBLE_PRECISION,owner,isub,comm,request(ireq),ierr)
-            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
             deallocate(rhoi)
          end do
          nreq = ireq
@@ -986,7 +869,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             ireq = ireq + 1
             call MPI_ISEND(iingn,nnodi,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
-            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
             deallocate(iingn)
          end do
          nreq = ireq
@@ -1083,7 +965,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          ! prepare space for eigenvectors
          ireq = 0
          if (my_pair.ge.0) then
-            neigvec     = min(neigvecx,ndofcomm-ncommon_crows)
+            neigvec     = min(neigvecx,ndofcomm-nconstr)
             if (neigvec.ne.neigvecx) then
                write (*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: Number of vectors reduced to',neigvec,' for pair',my_pair
             end if
@@ -1184,11 +1066,11 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end if
          call adaptivity_fake_lobpcg_driver
 
-         ! select eigenvectors of eigenvalues exceeding threshold
+         ! select eigenvectors of eigenvalues exceeding treshold
          est_loc = 0._kr
          if (my_pair.ge.0) then
 
-            nadaptive = count(eigval.ge.threshold_eigval)
+            nadaptive = count(eigval.ge.treshold_eigval)
 
             write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: I am going to add ',nadaptive,' constraints for pair ',my_pair
             call flush(6)
@@ -1197,7 +1079,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             if (nadaptive.lt.neigvec) then
                est_loc = eigval(nadaptive + 1)
             else
-               est_loc = eigval(nadaptive)
+               est_loc = 0.0_kr
             end if
 
             lconstraints1 = problemsize
@@ -1214,7 +1096,12 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end if
          call adaptivity_fake_lobpcg_driver
 
-         call MPI_ALLREDUCE(est_loc,est_round,1,MPI_DOUBLE_PRECISION,MPI_MAX,comm_comm,ierr)
+         call MPI_ALLREDUCE(est_loc,est,1,MPI_DOUBLE_PRECISION,MPI_MAX,comm_comm,ierr)
+         if (myid.eq.0) then
+            write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: Expected estimated condition number: ',est
+            call flush(6)
+         end if
+
          !if (my_pair.ge.0) then
          !   write(*,*) 'Constraints to be added on pair ',my_pair
          !   do i = 1,problemsize
@@ -1374,23 +1261,12 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             deallocate(tau)
             deallocate(kdofi_i,kdofi_j)
             deallocate(dij)
-            deallocate(common_crows)
+            deallocate(common_corners)
             deallocate(nndfi_i,nndfi_j)
-            deallocate(i_c_sparse_i,i_c_sparse_j)
-            deallocate(j_c_sparse_i,j_c_sparse_j)
-            deallocate(indrowc_i,indrowc_j)
+            deallocate(icnsin_i,icnsin_j)
+            deallocate(global_corner_number_i,global_corner_number_j)
          end if
-
-         ! find estimate of cindition number
-         est = max(est,est_round)
-
       end do ! loop over rounds of eigenvalue pairs
-
-      if (myid.eq.0) then
-         write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: Expected estimated condition number: ',est
-         call flush(6)
-      end if
-
 
       deallocate(statarray)
       deallocate(request)

@@ -3,6 +3,11 @@ module module_tecplot
 implicit none
 integer,parameter,private :: kr = kind(1.D0)
 
+interface tecplot_export_block_variable
+  module procedure tecplot_export_block_variable_sp
+  module procedure tecplot_export_block_variable_dp
+end interface tecplot_export_block_variable
+
 contains
 
 !***************************************************
@@ -113,7 +118,7 @@ if (any(cellcentered)) then
             write(*,*) 'TECPLOT_START_ZONE: Out of range ivar =',ivar
             stop
          end if
-         varlocation = trim(varlocation)//'['//trim(ivarst)//'] = CELLCENTERED'
+         varlocation = trim(varlocation)//' ['//trim(ivarst)//'] = CELLCENTERED'
       end if
    end do
    varlocation = trim(varlocation)//')'
@@ -141,29 +146,47 @@ end if
 return
 end subroutine tecplot_start_zone
 
-!*******************************************************
-subroutine tecplot_export_block_variable(iddat,var,lvar)
-!*******************************************************
-! Subroutine for exporting a variable in block format to the TECPLOT data file
-!*******************************************************
+!**********************************************************
+subroutine tecplot_export_block_variable_sp(iddat,var,lvar)
+!**********************************************************
+! Subroutine for exporting a variable in SINGLE PRECISION block format to the TECPLOT data file
+!**********************************************************
 implicit none
 
 ! disk unit
 integer, intent(in) :: iddat
 ! array with variable
 integer, intent(in)  :: lvar
-real(kr), intent(in) ::  var(lvar)
+real*4, intent(in) ::  var(lvar)
 
 write(iddat,'(5e15.6)') var
                    
 return
-end subroutine tecplot_export_block_variable
+end subroutine tecplot_export_block_variable_sp
 
-!****************************************************************************
-subroutine tecplot_connectivity_table(iddat,ndim,nelem,inet,linet,nnet,lnnet)
-!****************************************************************************
+!**********************************************************
+subroutine tecplot_export_block_variable_dp(iddat,var,lvar)
+!**********************************************************
+! Subroutine for exporting a variable in DOUBLE PRECISION block format to the TECPLOT data file
+!**********************************************************
+implicit none
+
+! disk unit
+integer, intent(in) :: iddat
+! array with variable
+integer, intent(in)  :: lvar
+double precision, intent(in) ::  var(lvar)
+
+write(iddat,'(5e15.6)') var
+                   
+return
+end subroutine tecplot_export_block_variable_dp
+
+!***********************************************************************************
+subroutine tecplot_connectivity_table(iddat,ndim,nelem,inet,linet,nnet,lnnet,shells)
+!***********************************************************************************
 ! Subroutine for exporting a the finite element conectivity table
-!****************************************************************************
+!***********************************************************************************
 implicit none
 
 ! disk unit
@@ -175,9 +198,19 @@ integer, intent(in) :: nelem
 ! array with mesh description
 integer, intent(in) :: linet,       lnnet
 integer, intent(in) ::  inet(linet), nnet(lnnet)
+! are these elements shells?
+logical, optional,intent(in) :: shells
 
 ! local variables
 integer :: ie, nne, i, indinet
+logical :: shell_elements = .false.
+
+if (present(shells)) then
+   shell_elements = shells
+else
+   ! default for using shell elements is false
+   shell_elements = .false.
+end if
 
 ! connectivity table
       if (ndim.eq.3) then
@@ -186,18 +219,37 @@ integer :: ie, nne, i, indinet
          do ie = 1,nelem
             nne = nnet(ie)
             if      (nne.eq.20) then
+!     quadratic cubes
                write(iddat,7002) (inet(indinet+i), i = 1,8)
             else if (nne.eq.15) then
+!     quadratic prisms
                write(iddat,7002) (inet(indinet+i), i = 1,3), inet(indinet+3), &
                                  (inet(indinet+i), i = 4,6), inet(indinet+6)
             else if (nne.eq.10) then
+!     quadratic tetra
                write(iddat,7002) (inet(indinet+i), i = 1,3), inet(indinet+3), &
                                  (inet(indinet+4), i = 1,4)
-!     linear cubes
             else if (nne.eq.8) then
-               write(iddat,7002) (inet(indinet+i), i = 1,8)
-!     linear tetra
+               if (shell_elements) then
+!     quadratic semiloofs quadrilaterals
+                  write(iddat,7002) (inet(indinet+i), i = 1,4),&
+                                    (inet(indinet+i), i = 1,4)
+               else
+!     linear cubes
+                  write(iddat,7002) (inet(indinet+i), i = 1,8)
+               end if
+            else if (nne.eq.6) then
+               if (shell_elements) then
+!     quadratic semiloofs triangles
+                  write(iddat,7002) (inet(indinet+i), i = 1,3),inet(indinet+3),&
+                                    (inet(indinet+i), i = 1,3),inet(indinet+3)
+               else
+                  write(*,*) 'TECPLOT_CONNECTIVITY_TABLE: Strange number of nodes for 3D finite element, nne = ', nne
+                  stop
+
+               end if
             else if (nne.eq.4) then
+!     linear tetra
                write(iddat,7002) (inet(indinet+i), i = 1,3), inet(indinet+3), (inet(indinet+4),i = 1,4)
             else 
                write(*,*) 'TECPLOT_CONNECTIVITY_TABLE: Strange number of nodes for 3D finite element, nne = ', nne

@@ -586,10 +586,7 @@ subroutine bddc_M_fake(comm,rest,lrest,ht,lht,rmr)
 
 ! determine the coefficient rMr
 ! rMr = rest * D_P * T * Atilde^-1 * P * T^T * D_P * rest
-      rmr_loc = bddc_dot_product(comm,rest,lrest,ht,lht)
-!***************************************************************************MPI
-      call MPI_ALLREDUCE(rmr_loc,rmr,1,MPI_DOUBLE_PRECISION,MPI_SUM,comm,ierr)
-!***************************************************************************MPI
+      rmr = bddc_dot_product(comm,rest,lrest,ht,lht)
  
       return
 end subroutine
@@ -1967,7 +1964,7 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       logical :: correct_sol = .false.
       real(kr):: val, valnew
 
-      !integer :: i,j
+      integer :: i,j
 
       real(kr):: time
 
@@ -2114,6 +2111,10 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
             allocate(avg(lavg1,lavg2))
             ! case of single aritmetic average
             call dd_get_adaptive_constraints(myid,isub,icnode,avg,lavg1,lavg2)
+            !write(*,*) 'subdomain ',isub,' glob ',iglb
+            !do i = 1,lavg1
+            !   write(*,'(100f6.2)') (avg(i,j),j = 1,lavg2)
+            !end do
             !debug
             !write(substring ,'(i1)') myid+1
             !write(avgstring ,'(i1)') iglb

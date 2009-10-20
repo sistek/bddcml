@@ -1185,7 +1185,7 @@ subroutine dd_load_arithmetic_constraints(myid,isub,itype)
          return
       end if
       if (.not.allocated(sub(isub)%cnodes)) then
-         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Array for cnodes not ready.'
+         write(*,*) 'DD_LOAD_ARITHMETIC_CONSTRAINTS: Array for cnodes not ready.'
          call error_exit
       end if
 
@@ -1301,10 +1301,6 @@ subroutine dd_get_adaptive_constraints_size(myid,isub,iglb,lavg1,lavg2)
       if (.not.allocated(sub)) then
          write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Main DD structure is not ready.'
          call error_exit
-      end if
-      if (sub(isub)%proc .ne. myid) then
-         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Not my subdomain ',isub
-         return
       end if
       if (sub(isub)%proc .ne. myid) then
          write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Not my subdomain.'

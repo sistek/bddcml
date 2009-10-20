@@ -891,7 +891,8 @@ subroutine bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matri
       integer,intent(in) :: ndecrmax
       
 ! Local variables of PCG algorithm
-      real(kr):: alpha, beta, normres, normrhs, relres, lastres, rmr, rmrold, pap, pap_loc
+      real(kr):: alpha, beta, normres, normrhs, relres, lastres, rmr, rmrold, pap, pap_loc, &
+                 rmr_other
       integer::              lp,   lap,   lh
       real(kr), allocatable:: p(:), ap(:), h(:)
 
@@ -1205,6 +1206,15 @@ subroutine bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matri
 !*****************************************************************MPI
             where(iintt.eq.0) h = ap
          end if
+! Control of positive definiteness of preconditioner matrix
+         if (rmr.le.0.0_kr) then
+            rmr_other = bddc_dot_product(comm_all,res,lres,h,lh)
+            if (myid.eq.0) then
+               write(*,*) 'WARNING: Preconditioner not positive definite! rmr =',rmr
+               write(*,*) 'WARNING: It should be rmr_other =',rmr_other
+               call flush(6)
+            end if
+         end if
 
          call bddc_time_end(comm_all,time)
          if (myid.eq.0.and.timeinfo.ge.2) then
@@ -1215,16 +1225,30 @@ subroutine bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matri
 
 ! Determination of parameter BETA
          beta = rmr/rmrold
+         ! debug
+         if (beta.lt.0._kr) then
+            write(*,*) 'Beta = rmr/rmrold is negative!'
+            write(*,*) 'rmr =    ',rmr
+            write(*,*) 'rmrold = ',rmrold
+         end if
 
 ! Determination of new step direction
          p = h + beta*p
 
 !***************************************************CONDITION NUMBER ESTIMATION
 ! Filling matrix for the Lanczos method
-         w((iter-1)*(maxit+1) + iter) = w((iter-1)*(maxit+1) + iter) + 1/alpha
+         w((iter-1)*(maxit+1) + iter) = w((iter-1)*(maxit+1) + iter) + 1._kr/alpha
          w((iter)*(maxit+1) + iter + 1) = beta/alpha
          w((iter-1)*(maxit+1) + iter + 1) = -sqrt(beta)/alpha
          w((iter)*(maxit+1) + iter) = w((iter-1)*(maxit+1) + iter + 1)
+         ! Test for NaN
+         if (any(isnan(w))) then
+            write(*,*) 'myid = ',myid,' There is a NaN in the Lanczos matrix.'
+            write(*,*) 'alpha =',alpha
+            write(*,*) 'beta =',beta
+            write(*,*) 'beta/alpha =',beta/alpha
+            write(*,*) 'sqrt(beta) =',sqrt(beta)
+         end if
 !***************************************************CONDITION NUMBER ESTIMATION
 
 ! Check if iterations reached the limit count
@@ -1243,6 +1267,7 @@ subroutine bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matri
       if (myid.eq.0.and.timeinfo.ge.1) then
          write(*,*) '===================================='
          write(*,*) 'Time of all iterations = ',time
+         write(*,*) 'Time per 1 iteration = ',time/float(iter)
          write(*,*) '===================================='
          call flush(6)
       end if

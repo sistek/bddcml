@@ -66,6 +66,7 @@ type(glob_type), allocatable :: globs(:)
 
 integer :: nc, ios
 
+integer :: meshdim
 
 ! Initial screen
       write(*,'(a)') ' _____  _____  _____   ____  _____  _____  '
@@ -94,6 +95,13 @@ integer :: nc, ios
 
 ! Read basic parameters for allocation
       read(idpar,*) ndim, nsub, nelem, ndof, nnod, nnodc, linet
+      ! read dimension of the mesh - 2 for shells, 3 for volume mesh (default if this is not in the file)
+      read(idpar,*,err=18) meshdim
+      write (*,*) 'Mesh dimension read from the PAR file: ',meshdim
+      goto 19
+ 18   meshdim = 3
+      write (*,*) 'Default dimension of the mesh: ',meshdim
+ 19   continue
 
 !*****************
 ! Select operation
@@ -193,7 +201,7 @@ integer :: nne, indnnets, indinet, indinets, i, imapping, inod, &
 integer :: nnods, nelems
 character(1) :: yn
 
-logical :: exportcorners
+logical :: exportcorners, shells
 
 ! Import of basic geometry
 ! GMIS - basic mesh data - structure:
@@ -345,7 +353,12 @@ logical :: exportcorners
          call tecplot_export_block_variable(iddat,dble(subind),nelems)
          deallocate(subind)
 
-         call tecplot_connectivity_table(iddat,ndim,nelems,inets,linets,nnets,lnnets)
+         if (meshdim.eq.2) then
+            shells = .true.
+         else
+            shells = .false.
+         end if
+         call tecplot_connectivity_table(iddat,ndim,nelems,inets,linets,nnets,lnnets,shells)
 
          deallocate(mapping)
          deallocate(inets,nnets)
@@ -419,6 +432,7 @@ integer :: datapacking = 0
 integer :: problemid
 logical :: flow = .false.
 logical :: elasticity = .false.
+logical :: shells = .false.
 
 ! Select problem
 20    write(*,'(a)') "Kind of problem ?"
@@ -456,13 +470,28 @@ logical :: elasticity = .false.
       read(idgmi,*) xyz
       close(idgmi)
 
-! ES - list of global element numbers in subdomains - structure:
-      name = name1(1:lname1)//'.SOL'
-      open (unit=idsol,file=name,status='old',form='unformatted')
+! SOL(SOA) - solution in binary (ASCII) format
       lsol = ndof
       allocate(sol(lsol))
-      read(idsol) sol
-      close(idsol)
+
+      name = name1(1:lname1)//'.SOL'
+      write(*,*) 'Trying to read binary file '//trim(name)//' ...'
+      open (unit=idsol,file=name,status='old',form='unformatted',err=79)
+      read(idsol,err=79) sol
+      goto 81
+
+ 79   close (idsol)
+      name = name1(1:lname1)//'.SOA'
+      write(*,*) 'Trying to read ASCII file '//trim(name)//' ...'
+      ! Try with ASCII version
+      open (unit=idsol,file=name,status='old',form='formatted')
+      read(idsol,*,err=80) sol
+      goto 81
+
+ 80   call error('EXPTECPLOTSOLUTION','Unable to read file '//trim(name))
+
+ 81   close(idsol)
+ write(*,*) ' ... done.'
 
 ! Creation of field KDOF(NNOD) with addresses before first global
 ! dof of node
@@ -477,29 +506,66 @@ logical :: elasticity = .false.
 ! Convert solution to velocities
          lvx = nnod
          lvy = nnod
+         lvz = nnod
          lp  = nnod
          allocate(vx(lvx),vy(lvy),p(lp))
+         if (ndim.eq.3) then
+            allocate(vz(lvz))
+         end if
 
 ! Interpolate pressure to midsides
          indinet = 0
          do ie = 1,nelem
             nne = nnet(ie)
-            ncne = nne/2
+            if      (nne.eq.8) then
+               ncne = 4
+            else if (nne.eq.6) then
+               ncne = 3
+            else if (nne.eq.20) then
+               ncne = 8
+            end if
             do ine = 1,nne
                indn = inet(indinet + ine)
                ndofn = nndf(indn)
                vx(indn) = sol(kdof(indn)+1)
                vy(indn) = sol(kdof(indn)+2)
+               if (ndim.eq.3) then
+                  vz(indn) = sol(kdof(indn)+3)
+               end if
                if (ndofn.eq.ndim+1) then
-                  p(indn) = sol(kdof(indn)+3)
+                  p(indn) = sol(kdof(indn)+ndofn)
                else
-                  node1 = inet(indinet+ine-ncne)
-                  if (ine.ne.nne) then
-                     node2 = inet(indinet+ine-ncne+1)
-                  else
-                     node2 = inet(indinet+1)
+                  if      (ndim.eq.2) then
+                     node1 = inet(indinet+ine-ncne)
+                     if (ine.ne.nne) then
+                        node2 = inet(indinet+ine-ncne+1)
+                     else
+                        node2 = inet(indinet+1)
+                     end if
+                     p(indn) = (p(node1) + p(node2))/2
+                  else if (ndim .eq. 3) then
+                     if (nne .eq. 20) then
+                        if (ine.le.16) then
+                           node1 = inet(indinet+ine-ncne)
+                           node2 = inet(indinet+ine-ncne+1)
+                        else if (ine.eq.17) then
+                           node1 = inet(indinet+1)
+                           node2 = inet(indinet+5)
+                        else if (ine.eq.18) then
+                           node1 = inet(indinet+2)
+                           node2 = inet(indinet+6)
+                        else if (ine.eq.19) then
+                           node1 = inet(indinet+3)
+                           node2 = inet(indinet+7)
+                        else if (ine.eq.20) then
+                           node1 = inet(indinet+4)
+                           node2 = inet(indinet+8)
+                        end if
+                     else
+                        write(*,*) 'EXPTECPLOTSOLUTION: Unsupported kind of elements in 3D'
+                        stop
+                     end if
                   end if
-                  p(indn) = (p(node1) + p(node2))/2
                end if
             end do
             indinet = indinet + nne
@@ -517,7 +583,10 @@ logical :: elasticity = .false.
             ndofn = nndf(inod)
             do idofn = 1,ndofn
                indsol = indsol + 1
-               displacement(inod,idofn) = sol(indsol)
+               if (idofn.le.ndim) then
+               ! patch for shell elements
+                  displacement(inod,idofn) = sol(indsol)
+               end if
             end do
          end do
          ! check length
@@ -592,7 +661,12 @@ logical :: elasticity = .false.
          end do
       end if
    
-      call tecplot_connectivity_table(iddat,ndim,nelem,inet,linet,nnet,lnnet)
+      if (meshdim.eq.2) then
+         shells = .true.
+      else
+         shells = .false.
+      end if
+      call tecplot_connectivity_table(iddat,ndim,nelem,inet,linet,nnet,lnnet,shells)
 
       print *, 'Solution exported into TECPLOT file ', trim(name)
       close(iddat)
@@ -602,6 +676,9 @@ logical :: elasticity = .false.
       deallocate(kdof)
       if (flow) then
          deallocate(vx,vy,p)
+         if (ndim.eq.3) then
+            deallocate(vz)
+         end if
       end if
       if (elasticity) then
          deallocate(displacement)
@@ -1055,6 +1132,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
          globs(iglob)%nsub = count(sublist(globs(iglob)%nodes(1),:).gt.0)
          allocate(globs(iglob)%subdomains(globs(iglob)%nsub))
 !        find subdomains in the glob         
+         ! CORE PART OF CLASSIFICATION FOLLOWS
          globs(iglob)%subdomains(:) = sublist(globs(iglob)%nodes(1),1:globs(iglob)%nsub)
          if (globs(iglob)%nsub.eq.2) then
 !           such entity is a face
@@ -1117,9 +1195,16 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       do isub = 1,nsub
          subneib = 0
          do iglob = 1,nglob
-            ! only faces are interesting
-            if (globs(iglob)%itype .eq. 1 .and. any(globs(iglob)%subdomains .eq. isub)) then
-               subneib(globs(iglob)%subdomains) = 1
+            if (meshdim.eq.2 .and. ndim .eq. 3) then
+               ! faces and edges are interesting for shell elements
+               if ((globs(iglob)%itype .eq. 1 .or. globs(iglob)%itype .eq. 2) .and. any(globs(iglob)%subdomains .eq. isub)) then
+                  subneib(globs(iglob)%subdomains) = 1
+               end if
+            else 
+               ! only faces are interesting in other cases
+               if (globs(iglob)%itype .eq. 1 .and. any(globs(iglob)%subdomains .eq. isub)) then
+                  subneib(globs(iglob)%subdomains) = 1
+               end if
             end if
          end do
          ! my subdomain is also marked
@@ -1198,7 +1283,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 
             ! mark already known corners in playground
             where (newvertex(isingin) .eq. 1) playground = 1
-            if (nnodcpair.eq.0.or..not.minimizecorners) then
+            if ((nnodcpair.eq.0.or..not.minimizecorners).and.nshared.gt.0) then
                ! no corner on subdomain yet
                ! make it the most remote node to the first interface node
                inodsh = 1
@@ -1220,7 +1305,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 
                deallocate(dist)
             end if
-            if (nnodcpair.eq.1.or..not.minimizecorners) then
+            if ((nnodcpair.eq.1.or..not.minimizecorners).and.nshared.gt.1) then
                ! one corner is already set in playground, select the second
                inodcs = 0
                do inodis = 1,nshared
@@ -1259,7 +1344,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 
                deallocate(dist)
             end if
-            if (ndim.gt.2.and.(nnodcpair.eq.2.or..not.minimizecorners)) then
+            if (ndim.gt.2.and.(nnodcpair.eq.2.or..not.minimizecorners).and.meshdim.gt.2 .and. nshared.gt.2) then
                ! two corners are already set in playground, select the third
                inodcs1 = 0
                do inodis = 1,nshared
@@ -2422,7 +2507,8 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
       lkinodes  = nnod
       allocate(kmynodes(lkmynodes),kinodes(lkinodes))
 ! Prepare field with interface nodes
-      kinodes = 0
+      kmynodes = 0
+      kinodes  = 0
 ! Array of subdomain variables
       lndofsa = nsub
       allocate(ndofsa(lndofsa))
@@ -2523,7 +2609,7 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
       inett = -inett
 ! Check that the numbering reached the absolute value of nodes in tilde
       if (inodt.ne.nnodt) then
-         write(*,*) 'Error in creation of W_tilde mapping'
+         write(*,*) 'Error in creation of W_tilde mapping: inodt =',inodt,'nnodt =',nnodt
          stop
       end if
 ! Check that the all nodes in hat are associated with nodes in tilde

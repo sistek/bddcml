@@ -4,7 +4,8 @@ module module_utils
 implicit none
 integer,parameter,private :: kr = kind(1.D0)
 
-real(kr),parameter :: numerical_zero = 1.e-14
+real(kr),parameter,private :: numerical_zero = 1.e-14
+logical,parameter,private :: debug = .true.
 
 interface zero
    module procedure zero_int_1
@@ -437,7 +438,7 @@ subroutine condtri(nw,nwx,w,lw, cond)
       integer ::  iaux
       real(kr) :: raux(1)
 
-      real(kr) :: eigmax, eigmin
+      real(kr) :: eigmax
       integer ::  i
 
       ! LAPACK
@@ -452,23 +453,28 @@ subroutine condtri(nw,nwx,w,lw, cond)
       do i = 1,nw-1
          e(i) = w((i-1)*nwx + i + 1)
       end do
+      if (debug) then
+         write(*,*) 'diagonal = '
+         write(*,*) d(1:nw)
+         write(*,*) 'subdiagonal = '
+         write(*,*) e(1:nw-1)
+      end if
 
       ! LAPACK routine for searching eigenvalues (returned in ascending order)
       iaux = 1
       call DSTEV( 'N', nw, d, e, raux, iaux, raux, lapack_info)
+      if (debug) then
+         write(*,*) 'eigenvalues = '
+         write(*,*) d(1:nw)
+      end if
 
       ! compute condition number
       eigmax = d(nw)
-      eigmin = d(1)
-      if (eigmin.lt.1._kr) then
-         write(*,*) 'CONDTRI: WARNING - Lowest eigenvalue is less than 1.'
-         eigmin = 1._kr
+      ! do not get the lowest eigenvalue from the Lanczos sequence - the Ritz value may not converge (cf Treffethen, Bau)
+      if (debug) then
+         write(*,*) 'eigmax = ',eigmax
       end if
-      if (abs(eigmin).gt.numerical_zero) then
-         cond = eigmax/eigmin
-      else
-         cond = huge(cond)
-      end if
+      cond = eigmax
 
 end subroutine
 

@@ -4,8 +4,8 @@ include ../make.inc
 # include files needed
  INC = $(INCMPI) $(INCMUMPS) -I../common_blocks/
 # libraries needed
-LIBS = $(LIBMUMPS) $(LIBSCALAPACK) $(LIBBLACS) \
-       $(LIBPORD) $(LIBMETIS) $(LIBLAPACK) $(LIBBLAS) $(LIBMPI) \
+LIBS = $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
+       $(LIBPORD) $(LIBLAPACK) $(LIBBLAS) $(LIBMPI) \
        $(LIBPTHREAD)
 ##############################################################
 # GNU Make automatic variables:
