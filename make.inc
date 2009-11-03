@@ -1,11 +1,11 @@
 #*********** Compilers
 MPFC = gfortran 
-#MPFFLAGS = -g -C -Wall -fbounds-check
-MPFFLAGS = -O3
+MPFFLAGS = -g -C -Wall -fbounds-check
+#MPFFLAGS = -O3
 #MPFFLAGS =-g -warn all -check all  
 FC = gfortran 
-#FFLAGS = -g -C -Wall -fbounds-check
-FFLAGS = -O3
+FFLAGS = -g -C -Wall -fbounds-check
+#FFLAGS = -O3
 
 MPCC = gcc
 #MPCFLAGS = -g -Wall

@@ -21,13 +21,14 @@ all: bddcpp
 
 # module dependencies
 bddcpp.o: \
-   ../common_blocks/module_parsing.o \
+   ../common_blocks/module_graph.o \
    ../common_blocks/module_tecplot.o \
    ../common_blocks/module_utils.o
 
 # building binaries
 bddcpp: \
    bddcpp.o \
+   ../common_blocks/module_graph.o \
    ../common_blocks/module_parsing.o \
    ../common_blocks/module_tecplot.o \
    ../common_blocks/module_utils.o 

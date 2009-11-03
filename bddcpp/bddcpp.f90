@@ -97,9 +97,14 @@ integer :: meshdim
       read(idpar,*) ndim, nsub, nelem, ndof, nnod, nnodc, linet
       ! read dimension of the mesh - 2 for shells, 3 for volume mesh (default if this is not in the file)
       read(idpar,*,err=18) meshdim
+      ! check that the value makes sense 
       write (*,*) 'Mesh dimension read from the PAR file: ',meshdim
+      if (meshdim .eq. 0) then
+         meshdim = ndim
+         write (*,*) 'Correction of mesh dimension to make sense: ',meshdim
+      end if
       goto 19
- 18   meshdim = 3
+ 18   meshdim = ndim
       write (*,*) 'Default dimension of the mesh: ',meshdim
  19   continue
 
@@ -727,6 +732,7 @@ character(100) :: filename
 ! ES - list of global element numbers in subdomains - structure:
       name = name1(1:lname1)//'.ES'
       open (unit=ides,file=name,status='old',form='formatted')
+      rewind ides
       liets = nelem
       allocate(iets(liets))
       read(ides,*) iets
@@ -1344,7 +1350,9 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 
                deallocate(dist)
             end if
-            if (ndim.gt.2.and.(nnodcpair.eq.2.or..not.minimizecorners).and.meshdim.gt.2 .and. nshared.gt.2) then
+            ! it can not happen that there are only two nodes shared by two subdomains for quadratic elements
+            !if (ndim.gt.2.and.(nnodcpair.eq.2.or..not.minimizecorners).and.meshdim.gt.2 .and. nshared.gt.2) then
+            if (ndim.gt.2.and.(nnodcpair.eq.2.or..not.minimizecorners).and. nshared.gt.2) then
                ! two corners are already set in playground, select the third
                inodcs1 = 0
                do inodis = 1,nshared
@@ -1390,17 +1398,18 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                indaux  = maxloc(abs(area))
                inodcs3 = indaux(1)
                if (inodcs1.eq.inodcs3.or.inodcs2.eq.inodcs3) then
-                  write(*,*) 'Problem finding third corner on subdomain - same as one of previous two.'
+                  write(*,*) 'WARNING: Problem finding third corner between subdomain ',isub,' and',jsub,&
+                             ' - same as one of previous two.'
                   write(*,*) 'Already have:',inodcs1,inodcs2,' proposed third corner is', inodcs3
                   write(*,*) 'area'
                   do i = 1,larea
                      write(*,*) i, area(i)
                   end do
-                  stop
+                  !stop
+               else
+                  playground(inodcs3) = 1
+                  nnodcpair = 3
                end if
-
-               playground(inodcs3) = 1
-               nnodcpair = 3
 
                deallocate(area)
             end if
@@ -2427,6 +2436,11 @@ integer:: idsmd
       deallocate(xyz)
       deallocate(rhs)
 
+      close(ides)
+      close(idfvs)
+      close(idrhs)
+      close(idcn)
+
       return
 end subroutine create_sub_files
  
@@ -3228,6 +3242,117 @@ subroutine graphpmd
 !***********************************************************************
 !     Generate weighted graph for the mesh for METIS
 !***********************************************************************
+use module_graph
+implicit none
+
+integer:: nedge, inod
+integer :: lnetn, lietn, lkietn
+integer,allocatable:: ietn(:), kietn(:), netn(:)
+integer ::           lxadj, ladjncy, ladjwgt
+integer,allocatable:: xadj(:), adjncy(:), adjwgt(:)
+
+! graphtype
+! 0 - graph without weights
+! 1 - produce weighted graph
+integer,parameter :: graphtype = 0
+
+integer :: neighbouring 
+
+
+      write (*,'(a,$)') 'Minimal number of shared nodes to call elements adjacent: '
+      read (*,*) neighbouring
+
+      write (*,'(a,$)') 'Input PMD mesh data ... '
+! prepare arrays for mesh data
+      lnnet = nelem
+      lnndf = nnod
+      allocate(inet(linet),nnet(lnnet),nndf(lnndf))
+
+! GMIF - basic mesh data - structure:
+!  * INETF(LINETF) * NNETF(LNNETF) * NNDFF(LNNDFF) * XYF(LXYF) *
+      name = name1(1:lname1)//'.GMIS'
+      open (unit=idgmi,file=name,status='old',form='formatted')
+! Import of basic fields
+! read fields INET, NNET, NNDF from file IDGMI
+      rewind idgmi
+      read(idgmi,*) inet
+      read(idgmi,*) nnet
+      read(idgmi,*) nndf
+
+      write (*,'(a)') 'done.'
+
+      write (*,'(a,$)') 'Create list of elements at a node ... '
+      lnetn = nnod
+      allocate(netn(lnetn))
+! Count elements touching particular node
+      call graph_get_netn(nelem,inet,linet,nnet,lnnet,netn,lnetn)
+
+! Determine size of list of elements at a node
+      lietn  = sum(netn)
+      lkietn = nnod
+
+! Allocate proper sizes of two-dimensional field for list of touching elements
+      allocate(ietn(lietn),kietn(lkietn))
+
+! Create array of pointers into ietn (transpose of inet)
+      kietn(1) = 0
+      do inod = 2,nnod
+         kietn(inod) = kietn(inod-1) + netn(inod-1)
+      end do
+
+! Create list of elements touching particular node
+      call graph_get_ietn(nelem,inet,linet,nnet,lnnet,netn,lnetn,kietn,lkietn,ietn,lietn)
+      write (*,'(a)') 'done.'
+
+      write (*,'(a,$)') 'Count list of neigbours of elements ... '
+! Count elements adjacent to element
+      lxadj = nelem + 1
+      allocate(xadj(lxadj))
+      
+      call graph_from_mesh_size(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
+                                xadj,lxadj, nedge, ladjncy, ladjwgt)
+      write (*,'(a)') 'done.'
+
+      write (*,'(a,$)') 'Create list of neigbours of elements ... '
+
+! Allocate proper field for graph
+      allocate(adjncy(ladjncy),adjwgt(ladjwgt))
+
+! Create graph
+      call graph_from_mesh(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
+                           xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+      write (*,'(a)') 'done.'
+
+      write (*,'(a,$)') 'Check graph ... '
+! Check the graph
+      call graph_check(nelem,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+      write (*,'(a)') 'done.'
+
+      write (*,'(a,$)') 'Export graph to file ... '
+! GRAPH - list of neighbours for elements
+      name = name1(1:lname1)//'.GRAPH'
+      open (unit=idgraph,file=name,status='replace',form='formatted')
+      rewind idgraph
+
+! Write the list into file for METIS
+      call graph_write_to_file(idgraph,nelem,nedge,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+      close(idgraph)
+      write (*,'(a)') 'done.'
+      write(*,'(a,a)') 'Graph exported into file ',trim(name)
+
+      deallocate(inet,nnet,nndf)
+      deallocate(netn)
+      deallocate(ietn,kietn)
+      deallocate(xadj)
+      deallocate(adjncy,adjwgt)
+
+end subroutine graphpmd
+
+!***********************************************************************
+subroutine graphpmd1
+!***********************************************************************
+!     Generate weighted graph for the mesh for METIS
+!***********************************************************************
 implicit none
 
 integer:: ie, nne, ine, indinet, indnode, netnx, indelmn, nelmn, nedges, &
@@ -3239,11 +3364,13 @@ integer,allocatable:: ietn(:,:), netn(:), &
                       edgeweights(:,:), &
                       onerow(:), onerowweig(:)
 
-! Set limit for considering neighbours
-! 1 - all adjacencies included
-! 2 - corner adjacencies excluded
-! n - do not consider adjacencies with number of shared nodes lower or equal to n
-integer :: neighbouring = 1
+! graphtype
+! 0 - graph without weights
+! 1 - produce weighted graph
+integer,parameter :: graphtype = 0
+
+integer :: neighbouring 
+
  
 logical :: match
 
@@ -3409,18 +3536,27 @@ logical :: match
       open (unit=idgraph,file=name,status='replace',form='formatted')
       rewind idgraph
 
-! Write the list into file for Chaco
-      write(idgraph,'(x,i10,x,i10,a)') nelem, nedges, '  1'
+! Write the list into file for METIS
+      write(idgraph,'(x,i10,x,i10,x,i10)') nelem, nedges, graphtype
       do ie = 1,nelem
          nadje = naetet(ie)
-         write(idgraph,'(200i9)') (iaetet(ie,j), edgeweights(ie,j), j = 1,nadje)
+         if      (graphtype.eq.0) then
+            ! no weights 
+            write(idgraph,'(600i9)') nadje, (iaetet(ie,j), j = 1,nadje)
+         else if (graphtype.eq.1) then
+            ! weighted graph 
+            write(idgraph,'(600i9)') nadje, (iaetet(ie,j), edgeweights(ie,j), j = 1,nadje)
+         else
+            write(*,*) 'GRAPHPMD: Graph type not supported: ',graphtype
+            call error_exit
+         end if
       end do
       write (*,'(a)') 'done.'
       write(*,'(a,a)') 'Graph exported into file ',trim(name)
 
       deallocate(inet,nnet,nndf,netn,ietn,iaetet,edgeweights,naetet,onerow,onerowweig)
 
-end subroutine graphpmd
+end subroutine graphpmd1
 
 subroutine parse_onerow(ie,neighbouring,onerow,onerowweig,lor)
 implicit none
@@ -3469,11 +3605,10 @@ subroutine meshdivide
 !***********************************************************************
 !     Divide the mesh into subdomains using METIS
 !***********************************************************************
-use module_parsing
+use module_graph
 implicit none
 
-integer*4:: iaux, indvertex, indadjncy, ivertex
-integer*4:: wgtflag = 1, numflag = 1, edgecut, nedge, nvertex
+integer*4:: wgtflag , numflag = 1, edgecut, nedge, nvertex, graphtype
 integer*4::            ladjncy,   ladjwgt,   lxadj,   lvwgt,   loptions,   liets
 integer*4,allocatable:: adjncy(:), adjwgt(:), xadj(:), vwgt(:), options(:), iets(:)
  
@@ -3483,36 +3618,12 @@ integer*4,allocatable:: adjncy(:), adjwgt(:), xadj(:), vwgt(:), options(:), iets
       rewind idgraph
 
 ! read initial line in the file with graph
-      call rdline(idgraph)
-      read(line,*) nvertex, nedge, iaux
-
-      ladjncy = 2*nedge
+      call graph_read_dimensions(idgraph,nvertex,nedge,graphtype,lxadj,ladjncy,ladjwgt)
       allocate(adjncy(ladjncy))
-      ladjwgt = ladjncy
       allocate(adjwgt(ladjwgt))
-      lxadj   = nvertex + 1
       allocate(xadj(lxadj))
-
-      indadjncy = 0
-      xadj(1)   = 1
-      do ivertex = 1,nvertex
-         call rdline(idgraph)
-         indvertex = 0
-         do
-            indadjncy = indadjncy + 1
-            indvertex = indvertex + 1
-            call getstring
-            read(string,*) adjncy(indadjncy)
-            call getstring
-            read(string,*) adjwgt(indadjncy)
-            if (kstring.eq.0) then
-               exit
-            end if
-         end do
-         xadj(ivertex+1) = xadj(ivertex) + indvertex
-      end do
+      call graph_read(idgraph,nvertex,nedge,graphtype,xadj,lxadj,adjncy,ladjncy,adjwgt,ladjwgt)
       close(idgraph)
-      write(*,'(a,a,a,i8,a)') 'File ',trim(name), ' imported. It has', fileline,' lines.'
 
       loptions = 5
       allocate(options(loptions))
@@ -3521,6 +3632,14 @@ integer*4,allocatable:: adjncy(:), adjwgt(:), xadj(:), vwgt(:), options(:), iets
       allocate(vwgt(lvwgt))
       liets = nelem
       allocate(iets(liets))
+
+      if (graphtype.eq.1) then 
+         ! use weights
+         wgtflag = 1
+      else
+         ! no weights
+         wgtflag = 0
+      end if
 
       write(*,'(a,i6,a)') 'Calling METIS to divide into ',nsub,' subdomains...'
       if (nsub.le.8) then

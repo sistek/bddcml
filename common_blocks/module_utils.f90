@@ -5,7 +5,7 @@ implicit none
 integer,parameter,private :: kr = kind(1.D0)
 
 real(kr),parameter,private :: numerical_zero = 1.e-14
-logical,parameter,private :: debug = .true.
+logical,parameter,private :: debug = .false.
 
 interface zero
    module procedure zero_int_1
@@ -93,21 +93,23 @@ subroutine getfname(problemname,isub,suffix,fname)
       character(*),intent(out) :: fname
 
 ! local variables
-      character(4) :: numberstr
+      character(5) :: numberstr
 
 ! zero filename
       fname = ' '
 
       ! generate name for 4 digits
-      numberstr = '0000'
+      numberstr = '00000'
       if (isub.lt.10) then
-         write(numberstr(4:4),'(i1)') isub
+         write(numberstr(5:5),'(i1)') isub
       else if (isub.lt.100) then
-         write(numberstr(3:4),'(i2)') isub
+         write(numberstr(4:5),'(i2)') isub
       else if (isub.lt.1000) then
-         write(numberstr(2:4),'(i3)') isub
+         write(numberstr(3:5),'(i3)') isub
       else if (isub.lt.10000) then
-         write(numberstr(1:4),'(i4)') isub
+         write(numberstr(2:5),'(i4)') isub
+      else if (isub.lt.100000) then
+         write(numberstr(1:5),'(i5)') isub
       else
          write(*,*) 'isub = ',isub,': Out of range for file name!'
          fname = ' '

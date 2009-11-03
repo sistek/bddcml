@@ -71,6 +71,9 @@ logical,parameter:: print_solution = .false.
 ! Use preconditioner?
 logical,parameter:: use_preconditioner = .true.
 
+! Correct negative beta for Lanczos estimation
+logical,parameter:: correct_negative_beta = .true.
+
 ! Use this structure of MUMPS for routines from mumps
 type(DMUMPS_STRUC) :: schur_mumps
 
@@ -274,6 +277,7 @@ character(100) :: filename, problemname
       do isub = 1,nsub
          call dd_prepare_schur(myid,comm_self,isub)
       end do
+      ! prepare the common array for edges and faces
       do isub = 1,nsub
          call dd_get_cnodes(myid,isub)
       end do
@@ -713,7 +717,8 @@ character(100) :: filename, problemname
       end if
 
 ! Call PCG for solution of the system
-      call bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
+      call bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,correct_negative_beta,&
+                   matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
                    mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
                    nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, nndft,lnndft, iintt,liintt, &
                    idtr, schur_mumps, rhst,lrhst,tol,maxit,ndecrmax,solt,lsolt)
@@ -804,7 +809,8 @@ character(100) :: filename, problemname
 end program
 
 !******************************************************************************************************
-subroutine bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
+subroutine bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,correct_negative_beta,&
+                   matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
                    mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
                    nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft,nndft,lnndft, iintt, liintt,&
                    idtr, schur_mumps, res,lres,tol,maxit,ndecrmax,sol,lsol)
@@ -836,6 +842,9 @@ subroutine bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matri
 
 ! Iterate on transformed problem
       logical,intent(in) :: iterate_on_transformed
+
+! Correct negative betas for square root computation in Lanczos
+      logical,intent(in) :: correct_negative_beta
 
 ! Matrix in sparse IJA format
       integer,intent(in) :: matrixtype
@@ -906,7 +915,7 @@ subroutine bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matri
       integer ::             lw,   lwchol,   lx,   ly
       real(kr),allocatable :: w(:), wchol(:), x(:), y(:)
       integer :: nw, nwx  
-      real(kr) :: cond
+      real(kr) :: cond, sqbeta
 
       !integer :: i
 
@@ -1226,10 +1235,10 @@ subroutine bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matri
 ! Determination of parameter BETA
          beta = rmr/rmrold
          ! debug
-         if (beta.lt.0._kr) then
-            write(*,*) 'Beta = rmr/rmrold is negative!'
-            write(*,*) 'rmr =    ',rmr
-            write(*,*) 'rmrold = ',rmrold
+         if (myid.eq.0) then
+            if (beta.lt.0._kr) then
+               write(*,*) 'WARNING: Beta = rmr/rmrold is negative!, beta = ',beta
+            end if
          end if
 
 ! Determination of new step direction
@@ -1239,15 +1248,17 @@ subroutine bddcpcg(myid,comm_all,iterate_on_reduced,iterate_on_transformed,matri
 ! Filling matrix for the Lanczos method
          w((iter-1)*(maxit+1) + iter) = w((iter-1)*(maxit+1) + iter) + 1._kr/alpha
          w((iter)*(maxit+1) + iter + 1) = beta/alpha
-         w((iter-1)*(maxit+1) + iter + 1) = -sqrt(beta)/alpha
+         ! If beta is negative, fix the square root to zero
+         if (correct_negative_beta .and. beta.lt.0._kr) then
+            sqbeta = 0.0_kr
+         else
+            sqbeta = sqrt(beta)
+         end if
+         w((iter-1)*(maxit+1) + iter + 1) = -sqbeta/alpha
          w((iter)*(maxit+1) + iter) = w((iter-1)*(maxit+1) + iter + 1)
          ! Test for NaN
          if (any(isnan(w))) then
             write(*,*) 'myid = ',myid,' There is a NaN in the Lanczos matrix.'
-            write(*,*) 'alpha =',alpha
-            write(*,*) 'beta =',beta
-            write(*,*) 'beta/alpha =',beta/alpha
-            write(*,*) 'sqrt(beta) =',sqrt(beta)
          end if
 !***************************************************CONDITION NUMBER ESTIMATION
 

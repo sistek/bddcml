@@ -16,27 +16,32 @@ real(kr),parameter,private :: threshold_eigval_default = 2._kr
 logical,parameter,private  :: read_threshold_from_file = .true.
 ! LOBPCG related variables
 ! maximal number of LOBPCG iterations
-integer,parameter ::  lobpcg_maxit = 100
+integer,parameter,private ::  lobpcg_maxit = 100
 ! precision of LOBPCG solver - worst residual
-real(kr),parameter :: lobpcg_tol   = 1.e-5_kr
+real(kr),parameter,private :: lobpcg_tol   = 1.e-5_kr
 ! maximal number of eigenvectors per problem
 ! this number is used for sufficient size of problems 
 ! for small problems, size of glob is used
-integer,parameter ::  neigvecx     = 10  
+integer,parameter,private ::  neigvecx     = 10  
 ! verbosity of LOBPCG solver
 ! 0 - no output
 ! 1 - some output
 ! 2 - maximal output
-integer,parameter ::  lobpcg_verbosity = 0
+integer,parameter,private ::  lobpcg_verbosity = 0
 ! loading old values of initial guess of eigenvectors
 ! 0 - generate new random vectors
 ! 1 - use given vectors
-integer,parameter ::  use_vec_values = 0
-
-real(kr),private :: threshold_eigval
-
+integer,parameter,private ::  use_vec_values = 0
+! loading computed eigenvectors
+! T - compute new vectors
+! F - load eigenvectors from file
+logical,parameter,private :: recompute_vectors = .false.
 ! debugging 
 logical,parameter,private :: debug = .false.
+
+real(kr),private :: threshold_eigval
+integer,parameter,private :: idbase = 100 ! basic unit to add myid for independent units for procs
+
 !=================================================
 
 ! table of pairs of eigenproblems to compute
@@ -324,12 +329,15 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                  indi_i, indi_j, ndofn, inodi,&
                  shift, indcommon, ndofcomm, idofn, irhoicomm,&
                  point_i, point_j, indiv, nadaptive, ioper, nadaptive_rcv, ind, &
-                 nnzc_i, nnzc_j, inddrow, ic, indirow, indirow_loc, indjcol_loc
+                 nnzc_i, nnzc_j, inddrow, ic, indirow, indirow_loc, indjcol_loc, &
+                 neigvecf, problemsizef
+      integer :: idmyunit
 
       integer :: ndofi
       integer :: nnodi
       integer :: nnzc
 
+      character(100) :: filename
 
       integer ::            lpair_data
       integer,allocatable :: pair_data(:)
@@ -416,6 +424,8 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       ! prepare space for pair_data
       lpair_data = lpair_subdomains2
       allocate(pair_data(lpair_data))
+      ! unit for local reading/writing from/to file
+      idmyunit = idbase + myid
 
       iround = 0
       ! Loop over rounds of eigenvalue solves
@@ -1143,44 +1153,85 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             if (use_vec_values .eq. 1) then
               ! read initial guess of vectors
                write(*,*) 'neigvec =',neigvec,'problemsize =',problemsize
-               open(unit = 99,file='start_guess.txt')
+               open(unit = idmyunit,file='start_guess.txt')
                do i = 1,problemsize
-                  read(99,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+                  read(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
                end do
-               close(99)
-            end if
-               
-            if (debug) then
-               write(*,*) 'myid =',myid,', I am calling eigensolver for pair ',my_pair
-               call flush(6)
+               close(idmyunit)
             end if
 
+            ! set name of individual file for glob
+            call getfname('pair',my_pair,'EIG',filename)
+               
             ! prepare auxiliary space used in each iteration of eigensolver
             comm_lxaux  = problemsize
             comm_lxaux2 = problemsize
             allocate(comm_xaux(comm_lxaux),comm_xaux2(comm_lxaux2))
-            call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,use_vec_values,&
-                               eigval,eigvec,lobpcg_iter,ierr)
-            if (ierr.ne.0) then
-               write(*,'(a,i4,a,i6)') 'ADAPTIVITY_SOLVE_EIGENVECTORS: WARNING - LOBPCG exited with nonzero code ',ierr, &
-                                      ' for pair',my_pair
-            end if
-            !if (debug) then
+            if (recompute_vectors) then
+               ! compute eigenvectors and store them into file
+               if (debug) then
+                  write(*,*) 'myid =',myid,', I am calling eigensolver for pair ',my_pair
+                  call flush(6)
+               end if
+               call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,use_vec_values,&
+                                  eigval,eigvec,lobpcg_iter,ierr)
+               if (ierr.ne.0) then
+                  write(*,'(a,i4,a,i6)') 'ADAPTIVITY_SOLVE_EIGENVECTORS: WARNING - LOBPCG exited with nonzero code ',ierr, &
+                                         ' for pair',my_pair
+               end if
+               !if (debug) then
                write(*,*) 'myid =',myid,', LOBPCG converged in ',lobpcg_iter,' iterations.'
                call flush(6)
-            !end if
+               !end if
 
-            ! turn around the eigenvalues to be the largest
-            eigval = -eigval
-            write(*,*) 'eigval for pair:',my_pair,' between subdomains ',comm_myisub,' and',comm_myjsub
-            write(*,'(f20.10)') eigval
-            !write(90+myid,*) 'x ='
-            !do i = 1,problemsize
-            !   write(90+myid,'(30f13.7)') (eigvec((j-1)*problemsize + i),j = 1,neigvec)
-            !end do
-            !do i = 1,problemsize
-            !   write(88, '(30e15.5)'), (eigvec((j-1)*problemsize + i),j = 1,neigvec)
-            !end do
+               ! turn around the eigenvalues to be the largest
+               eigval = -eigval
+               write(*,*) 'eigval for pair:',my_pair,' between subdomains ',comm_myisub,' and',comm_myjsub
+               write(*,'(f20.10)') eigval
+
+               open(unit = idmyunit,file=filename,status='replace',form='formatted')
+               write(idmyunit,*) neigvec, problemsize
+               do i = 1,neigvec
+                  write(idmyunit,*) eigval(i)
+               end do
+               do i = 1,problemsize
+                  write(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+               end do
+               close(idmyunit)
+               !if (debug) then
+               if (debug) then
+                  write(*,*) 'myid =',myid,', Eigenvalues stored in file ',trim(filename)
+                  call flush(6)
+               end if
+               !end if
+               !write(90+myid,*) 'x ='
+               !do i = 1,problemsize
+               !   write(90+myid,'(30f13.7)') (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+               !end do
+               !do i = 1,problemsize
+               !   write(88, '(30e15.5)'), (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+               !end do
+            else
+               ! read eigenvectors from file
+               if (debug) then
+                  write(*,*) 'myid =',myid,', I am reading eigenvalues for pair ',my_pair,' from file ',trim(filename)
+                  call flush(6)
+               end if
+               open(unit = idmyunit,file=filename,status='old',form='formatted')
+               read(idmyunit,*) neigvecf, problemsizef
+               if (neigvecf.ne.neigvec .or. problemsizef.ne.problemsize) then
+                  write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: Wrong dimensions of input eigenvectors'
+                  call error_exit
+               end if
+               do i = 1,neigvec
+                  read(idmyunit,*) eigval(i)
+               end do
+               do i = 1,problemsize
+                  read(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+               end do
+               close(idmyunit)
+            end if
+
          end if
          call adaptivity_fake_lobpcg_driver
 
@@ -1381,13 +1432,13 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             deallocate(indrowc_i,indrowc_j)
          end if
 
-         ! find estimate of cindition number
+         ! find estimate of condition number
          est = max(est,est_round)
 
       end do ! loop over rounds of eigenvalue pairs
 
       if (myid.eq.0) then
-         write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: Expected estimated condition number: ',est
+         write(*,*) 'Expected estimated condition number: ',est
          call flush(6)
       end if
 

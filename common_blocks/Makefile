@@ -17,6 +17,7 @@ LIBS = $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
 
 TESTS = \
    test_module_utils \
+   test_module_graph \
    test_module_adaptivity \
    test_module_dd \
    test_module_dd2 \
@@ -31,6 +32,7 @@ OBJ = \
    module_adaptivity.o \
    module_dd.o \
    module_mumps.o \
+   module_graph.o \
    module_parsing.o \
    module_sm.o \
    module_tecplot.o \
@@ -73,6 +75,10 @@ module_dd.o: \
 module_sm.o: \
    module_utils.o 
 
+module_graph.o: \
+   module_parsing.o \
+   module_utils.o 
+
 test_module_mumps.o: \
    module_mumps.o
 
@@ -97,6 +103,9 @@ test_module_dd.o: \
 
 test_module_dd2.o: \
    module_dd.o
+
+test_module_graph.o: \
+   module_graph.o
 
 test_module_utils.o: \
    module_utils.o
@@ -162,6 +171,13 @@ test_module_dd2: \
    module_dd.o \
    module_mumps.o \
    module_sm.o \
+   module_utils.o 
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+
+test_module_graph: \
+   test_module_graph.o \
+   module_graph.o \
+   module_parsing.o \
    module_utils.o 
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
 

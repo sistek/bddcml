@@ -223,7 +223,7 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
 
 ! Prepare transformation of coordinates
       nnz_transform = 0
-      print *,'I am here, use transform =',use_transform,'averages approach is',averages_approach
+      !print *,'I am here, use transform =',use_transform,'averages approach is',averages_approach
       if (use_transform) then
          call bddc_time_start(comm)
          call bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lslavery,nnodt,ndoft,kdoft,lkdoft,&
@@ -576,10 +576,6 @@ subroutine bddc_M_fake(comm,rest,lrest,ht,lht,rmr)
 
 ! rMr parameter in PCG
       real(kr), intent(out) :: rmr
-
-! Local variables
-      real(kr) :: rmr_loc
-      integer ::  ierr
 
 ! Make copy of residual to initial ht
       ht = rest
@@ -1307,6 +1303,8 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
       real(kr),allocatable :: ht(:,:)
       integer  :: lauxt1, lauxt2
       real(kr),allocatable :: auxt(:,:)
+      integer  ::            lft1, lft2
+      real(kr),allocatable :: ft(:,:)
 
       integer :: iconstr, lapack_info = 0, indnglb_m, &
                  indnglb_s, iglb, indfline, indnglb, jfline, inodglb, ldim, &
@@ -1433,7 +1431,6 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
             end do
             iglbv = iglbv + ndofn
          end do
-!         print *, 'myid =',myid,'iglb =',iglb,'kdoft =',kdoft
 !         print *, 'myid =',myid,'iglb =',iglb,'mapping =',iglbntn
 !         print *, 'myid =',myid,'iglb =',iglb,'mapping vars=',iglbvtvn
 
@@ -1461,7 +1458,9 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
          lr1 = lg2
          lr2 = lg1
          allocate(r(lr1,lr2))
-         r = transpose(g)
+         if (lg1.gt.0 .and. lg2.gt.0) then
+            r = transpose(g)
+         end if
          ! LAPACK arrays
          ltau = lr2
          allocate(tau(ltau))
@@ -1469,11 +1468,13 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
          allocate(work(lwork))
          ! leading dimension
          ldim = max(1,lr1)
-         call DGEQR2( lr1, lr2, r, ldim, tau, work, lapack_info)
-         if (lapack_info.ne.0) then
-            write(*,*) 'bddc_P_init: Error in LAPACK QR factorization of G: ', lapack_info
-            call flush(6)
-            stop
+         if (lr2.gt.0) then
+            call DGEQR2( lr1, lr2, r, ldim, tau, work, lapack_info)
+            if (lapack_info.ne.0) then
+               write(*,*) 'bddc_P_init: Error in LAPACK QR factorization of G: ', lapack_info
+               call flush(6)
+               stop
+            end if
          end if
          deallocate(tau,work)
          !write(*,*) 'myid =',myid,'iglb =',iglb,'Matrix R'
@@ -1486,34 +1487,37 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
          ldimr = max(1,lr1)
          ldimg = max(1,lg1)
          nrhs = lg2
-         call DTRTRS( 'U',   'T',   'N', lr2 , nrhs, r, ldimr, g, ldimg, lapack_info)
-         if (lapack_info.ne.0) then
-            write(*,*) 'Error in LAPACK solution of R^T * F = G :', lapack_info
-            call flush(6)
-            stop
+         if (lg1.gt.0) then
+            call DTRTRS( 'U',   'T',   'N', lr2 , nrhs, r, ldimr, g, ldimg, lapack_info)
+            if (lapack_info.ne.0) then
+               write(*,*) 'Error in LAPACK solution of R^T * F = G :', lapack_info
+               call flush(6)
+               stop
+            end if
          end if
          deallocate(r)
          !write(*,*) 'myid =',myid,'iglb =',iglb,'Matrix F','lg1,lg2',lg1,lg2
          !do i = 1,lg1
          !   write(*,'(30f10.5)') g(i,:)
          !end do
-         !call flush(6)
 
          ! copy block of F stored in G into global F
-         do jg = 1,lg2
-            indjv = iglbvtvn(jg)
-            ! loop over rows of G
-            do ig = 1,lg1
-               ! loop over diagonal of degrees of freedom at the node
-               jfline = ig
-               if (abs(g(ig,jg)).gt.numerical_zero) then
-                  f(indfline + jfline,indjv) = g(ig,jg)
-               end if
+         if (lg1.gt.0) then
+            do jg = 1,lg2
+               indjv = iglbvtvn(jg)
+               ! loop over rows of G
+               do ig = 1,lg1
+                  ! loop over diagonal of degrees of freedom at the node
+                  jfline = ig
+                  if (abs(g(ig,jg)).gt.numerical_zero) then
+                     f(indfline + jfline,indjv) = g(ig,jg)
+                  end if
+               end do
             end do
-         end do
+         end if
 
          ! add entries from t_stab*F^T*F - for this glob
-         if (i_am_master_of_this_glob) then
+         if (i_am_master_of_this_glob .and. lg1.gt.0) then
             point_a = nnz + nnz_new
             ia = 0
             do igtg = 1,lg2
@@ -1560,14 +1564,20 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
          write(*,*) '==========================================='
       end if
 
-
       call bddc_time_start(comm)
+      lft1 = lf2
+      lft2 = lf1
+      allocate(ft(lft1,lft2))
+      ft = transpose(f)
       ! find Ac * F^T => H
       lh1 = lf2
       lh2 = lf1
       allocate(h(lh1,lh2))
+      print *, 'myid =',myid,'lh1 =',lh1,'lh2 =',lh2
+      call flush(6)
       call sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
-                       transpose(f),lf2,lf1, h,lh1,lh2)
+                       ft,lft1,lft2, h,lh1,lh2)
+      deallocate(ft)
       call bddc_time_end(comm,time)
       if (myid.eq.0.and.time_verbose.ge.2) then
          write(*,*) '==========================================='
@@ -1602,10 +1612,15 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
       space_left = la - nnz - nnz_new
       scalar     = -1._kr
       store_type = 0
+      lht1 = lh2
+      lht2 = lh1
+      allocate(ht(lht1,lht2))
+      ht = transpose(h)
 !     F^T * H^T
       call sm_from_sm_mat_mult(f_type, nnz_f, j_f_sparse, i_f_sparse, f_sparse, lf_sparse, &
-                               transpose(h),lh2,lh1, store_type,ndoft, &
+                               ht,lht1,lht2, store_type,ndoft, &
                                i_sparse(point),j_sparse(point),a_sparse(point),space_left, nnz_add, scalar)
+      deallocate(ht)
       ! double entries on diagonal
       where (i_sparse(point:point+nnz_add).eq.j_sparse(point:point+nnz_add)) &
             a_sparse(point:point+nnz_add) = 2._kr*a_sparse(point:point+nnz_add)
@@ -1945,10 +1960,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       integer,allocatable :: iglbvgvn(:)
       integer  ::           lnconstrgl
       integer,allocatable :: nconstrgl(:)
-      integer  ::           lnnglbtr
-      integer,allocatable :: nnglbtr(:)
-      integer  ::           linglbtr
-      integer,allocatable :: inglbtr(:)
 
       !integer  :: ltestm1, ltestm2
       !real(kr),allocatable :: testm(:,:)
@@ -1957,14 +1968,12 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
                  iglbn, jglbn, nglbv, iv, jv, &
                  ibuf, ia, &
                  point, space_left, store_type, &
-                 iglbntr, nglbntr, indinglbtr, nglbtr, navgn, indi, indin, &
+                 nglbtr, navgn, indi, indin, &
                  indj, indjn, jdofn, pointi, pointj, isub, nnodc, icnode
       integer :: nnz_right, nnz_left, nnz_new, nnz_add, nnz_transform_as, &
                  nnz_t_est, nnz_t_est_loc, point_t, space_t_left, nnz_t_add
       logical :: correct_sol = .false.
       real(kr):: val, valnew
-
-      integer :: i,j
 
       real(kr):: time
 
@@ -2099,98 +2108,97 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 
             ! number of constraints on this glob
             nconstrgl(iglb) = lavg1
+            if (lavg1.gt.0) then
 
-            !if (lavg1.eq.0) then
-            !   print *,'I am here: lavg1 =',lavg1,'lavg2 =',lavg2
-            !   cycle
-            !end if
-
-            ! debug - with aritmetic averages
-            !lavg1 = 3
-            ! prepare matrix AVG - local for glob, only averages => rectangular
-            allocate(avg(lavg1,lavg2))
-            ! case of single aritmetic average
-            call dd_get_adaptive_constraints(myid,isub,icnode,avg,lavg1,lavg2)
-            !write(*,*) 'subdomain ',isub,' glob ',iglb
-            !do i = 1,lavg1
-            !   write(*,'(100f6.2)') (avg(i,j),j = 1,lavg2)
-            !end do
-            !debug
-            !write(substring ,'(i1)') myid+1
-            !write(avgstring ,'(i1)') iglb
-            !!avgfile = 'sub_'//substring//'_avg_'//avgstring//'_arithmetic.txt'
-            !avgfile = 'sub_'//substring//'_avg_'//avgstring//'.txt'
-
-            !print *,'myid =',myid,'opening file',trim(avgfile)
-
-            !call allocate_unit(iunit)
-            !open(iunit,file=trim(avgfile),status='old',form='formatted')
-            !do i = 1,lavg1
-            !   read(iunit,*) (avg(i,j),j = 1,lavg2)
-            !end do
-            !close(iunit)
-            
-            !print *,'Averages:'
-            !do i = 1,lavg1
-            !   print '(100f14.6)',(avg(i,j),j = 1,lavg2)
-            !end do
-
-! Load matrix to MUMPS
-!      ltestm1 = ndoft
-!      ltestm2 = ndoft
-!      allocate(testm(ltestm1,ltestm2))
-!      call sm_to_dm(matrixtype,i_sparse, j_sparse, a_sparse,nnz, testm,ltestm1,ltestm2)
-!      write(98,'(i8)') ndoft
-!      do i = 1,ltestm1
-!         write(98,'(1000f10.4)') (testm(i,j),j = 1,ltestm2)
-!      end do
-!      deallocate(testm)
-
-
-            ! Number of constraints become the number of nodes in constraint
-            nglbtr = nglbtr + 1
+               !if (lavg1.eq.0) then
+               !   print *,'I am here: lavg1 =',lavg1,'lavg2 =',lavg2
+               !   cycle
+               !end if
    
-   !         write(*,*) 'Matrix Tinv'
-   !         do i = 1,lt1
-   !            write(*,'(30f10.5)') t(i,:)
-   !         end do
-   !         call flush(6)
+               ! debug - with aritmetic averages
+               !lavg1 = 3
+               ! prepare matrix AVG - local for glob, only averages => rectangular
+               allocate(avg(lavg1,lavg2))
+               ! case of single aritmetic average
+               call dd_get_adaptive_constraints(myid,isub,icnode,avg,lavg1,lavg2)
+               !write(*,*) 'subdomain ',isub,' glob ',iglb
+               !do i = 1,lavg1
+               !   write(*,'(100f6.2)') (avg(i,j),j = 1,lavg2)
+               !end do
+               !debug
+               !write(substring ,'(i1)') myid+1
+               !write(avgstring ,'(i1)') iglb
+               !!avgfile = 'sub_'//substring//'_avg_'//avgstring//'_arithmetic.txt'
+               !avgfile = 'sub_'//substring//'_avg_'//avgstring//'.txt'
    
-            ! correct solution if desired
-            ! u^hat = T u
-!            if (iterate_on_transformed.and.correct_sol) then
-!               do iglbn = 1,navgn
-!                  indin = inglb(indinglb + iglbn)
-!                  pointi = kdoft(indin)
-!                  do idofn = 1,ndofn
-!                     indi = pointi + idofn
-!   
-!                     valnew = 0._kr
-!                     do jglbn = 1,nglbn
-!                        indjn = inglb(indinglb + jglbn)
-!                        pointj = kdoft(indjn)
-!   
-!                        val = avg(iglbn,jglbn)
-!                        do jdofn = 1,ndofn
-!                           indj = pointj + jdofn
-!   
-!                           if (solt(indj).ne.0._kr.and.val.ne.0._kr) then
-!                              valnew = valnew + val*solt(indj)
-!                           end if
-!                        end do
-!                     end do
-!                     solt(indi) = valnew
-!                  end do
-!               end do
-!            end if
+               !print *,'myid =',myid,'opening file',trim(avgfile)
    
-   ! Find inverse of the matrix T
-            nglbv  = lavg2
-            ltdof1 = nglbv
-            ltdof2 = nglbv
-            allocate(tdof(ltdof1,ltdof2))
-            call bddc_T_inverse(avg,lavg1,lavg2,tdof,ltdof1,ltdof2)
-            deallocate(avg)
+               !call allocate_unit(iunit)
+               !open(iunit,file=trim(avgfile),status='old',form='formatted')
+               !do i = 1,lavg1
+               !   read(iunit,*) (avg(i,j),j = 1,lavg2)
+               !end do
+               !close(iunit)
+               
+               !print *,'Averages:'
+               !do i = 1,lavg1
+               !   print '(100f14.6)',(avg(i,j),j = 1,lavg2)
+               !end do
+   
+   ! Load matrix to MUMPS
+   !      ltestm1 = ndoft
+   !      ltestm2 = ndoft
+   !      allocate(testm(ltestm1,ltestm2))
+   !      call sm_to_dm(matrixtype,i_sparse, j_sparse, a_sparse,nnz, testm,ltestm1,ltestm2)
+   !      write(98,'(i8)') ndoft
+   !      do i = 1,ltestm1
+   !         write(98,'(1000f10.4)') (testm(i,j),j = 1,ltestm2)
+   !      end do
+   !      deallocate(testm)
+   
+   
+      !         write(*,*) 'Matrix Tinv'
+      !         do i = 1,lt1
+      !            write(*,'(30f10.5)') t(i,:)
+      !         end do
+      !         call flush(6)
+      
+               ! correct solution if desired
+               ! u^hat = T u
+   !            if (iterate_on_transformed.and.correct_sol) then
+   !               do iglbn = 1,navgn
+   !                  indin = inglb(indinglb + iglbn)
+   !                  pointi = kdoft(indin)
+   !                  do idofn = 1,ndofn
+   !                     indi = pointi + idofn
+   !   
+   !                     valnew = 0._kr
+   !                     do jglbn = 1,nglbn
+   !                        indjn = inglb(indinglb + jglbn)
+   !                        pointj = kdoft(indjn)
+   !   
+   !                        val = avg(iglbn,jglbn)
+   !                        do jdofn = 1,ndofn
+   !                           indj = pointj + jdofn
+   !   
+   !                           if (solt(indj).ne.0._kr.and.val.ne.0._kr) then
+   !                              valnew = valnew + val*solt(indj)
+   !                           end if
+   !                        end do
+   !                     end do
+   !                     solt(indi) = valnew
+   !                  end do
+   !               end do
+   !            end if
+      
+      ! Find inverse of the matrix T
+               nglbv  = lavg2
+               ltdof1 = nglbv
+               ltdof2 = nglbv
+               allocate(tdof(ltdof1,ltdof2))
+               call bddc_T_inverse(avg,lavg1,lavg2,tdof,ltdof1,ltdof2)
+               deallocate(avg)
+            end if ! do only if lavg1 > 0 - number of constraints on glob is nonzero
    
          else 
             write(*,*) 'BDDC_T_INIT: No averages implied.'
@@ -2207,12 +2215,10 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 ! Subtract unity from matrix TDOF
 ! This small trick allows the matrix to only generate new values without
 ! changing values of the matrix before transformation.
-         do iv = 1,nglbv
-            tdof(iv,iv) = tdof(iv,iv) - 1._kr
-         end do
-         if (lavg1.eq.0) then
-            tdof = 0._kr
-         end if
+         if (lavg1.gt.0) then
+            do iv = 1,nglbv
+               tdof(iv,iv) = tdof(iv,iv) - 1._kr
+            end do
 
 !         write(*,*) 'Matrix Tdof after subtracting identity'
 !         do i = 1,ltdof1
@@ -2221,17 +2227,17 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !         call flush(6)
 
 ! Find mapping of glob variables into global variables
-         liglbvgvn = nglbv
-         allocate(iglbvgvn(liglbvgvn))
-         iv = 0
-         do iglbn = 1,nglbn
-            indnglb = inglb(indinglb + iglbn)
-            point   = kdoft(indnglb)
-            do idofn = 1,ndofn
-               iglbvgvn(iv+idofn) = point+idofn
+            liglbvgvn = nglbv
+            allocate(iglbvgvn(liglbvgvn))
+            iv = 0
+            do iglbn = 1,nglbn
+               indnglb = inglb(indinglb + iglbn)
+               point   = kdoft(indnglb)
+               do idofn = 1,ndofn
+                  iglbvgvn(iv+idofn) = point+idofn
+               end do
+               iv = iv + ndofn
             end do
-            iv = iv + ndofn
-         end do
 
          !write(*,*) 'myid =',myid,'array iglbvgvn'
          !write(*,*) iglbvgvn
@@ -2240,24 +2246,26 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          !call flush(6)
 
 ! Find new entries in the matrix from Ac*T
-         point = nnz + nnz_new
-         space_left = la - point 
-         store_type = 0
-         call sm_from_sm_mat_mult_emb(matrixtype, nnz, i_sparse, j_sparse, a_sparse, nnz, ndoft, ndoft, &
-                                      tdof,ltdof1,ltdof2, iglbvgvn,liglbvgvn, iglbvgvn,liglbvgvn, &
-                                      store_type,i_sparse(point+1),j_sparse(point+1),a_sparse(point+1),space_left,nnz_add)
-         nnz_new = nnz_new + nnz_add
-
-         write(idtr) ltdof1, ltdof2
-         write(idtr) iglbvgvn
-         write(idtr) tdof
-
-         deallocate(tdof)
-         deallocate(iglbvgvn)
-
-         ! add nonzeros in T to counter
-         nnz_t_est_loc = lavg1*lavg2 + 2*(nglbv - lavg1)
-         nnz_t_est     = nnz_t_est + nnz_t_est_loc
+            point = nnz + nnz_new
+            space_left = la - point 
+            store_type = 0
+            call sm_from_sm_mat_mult_emb(matrixtype, nnz, i_sparse, j_sparse, a_sparse, nnz, ndoft, ndoft, &
+                                         tdof,ltdof1,ltdof2, iglbvgvn,liglbvgvn, iglbvgvn,liglbvgvn, &
+                                         store_type,i_sparse(point+1),j_sparse(point+1),a_sparse(point+1),space_left,nnz_add)
+            nnz_new = nnz_new + nnz_add
+   
+            write(idtr) ltdof1, ltdof2
+            write(idtr) iglbvgvn
+            write(idtr) tdof
+   
+            deallocate(tdof)
+            deallocate(iglbvgvn)
+   
+            ! add nonzeros in T to counter
+            nnz_t_est_loc = lavg1*lavg2 + 2*(nglbv - lavg1)
+            nnz_t_est     = nnz_t_est + nnz_t_est_loc
+   
+         end if ! perform only if lavg1 > 0
 
          indinglb = indinglb + nglbn
       end do
@@ -2293,34 +2301,38 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          nglbn   = nnglb(iglb)
          indnglb = inglb(indinglb + 1)
          ndofn   = ndim
+
+         if (nconstrgl(iglb).gt.0) then
  
-         ! Read transforming matrix and its embedding from file
-         read(idtr) ltdof1, ltdof2
-         liglbvgvn = ltdof1
-         allocate(tdof(ltdof1,ltdof2),iglbvgvn(liglbvgvn))
-         read(idtr) iglbvgvn
-         read(idtr) tdof
+            ! Read transforming matrix and its embedding from file
+            read(idtr) ltdof1, ltdof2
+            liglbvgvn = ltdof1
+            allocate(tdof(ltdof1,ltdof2),iglbvgvn(liglbvgvn))
+            read(idtr) iglbvgvn
+            read(idtr) tdof
 
 ! Find new entries in the matrix from T^T*(Ac*T)
-         point = nnz + nnz_right + nnz_new
-         space_left = la - point 
-         store_type = 0
-         ! only multiplication by (Ac*T) part of the sparse matrix
-         call sm_from_sm_mat_mult_emb(store_type,nnz_right,j_sparse(nnz+1),i_sparse(nnz+1),a_sparse(nnz+1),nnz_right,ndoft,ndoft,&
-                                      tdof,ltdof1,ltdof2, iglbvgvn,liglbvgvn, iglbvgvn,liglbvgvn, &
-                                      matrixtype,i_sparse(point+1),j_sparse(point+1),a_sparse(point+1),space_left,nnz_add)
-         nnz_new = nnz_new + nnz_add
-
-         ! convert tdof to sparse T
-         point_t      = nnz_t
-         space_t_left = lt_sparse - point_t 
-         t_type = 0
-         call sm_from_dm_emb(t_type, tdof,ltdof1,ltdof2, iglbvgvn,liglbvgvn, iglbvgvn,liglbvgvn,&
-                             i_t_sparse(point_t+1), j_t_sparse(point_t+1), t_sparse(point_t+1), space_t_left, nnz_t_add)
-         nnz_t = nnz_t + nnz_t_add
-
-         deallocate(tdof)
-         deallocate(iglbvgvn)
+            point = nnz + nnz_right + nnz_new
+            space_left = la - point 
+            store_type = 0
+            ! only multiplication by (Ac*T) part of the sparse matrix
+            call sm_from_sm_mat_mult_emb(store_type,nnz_right,j_sparse(nnz+1),i_sparse(nnz+1),a_sparse(nnz+1),nnz_right,&
+                                         ndoft,ndoft, tdof,ltdof1,ltdof2, iglbvgvn,liglbvgvn, iglbvgvn,liglbvgvn, &
+                                         matrixtype,i_sparse(point+1),j_sparse(point+1),a_sparse(point+1),space_left,nnz_add)
+            nnz_new = nnz_new + nnz_add
+   
+            ! convert tdof to sparse T
+            point_t      = nnz_t
+            space_t_left = lt_sparse - point_t 
+            t_type = 0
+            call sm_from_dm_emb(t_type, tdof,ltdof1,ltdof2, iglbvgvn,liglbvgvn, iglbvgvn,liglbvgvn,&
+                                i_t_sparse(point_t+1), j_t_sparse(point_t+1), t_sparse(point_t+1), space_t_left, nnz_t_add)
+            nnz_t = nnz_t + nnz_t_add
+   
+            deallocate(tdof)
+            deallocate(iglbvgvn)
+   
+         end if ! perform only if lavg1 > 0
 
          indinglb = indinglb + nglbn
       end do
@@ -2356,40 +2368,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          call flush(6)
       end if
 
-      ! Prepare array INGLB and NNGLB for changed variables
-      lnnglbtr = nglbtr
-      allocate(nnglbtr(lnnglbtr))
-      ! only one constraint per glob
-      nnglbtr = 1
-
-      ! Construct array INGLB - assumption of averages in FIRST nnglbtr(iglb) lines
-      linglbtr = nglbtr
-      allocate(inglbtr(linglbtr))
-      indinglb   = 0
-      indinglbtr = 0
-      do iglb = 1,nglb
-         nglbn   = nnglb(iglb)
-         nglbntr = nnglbtr(iglb)
-
-         ! copy first NGLBNTR entries of INGLB into INGLBTR
-         do iglbntr = 1,nglbntr
-            inglbtr(indinglbtr + iglbntr) = inglb(indinglb + iglbntr)
-         end do
-
-         indinglb   = indinglb   + nglbn
-         indinglbtr = indinglbtr + nglbntr
-      end do
-
-      ! check of non-zeros in NNGLBTR
-      if (any(nnglbtr.eq.0)) then
-         write(*,*) 'bddc_T_init: Zeros in transformed number of nodes in glob.'
-         stop
-      end if
-      ! check of non-zeros in INGLBTR
-      if (any(inglbtr.eq.0)) then
-         write(*,*) 'bddc_T_init: Zeros in transformed glob description.'
-         stop
-      end if
 
 ! Assembly new entries in matrix
       write(*,*) 'myid =',myid,': Space really needed by transformation =',nnz_transform
@@ -2422,8 +2400,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       end if
 
       deallocate(nconstrgl)
-      deallocate(nnglbtr)
-      deallocate(inglbtr)
 
       return
 end subroutine

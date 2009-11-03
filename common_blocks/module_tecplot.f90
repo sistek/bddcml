@@ -244,9 +244,9 @@ end if
                   write(iddat,7002) (inet(indinet+i), i = 1,3),inet(indinet+3),&
                                     (inet(indinet+i), i = 1,3),inet(indinet+3)
                else
-                  write(*,*) 'TECPLOT_CONNECTIVITY_TABLE: Strange number of nodes for 3D finite element, nne = ', nne
-                  stop
-
+!     linear prisms
+                  write(iddat,7002) (inet(indinet+i), i = 1,3),inet(indinet+3),&
+                                    (inet(indinet+i), i = 4,6),inet(indinet+6)
                end if
             else if (nne.eq.4) then
 !     linear tetra
