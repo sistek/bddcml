@@ -5,7 +5,7 @@ implicit none
 integer,parameter,private :: kr = kind(1.D0)
 
 real(kr),parameter,private :: numerical_zero = 1.e-14
-logical,parameter,private :: debug = .false.
+logical,parameter,private :: debug = .true.
 
 interface zero
    module procedure zero_int_1
@@ -241,6 +241,7 @@ subroutine get_array_union(array1,larray1,array2,larray2,union,lunion,nunion)
          union(i) = 0
       end do
 end subroutine
+
 !********************************************************************************************************
 subroutine get_array_intersection(array1,larray1,array2,larray2,intersection,lintersection,nintersection)
 !********************************************************************************************************
@@ -299,6 +300,52 @@ subroutine get_array_intersection(array1,larray1,array2,larray2,intersection,lin
       nintersection = iinter
       do iinter = nintersection + 1,lintersection
          intersection(iinter) = 0
+      end do
+end subroutine
+
+!***************************************************
+subroutine get_array_norepeat(array,larray,nentries)
+!***************************************************
+! Subroutine for removing repeated entries from SORTED array
+! shifting entries beginning, pad with zeros
+! Example
+! input:  1 1 1 3 3 5 9
+! output: 1 3 5 9 0 0 0
+! nentries  = 4
+      implicit none
+! input arrays
+      integer,intent(in) ::    larray
+      integer,intent(inout) ::  array(larray)
+! number of entries
+      integer,intent(out) ::   nentries
+
+! local vars
+      integer :: i, j, ind
+
+      ! find common intersection in one loop through the arrays
+      i = 1
+      j = 1
+      ind = array(i)
+      if (ind.eq.0) then
+         write(*,*) 'GET_ARRAY_NOREPEAT: Error - array starts with zero!'
+         call error_exit
+      end if
+      do j = 2,larray
+         if      (array(j).gt.ind) then
+            i   = i + 1
+            ind = array(j)
+            array(i) = ind
+         else 
+            if (debug .and. array(j).lt.ind) then
+               write(*,*) 'GET_ARRAY_NOREPEAT: Error - array supposed sorted!'
+               call error_exit
+            end if
+         end if
+      end do
+      ! pad the rest
+      nentries = i
+      do i = nentries + 1,larray
+         array(i) = 0
       end do
 end subroutine
 

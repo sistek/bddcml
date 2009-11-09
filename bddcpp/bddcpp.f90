@@ -36,8 +36,8 @@ integer,parameter:: lname1x = 8, lnamex = 100, lfnamex = 20
 integer:: lname1
 integer:: ndim, nsub, nelem, ndof, nnod, nnodc
 
-integer ::           linet,   lnnet,   lnndf,   lkinet,   liets,   lkmynodes,   lkinodes,   lkneibnodes,   lkdof,   lkadjsnodes
-integer,allocatable:: inet(:), nnet(:), nndf(:), kinet(:), iets(:), kmynodes(:), kinodes(:), kneibnodes(:), kdof(:), kadjsnodes(:)
+integer ::           linet,   lnnet,   lnndf,   lkinet,   liets,   lkmynodes,   lkinodes,   lkneibnodes,   lkdof
+integer,allocatable:: inet(:), nnet(:), nndf(:), kinet(:), iets(:), kmynodes(:), kinodes(:), kneibnodes(:), kdof(:)
 integer ::           linodc
 integer,allocatable:: inodc(:)
  
@@ -1915,6 +1915,12 @@ integer::            lnglobvars
 integer,allocatable:: nglobvars(:)
 integer::            ligvsivns1, ligvsivns2
 integer,allocatable:: igvsivns(:,:)
+integer ::            nelemsadj, nnodsadj
+integer ::            linetsadj,   lnnetsadj,   lisngnsadj
+integer,allocatable :: inetsadj(:), nnetsadj(:), isngnsadj(:)
+integer ::            lishared
+integer,allocatable :: ishared(:)
+integer ::             nshared
 
 integer ::            lrhss,   lfixvs,   lxyzs1, lxyzs2
 real(kr),allocatable:: rhss(:), fixvs(:), xyzs(:,:)
@@ -1923,11 +1929,11 @@ character(100) :: filename
 
 ! local variables
 integer :: nglb
-integer:: isub, ie, inc, ndofn, nne, &
-          inod, idofn, indifixs, indifix, indnc, indnnets, indrhs, indrhss, &
-          inods, jsub, pointinet, pointinets, i, j, indn, idofis, idofos, inodis, &
+integer:: isub, ie, inc, ndofn, &
+          inod, idofn, indifixs, indifix, indnc, indrhs, indrhss, &
+          inods, jsub, i, j, indn, idofis, idofos, inodis, &
           indns, indins, inodcs, iglbn, nglbn, iglb, iglobs, indn1,&
-          nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs
+          nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs, indg
 integer:: nadjs, nnodcs, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs, nedge, nface
 integer:: idsmd
 
@@ -2026,101 +2032,90 @@ integer:: idsmd
 
 ! End of reading global data**********************
 
-! Prepare subdomain data
-      lkmynodes   = nnod
-      lkadjsnodes = nnod
-      lkinodes    = nnod
-      allocate(kmynodes(lkmynodes),kinodes(lkinodes),kadjsnodes(lkadjsnodes))
-
-! Recognize interface
-      kinodes = 0
-      do isub = 1,nsub
-! Creation of field kmynodes(nnod) - local usage of global nodes
-! if global node is in my subdomain, assigned 1, else remains 0
-         call pp_mark_sub_nodes(isub,nelem,iets,liets,inet,linet,nnet,lnnet,&
-                                kinet,lkinet,kmynodes,lkmynodes)
-! Mark interface nodes
-         where(kmynodes.eq.1) kinodes = kinodes + 1
-      end do
-
 ! Begin loop over subdomains
       do isub = 1,nsub
 
-! Creation of field kmynodes(nnod) - local usage of global nodes
-         call pp_mark_sub_nodes(isub,nelem,iets,liets,inet,linet,nnet,lnnet,kinet,lkinet,kmynodes,lkmynodes)
-
-! find local number of nodes on subdomain NNODS
-         nnods = count(kmynodes.ne.0)
-
-! find local number of DOF on subdomain NDOFS
-         ndofs = sum(kmynodes*nndf)
-
-
-! find number of adjacent subdomains NADJS
-         nadjs = 0
-         do jsub = 1,nsub
-            if (jsub.ne.isub) then
-               call pp_mark_sub_nodes(jsub,nelem,iets,liets,inet,linet,nnet,lnnet,&
-                                      kinet,lkinet,kadjsnodes,lkadjsnodes)
-               if (any(kmynodes.eq.1.and.kadjsnodes.eq.1)) then
-                  nadjs = nadjs + 1
-               end if
-            end if
-         end do
-
 ! find local number of elements on subdomain NELEMS
-         nelems = count(iets.eq.isub)
-
 ! create subdomain description of MESH
+         nelems = 0
          linets = 0
          do ie = 1,nelem
             if (iets(ie).eq.isub) then
+               nelems = nelems + 1
                linets = linets + nnet(ie)
             end if
          end do
-         lnnets = nelems
+         lnnets  = nelems
+         lisngns = linets
+         allocate(inets(linets),nnets(lnnets),isngns(lisngns))
+
+         call create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                             nnods,inets,linets,nnets,lnnets,isngns,lisngns)
+
          lnndfs = nnods
          lkdofs = nnods
-         allocate(inets(linets),nnets(lnnets),nndfs(lnndfs),kdofs(lkdofs))
-         lisngns = nnods
-         allocate(isngns(lisngns))
-         pointinet  = 0
-         pointinets = 0
-         indnnets   = 0
-         do ie = 1,nelem
-            nne = nnet(ie)
-            if (iets(ie).eq.isub) then
-               inets(pointinets+1:pointinets+nne) = -inet(pointinet+1:pointinet+nne)
-               indnnets = indnnets + 1
-               nnets(indnnets) = nne
-               pointinets = pointinets + nne
-            end if
-            pointinet = pointinet + nne
+         allocate(nndfs(lnndfs),kdofs(lkdofs))
+
+         ! get array nndfs
+         do inods = 1,nnods
+            nndfs(inods) = nndf(isngns(inods))
          end do
-         inods = 0
-         do inod = 1,nnod
-            if (kmynodes(inod).eq.1) then
-               inods = inods + 1
-               nndfs(inods) = nndf(inod)
-               isngns(inods) = inod
-               ! fix inet
-               where (inets.eq.-inod) inets = inods
-            end if
-         end do
+! find local number of DOF on subdomain NDOFS
+         ndofs = sum(nndfs)
+
 ! create array kdofs
          kdofs(1) = 0
          do inods = 2,nnods
             kdofs(inods) = kdofs(inods-1) + nndfs(inods-1)
          end do
 
+! find number of adjacent subdomains NADJS
+         nadjs = 0
+         lkinodes = nnods
+         allocate(kinodes(lkinodes))
+         kinodes = 0
+         lishared = nnods
+         allocate(ishared(lishared))
+         ! this could be improved using graphs of mesh
+         do jsub = 1,nsub
+            if (jsub.ne.isub) then
+! create subdomain description of MESH
+               nelemsadj = 0
+               linetsadj = 0
+               do ie = 1,nelem
+                  if (iets(ie).eq.jsub) then
+                     nelemsadj = nelemsadj + 1
+                     linetsadj = linetsadj + nnet(ie)
+                  end if
+               end do
+               lnnetsadj  = nelemsadj
+               lisngnsadj = linetsadj
+               allocate(inetsadj(linetsadj),nnetsadj(lnnetsadj),isngnsadj(lisngnsadj))
+      
+               call create_submesh(jsub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                                   nnodsadj,inetsadj,linetsadj,nnetsadj,lnnetsadj,isngnsadj,lisngnsadj)
+               call get_array_intersection(isngns,nnods,isngnsadj,nnodsadj,ishared,lishared,nshared)
+               if (nshared.gt.0) then
+                  nadjs = nadjs + 1
+                  ! mark interface nodes
+                  do i = 1,nshared
+                     indg = ishared(i)
+                     call get_index(indg,isngns,nnods,inods)
+                     kinodes(inods) = kinodes(inods) + 1
+                  end do
+               end if
+               deallocate(inetsadj,nnetsadj,isngnsadj)
+            end if
+         end do
+         deallocate(ishared)
+
 ! find number of interface nodes
          nnodis = 0 
          ndofis = 0
          ndofos = 0
          do inods = 1,nnods
-            indn = isngns(inods)
 
-            if (kinodes(indn).gt.1) then
+            if (kinodes(inods).gt.0) then
                nnodis = nnodis + 1
                ndofis = ndofis + nndfs(inods)
             else
@@ -2139,10 +2134,9 @@ integer:: idsmd
          idofis = 0
          idofos = 0
          do inods = 1,nnods
-            indn = isngns(inods)
             ndofn  = nndfs(inods)
 
-            if (kinodes(indn).gt.1) then
+            if (kinodes(inods).gt.0) then
                inodis = inodis + 1
 
                iins(inodis) = inods
@@ -2164,7 +2158,7 @@ integer:: idsmd
          nnodcs = 0
          do inc = 1,nnodc
             indnc = inodc(inc)
-            if (kmynodes(indnc).eq.1) then
+            if (any(isngns(1:nnods).eq.indnc)) then
                nnodcs = nnodcs + 1
             end if
          end do
@@ -2178,13 +2172,13 @@ integer:: idsmd
          inodcs = 0
          do inc = 1,nnodc
             indnc = inodc(inc)
-            if (kmynodes(indnc).eq.1) then
+            if (any(isngns(1:nnods).eq.indnc)) then
                inodcs = inodcs + 1
 
                ! mapping to global corner numbers
                global_corner_numbers(inodcs) = inc
                ! mapping to subdomain interface numbers
-               call get_index(indnc,isngns,lisngns,indns)
+               call get_index(indnc,isngns,nnods,indns)
                if (indns .eq. -1) then
                   write(*,*) 'CREATE_SUB_FILES: Index of subdomain node not found.'
                   stop
@@ -2207,7 +2201,7 @@ integer:: idsmd
             ! touch first node in glob
             indn1 = inglb(pointinglb + 1)
 
-            if (kmynodes(indn1).eq.1) then
+            if (any(isngns(1:nnods).eq.indn1)) then
                nglobs = nglobs + 1
             end if
 
@@ -2230,7 +2224,7 @@ integer:: idsmd
             ! touch first node in glob
             indn1 = inglb(pointinglb + 1)
 
-            if (kmynodes(indn1).eq.1) then
+            if (any(isngns(1:nnods).eq.indn1)) then
 
                iglobs = iglobs + 1
 
@@ -2266,7 +2260,7 @@ integer:: idsmd
             ! touch first node in glob
             indn1 = inglb(pointinglb + 1)
 
-            if (kmynodes(indn1).eq.1) then
+            if (any(isngns(1:nnods).eq.indn1)) then
 
                iglobs = iglobs + 1
 
@@ -2274,9 +2268,9 @@ integer:: idsmd
                do iglbn = 1,nglbn
                   
                   indng  = inglb(pointinglb + iglbn)
-                  ndofn = nndf(indn)
+                  ndofn = nndf(indng)
 
-                  call get_index(indng,isngns,lisngns,indns)
+                  call get_index(indng,isngns,nnods,indns)
                   if (indns .eq. -1) then
                      write(*,*) 'CREATE_SUB_FILES: Index of subdomain node not found.'
                      stop
@@ -2323,34 +2317,34 @@ integer:: idsmd
          ifixs = 0
          fixvs = 0._kr
          indifixs = 0
-         do inod = 1,nnod
-            if (kmynodes(inod).eq.1) then
-               ndofn   = nndf(inod)
-               indifix = kdof(inod)
-               do idofn = 1,ndofn
-                  indifixs = indifixs + 1
-                  indifix  = indifix + 1
-                  if (ifix(indifix).ne.0) then
-                     ifixs(indifixs) = indifixs
-                     fixvs(indifixs) = fixv(indifix)
-                  end if
-               end do
-            end if
+         do inods = 1,nnods
+            inod = isngns(inods)
+
+            ndofn   = nndf(inod)
+            indifix = kdof(inod)
+            do idofn = 1,ndofn
+               indifixs = indifixs + 1
+               indifix  = indifix + 1
+               if (ifix(indifix).ne.0) then
+                  ifixs(indifixs) = indifixs
+                  fixvs(indifixs) = fixv(indifix)
+               end if
+            end do
          end do
 
          lrhss = ndofs
          allocate(rhss(lrhss))
          indrhss = 0
-         do inod = 1,nnod
-            if (kmynodes(inod).eq.1) then
-               ndofn   = nndf(inod)
-               indrhs  = kdof(inod)
-               do idofn = 1,ndofn
-                  indrhss = indrhss + 1
-                  indrhs  = indrhs  + 1
-                  rhss(indrhss) = rhs(indrhs)
-               end do
-            end if
+         do inods = 1,nnods
+            inod = isngns(inods)
+
+            ndofn   = nndf(inod)
+            indrhs  = kdof(inod)
+            do idofn = 1,ndofn
+               indrhss = indrhss + 1
+               indrhs  = indrhs  + 1
+               rhss(indrhss) = rhs(indrhs)
+            end do
          end do
 
 ! ---export subdomain file
@@ -2372,7 +2366,7 @@ integer:: idsmd
          write(idsmd,*) inets
 
          ! ---ISNGN array
-         write(idsmd,*) isngns
+         write(idsmd,*) isngns(1:nnods)
 
          ! --- coordinates
          write(idsmd,*) xyzs
@@ -2406,6 +2400,7 @@ integer:: idsmd
 
          close(idsmd)
 
+         deallocate(kinodes)
          deallocate(igvsivns)
          deallocate(nglobvars)
          deallocate(global_glob_numbers)
@@ -2430,7 +2425,6 @@ integer:: idsmd
       deallocate(ifix,fixv)
       deallocate(kinet)
       deallocate(kdof)
-      deallocate(kmynodes,kinodes,kadjsnodes)
       deallocate(inet,nnet,nndf)
       deallocate(iets)
       deallocate(xyz)
@@ -2444,6 +2438,64 @@ integer:: idsmd
       return
 end subroutine create_sub_files
  
+!************************************************************************
+subroutine create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                          nnods,inets,linets,nnets,lnnets,isngns,lisngns)
+!************************************************************************
+!     Subroutine for creation of subdomain mesh description
+!************************************************************************
+use module_utils
+implicit none
+
+! number of elements and nodes
+integer,intent(in) :: nelem
+! subdomain number
+integer,intent(in) :: isub
+! global mesh description ala PMD
+integer,intent(in) :: linet,       lnnet
+integer,intent(in) ::  inet(linet), nnet(lnnet)
+! division into subdomains
+integer,intent(in) :: liets
+integer,intent(in) ::  iets(liets)
+! number of elements and nodes
+integer,intent(out) :: nnods
+! subdomain mesh description
+integer,intent(in)  :: linets,        lnnets,        lisngns
+integer,intent(out) ::  inets(linets), nnets(lnnets), isngns(lisngns)
+
+! local variables
+integer :: ie, indnnets, inod, inods, nne, pointinet, pointinets
+
+! Creation of field inets(linets) - still with global pointers
+      pointinet  = 0
+      pointinets = 0
+      indnnets   = 0
+      do ie = 1,nelem
+         nne = nnet(ie)
+         if (iets(ie).eq.isub) then
+            inets(pointinets+1:pointinets+nne) = -inet(pointinet+1:pointinet+nne)
+            indnnets = indnnets + 1
+            nnets(indnnets) = nne
+            pointinets = pointinets + nne
+         end if
+         pointinet = pointinet + nne
+      end do
+
+! get imbedding of subdomain nodes into global nodes
+      ! copy array
+      isngns = -inets
+      call iquick_sort(isngns,lisngns)
+      call get_array_norepeat(isngns,lisngns,nnods)
+
+      do inods = 1,nnods
+         inod = isngns(inods)
+         isngns(inods) = inod
+         ! fix inet
+         where (inets.eq.-inod) inets = inods
+      end do
+
+end subroutine create_submesh
+
 !***********************************************************************
 subroutine createtilde
 !***********************************************************************
@@ -3245,12 +3297,13 @@ subroutine graphpmd
 use module_graph
 implicit none
 
-integer:: nedge, inod
+integer:: nedge, ncomponents
 integer :: lnetn, lietn, lkietn
 integer,allocatable:: ietn(:), kietn(:), netn(:)
 integer ::           lxadj, ladjncy, ladjwgt
 integer,allocatable:: xadj(:), adjncy(:), adjwgt(:)
-
+integer ::           lcomponents
+integer,allocatable:: components(:)
 ! graphtype
 ! 0 - graph without weights
 ! 1 - produce weighted graph
@@ -3282,29 +3335,18 @@ integer :: neighbouring
       write (*,'(a)') 'done.'
 
       write (*,'(a,$)') 'Create list of elements at a node ... '
-      lnetn = nnod
-      allocate(netn(lnetn))
-! Count elements touching particular node
-      call graph_get_netn(nelem,inet,linet,nnet,lnnet,netn,lnetn)
-
-! Determine size of list of elements at a node
-      lietn  = sum(netn)
-      lkietn = nnod
-
 ! Allocate proper sizes of two-dimensional field for list of touching elements
-      allocate(ietn(lietn),kietn(lkietn))
-
-! Create array of pointers into ietn (transpose of inet)
-      kietn(1) = 0
-      do inod = 2,nnod
-         kietn(inod) = kietn(inod-1) + netn(inod-1)
-      end do
+      lnetn  = nnod
+      lietn  = linet
+      lkietn = nnod
+      allocate(netn(lnetn),ietn(lietn),kietn(lkietn))
 
 ! Create list of elements touching particular node
-      call graph_get_ietn(nelem,inet,linet,nnet,lnnet,netn,lnetn,kietn,lkietn,ietn,lietn)
+      call graph_get_dual_mesh(nelem,nnod,inet,linet,nnet,lnnet, &
+                               netn,lnetn,ietn,lietn,kietn,lkietn)
       write (*,'(a)') 'done.'
 
-      write (*,'(a,$)') 'Count list of neigbours of elements ... '
+      write (*,'(a,$)') 'Count list of neighbours of elements ... '
 ! Count elements adjacent to element
       lxadj = nelem + 1
       allocate(xadj(lxadj))
@@ -3313,7 +3355,7 @@ integer :: neighbouring
                                 xadj,lxadj, nedge, ladjncy, ladjwgt)
       write (*,'(a)') 'done.'
 
-      write (*,'(a,$)') 'Create list of neigbours of elements ... '
+      write (*,'(a,$)') 'Create list of neighbours of elements ... '
 
 ! Allocate proper field for graph
       allocate(adjncy(ladjncy),adjwgt(ladjwgt))
@@ -3327,6 +3369,16 @@ integer :: neighbouring
 ! Check the graph
       call graph_check(nelem,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
       write (*,'(a)') 'done.'
+! Check components of the graph
+      write (*,'(a,$)') 'Check mesh components ... '
+      lcomponents = nelem
+      allocate(components(lcomponents))
+      call graph_components(nelem, xadj,lxadj, adjncy,ladjncy, components,lcomponents, ncomponents)
+      if (ncomponents.eq.1) then
+         write(*,'(a)') 'mesh seems continuous.'
+      else
+         write(*,'(a,i8,a)') 'mesh discontinuous - it contains ',ncomponents,' components.'
+      end if
 
       write (*,'(a,$)') 'Export graph to file ... '
 ! GRAPH - list of neighbours for elements
@@ -3340,6 +3392,7 @@ integer :: neighbouring
       write (*,'(a)') 'done.'
       write(*,'(a,a)') 'Graph exported into file ',trim(name)
 
+      deallocate(components)
       deallocate(inet,nnet,nndf)
       deallocate(netn)
       deallocate(ietn,kietn)
@@ -3434,7 +3487,7 @@ logical :: match
       end do
       write (*,'(a)') 'done.'
 
-      write (*,'(a,$)') 'Count list of neigbours of elements ... '
+      write (*,'(a,$)') 'Count list of neighbours of elements ... '
 ! Count elements adjacent to element
       allocate(naetet(nelem))
       naetet = 0
@@ -3460,7 +3513,7 @@ logical :: match
 
       write (*,'(a)') 'done.'
 
-      write (*,'(a,$)') 'Create list of neigbours of elements ... '
+      write (*,'(a,$)') 'Create list of neighbours of elements ... '
 ! Allocate proper field for elements
       nadjelmx = maxval(naetet)
       allocate(iaetet(nelem,nadjelmx),edgeweights(nelem,nadjelmx))
@@ -3606,11 +3659,34 @@ subroutine meshdivide
 !     Divide the mesh into subdomains using METIS
 !***********************************************************************
 use module_graph
+use module_utils
 implicit none
 
 integer*4:: wgtflag , numflag = 1, edgecut, nedge, nvertex, graphtype
 integer*4::            ladjncy,   ladjwgt,   lxadj,   lvwgt,   loptions,   liets
 integer*4,allocatable:: adjncy(:), adjwgt(:), xadj(:), vwgt(:), options(:), iets(:)
+integer*4::            ladjncys,   ladjwgts,   lxadjs
+integer*4,allocatable:: adjncys(:), adjwgts(:), xadjs(:)
+integer*4::             nelems, nnods
+integer*4::             linets,   lnnets,   lietns,   lnetns,   lkietns,   lisngns
+integer*4,allocatable::  inets(:), nnets(:), ietns(:), netns(:), kietns(:), isngns(:)
+integer ::             lsubcomponents
+integer,allocatable::   subcomponents(:)
+integer ::             lsubpool
+integer,allocatable::   subpool(:)
+integer ::             lnelemsa,   lisegn
+integer,allocatable::   nelemsa(:), isegn(:)
+
+! glue free parts of subdomains to suitable subdomains?
+logical :: correct_division = .true.
+
+
+! local variables
+integer :: ie, isub, nedges, neighbouring, nsubcomponents, iadje, icomp, ies,&
+           indcompx, indel, indisegn, indneibe, indsubmin, isubneib, jsub,&
+           necomp, necompx, nelemsadj, nesubmin, nneib
+integer :: nelemsmax, nelemsmin
+logical :: one_more_check = .false.
  
 ! GRAPH - list of neighbours for elements
       name = name1(1:lname1)//'.GRAPH'
@@ -3649,6 +3725,185 @@ integer*4,allocatable:: adjncy(:), adjwgt(:), xadj(:), vwgt(:), options(:), iets
       end if
       write(*,'(a,i9)') 'resulting number of cut edges:',edgecut
 
+      ! count numbers of elements in subdomains
+      lnelemsa = nsub
+      allocate(nelemsa(lnelemsa))
+      do isub = 1,nsub
+         nelemsa(isub) = count(iets.eq.isub)
+      end do
+
+      write (*,'(a)') 'CHECKING OF DIVISION: '
+! prepare arrays for mesh data
+      lnnet = nelem
+      allocate(inet(linet),nnet(lnnet))
+
+! GMIF - basic mesh data - structure:
+!  * INETF(LINETF) * NNETF(LNNETF) * NNDFF(LNNDFF) * XYF(LXYF) *
+      name = name1(1:lname1)//'.GMIS'
+      open (unit=idgmi,file=name,status='old',form='formatted')
+! Import of basic fields
+! read fields INET, NNET from file IDGMI
+      rewind idgmi
+      read(idgmi,*) inet
+      read(idgmi,*) nnet
+
+      write (*,'(a,$)') 'minimal number of shared nodes to call elements adjacent: '
+      read (*,*) neighbouring
+
+  123 continue
+
+      nelemsmax = maxval(nelemsa)
+      nelemsmin = minval(nelemsa)
+      write(*,*) 'final quality of division:'
+      write(*,*) 'largest subdomain contains :',nelemsmax,' elements'
+      write(*,*) 'smallest subdomain contains :',nelemsmin,' elements'
+      write(*,*) 'imbalance of division:',float(nelemsmax-nelemsmin)/float(nelemsmin)*100,' %'
+
+! check division into subdomains
+      one_more_check = .false.
+      do isub = 1,nsub
+         nelems = 0
+         linets = 0
+         do ie = 1,nelem
+            if (iets(ie).eq.isub) then
+               nelems = nelems + 1
+               linets = linets + nnet(ie)
+            end if
+         end do
+         lnnets  = nelems
+         lisngns = linets
+         allocate(inets(linets),nnets(lnnets),isngns(lisngns))
+
+         call create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                             nnods,inets,linets,nnets,lnnets,isngns,lisngns)
+         lnetns  = nnods
+         lietns  = linets
+         lkietns = nnods
+         allocate(netns(lnetns),ietns(lietns),kietns(lkietns))
+
+! Create list of elements touching particular node
+         call graph_get_dual_mesh(nelems,nnods,inets,linets,nnets,lnnets, &
+                                  netns,lnetns,ietns,lietns,kietns,lkietns)
+
+! Count elements adjacent to element
+         lxadjs = nelems + 1
+         allocate(xadjs(lxadjs))
+      
+         call graph_from_mesh_size(nelems,graphtype,neighbouring,inets,linets,nnets,lnnets,&
+                                   ietns,lietns,netns,lnetns,kietns,lkietns,&
+                                   xadjs,lxadjs, nedges, ladjncys, ladjwgts)
+
+! Allocate proper field for subdomain graph
+         allocate(adjncys(ladjncys),adjwgts(ladjwgts))
+
+! Create graph
+         call graph_from_mesh(nelems,graphtype,neighbouring,inets,linets,nnets,lnnets,&
+                              ietns,lietns,netns,lnetns,kietns,lkietns,&
+                              xadjs,lxadjs, adjncys,ladjncys, adjwgts,ladjwgts)
+
+! Check the graph
+         call graph_check(nelems,graphtype, xadjs,lxadjs, adjncys,ladjncys, adjwgts,ladjwgts)
+! Check components of the graph
+         lsubcomponents = nelems
+         allocate(subcomponents(lsubcomponents))
+         call graph_components(nelems, xadjs,lxadjs, adjncys,ladjncys, subcomponents,lsubcomponents, nsubcomponents)
+         if (nsubcomponents.ne.1) then
+            one_more_check = .true.
+            write (*,'(a,i8,a,i3,a)') 'Subdomain ',isub,' discontinuous - it contains ',nsubcomponents,' components.'
+
+            ! create mapping of elements 
+            lisegn = nelems
+            allocate(isegn(lisegn))
+            lsubpool = nsub
+            allocate(subpool(lsubpool))
+            indisegn = 0
+            do ie = 1,nelem
+               if (iets(ie) .eq. isub) then
+                  indisegn = indisegn + 1
+                  isegn(indisegn) = ie
+               end if
+            end do
+            if (correct_division) then
+               ! glue discontinuous subdomains to neigbouring parts
+               ! find largest subdomain - only this one will be assigned this number
+               necompx  = 0
+               indcompx = 0
+               do icomp = 1,nsubcomponents
+                  necomp = count(subcomponents .eq. icomp)
+                  if (necomp.gt.necompx) then
+                     necompx  = necomp
+                     indcompx = icomp
+                  end if
+               end do
+               ! glue nondominant components to neighbouring subdomains
+               do icomp = 1,nsubcomponents
+                  if (icomp.ne.indcompx) then
+
+                     ! find candidate subdomain
+                     subpool = 0
+                     do ies = 1,nelems
+                        if (subcomponents(ies).eq.icomp) then
+                           ! look into the graph to find neigbouring subdomains
+                           indel = isegn(ies)
+                           nneib = xadj(indel+1) - xadj(indel) 
+                           ! mark subdomains
+                           do iadje = xadj(indel),xadj(indel+1) - 1
+                              indneibe = adjncy(iadje)
+                              isubneib = iets(indneibe)
+                              subpool(isubneib) =  1
+                           end do
+                        end if
+                     end do
+
+                     nesubmin  = maxval(nelemsa)
+                     indsubmin = 0
+                     do jsub = 1,nsub
+                        if (subpool(jsub).gt.0 .and. jsub.ne.isub) then
+                           nelemsadj = nelemsa(jsub)
+                           if (nelemsadj.le.nesubmin) then
+                              indsubmin = jsub
+                              nesubmin =  nelemsadj
+                           end if
+                        end if
+                     end do
+                     if (indsubmin.eq.0) then
+                        write(*,*) 'MESHDIVIDE: Error in finding candidate subdomain for merging.'
+                        call error_exit
+                     end if
+
+                     ! join the component to the candidate subdomain
+                     do ies = 1,nelems
+                        if (subcomponents(ies).eq.icomp) then
+                           indel = isegn(ies)
+
+                           iets(indel) = indsubmin
+                           nelemsa(indsubmin) = nelemsa(indsubmin) + 1
+                           nelemsa(isub)      = nelemsa(isub) - 1
+                        end if
+                     end do
+
+                  end if
+               end do
+            end if
+
+            deallocate(isegn)
+            deallocate(subpool)
+         end if
+
+         deallocate(subcomponents)
+         deallocate(adjncys,adjwgts)
+         deallocate(xadjs)
+         deallocate(netns,ietns,kietns)
+         deallocate(inets,nnets,isngns)
+      end do
+
+      ! if some part of subdomains were glued to other subdomains, make one more check
+      if (one_more_check) then
+         write(*,*) 'MESHDIVIDE: Some parts were redistributed, perform one more check.'
+         goto 123
+      end if
+
+
 ! ES - list of global element numbers in subdomains - structure:
       name = name1(1:lname1)//'.ES'
       open (unit=ides,file=name,status='replace',form='formatted')
@@ -3657,6 +3912,8 @@ integer*4,allocatable:: adjncy(:), adjwgt(:), xadj(:), vwgt(:), options(:), iets
 
       write(*,'(a,a)') 'Division exported into file ',trim(name)
 
+      deallocate(nelemsa)
+      deallocate(inet,nnet)
       deallocate(vwgt)
       deallocate(iets)
       deallocate(options)

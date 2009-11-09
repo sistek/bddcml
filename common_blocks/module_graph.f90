@@ -4,12 +4,15 @@ module module_graph
 
 contains 
 
-subroutine graph_get_netn(nelem,inet,linet,nnet,lnnet,netn,lnetn)
-! get array of numbers of elements at nodes
+subroutine graph_get_dual_mesh(nelem,nnod,inet,linet,nnet,lnnet,&
+                               netn,lnetn,ietn,lietn,kietn,lkietn)
+! get dual mesh - array of elements at nodes 
 
 implicit none
 ! number of elements in mesh
 integer, intent(in) :: nelem
+! number of nodes in mesh
+integer, intent(in) :: nnod
 
 ! PMD mesh description
 integer, intent(in) :: linet
@@ -18,51 +21,35 @@ integer, intent(in) :: lnnet
 integer, intent(in) ::  nnet(lnnet)
 
 ! dual mesh desctription 
-integer, intent(in) :: lnetn
-integer, intent(out) :: netn(lnetn)
-
-! local variables
-integer :: ie, indinet, indnode, ine, nne
-
-! Count elements touching particular node
-! zero whole field of counts
-netn = 0
-indinet = 0
-do ie = 1,nelem
-   nne = nnet(ie)
-   do ine = 1,nne
-      indinet = indinet + 1
-      indnode = inet(indinet)
-      netn(indnode) = netn(indnode) + 1
-   end do
-end do
-end subroutine graph_get_netn
-
-subroutine graph_get_ietn(nelem,inet,linet,nnet,lnnet,netn,lnetn,kietn,lkietn,ietn,lietn)
-! get array of elements at nodes (pointers are already known kietn)
-
-implicit none
-! number of elements in mesh
-integer, intent(in) :: nelem
-
-! PMD mesh description
-integer, intent(in) :: linet
-integer, intent(in) ::  inet(linet)
-integer, intent(in) :: lnnet
-integer, intent(in) ::  nnet(lnnet)
-
-! dual mesh desctription 
-integer, intent(in) :: lkietn
-integer, intent(in) ::  kietn(lkietn)
 integer, intent(in) :: lnetn
 integer, intent(out) :: netn(lnetn)
 integer, intent(in) :: lietn
 integer, intent(out) :: ietn(lietn)
+integer, intent(in) :: lkietn
+integer, intent(out) :: kietn(lkietn)
 
 ! local variables
-integer :: ie, indinet, indnode, ine, nne, indelmn, pointietn
+integer :: ie, indinet, indnode, ine, nne, indelmn, pointietn, inod
 
 ! Count elements touching particular node
+! zero whole field of counts
+      netn = 0
+      indinet = 0
+      do ie = 1,nelem
+         nne = nnet(ie)
+         do ine = 1,nne
+            indinet = indinet + 1
+            indnode = inet(indinet)
+            netn(indnode) = netn(indnode) + 1
+         end do
+      end do
+
+      ! Create array of pointers into ietn (transpose of inet)
+      kietn(1) = 0
+      do inod = 2,nnod
+         kietn(inod) = kietn(inod-1) + netn(inod-1)
+      end do
+
 ! zero whole field of counts and use it as secondary pointers
       netn = 0
       ietn = 0
@@ -79,7 +66,7 @@ integer :: ie, indinet, indnode, ine, nne, indelmn, pointietn
             ietn(pointietn + indelmn) = ie
          end do
       end do
-end subroutine graph_get_ietn
+end subroutine graph_get_dual_mesh
 
 subroutine graph_from_mesh_size(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
                                 xadj,lxadj, nedge, ladjncy, ladjwgt)

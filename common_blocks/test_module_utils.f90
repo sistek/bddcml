@@ -6,6 +6,7 @@ program test_module_utils
       integer,parameter :: kr = kind(1.D0)
 
       integer :: i, ivalue, iindex
+      integer :: nentries
 
       integer,parameter :: larray1 = 5
       integer           :: array1(larray1) = (/9,8,3,5,6/)
@@ -16,6 +17,8 @@ program test_module_utils
       integer,parameter :: lunion = 8
       integer           ::  union(lunion) 
       integer           ::  nintersection, nunion
+      integer,parameter :: larray3 = 7
+      integer           :: array3(larray3) = (/1,1,1,3,3,5,9/)
 
       character(100) :: fname
       character(100) :: name1
@@ -55,5 +58,14 @@ program test_module_utils
       print *,'Index of value ',ivalue,' in array'
       print *,  array1
       print *,'is ',iindex
+
+      ! test nonrepeated indices
+      print *, 'Test of removing repeated entries in array:'
+      print *, 'array before'
+      print *,  array3
+      call get_array_norepeat(array3,larray3,nentries)
+      print *, 'array after'
+      print *,  array3
+      print *, 'nentries =', nentries
 
 end program

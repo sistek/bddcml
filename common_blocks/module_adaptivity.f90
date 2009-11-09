@@ -35,7 +35,7 @@ integer,parameter,private ::  use_vec_values = 0
 ! loading computed eigenvectors
 ! T - compute new vectors
 ! F - load eigenvectors from file
-logical,parameter,private :: recompute_vectors = .false.
+logical,parameter,private :: recompute_vectors = .true.
 ! debugging 
 logical,parameter,private :: debug = .false.
 
