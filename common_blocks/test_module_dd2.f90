@@ -19,6 +19,8 @@ program test_module_dd2
       integer :: isub
       logical :: remove_original 
 
+      integer :: glob_type
+
       character(90)  :: problemname 
       character(100) :: name
 
@@ -36,8 +38,8 @@ program test_module_dd2
 
 ! Initial screen
       if (myid.eq.0) then
-         write(*,'(a)') 'ADAPTIVITY TESTER'
-         write(*,'(a)') '================='
+         write(*,'(a)') 'DD MODULE TESTER'
+         write(*,'(a)') '================'
 
 ! Name of the problem
    10    write(*,'(a,$)') 'Name of the problem: '
@@ -95,7 +97,13 @@ program test_module_dd2
          call dd_get_cnodes(myid,isub)
       end do
 
-      ! test who owns data for subdomain
+      ! load arithmetic averages on edges
+      glob_type = 2
+      do isub = 1,nsub
+         call dd_load_arithmetic_constraints(myid,isub,glob_type)
+      end do
+
+      ! prepare matrix C
       do isub = 1,nsub
          call dd_prepare_c(myid,isub)
       end do

@@ -29,7 +29,8 @@ integer,parameter:: kr = kind(1.D0)
 integer,parameter:: idpar = 1, idbase = 100, idgmi = 2, ides = 4, idfvs = 3, &
                     idelm = 10, idrhs = 11, iddat = 12, idcn = 13, ides0 = 14, &
                     idrhss = 15, idfvss = 16, idsols = 17, idsol = 18, idglb = 19, &
-                    idgmist = 20, idgmis = 21, idgraph = 22, idint = 23, idpair = 24
+                    idgmist = 20, idgmis = 21, idgraph = 22, idint = 23, idpair = 24, &
+                    idlevel = 25
 
 integer,parameter:: lname1x = 8, lnamex = 100, lfnamex = 20
 
@@ -345,7 +346,7 @@ logical :: exportcorners, shells
 
 
 ! start zone
-         call tecplot_start_zone(iddat,ndim,nnods,nelems,nvar,cellcentered,datapacking)
+         call tecplot_start_fe_zone(iddat,ndim,nnods,nelems,nvar,cellcentered,datapacking)
 ! export coordinates
          call tecplot_export_block_variable(iddat,x(mapping),nnods)
          call tecplot_export_block_variable(iddat,y(mapping),nnods)
@@ -375,7 +376,7 @@ logical :: exportcorners, shells
       if (exportcorners) then
          datapacking  = 0
          cellcentered = .false.
-         call tecplot_start_zone(iddat,ndim,nnodc,0,nvar,cellcentered,datapacking)
+         call tecplot_start_fe_zone(iddat,ndim,nnodc,0,nvar,cellcentered,datapacking)
          call tecplot_export_block_variable(iddat,x(inodc),nnodc)
          call tecplot_export_block_variable(iddat,y(inodc),nnodc)
          if (ndim.eq.3) then
@@ -418,11 +419,13 @@ implicit none
 integer:: indinet, nne, ie, indn, ine, inod, node1, node2, ncne, ndofn, &
           idofn, indsol, inddim
 
-integer ::             lvx,   lvy,   lvz,   lp
-real(kr),allocatable :: vx(:), vy(:), vz(:), p(:)
+integer ::             lvx,   lvy,   lvz,   lp,   lvmag
+real(kr),allocatable :: vx(:), vy(:), vz(:), p(:), vmag(:)
 
 integer ::             ldisplacement1, ldisplacement2
 real(kr),allocatable :: displacement(:,:)
+
+real(kr),allocatable :: solf(:)
 
 ! number of variables
 integer :: nvar
@@ -438,6 +441,8 @@ integer :: problemid
 logical :: flow = .false.
 logical :: elasticity = .false.
 logical :: shells = .false.
+
+integer :: pp, pu, pv, pw, isol
 
 ! Select problem
 20    write(*,'(a)') "Kind of problem ?"
@@ -483,19 +488,66 @@ logical :: shells = .false.
       write(*,*) 'Trying to read binary file '//trim(name)//' ...'
       open (unit=idsol,file=name,status='old',form='unformatted',err=79)
       read(idsol,err=79) sol
-      goto 81
+      goto 85
 
  79   close (idsol)
       name = name1(1:lname1)//'.SOA'
       write(*,*) 'Trying to read ASCII file '//trim(name)//' ...'
       ! Try with ASCII version
-      open (unit=idsol,file=name,status='old',form='formatted')
+      open (unit=idsol,file=name,status='old',form='formatted',err=80)
       read(idsol,*,err=80) sol
-      goto 81
+      goto 85
 
- 80   call error('EXPTECPLOTSOLUTION','Unable to read file '//trim(name))
+      ! Try with PMD solution file
+ 80   close (idsol)
+      name = name1(1:lname1)//'.SOLF'
+      write(*,*) 'Trying to read NAVIER file '//trim(name)//' ...'
+      ! Try with ASCII version
+      open (unit=idsol,file=name,status='old',form='unformatted',err=81)
 
- 81   close(idsol)
+      allocate(solf(lsol))
+
+      read(idsol,err=81) solf
+      if (all(solf.eq.0._kr)) then
+         write(*,*) 'WARNING: All zero solution...'
+      end if
+      ! remap the solution from u,v,w,p storage to storage per nodes
+      sol = 0.
+      ! set pointers
+      pu = 0
+      pv = nnod
+      pw = 2*nnod
+      pp = ndim*nnod
+      isol = 0
+      do inod = 1,nnod
+         ndofn = nndf(inod)
+
+         isol = isol + 1
+         pu   = pu + 1
+         sol(isol) = solf(pu)
+
+         isol = isol + 1
+         pv   = pv + 1
+         sol(isol) = solf(pv)
+
+         if (ndim.eq.3) then
+            isol = isol + 1
+            pw   = pw + 1
+            sol(isol) = solf(pw)
+         end if
+         if (ndofn .eq. ndim + 1) then
+            ! node with pressure
+            isol = isol + 1
+            pp   = pp + 1
+            sol(isol) = solf(pp)
+         end if
+      end do
+      deallocate(solf)
+      goto 85
+
+ 81   call error('EXPTECPLOTSOLUTION','Unable to read file '//trim(name))
+
+ 85   close(idsol)
  write(*,*) ' ... done.'
 
 ! Creation of field KDOF(NNOD) with addresses before first global
@@ -512,8 +564,9 @@ logical :: shells = .false.
          lvx = nnod
          lvy = nnod
          lvz = nnod
+         lvmag = nnod
          lp  = nnod
-         allocate(vx(lvx),vy(lvy),p(lp))
+         allocate(vx(lvx),vy(lvy),p(lp),vmag(lvmag))
          if (ndim.eq.3) then
             allocate(vz(lvz))
          end if
@@ -575,6 +628,16 @@ logical :: shells = .false.
             end do
             indinet = indinet + nne
          end do
+
+         ! compute velocity magnitude
+         if      (ndim .eq. 3) then
+            vmag = sqrt(vx**2 + vy**2)
+         else if (ndim .eq. 3) then
+            vmag = sqrt(vx**2 + vy**2 + vz**2)
+         else
+            write(*,*) 'EXPTECPLOTSOLUTION: Unsupported dimension: ',ndim
+            stop
+         end if 
       endif
 
       if (elasticity) then
@@ -612,15 +675,15 @@ logical :: shells = .false.
 ! write header
       if (flow) then
          if (ndim.eq.2) then
-            nvar = 3
-            allocate(cellcentered(nvar))
-            cellcentered = .false.
-            call tecplot_header(iddat,ndim,name1,'"VX", "VY", "P"')
-         else if (ndim.eq.3) then
             nvar = 4
             allocate(cellcentered(nvar))
             cellcentered = .false.
-            call tecplot_header(iddat,ndim,name1,'"VX", "VY", "VZ", "P"')
+            call tecplot_header(iddat,ndim,name1,'"VX", "VY", "P", "VMAG"')
+         else if (ndim.eq.3) then
+            nvar = 5
+            allocate(cellcentered(nvar))
+            cellcentered = .false.
+            call tecplot_header(iddat,ndim,name1,'"VX", "VY", "VZ", "P", "VMAG"')
          end if
       else if (elasticity) then
          if (ndim.eq.2) then
@@ -640,7 +703,7 @@ logical :: shells = .false.
       end if
 
 ! start zone
-      call tecplot_start_zone(iddat,ndim,nnod,nelem,nvar,cellcentered,datapacking)
+      call tecplot_start_fe_zone(iddat,ndim,nnod,nelem,nvar,cellcentered,datapacking)
 
 ! export coordinates
       do inddim = 1,ndim
@@ -655,6 +718,7 @@ logical :: shells = .false.
             call tecplot_export_block_variable(iddat,vz,lvz)
          end if
          call tecplot_export_block_variable(iddat,p, lp)
+         call tecplot_export_block_variable(iddat,vmag,lvmag)
       else if (elasticity) then
          do inddim = 1,ndim
             call tecplot_export_block_variable(iddat,displacement(:,inddim),ldisplacement1)
@@ -680,7 +744,7 @@ logical :: shells = .false.
       deallocate(cellcentered)
       deallocate(kdof)
       if (flow) then
-         deallocate(vx,vy,p)
+         deallocate(vx,vy,p,vmag)
          if (ndim.eq.3) then
             deallocate(vz)
          end if
@@ -1888,6 +1952,7 @@ character(1) :: yn
       end if
 end subroutine globselection
 
+
 !***********************************************************************
 subroutine create_sub_files(problemname)
 !***********************************************************************
@@ -1921,6 +1986,10 @@ integer,allocatable :: inetsadj(:), nnetsadj(:), isngnsadj(:)
 integer ::            lishared
 integer,allocatable :: ishared(:)
 integer ::             nshared
+integer ::            lnnet2
+integer,allocatable :: nnet2(:)
+integer ::            lcinet
+integer,allocatable :: cinet(:)
 
 integer ::            lrhss,   lfixvs,   lxyzs1, lxyzs2
 real(kr),allocatable:: rhss(:), fixvs(:), xyzs(:,:)
@@ -1933,7 +2002,8 @@ integer:: isub, ie, inc, ndofn, &
           inod, idofn, indifixs, indifix, indnc, indrhs, indrhss, &
           inods, jsub, i, j, indn, idofis, idofos, inodis, &
           indns, indins, inodcs, iglbn, nglbn, iglb, iglobs, indn1,&
-          nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs, indg
+          nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs, indg, ncnod, &
+          ncnodes, pointcinet
 integer:: nadjs, nnodcs, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs, nedge, nface
 integer:: idsmd
 
@@ -2033,6 +2103,10 @@ integer:: idsmd
 ! End of reading global data**********************
 
 ! Begin loop over subdomains
+! prepare array for level 2
+      lnnet2 = nsub
+      allocate(nnet2(lnnet2))
+      nnet2 = 0
       do isub = 1,nsub
 
 ! find local number of elements on subdomain NELEMS
@@ -2416,8 +2490,200 @@ integer:: idsmd
          deallocate(inets,nnets,nndfs,kdofs)
          deallocate(isngns)
 
+         nnet2(isub) = nnodcs + nglobs
+
 ! Finish loop over subdomains
       end do
+
+! Generate levels
+      write (*,*) 'Write files for levels:'
+! File for first level
+      name = trim(problemname)//'.L1'
+      open(unit=idlevel,file=name,status='replace',form='formatted')
+      rewind idlevel
+
+      write(idlevel,*) 1, nelem, nnod, linet
+      write(idlevel,*) nnod, 0, 0
+
+      close (idlevel)
+      write (*,*) 'File ',trim(name), ' created.'
+
+! Prepare file for second level
+     ! nnet  = number of coarse nodes that touch each subdomain
+
+      ncnod = nnodc + nglb
+      lcinet = sum(nnet2)
+
+! Begin loop over subdomains
+! prepare array for level 2
+      allocate(cinet(lcinet))
+      cinet = 0
+      pointcinet = 0
+      do isub = 1,nsub
+
+! find local number of elements on subdomain NELEMS
+! create subdomain description of MESH
+         nelems = 0
+         linets = 0
+         do ie = 1,nelem
+            if (iets(ie).eq.isub) then
+               nelems = nelems + 1
+               linets = linets + nnet(ie)
+            end if
+         end do
+         lnnets  = nelems
+         lisngns = linets
+         allocate(inets(linets),nnets(lnnets),isngns(lisngns))
+
+         call create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                             nnods,inets,linets,nnets,lnnets,isngns,lisngns)
+
+         lnndfs = nnods
+         lkdofs = nnods
+         allocate(nndfs(lnndfs),kdofs(lkdofs))
+
+         ! get array nndfs
+         do inods = 1,nnods
+            nndfs(inods) = nndf(isngns(inods))
+         end do
+! find local number of DOF on subdomain NDOFS
+         ndofs = sum(nndfs)
+
+! create array kdofs
+         kdofs(1) = 0
+         do inods = 2,nnods
+            kdofs(inods) = kdofs(inods-1) + nndfs(inods-1)
+         end do
+
+! find number of coarse nodes on subdomain NNODCS
+         nnodcs = 0
+         do inc = 1,nnodc
+            indnc = inodc(inc)
+            if (any(isngns(1:nnods).eq.indnc)) then
+               nnodcs = nnodcs + 1
+            end if
+         end do
+
+! find mapping of corners
+         lglobal_corner_numbers = nnodcs
+         allocate(global_corner_numbers(lglobal_corner_numbers))
+         licnsins = nnodcs
+         allocate(icnsins(licnsins))
+
+         inodcs = 0
+         do inc = 1,nnodc
+            indnc = inodc(inc)
+            if (any(isngns(1:nnods).eq.indnc)) then
+               inodcs = inodcs + 1
+
+               ! mapping to global corner numbers
+               global_corner_numbers(inodcs) = inc
+               ! mapping to subdomain interface numbers
+               call get_index(indnc,isngns,nnods,indns)
+               if (indns .eq. -1) then
+                  write(*,*) 'CREATE_SUB_FILES: Index of subdomain node not found.'
+                  stop
+               end if
+               call get_index(indns,iins,liins,indins)
+               if (indins .eq. -1) then
+                  write(*,*) 'CREATE_SUB_FILES: Index of subdomain interface node not found.'
+                  stop
+               end if
+               icnsins(inodcs) = indins
+            end if
+         end do
+
+! find local number of globs NGLOBS
+         nglobs     = 0
+         pointinglb = 0
+         do iglb = 1,nglb
+            nglbn = nnglb(iglb)
+
+            ! touch first node in glob
+            indn1 = inglb(pointinglb + 1)
+
+            if (any(isngns(1:nnods).eq.indn1)) then
+               nglobs = nglobs + 1
+            end if
+
+            pointinglb = pointinglb + nglbn
+         end do
+
+! mapping of globs
+         lglobal_glob_numbers = nglobs
+         allocate(global_glob_numbers(lglobal_glob_numbers))
+         lnglobvars = nglobs
+         allocate(nglobvars(lnglobvars))
+         lglob_type = nglobs
+         allocate(glob_type(lglob_type))
+
+         iglobs     = 0
+         pointinglb = 0
+         do iglb = 1,nglb
+            nglbn = nnglb(iglb)
+
+            ! touch first node in glob
+            indn1 = inglb(pointinglb + 1)
+
+            if (any(isngns(1:nnods).eq.indn1)) then
+
+               iglobs = iglobs + 1
+
+               nglbv = 0
+               do iglbn = 1,nglbn
+                  ndofn = nndf(pointinglb + iglbn)
+
+                  nglbv = nglbv + ndofn
+               end do
+
+               nglobvars(iglobs) = nglbv
+               global_glob_numbers(iglobs) = iglb
+            end if
+
+            pointinglb = pointinglb + nglbn
+         end do
+
+         ! set type of glob
+         glob_type = 1
+         where (global_glob_numbers .le. nedge) glob_type = 2
+
+         ! shift numbering behind corners
+         global_glob_numbers = global_glob_numbers + nnodc
+
+         deallocate(global_glob_numbers)
+         deallocate(glob_type)
+         deallocate(icnsins)
+         deallocate(global_corner_numbers)
+         deallocate(inets,nnets,nndfs,kdofs)
+         deallocate(isngns)
+
+         ncnodes = nnodcs + nglobs
+         cinet(pointcinet+1:pointcinet+nnodcs) = global_corner_numbers
+         cinet(pointcinet+nnodcs+1:pointcinet+nnodcs+nglobs) = global_glob_numbers
+
+         pointcinet = pointcinet + ncnodes
+
+! Finish loop over subdomains
+      end do
+      ! check the cinet array
+      if (any(cinet.eq.0)) then
+         write(*,*) 'Zeros in CINET array.'
+         call error_exit
+      end if
+
+! Write file for second level
+      name = trim(problemname)//'.L2'
+      open(unit=idlevel,file=name,status='replace',form='formatted')
+      rewind idlevel
+
+      write(idlevel,*) 2, nsub, ncnod, lcinet
+      write(idlevel,*) nnodc, nedge, nface
+      write(idlevel,*) cinet
+      write(idlevel,*) nnet2
+
+      close (idlevel)
+      write (*,*) 'File ',trim(name), ' created.'
+
 
 ! Clear memory
       deallocate(inglb,nnglb)
@@ -2429,6 +2695,8 @@ integer:: idsmd
       deallocate(iets)
       deallocate(xyz)
       deallocate(rhs)
+      deallocate(cinet)
+      deallocate(nnet2)
 
       close(ides)
       close(idfvs)
@@ -3686,7 +3954,7 @@ integer :: ie, isub, nedges, neighbouring, nsubcomponents, iadje, icomp, ies,&
            indcompx, indel, indisegn, indneibe, indsubmin, isubneib, jsub,&
            necomp, necompx, nelemsadj, nesubmin, nneib
 integer :: nelemsmax, nelemsmin
-logical :: one_more_check = .false.
+logical :: one_more_check_needed = .false.
  
 ! GRAPH - list of neighbours for elements
       name = name1(1:lname1)//'.GRAPH'
@@ -3760,7 +4028,7 @@ logical :: one_more_check = .false.
       write(*,*) 'imbalance of division:',float(nelemsmax-nelemsmin)/float(nelemsmin)*100,' %'
 
 ! check division into subdomains
-      one_more_check = .false.
+      one_more_check_needed = .false.
       do isub = 1,nsub
          nelems = 0
          linets = 0
@@ -3808,7 +4076,7 @@ logical :: one_more_check = .false.
          allocate(subcomponents(lsubcomponents))
          call graph_components(nelems, xadjs,lxadjs, adjncys,ladjncys, subcomponents,lsubcomponents, nsubcomponents)
          if (nsubcomponents.ne.1) then
-            one_more_check = .true.
+            one_more_check_needed = .true.
             write (*,'(a,i8,a,i3,a)') 'Subdomain ',isub,' discontinuous - it contains ',nsubcomponents,' components.'
 
             ! create mapping of elements 
@@ -3830,6 +4098,7 @@ logical :: one_more_check = .false.
                indcompx = 0
                do icomp = 1,nsubcomponents
                   necomp = count(subcomponents .eq. icomp)
+                  write(*,*) 'number of elements in subcomponent:',necomp 
                   if (necomp.gt.necompx) then
                      necompx  = necomp
                      indcompx = icomp
@@ -3898,7 +4167,7 @@ logical :: one_more_check = .false.
       end do
 
       ! if some part of subdomains were glued to other subdomains, make one more check
-      if (one_more_check) then
+      if (one_more_check_needed) then
          write(*,*) 'MESHDIVIDE: Some parts were redistributed, perform one more check.'
          goto 123
       end if

@@ -67,7 +67,7 @@ integer,private  ::          time_verbose = 1
 contains
 
 !*********************************************************************************************
-subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transformed,&
+subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,use_preconditioner,iterate_on_transformed,&
                      ndoft,nnz,i_sparse,j_sparse,a_sparse,la, &
                      weight_approach,averages_approach,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
                      nnodt,nndft,lnndft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, &
@@ -113,6 +113,9 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
 ! 1 - basic times printed
 ! 2 - rigorous timing output for profiling
       integer,intent(in) :: timeinfo
+
+! Use preconditioner?
+      logical,intent(in) :: use_preconditioner
 
 ! Iterate on transformed problem?
       logical,intent(in) :: iterate_on_transformed
@@ -205,35 +208,36 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
       lbuf = ndoft
       allocate(buf(lbuf))
 
+      if (use_preconditioner) then
 ! Prepare projection onto null G
-      if (use_projection) then
-         call bddc_time_start(comm)
-         call bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lslavery,nnodt,ndoft,kdoft,lkdoft,&
-                          matrixtype,nnz,i_sparse,j_sparse,a_sparse,la, nnz_proj)
-         call bddc_time_end(comm,time)
-         if (myid.eq.0.and.time_verbose.ge.1) then
-            write(*,*) '==========================================='
-            write(*,*) 'Time of construction of projection = ',time
-            write(*,*) '==========================================='
-            call flush(6)
+         if (use_projection) then
+            call bddc_time_start(comm)
+            call bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lslavery,nnodt,ndoft,kdoft,lkdoft,&
+                             matrixtype,nnz,i_sparse,j_sparse,a_sparse,la, nnz_proj)
+            call bddc_time_end(comm,time)
+            if (myid.eq.0.and.time_verbose.ge.1) then
+               write(*,*) '==========================================='
+               write(*,*) 'Time of construction of projection = ',time
+               write(*,*) '==========================================='
+               call flush(6)
+            end if
          end if
-      end if
-
+   
 ! Prepare transformation of coordinates
-      nnz_transform = 0
-      if (use_transform) then
-         call bddc_time_start(comm)
-         call bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lslavery,nnodt,ndoft,kdoft,lkdoft,&
-                          iterate_on_transformed,matrixtype,nnz,i_sparse,j_sparse,a_sparse,la, nnz_transform, &
-                          solt,lsolt, nnz_proj)
-         call bddc_time_end(comm,time)
-         if (myid.eq.0.and.time_verbose.ge.1) then
-            write(*,*) '==========================================='
-            write(*,*) 'Time of transforming the matrix = ',time
-            write(*,*) '==========================================='
-            call flush(6)
+         nnz_transform = 0
+         if (use_transform) then
+            call bddc_time_start(comm)
+            call bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lslavery,nnodt,ndoft,kdoft,lkdoft,&
+                             iterate_on_transformed,matrixtype,nnz,i_sparse,j_sparse,a_sparse,la, nnz_transform, &
+                             solt,lsolt, nnz_proj)
+            call bddc_time_end(comm,time)
+            if (myid.eq.0.and.time_verbose.ge.1) then
+               write(*,*) '==========================================='
+               write(*,*) 'Time of transforming the matrix = ',time
+               write(*,*) '==========================================='
+               call flush(6)
+            end if
          end if
-      end if
 
 ! Load matrix to MUMPS
 !      ltestm1 = ndoft
@@ -246,28 +250,29 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
 !      end do
 !      deallocate(testm)
 
-      call mumps_load_triplet(bddc_mumps,ndoft,nnz+nnz_transform+nnz_proj,i_sparse,j_sparse,a_sparse,la)
+         call mumps_load_triplet(bddc_mumps,ndoft,nnz+nnz_transform+nnz_proj,i_sparse,j_sparse,a_sparse,la)
 
 ! Analyze matrix
-      call bddc_time_start(comm)
-      call mumps_analyze(bddc_mumps) 
-      call bddc_time_end(comm,time)
-      if (myid.eq.0.and.time_verbose.ge.1) then
-         write(*,*) '==========================================='
-         write(*,*) 'Time of MUMPS analysis = ',time
-         write(*,*) '==========================================='
-         call flush(6)
-      end if
+         call bddc_time_start(comm)
+         call mumps_analyze(bddc_mumps) 
+         call bddc_time_end(comm,time)
+         if (myid.eq.0.and.time_verbose.ge.1) then
+            write(*,*) '==========================================='
+            write(*,*) 'Time of MUMPS analysis = ',time
+            write(*,*) '==========================================='
+            call flush(6)
+         end if
 
 ! Factorize matrix
-      call bddc_time_start(comm)
-      call mumps_factorize(bddc_mumps)
-      call bddc_time_end(comm,time)
-      if (myid.eq.0.and.time_verbose.ge.1) then
-         write(*,*) '==========================================='
-         write(*,*) 'Time of MUMPS factorization = ',time
-         write(*,*) '==========================================='
-         call flush(6)
+         call bddc_time_start(comm)
+         call mumps_factorize(bddc_mumps)
+         call bddc_time_end(comm,time)
+         if (myid.eq.0.and.time_verbose.ge.1) then
+            write(*,*) '==========================================='
+            write(*,*) 'Time of MUMPS factorization = ',time
+            write(*,*) '==========================================='
+            call flush(6)
+         end if
       end if
 
 ! Create weigth matrix DP
@@ -288,37 +293,39 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
          stop
       end select
 
+      if (use_preconditioner) then
 ! Correct initial solution and residual
-      if (iterate_on_transformed) then
-         solt = dp*solt
-         call MPI_ALLREDUCE(solt,buf,lsolt,MPI_DOUBLE_PRECISION,MPI_SUM,comm,ierr)
-         solt = buf
-         if (use_transform) then
-            call bddc_time_start(comm)
-            call bddc_T_apply(comm,rest,lrest,transposed=.true.)
-            call bddc_time_end(comm,time)
-            if (myid.eq.0.and.time_verbose.ge.2) then
-               write(*,*) '=============================================='
-               write(*,*) 'Time of application of initial transformation = ',time
-               write(*,*) '=============================================='
-               call flush(6)
+         if (iterate_on_transformed) then
+            solt = dp*solt
+            call MPI_ALLREDUCE(solt,buf,lsolt,MPI_DOUBLE_PRECISION,MPI_SUM,comm,ierr)
+            solt = buf
+            if (use_transform) then
+               call bddc_time_start(comm)
+               call bddc_T_apply(comm,rest,lrest,transposed=.true.)
+               call bddc_time_end(comm,time)
+               if (myid.eq.0.and.time_verbose.ge.2) then
+                  write(*,*) '=============================================='
+                  write(*,*) 'Time of application of initial transformation = ',time
+                  write(*,*) '=============================================='
+                  call flush(6)
+               end if
             end if
          end if
-      end if
 
 ! Prepare dual problem for solution using Lagrange multipliers
-      if (use_dual_problem) then
-         ! Prepare space for matrix G
-         call bddc_G_aritmetic_size(nglb,ndim,ndoft,inglb,linglb,nnglb,lnnglb,ihntn,lihntn,slavery,lslavery, &
-                                    lg1,lg2)
-         if (myid.eq.0) then
-            write(*,*) 'number of rows in G is', lg1
+         if (use_dual_problem) then
+            ! Prepare space for matrix G
+            call bddc_G_aritmetic_size(nglb,ndim,ndoft,inglb,linglb,nnglb,lnnglb,ihntn,lihntn,slavery,lslavery, &
+                                       lg1,lg2)
+            if (myid.eq.0) then
+               write(*,*) 'number of rows in G is', lg1
+            end if
+            allocate(g(lg1,lg2))
+            ! Build G
+            call bddc_G_aritmetic_build(nglb,ndim,nnodt,inglb,linglb,nnglb,lnnglb,ihntn,lihntn,slavery,lslavery, &
+                                        kdoft,lkdoft, g,lg1,lg2)
+            call bddc_dual_init(myid,g,lg1,lg2)
          end if
-         allocate(g(lg1,lg2))
-         ! Build G
-         call bddc_G_aritmetic_build(nglb,ndim,nnodt,inglb,linglb,nnglb,lnnglb,ihntn,lihntn,slavery,lslavery, &
-                                     kdoft,lkdoft, g,lg1,lg2)
-         call bddc_dual_init(myid,g,lg1,lg2)
       end if
 
       return
@@ -574,19 +581,12 @@ subroutine bddc_M_fake(comm,rest,lrest,ht,lht,rmr)
 ! rMr parameter in PCG
       real(kr), intent(out) :: rmr
 
-! Local variables
-      real(kr) :: rmr_loc
-      integer ::  ierr
-
 ! Make copy of residual to initial ht
       ht = rest
 
 ! determine the coefficient rMr
 ! rMr = rest * D_P * T * Atilde^-1 * P * T^T * D_P * rest
-      rmr_loc = bddc_dot_product(comm,rest,lrest,ht,lht)
-!***************************************************************************MPI
-      call MPI_ALLREDUCE(rmr_loc,rmr,1,MPI_DOUBLE_PRECISION,MPI_SUM,comm,ierr)
-!***************************************************************************MPI
+      rmr = bddc_dot_product(comm,rest,lrest,ht,lht)
  
       return
 end subroutine
@@ -1492,6 +1492,7 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
                  indj, indjn, jdofn, pointi, pointj
       integer :: nnz_right, nnz_left, nnz_new, nnz_add, nnz_transform_as, &
                  nnz_t_est, nnz_t_est_loc, point_t, space_t_left, nnz_t_add
+      !integer :: i
       logical :: correct_sol = .false.
       real(kr):: val, valnew
 
@@ -1580,11 +1581,19 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          call bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
          deallocate(avg)
 
-!         write(*,*) 'Matrix Tinv after inversion'
-!         do i = 1,lt1
-!            write(*,'(30f10.5)') t(i,:)
-!         end do
-!         call flush(6)
+         !write(*,*) 'Matrix Tinv after inversion'
+         !do i = 1,lt1
+         !   write(*,'(30f10.5)') t(i,:)
+         !end do
+         !call flush(6)
+
+         ! test T po diskusi s Martou Jarosovou
+         t(:,1) = 1._kr
+         !write(*,*) 'Matrix Tinv by Marta inversion'
+         !do i = 1,lt1
+         !   write(*,'(30f10.5)') t(i,:)
+         !end do
+         !call flush(6)
 
 ! Inflate the inversion of matrix from nodes to globs
          nglbv = ndofn*nglbn
@@ -2514,39 +2523,52 @@ subroutine bddc_finalize
        
       implicit none
 
-! Finalize MUMPS
-      call mumps_finalize(bddc_mumps)
-
 ! Deallocate weigth matrix
       deallocate(dp)
 
+! Finalize MUMPS
+      call mumps_finalize(bddc_mumps)
+
 ! Deallocate MPI buffer
-      deallocate(buf)
+      if (allocated(buf)) then
+         deallocate(buf)
+      end if
 
 ! Clean memory after using dual problem
       if (use_dual_problem) then
          ! deallocate matrix G
-         deallocate(g)
+         if (allocated(g)) then
+            deallocate(g)
+         end if
          ! deallocate dual matrix
-         deallocate(dualm)
+         if (allocated(dualm)) then
+            deallocate(dualm)
+         end if
          ! deallocate vector of permutations
-         deallocate(ipiv)
+         if (allocated(ipiv)) then
+            deallocate(ipiv)
+         end if
          ! deallocate dual RHS
-         deallocate(dualrhs)
+         if (allocated(dualrhs)) then
+            deallocate(dualrhs)
+         end if
       end if
 
 ! Clean memory after using projection onto null G
       if (use_projection.or.use_transform) then
          ! deallocate matrix F = R^-T * G^T
-         deallocate(i_f_sparse, j_f_sparse, f_sparse)
+         if (allocated(i_f_sparse)) then
+            deallocate(i_f_sparse, j_f_sparse, f_sparse)
+         end if
          ! close file with transformation matrices of globs
       end if
 
 ! Clean memory after using transformation
       if (use_transform) then
          ! deallocate matrix F = R^-T * G^T
-         deallocate(i_t_sparse, j_t_sparse, t_sparse)
-         ! close file with transformation matrices of globs
+         if (allocated(i_t_sparse)) then
+            deallocate(i_t_sparse, j_t_sparse, t_sparse)
+         end if
       end if
 
       return

@@ -103,16 +103,18 @@ program test_module_adaptivity
       do isub = 1,nsub
          call dd_prepare_schur(myid,comm_self,isub)
       end do
+      ! start preparing cnodes
       do isub = 1,nsub
          call dd_get_cnodes(myid,isub)
-      end do
-      do isub = 1,nsub
-         call dd_prepare_c(myid,isub)
       end do
       ! load arithmetic averages on edges
       glob_type = 2
       do isub = 1,nsub
          call dd_load_arithmetic_constraints(myid,isub,glob_type)
+      end do
+      ! prepare matrix C for corners and arithmetic averages on edges
+      do isub = 1,nsub
+         call dd_prepare_c(myid,isub)
       end do
 
 !*******************************************AUX
@@ -162,6 +164,24 @@ program test_module_adaptivity
          write(*,*) '***************************************'
       end if
 !*******************************************AUX
+
+      ! prepare matrix C for corners, arithmetic averages on edges and adaptive on faces
+      do isub = 1,nsub
+         call dd_prepare_c(myid,isub)
+      end do
+
+      ! prepare augmented matrix for BDDC
+      do isub = 1,nsub
+         call dd_prepare_aug(myid,comm_self,isub)
+      end do
+
+      ! prepare coarse space basis functions for BDDC
+      do isub = 1,nsub
+         call dd_prepare_coarse(myid,isub)
+      end do
+
+      ! print the output
+      call dd_print_sub(myid)
    
       call dd_finalize
 

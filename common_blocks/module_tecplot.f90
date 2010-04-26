@@ -50,11 +50,11 @@ end if
 return
 end subroutine tecplot_header
 
-!*********************************************************************************
-subroutine tecplot_start_zone(iddat,ndim,nnod,nelem,nvar,cellcentered,datapacking)
-!*********************************************************************************
-! Subroutine for starting a new zone in TECPLOT data file
-!*********************************************************************************
+!************************************************************************************
+subroutine tecplot_start_fe_zone(iddat,ndim,nnod,nelem,nvar,cellcentered,datapacking)
+!************************************************************************************
+! Subroutine for starting a new finite element zone in TECPLOT data file
+!************************************************************************************
 implicit none
 
 ! disk unit
@@ -88,10 +88,9 @@ if      (ndim.eq.3) then
 else if (ndim.eq.2) then
    zonetype = 'FEQUADRILATERAL'
 else
-   write(*,*) 'TECPLOT_START_ZONE: Strange number of dimensions, ndim =',ndim
+   write(*,*) 'TECPLOT_START_FE_ZONE: Strange number of dimensions, ndim =',ndim
    stop
 end if
-
 
 ! Type of packing data
 if      (datapacking.eq.0) then
@@ -99,7 +98,7 @@ if      (datapacking.eq.0) then
 else if (datapacking.eq.1) then
    datapackingst = 'POINT'
 else
-   write(*,*) 'TECPLOT_START_ZONE: Strange datapacking, datapacking =',datapacking
+   write(*,*) 'TECPLOT_START_FE_ZONE: Strange datapacking, datapacking =',datapacking
    stop
 end if
 
@@ -115,7 +114,7 @@ if (any(cellcentered)) then
          else if (ivar.lt.100) then
             write(ivarst(1:2),'(i2)') ivar
          else
-            write(*,*) 'TECPLOT_START_ZONE: Out of range ivar =',ivar
+            write(*,*) 'TECPLOT_START_FE_ZONE: Out of range ivar =',ivar
             stop
          end if
          varlocation = trim(varlocation)//' ['//trim(ivarst)//'] = CELLCENTERED'
@@ -138,13 +137,63 @@ else if (nelem.eq.0) then
                   ' DATAPACKING = '//trim(datapackingst), &
                   trim(varlocation)
 else
-   write(*,*) 'TECPLOT_START_ZONE: Unknown number of elements:',nelem
+   write(*,*) 'TECPLOT_START_FE_ZONE: Unknown number of elements:',nelem
    stop
 end if
 
                    
 return
-end subroutine tecplot_start_zone
+end subroutine tecplot_start_fe_zone
+
+!*******************************************************************************
+subroutine tecplot_start_ordered_zone(iddat,npointx,npointy,npointz,datapacking)
+!*******************************************************************************
+! Subroutine for starting a new ordered zone in TECPLOT data file
+!*******************************************************************************
+implicit none
+
+! disk unit
+integer, intent(in) :: iddat
+! number of points in x,y,z
+integer, intent(in) :: npointx, npointy, npointz
+! type of data packing
+!  0 - block
+!  1 - point
+integer, intent(in) :: datapacking
+
+! local variables
+character(15)  :: zonetype
+character(5)   :: datapackingst
+
+! Type of elements
+zonetype = 'ORDERED'
+
+! Type of packing data
+if      (datapacking.eq.0) then
+   datapackingst = 'BLOCK'
+else if (datapacking.eq.1) then
+   datapackingst = 'POINT'
+else
+   write(*,*) 'TECPLOT_START_ORDERED_ZONE: Strange datapacking, datapacking =',datapacking
+   stop
+end if
+
+if (npointx .gt. 0 ) then
+   write(iddat,'(a,i7.7,a)')       ' ZONE'
+   write(iddat,'(a,i7.7,a)')       '  I=',npointx,','
+   if (npointy .gt. 0 ) then
+      write(iddat,'(a,i7.7,a)')    '  J=',npointy,','
+      if (npointz .gt. 0 ) then
+         write(iddat,'(a,i7.7,a)') '  K=',npointz,','
+      end if
+   end if
+
+   write(iddat,*) ' ZONETYPE = '//trim(zonetype), &
+                  ' DATAPACKING = '//trim(datapackingst)
+end if
+                   
+return
+end subroutine tecplot_start_ordered_zone
 
 !**********************************************************
 subroutine tecplot_export_block_variable_sp(iddat,var,lvar)
@@ -181,6 +230,31 @@ write(iddat,'(5e15.6)') var
                    
 return
 end subroutine tecplot_export_block_variable_dp
+
+!*******************************************************************
+subroutine tecplot_export_point_data_dp(iddat,array,larray1,larray2)
+!*******************************************************************
+! Subroutine for exporting a data table in double precision POINT format 
+! to the TECPLOT data file
+! each row of array correspond to a line in Tecplot file
+!*******************************************************************
+implicit none
+
+! disk unit
+integer, intent(in) :: iddat
+! array with variable
+integer, intent(in)  :: larray1, larray2
+double precision, intent(in) ::  array(larray1,larray2)
+
+! local
+integer :: i
+
+do i = 1,larray1
+   write(iddat,'(8e17.9)') array(i,:)
+end do
+                   
+return
+end subroutine tecplot_export_point_data_dp
 
 !***********************************************************************************
 subroutine tecplot_connectivity_table(iddat,ndim,nelem,inet,linet,nnet,lnnet,shells)
@@ -284,11 +358,11 @@ end if
 return
 end subroutine tecplot_connectivity_table
 
-!********************************************************************
-subroutine tecplot_get_point_data_header(iddat,nvar,ordered,nx,ny,nz)
-!********************************************************************
-! Subroutine for exporting a the finite element conectivity table
-!********************************************************************
+!*********************************************************************************************
+subroutine tecplot_get_point_data_header(iddat,nvar,ordered,nx,ny,nz,orderxyz,title,varstring)
+!*********************************************************************************************
+! Subroutine for reading Tecplot header in datapacking=point format
+!*********************************************************************************************
 use module_parsing
 implicit none
 
@@ -300,14 +374,38 @@ integer, intent(out) :: nvar
 logical, intent(out) :: ordered
 ! number of points in x, y and z
 integer, intent(out) :: nx, ny, nz
+! coordinates x, y and z in file
+integer, intent(out) :: orderxyz(3)
+! string of variable names 
+character(*),intent(out) :: title
+! string of variable names 
+character(*),intent(out) :: varstring
+
+! local vars
+integer :: npoint(3)
+
 
 ! initialize counter of lines
 fileline = 0
 
+title = ' '
 do
    call rdline(iddat)
 !   print *,'line',trim(line), 'kstring',kstring
    call getstring
+
+!   print *,'string:',trim(string)
+   if (trim(string).eq.'TITLE') then 
+      if (kstring.eq.0) then
+         call rdline(iddat)
+      end if
+      call getstring
+      if (kstring.eq.0) then
+         call rdline(iddat)
+      end if
+      call getstring
+      title = string(2:len(trim(string))-1)
+   end if
 
 !   print *,'string:',trim(string)
    if (trim(string).eq.'VARIABLES') then 
@@ -321,6 +419,8 @@ if (kstring.eq.0) then
 end if
 
 nvar = 0
+orderxyz = 0
+varstring = ' '
 do
    call getstring
    if (trim(string).eq.'ZONE') then
@@ -329,6 +429,19 @@ do
 !   print *,'string:',trim(string)
 
    nvar = nvar + 1
+   if      (string(2:2) .eq. 'X') then
+      orderxyz(1) = nvar
+   else if (string(2:2) .eq. 'Y') then
+      orderxyz(2) = nvar
+   else if (string(2:2) .eq. 'Z') then
+      orderxyz(3) = nvar
+   else
+! create the string of variables
+      if (varstring .ne. ' ') then
+         varstring = trim(varstring)//','
+      end if
+      varstring = trim(varstring)//' '//trim(string)
+   end if
 
    if (kstring.eq.0) then
       call rdline(iddat)
@@ -342,17 +455,17 @@ do
    call getstring
 
    if (string(1:2).eq.'I=') then
-      read(string(3:),*) nx
+      read(string(3:),*) npoint(1)
       if (kstring.eq.0) then
          call rdline(iddat)
       end if
       call getstring
-      read(string(3:),*) ny
+      read(string(3:),*) npoint(2)
       if (kstring.eq.0) then
          call rdline(iddat)
       end if
       call getstring
-      read(string(3:),*) nz
+      read(string(3:),*) npoint(3)
       if (kstring.eq.0) then
          call rdline(iddat)
       end if
@@ -366,6 +479,10 @@ do
    end if
 end do
 
+nx = npoint(orderxyz(1))
+ny = npoint(orderxyz(2))
+nz = npoint(orderxyz(3))
+
 ! pad the rest of the file up to values
 do 
    call rdline(iddat)
@@ -376,6 +493,12 @@ do
       exit
    end if
 end do
+
+! check orderxyz
+if (any(orderxyz.eq.0)) then
+   write(*,*) 'TECPLOT_GET_POINT_DATA_HEADER: Missing coordinates in file.'
+   stop
+end if
 
 return
 end subroutine tecplot_get_point_data_header

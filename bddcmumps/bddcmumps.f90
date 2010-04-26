@@ -26,8 +26,8 @@ integer,parameter:: kr = kind(1.D0)
 ! 0 - unsymmetric                 -> full element matrices
 ! 1 - symmetric positive definite -> only upper triangle of element matrix
 ! 2 - symmetric general           -> only upper triangle of element matrix
-!  for elasticity, use 1 - matrix is SPD
-!  for Stokes, use 2 - matrix is symmetric indefinite
+!  for elasticity, use 1 - matrix is SPD - PCG
+!  for Stokes, use 2 - matrix is symmetric indefinite - MINRES
 integer,parameter:: matrixtype = 2
 
 ! Approach to enforce Gw = 0, ie. averages
@@ -68,7 +68,7 @@ integer,parameter:: timeinfo = 1
 logical,parameter:: print_solution = .false.
 
 ! Use preconditioner?
-logical,parameter:: use_preconditioner = .true.
+logical,parameter:: use_preconditioner = .false.
 
 ! Use this structure of MUMPS for routines from mumps
 type(DMUMPS_STRUC) :: schur_mumps
@@ -605,6 +605,7 @@ character(100) :: filename, problemname
          end if
       end if
 
+
 ! Initial vector of solution - prescribed fixed variables, zero elsewhere
       solt = 0.0_kr
       if (iterate_on_reduced) then
@@ -654,11 +655,32 @@ character(100) :: filename, problemname
          open(unit=idtr,file=fname,status='replace',form='unformatted')
       end if
 
-! Call PCG for solution of the system
-      call bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
-                   mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
-                   nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, nndft,lnndft, iintt,liintt, &
-                   idtr, schur_mumps, rhst,lrhst,tol,maxit,ndecrmax,solt,lsolt)
+! Call Krylov method for solution of the system
+      if      (matrixtype.eq.1) then
+         if (myid.eq.0) then
+            write (*,*) 'Calling PCG method for solution.'
+         end if
+         call bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
+                      mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,&
+                      ndim,nglb,inglb,linglb,nnglb,lnnglb,&
+                      nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, nndft,lnndft, iintt,liintt, &
+                      idtr, schur_mumps, rhst,lrhst,tol,maxit,ndecrmax,solt,lsolt)
+      else if (matrixtype.eq.2) then
+         if (myid.eq.0) then
+            write (*,*) 'Calling MINRES method for solution.'
+         end if
+         call bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
+                         mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,&
+                         ndim,nglb,inglb,linglb,nnglb,lnnglb,&
+                         nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, nndft,lnndft, iintt,liintt, &
+                         idtr, schur_mumps, rhst,lrhst,tol,maxit,ndecrmax,solt,lsolt)
+      else
+         if (myid.eq.0) then
+            write (*,*) 'Matrixtype not supported by iterations.', matrixtype
+         end if
+         call error_exit
+      end if
+
 
 ! Close file for transformation matrices
       if (averages_approach.eq.3) then
@@ -873,7 +895,8 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 ! Beginning of mesuring time
       call bddc_time_start(comm)
 ! Initialize an instance of the MUMPS package
-      call bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transformed,ndoft,nnz,i_sparse,j_sparse,a_sparse,la, &
+      call bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,use_preconditioner,iterate_on_transformed,&
+                     ndoft,nnz,i_sparse,j_sparse,a_sparse,la, &
                      weight_approach,averages_approach,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
                      nnodt,nndft,lnndft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, &
                      sol,lsol, res,lres, nnz_transform,idtr)
@@ -1236,4 +1259,540 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 
       return
       end subroutine
+
+
+ !******************************************************************************************************
+subroutine bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
+                      mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
+                      nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft,nndft,lnndft, iintt, liintt,&
+                      idtr, schur_mumps, res,lres,tol,maxit,ndecrmax,sol,lsol)
+!******************************************************************************************************
+! Preconditioned minimal residual solver based on BDDC
+!******************************************************************************************************
+! Use module for BDDC
+      use module_bddc
+
+! Use module for sparse matrices
+      use module_sm
+
+! Use module MUMPS
+      use module_mumps
+
+! Use module with utilities
+      use module_utils
+
+      implicit none
+      include "mpif.h"
+
+! Setting of real type kr
+      integer,parameter:: kr = kind(1.D0)
+
+! Iterate on staticaly condensed problem ?
+      logical,intent(in) :: iterate_on_reduced
+
+! Iterate on transformed problem
+      logical,intent(in) :: iterate_on_transformed
+
+! Matrix in sparse IJA format
+      integer,intent(in) :: matrixtype
+      integer,intent(in) :: nnz, la
+      integer,intent(inout) :: i_sparse(la),j_sparse(la)
+      real(kr),intent(inout):: a_sparse(la)
+
+! Verbose level of MUMPS
+      integer,intent(in) :: mumpsinfo
+
+! Verbose level of times
+      integer,intent(in) :: timeinfo
+
+! Use preconditioner?
+      logical,intent(in) :: use_preconditioner
+
+! Approach to averaging operator D_P
+      integer,intent(in) :: weight_approach
+
+! Description of globs
+      integer,intent(in) :: averages_approach
+      integer,intent(in) :: ndim
+      integer,intent(in) :: nglb
+      integer,intent(in) :: linglb,        lnnglb
+      integer,intent(in) ::  inglb(linglb), nnglb(lnnglb)
+
+! Space W_tilde
+      integer,intent(in) :: nnodt, ndoft
+      integer,intent(in) :: lihntn,        lslavery,          lkdoft,        lnndft,        liintt
+      integer,intent(in) ::  ihntn(lihntn), slavery(lslavery), kdoft(lkdoft), nndft(lnndft), iintt(liintt)
+
+! Variables for communication
+      integer,intent(in):: comm, myid
+
+! Disk unit for transformation
+      integer,intent(in):: idtr
+
+! Use this structure of MUMPS for routines from mumps
+      type(DMUMPS_STRUC),intent(inout) :: schur_mumps
+      
+! Right hand side
+      integer,intent(in) ::    lres
+      real(kr),intent(inout)::  res(lres)
+! Solution
+      integer,intent(in)::    lsol
+      real(kr),intent(inout):: sol(lsol)
+
+! Tolerance
+      real(kr),intent(in) :: tol
+! Maximum number of iterations
+      integer,intent(in) :: maxit
+! Maximum number of iterations without residual decrease
+      integer,intent(in) :: ndecrmax
+      
+! Local variables of PCG algorithm
+      real(kr):: normres, normrhs, relres, lastres, rmr, cold, c, cnew, alpha0, alpha1, alpha2, alpha3, eta,&
+                 gammanew, gamma, gammaold, delta_loc, delta, snew, s, sold
+      integer::              lvnew,   lv,   lvold,   lwnew,   lw,   lwold,   lznew,   lz,   lap
+      real(kr), allocatable:: vnew(:), v(:), vold(:), wnew(:), w(:), wold(:), znew(:), z(:), ap(:)
+
+      integer:: ierr, iter, ndecr, nnz_mult
+      real(kr):: time
+      logical:: nonzero_initial_solution_loc = .false. , nonzero_initial_solution
+      integer:: nnz_transform
+
+      logical :: match_mask(2)
+
+! Beginning of mesuring time
+      call bddc_time_start(comm)
+      
+! Prepare fields for PMINRES - residual will be associated with RHS
+      lvnew = ndoft
+      lv    = ndoft
+      lvold = ndoft
+      lwnew = ndoft
+      lw    = ndoft
+      lwold = ndoft
+      lz    = ndoft
+      lznew = ndoft
+      lap   = ndoft
+      allocate(vnew(lvnew),v(lv),vold(lvold),wnew(lwnew),w(lw),wold(lwold),z(lz),znew(lznew),ap(lap))
+      vold = 0._kr
+      w    = 0._kr
+      wold = 0._kr
+
+
+!****************************************************************************BDDC
+! Beginning of mesuring time
+      call bddc_time_start(comm)
+! Initialize an instance of the MUMPS package
+      call bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,use_preconditioner,iterate_on_transformed,&
+                     ndoft,nnz,i_sparse,j_sparse,a_sparse,la, &
+                     weight_approach,averages_approach,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
+                     nnodt,nndft,lnndft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, &
+                     sol,lsol, res,lres, nnz_transform,idtr)
+      call bddc_time_end(comm,time)
+      if (myid.eq.0.and.timeinfo.ge.1) then
+         write(*,*) 'Initialized BDDC'
+         write(*,*) '===================================='
+         write(*,*) 'Time of initializing of BDDC = ',time
+         write(*,*) '===================================='
+         call flush(6)
+      end if
+!****************************************************************************BDDC
+
+! Iterate on transformed problem?
+      if (iterate_on_transformed) then
+         nnz_mult = nnz+nnz_transform
+      else
+         nnz_mult = nnz
+      end if
+
+! Prepare initial residual
+! res_0 = rhs - A*sol_0
+      if (any(sol.ne.0_kr)) then
+         if (myid.eq.0) then
+            write(*,*) 'Nonzero initial solution -> create initial vector of residual.'
+            call flush(6)
+            nonzero_initial_solution_loc = .true.
+         end if
+      end if
+!*****************************************************************MPI
+      call MPI_ALLREDUCE(nonzero_initial_solution_loc,nonzero_initial_solution,1, &
+                         MPI_LOGICAL,MPI_LOR,comm,ierr)
+!*****************************************************************MPI
+      if (nonzero_initial_solution) then
+         if (iterate_on_reduced) then
+            ! A21 * sol
+            match_mask(1) = .true.
+            match_mask(2) = .false.
+            call sm_vec_mult_mask(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, sol,lsol, ap,lap, &
+                                  iintt,liintt,match_mask)
+            ! A22 * sol
+            match_mask(1) = .true.
+            match_mask(2) = .true.
+            call sm_vec_mult_mask(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, sol,lsol, v,lv, &
+                                  iintt,liintt,match_mask)
+            ap = ap + v
+         else
+            call sm_vec_mult(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, sol,lsol, ap,lap)
+         end if
+         call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
+         v = res - ap
+      else
+         v = res
+      end if
+      if (iterate_on_reduced) then
+         if (any(res.ne.0.0_kr .and. iintt.eq.0)) then
+            write(*,*) 'WARNING: Initial check of energy minimal function failed.'
+         end if
+         where(iintt.eq.0) res = 0.0_kr
+      end if
+
+      !if (myid.eq.0) then
+      !   write(*,*) 'debug: initial v ='
+      !   do i = 1,lv
+      !      write(*,'(i8, f14.6)') i, v(i)
+      !   end do
+      !end if
+
+
+! Check of zero right hand side => all zero solution
+      if (.not.any(v.ne.0.0_kr)) then
+         if (myid.eq.0) then
+            write(*,*) 'all zero RHS => solution without change'
+            call flush(6)
+         end if
+         goto 77
+      end if
+     
+! Initial action of the preconditioner
+! p = M_BDDC*res 
+      if (myid.eq.0) then
+         write(*,*) ' Initial action of preconditioner'
+         call flush(6)
+      end if
+      if (iterate_on_reduced) then
+      ! check that residual is energy minimal
+         if (any(abs(v).gt.1e-15_kr .and. iintt .eq. 0)) then
+            write(*,*) 'Residual is not energy minimal!!!!!!!!!!!!!!!!'
+            stop
+         end if
+      end if
+      if (use_preconditioner) then
+         call bddc_M(myid,comm,iterate_on_transformed,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,v,lv,z,lz,rmr)
+! if preconditioner is not positive definite, use gamma 0.
+         if (rmr .lt. 0._kr) then
+            if (myid.eq.0) then
+               write(*,*) 'Ignoring preconditioner for indefinitness.'
+            end if
+            call bddc_M_fake(comm,v,lv,z,lz,rmr)
+         end if
+      else
+         call bddc_M_fake(comm,v,lv,z,lz,rmr)
+      end if
+      if (iterate_on_reduced) then
+! Project p onto the space of energy minimal functions over interiors
+         ! Multiply the block of the matrix A12 and p
+         match_mask(1) = .false.
+         match_mask(2) = .true.
+         call sm_vec_mult_mask(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
+                               z,lz, ap,lap, &
+                               iintt,liintt, match_mask)
+         call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
+         ap = -ap
+         ! Solve the system for given rhs
+         call mumps_resolve(schur_mumps,ap,lap)
+!*****************************************************************MPI
+         call MPI_BCAST(ap,lap, MPI_DOUBLE_PRECISION, 0, comm, ierr)
+!*****************************************************************MPI
+         where(iintt.eq.0) z = ap
+! debug
+! Check that the vector is really energy - minimal
+!         call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
+!                          p,lp, ap,lap)
+!      if (any (abs(ap).gt.10e-16 * normrhs .and. iintt.eq.0)) then
+!         write(*,*) 'Energy minimality check failed!'
+!         write(*,*) 'Sum of error entries',sum(abs(ap),mask=iintt.eq.0)
+!         stop
+!      end if
+!      write(*,*) 'myid = ',myid,'p after preconditioner'
+!      write(*,'(f15.9)') p(ihntn)
+      end if
+
+! determine norm of initial rhs
+! ||rhs||_{M^-1}
+      !normrhs = bddc_normvec(comm,v,lv)
+      normrhs = rmr
+      if (myid.eq.0) then
+         write(*,*) 'debug: normrhs =', normrhs
+      end if
+
+
+! determine gamma
+      gamma = sqrt(rmr)
+      if (myid.eq.0) then
+         write(*,*) 'debug: gamma  =', gamma
+      end if
+
+      eta  = gamma
+      sold = 0._kr
+      s    = 0._kr
+      cold = 1._kr
+      c    = 1._kr
+      gammaold = 1._kr
+
+! Setting up the properties for decreasing residual
+      ndecr   = 0
+      lastres = 1.0_kr
+
+! Measure time of all iterations
+      call bddc_time_start(comm)
+!***********************************************************************
+!*************************MAIN LOOP OVER ITERATIONS*********************
+!***********************************************************************
+      do iter = 1,maxit
+
+         z = z/gamma
+         !if (myid.eq.0) then
+         !   write(*,*) 'debug: z ='
+         !   do i = 1,lz
+         !      write(*,'(i8, f14.6)') i, z(i)
+         !   end do
+         !end if
+
+
+! Multiplication of P by local system matrix 
+! ap = A*p
+         call bddc_time_start(comm)
+         if (myid.eq.0) then
+            write(*,*) ' Multiplication by system matrix'
+            call flush(6)
+         end if
+         if (iterate_on_reduced) then
+            ! A21 * z
+            match_mask(1) = .true.
+            match_mask(2) = .false.
+            call sm_vec_mult_mask(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, z,lz, ap,lap, &
+                                  iintt,liintt, match_mask)
+            ! A22 * z
+            match_mask(1) = .true.
+            match_mask(2) = .true.
+            call sm_vec_mult_mask(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, z,lz, vnew,lvnew, &
+                                  iintt,liintt, match_mask)
+            ap = ap + vnew 
+         else
+            call sm_vec_mult(matrixtype,nnz_mult, i_sparse, j_sparse, a_sparse, la, z,lz, ap,lap)
+         end if
+         call bddc_time_end(comm,time)
+         if (myid.eq.0.and.timeinfo.ge.2) then
+            write(*,*) '===================================='
+            write(*,*) 'Time of matrix multiplication = ',time
+            write(*,*) '===================================='
+         end if
+
+!***************************************************************PARALLEL
+
+! Scalar product of vectors of old search direction and ap
+! pap = p*ap 
+         delta_loc = dot_product(z,ap)
+!***************************************************************************MPI
+         call MPI_ALLREDUCE(delta_loc,delta,1,MPI_DOUBLE_PRECISION,MPI_SUM,comm,ierr)
+!***************************************************************************MPI
+
+! Make the AP global (AFTER PAP computation!)
+         call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
+         !if (myid.eq.0) then
+         !   write(*,*) 'debug: ap ='
+         !   do i = 1,lap
+         !      write(*,'(i8, f14.6)') i, ap(i)
+         !   end do
+         !   call flush(6)
+         !end if
+
+! Control of positive definitenes of system matrix
+!         if (delta.le.0.0D0) then
+!            if (myid.eq.0) then
+!               write(*,*) ' System matrix not positive definite!, delta =',delta
+!               call flush(6)
+!            end if
+!!            call MPI_ABORT(comm, 78, ierr)
+!         end if
+         if (myid.eq.0) then
+            write(*,*) 'debug: delta  =', delta
+         end if
+
+         vnew = ap - delta/gamma*v - gamma/gammaold*vold
+         if (iterate_on_reduced) then
+            where (iintt.eq.0) vnew = 0.0_kr
+         end if
+         !if (myid.eq.0) then
+         !   write(*,*) 'debug: vnew ='
+         !   do i = 1,lvnew
+         !      write(*,'(i8, f14.6)') i, vnew(i)
+         !   end do
+         !end if
+         !
+         !call flush(6)
+
+
+! Action of preconditioner M on residual vector VNEW 
+! znew = M*vnew
+         if (myid.eq.0) then
+            write(*,*) ' Action of preconditioner'
+         end if
+         call bddc_time_start(comm)
+         if (use_preconditioner) then
+            call bddc_M(myid,comm,iterate_on_transformed,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,vnew,lvnew,znew,lznew,rmr)
+            if (rmr .lt. 0._kr) then
+               if (myid.eq.0) then
+                  write(*,*) 'Ignoring preconditioner for indefinitness.'
+               end if
+               call bddc_M_fake(comm,vnew,lvnew,znew,lznew,rmr)
+            end if
+         else
+            call bddc_M_fake(comm,vnew,lvnew,znew,lznew,rmr)
+         end if
+         if (iterate_on_reduced) then
+! Project p onto the space of energy minimal functions over interiors
+            ! Multiply the block of the matrix A12 and p
+            match_mask(1) = .false.
+            match_mask(2) = .true.
+            call sm_vec_mult_mask(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
+                                znew,lznew, ap,lap, &
+                                iintt,liintt, match_mask)
+            call bddc_RRT(comm,nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,ap,lap)
+            ap = -ap
+            ! Solve the system for given rhs
+            call mumps_resolve(schur_mumps,ap,lap)
+!*****************************************************************MPI
+            call MPI_BCAST(ap,lap, MPI_DOUBLE_PRECISION, 0, comm, ierr)
+!*****************************************************************MPI
+            where(iintt.eq.0) znew = ap
+         end if
+
+         call bddc_time_end(comm,time)
+         if (myid.eq.0.and.timeinfo.ge.2) then
+            write(*,*) '===================================='
+            write(*,*) 'Time of preconditioning = ',time
+            write(*,*) '===================================='
+         end if
+
+
+         gammanew = sqrt(rmr)
+
+         alpha0 = c*delta - cold*s*gamma
+         alpha1 = sqrt(alpha0**2 + gammanew**2)
+         alpha2 = s*delta + cold*c*gamma
+         alpha3 = sold*gamma
+         cnew   = alpha0/alpha1
+         snew   = gammanew/alpha1
+
+         wnew   = (z - alpha3*wold - alpha2*w)/alpha1
+         !if (myid.eq.0) then
+         !   write(*,*) 'debug: wnew ='
+         !   do i = 1,lwnew
+         !      write(*,'(i8, f14.6)') i, wnew(i)
+         !   end do
+         !end if
+         sol    = sol + cnew*eta*wnew
+
+         eta    = -snew*eta
+
+! Determine global norm of RES
+! ||res||_{M^-1}
+         !normres  = bddc_normvec(comm,vnew,lvnew)
+         normres  = rmr
+         if (myid.eq.0) then
+            write(*,*) 'debug: normres =', normres
+         end if
+
+! Evaluation of relative residual
+         relres = normres/normrhs
+            
+! Print residual to screen
+         if (myid.eq.0) then
+            write(* ,5001) iter, relres
+ 5001       format(1X,'iteration iter = ',I4,2X,'relres = ',F25.18)
+         end if
+
+! Check convergence
+!  relres < tol
+         if (relres.lt.tol) then
+            if (myid.eq.0) then
+               write(*,*)'Number of MINRES iterations:',iter
+            end if
+            exit
+         end if
+
+! Check of decreasing of residual
+! relres < lastres
+         if (relres.lt.lastres) then
+            ndecr = 0
+         else
+            ndecr = ndecr + 1
+            if (ndecr.ge.ndecrmax) then
+               if (myid.eq.0) then
+                  write(*,*)'Residual did not decrease for',ndecrmax,' iterations'
+               end if
+               stop
+            end if
+         end if
+         lastres = relres
+
+! Shifts
+         vold = v
+         v    = vnew
+
+         z    = znew
+
+         wold = w
+         w    = wnew
+
+         cold = c
+         c    = cnew
+
+         gammaold = gamma
+         gamma    = gammanew
+
+         sold     = s
+         s        = snew
+
+
+! Check if iterations reached the limit count
+         if (iter.eq.maxit) then
+            if (myid.eq.0) then
+               write(*,*) 'bddcminres: Iterations reached prescribed limit without reaching precision.'
+               call flush(6)
+            end if
+            stop
+         end if
+
+      end do
+!*************************END OF MAIN CYCLE OVER ITERATIONS*************
+! End of mesuring time
+      call bddc_time_end(comm,time)
+      if (myid.eq.0.and.timeinfo.ge.1) then
+         write(*,*) '===================================='
+         write(*,*) 'Time of all iterations = ',time
+         write(*,*) '===================================='
+         call flush(6)
+      end if
+
+
+! Zero initial solution
+   77 continue
+
+! End of mesuring time
+      call bddc_time_end(comm,time)
+      if (myid.eq.0.and.timeinfo.ge.1) then
+         write(*,*) '===================================='
+         write(*,*) 'Time of MINRES routine = ',time
+         write(*,*) '===================================='
+      end if
+
+! Clean the memory
+      call bddc_finalize
+
+      deallocate(vnew,v,vold,wnew,w,wold,z,znew,ap)
+
+      return
+ end subroutine
+
 

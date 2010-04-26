@@ -21,6 +21,7 @@ TESTS = \
    test_module_adaptivity \
    test_module_dd \
    test_module_dd2 \
+   test_module_levels \
    test_module_mumps \
    test_module_mumps2 \
    test_module_sm \
@@ -31,6 +32,7 @@ OBJ = \
    lobpcg_mvecmult_f.o \
    module_adaptivity.o \
    module_dd.o \
+   module_levels.o \
    module_mumps.o \
    module_graph.o \
    module_parsing.o \
@@ -171,6 +173,12 @@ test_module_dd2: \
    module_dd.o \
    module_mumps.o \
    module_sm.o \
+   module_utils.o 
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+
+test_module_levels: \
+   test_module_levels.o \
+   module_levels.o \
    module_utils.o 
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
 

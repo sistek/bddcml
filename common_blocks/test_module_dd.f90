@@ -14,6 +14,7 @@ program test_module_dd
 
       integer :: nsub, isub
 
+      ! only works for this problem
       character(7) :: problemname = 'TESTLAP'
 
       integer,parameter :: lx = 2

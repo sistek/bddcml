@@ -375,7 +375,7 @@ INTEGER, PARAMETER  :: max_simple_sort_size = 6
 
 IF (right_end < left_end + max_simple_sort_size) THEN
   ! Use interchange sort for small lists
-  CALL interchange_sort(left_end, right_end)
+  CALL iinterchange_sort(left_end, right_end)
 
 ELSE
   ! Use partition ("quick") sort
@@ -413,7 +413,7 @@ END IF
 END SUBROUTINE iquick_sort_1
 
 
-SUBROUTINE interchange_sort(left_end, right_end)
+SUBROUTINE iinterchange_sort(left_end, right_end)
 
 INTEGER, INTENT(IN) :: left_end, right_end
 
@@ -429,9 +429,106 @@ DO i = left_end, right_end - 1
   END DO
 END DO
 
-END SUBROUTINE interchange_sort
+END SUBROUTINE iinterchange_sort
 
 END SUBROUTINE iquick_sort
+
+RECURSIVE SUBROUTINE rquick_sort(list,llist1,llist2,indsort,istart,iend)
+
+! Quick sort routine from:
+! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
+! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
+! modified by Jakub Sistek
+! sort two-dimensional real array according to indsort-th column
+
+IMPLICIT NONE
+INTEGER,INTENT(IN) ::      llist1, llist2
+REAL(KR),INTENT(IN OUT) ::  list(llist1,llist2)
+INTEGER,INTENT(IN) ::      indsort
+INTEGER,INTENT(IN) ::      istart, iend
+
+CALL rquick_sort_1(istart, iend)
+
+CONTAINS
+
+RECURSIVE SUBROUTINE rquick_sort_1(left_end, right_end)
+
+INTEGER, INTENT(IN) :: left_end, right_end
+
+!     Local variables
+INTEGER             :: i, j, k
+REAL(KR)            :: reference, temp
+INTEGER, PARAMETER  :: max_simple_sort_size = 6
+
+IF (right_end < left_end + max_simple_sort_size) THEN
+  ! Use interchange sort for small lists
+  CALL rinterchange_sort(left_end, right_end)
+
+ELSE
+  ! Use partition ("quick") sort
+  reference = list((left_end + right_end)/2,indsort)
+  i = left_end  - 1 
+  j = right_end + 1
+
+  DO
+    ! Scan list from left end until element >= reference is found
+    DO
+      i = i + 1
+      IF (list(i,indsort) >= reference) EXIT
+    END DO
+    ! Scan list from right end until element <= reference is found
+    DO
+      j = j - 1
+      IF (list(j,indsort) <= reference) EXIT
+    END DO
+
+
+    IF (i < j) THEN
+      ! Swap two out-of-order elements
+      do k = 1,llist2
+         temp = list(i,k) 
+         list(i,k) = list(j,k) 
+         list(j,k) = temp
+      end do
+    ELSE IF (i == j) THEN
+      i = i + 1
+      EXIT
+    ELSE
+      EXIT
+    END IF
+  END DO
+
+  IF (left_end < j) CALL rquick_sort_1(left_end, j)
+  IF (i < right_end) CALL rquick_sort_1(i, right_end)
+END IF
+
+END SUBROUTINE rquick_sort_1
+
+
+SUBROUTINE rinterchange_sort(left_end, right_end)
+
+INTEGER, INTENT(IN) :: left_end, right_end
+
+!     Local variables
+INTEGER             :: i, j, k
+real(kr)            :: temp
+
+DO i = left_end, right_end - 1
+  DO j = i+1, right_end
+    IF (list(i,indsort) > list(j,indsort)) THEN
+      ! Swap two out-of-order rows
+      do k = 1,llist2
+         temp = list(i,k) 
+         list(i,k) = list(j,k) 
+         list(j,k) = temp
+      end do
+    END IF
+  END DO
+END DO
+
+END SUBROUTINE rinterchange_sort
+
+END SUBROUTINE rquick_sort
 
 !*************************************************
 subroutine get_index(ivalue,iarray,liarray,iindex)
@@ -492,6 +589,12 @@ subroutine condtri(nw,nwx,w,lw, cond)
 
       ! LAPACK
       integer :: lapack_info
+
+      ! return silently if only 1 or less iterations were performed
+      if (nw.le.1) then
+         cond = 1._kr
+         return
+      end if
 
       ! prepare data for LAPACK
       ! diagonal
