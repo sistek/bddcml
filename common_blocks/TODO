@@ -1,0 +1,5 @@
+- stabilize the constraints by replacing them by QR-based found lines
+- embed properly local coarse matrices into large coarse matrix 
+     - even for adaptive constraints - this is now completely wrong
+- create data structures for neighbour communication and reuse the parallel PCG method from the first version of the code
+- create coarse level
