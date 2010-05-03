@@ -30,6 +30,7 @@ contains
 ! 1 - master works on factorization
       mumps%PAR = 1
 
+
 ! Initialize an instance of the package
       mumps%JOB = -1
 
@@ -146,13 +147,30 @@ contains
       return
       end subroutine
 
-!************************************
-      subroutine mumps_analyze(mumps)
-!************************************
+!*********************************************
+      subroutine mumps_analyze(mumps,parallel)
+!*********************************************
 ! Performs the analysis of matrix by MUMPS.
       use dmumps_struc_def
       implicit none
       type(DMUMPS_STRUC),intent(inout) :: mumps
+      ! should analysis be parallel?
+      logical, intent(in) :: parallel
+
+      ! Set type of analysis
+      ! 0 - automatic choice
+      ! 1 - sequential analysis
+      ! 2 - parallel analysis (Parmetis or PT_SCOTCH should be linked)
+      if (parallel) then
+         mumps%ICNTL(28) = 2
+         ! Parmetis or PT-SCOTCH?
+         ! 0 - automatic choice
+         ! 1 - PT-SCOTCH
+         ! 2 - Parmetis
+         mumps%ICNTL(29) = 2
+      else
+         mumps%ICNTL(28) = 1
+      end if
 
 ! Job type = 1 for matrix analysis
       mumps%JOB = 1

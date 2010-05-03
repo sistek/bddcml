@@ -28,7 +28,7 @@ integer,parameter:: kr = kind(1.D0)
 ! 2 - symmetric general           -> only upper triangle of element matrix
 !  for elasticity, use 1 - matrix is SPD - PCG
 !  for Stokes, use 2 - matrix is symmetric indefinite - MINRES
-integer,parameter:: matrixtype = 2
+integer,parameter:: matrixtype = 1
 
 ! Approach to enforce Gw = 0, ie. averages
 ! 0 - do not apply averages
@@ -68,7 +68,7 @@ integer,parameter:: timeinfo = 1
 logical,parameter:: print_solution = .false.
 
 ! Use preconditioner?
-logical,parameter:: use_preconditioner = .false.
+logical,parameter:: use_preconditioner = .true.
 
 ! Use this structure of MUMPS for routines from mumps
 type(DMUMPS_STRUC) :: schur_mumps
@@ -151,6 +151,8 @@ logical :: nonzero_bc_loc = .false. , nonzero_bc
 logical :: is_this_the_first_run
 
 logical :: match_mask(2)
+
+logical :: parallel_analysis
 
 character(100) :: filename, problemname
 
@@ -427,18 +429,15 @@ character(100) :: filename, problemname
                              slavery,lslavery, nnz_proj_est)
          la_proj = nnz_proj_est
          write(*,*) 'myid =',myid,': Space estimated for projection =',la_proj
-         call flush(6)
       else if (averages_approach.eq.3) then
          call bddc_T_nnz_est(myid,matrixtype,sparsity,ndofs,ndim,nglb,inglb,linglb,nnglb,lnnglb,&
                              slavery,lslavery,nnz_tr_proj_est)
          la_transform = nnz_tr_proj_est
          write(*,*) 'myid =',myid,': Space estimated for change of basis =',la_transform
-         call flush(6)
       end if
       la = la_pure + la_proj + la_transform
       ! prepare memory for distributed sparse matrix IJA
       write(*,*) 'myid =',myid,': Trying to allocate for sparse matrix',2*sm_showsize(la,8),' [MB].'
-      call flush(6)
       allocate(i_sparse(la), j_sparse(la), a_sparse(la))
 
 ! Run this twice - in the first run, prepare interior solution u_int
@@ -540,7 +539,6 @@ character(100) :: filename, problemname
 ! Assembly entries in matrix
       call sm_assembly(i_sparse,j_sparse,a_sparse,la_pure,nnz)
       write(*,*) 'myid =',myid,': Matrix loaded and assembled'
-      call flush(6)
 
       ! remove BCT array if it was used
       if (allocated(bct)) then
@@ -565,7 +563,8 @@ character(100) :: filename, problemname
             ! Load matrix to MUMPS
             call mumps_load_triplet(schur_mumps,ndoft,nnz,i_sparse,j_sparse,a_sparse,la)
             ! Analyze matrix
-            call mumps_analyze(schur_mumps) 
+            parallel_analysis = .true.
+            call mumps_analyze(schur_mumps,parallel_analysis) 
             ! Factorize matrix 
             call mumps_factorize(schur_mumps)
             ! Solve the system for given rhs
@@ -656,7 +655,7 @@ character(100) :: filename, problemname
       end if
 
 ! Call Krylov method for solution of the system
-      if      (matrixtype.eq.1) then
+!      if      (matrixtype.eq.1) then
          if (myid.eq.0) then
             write (*,*) 'Calling PCG method for solution.'
          end if
@@ -665,21 +664,21 @@ character(100) :: filename, problemname
                       ndim,nglb,inglb,linglb,nnglb,lnnglb,&
                       nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, nndft,lnndft, iintt,liintt, &
                       idtr, schur_mumps, rhst,lrhst,tol,maxit,ndecrmax,solt,lsolt)
-      else if (matrixtype.eq.2) then
-         if (myid.eq.0) then
-            write (*,*) 'Calling MINRES method for solution.'
-         end if
-         call bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
-                         mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,&
-                         ndim,nglb,inglb,linglb,nnglb,lnnglb,&
-                         nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, nndft,lnndft, iintt,liintt, &
-                         idtr, schur_mumps, rhst,lrhst,tol,maxit,ndecrmax,solt,lsolt)
-      else
-         if (myid.eq.0) then
-            write (*,*) 'Matrixtype not supported by iterations.', matrixtype
-         end if
-         call error_exit
-      end if
+!      else if (matrixtype.eq.2) then
+!         if (myid.eq.0) then
+!            write (*,*) 'Calling MINRES method for solution.'
+!         end if
+!         call bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
+!                         mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,&
+!                         ndim,nglb,inglb,linglb,nnglb,lnnglb,&
+!                         nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, nndft,lnndft, iintt,liintt, &
+!                         idtr, schur_mumps, rhst,lrhst,tol,maxit,ndecrmax,solt,lsolt)
+!      else
+!         if (myid.eq.0) then
+!            write (*,*) 'Matrixtype not supported by iterations.', matrixtype
+!         end if
+!         call error_exit
+!      end if
 
 
 ! Close file for transformation matrices
@@ -752,7 +751,6 @@ character(100) :: filename, problemname
          write(*,*) '=========================='
          write(*,*) 'Time of whole run = ',time
          write(*,*) '=========================='
-         call flush(6)
       end if
 
 ! Finalize MPI
@@ -906,7 +904,6 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          write(*,*) '===================================='
          write(*,*) 'Time of initializing of BDDC = ',time
          write(*,*) '===================================='
-         call flush(6)
       end if
 !****************************************************************************BDDC
 
@@ -922,7 +919,6 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
       if (any(sol.ne.0_kr)) then
          if (myid.eq.0) then
             write(*,*) 'Nonzero initial solution -> create initial vector of residual.'
-            call flush(6)
             nonzero_initial_solution_loc = .true.
          end if
       end if
@@ -964,7 +960,6 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
       if (.not.any(res.ne.0.0_kr)) then
          if (myid.eq.0) then
             write(*,*) 'all zero RHS => solution without change'
-            call flush(6)
          end if
          goto 77
       end if
@@ -973,7 +968,6 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 ! p = M_BDDC*res 
       if (myid.eq.0) then
          write(*,*) ' Initial action of preconditioner'
-         call flush(6)
       end if
       if (iterate_on_reduced) then
       ! check that residual is energy minimal
@@ -1023,7 +1017,6 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
       if (rmr.le.0.0_kr) then
          if (myid.eq.0) then
             write(*,*) 'WARNING: Preconditioner not positive definite! rmr =',rmr
-            call flush(6)
          end if
       end if
 
@@ -1044,7 +1037,6 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          call bddc_time_start(comm)
          if (myid.eq.0) then
             write(*,*) ' Multiplication by system matrix'
-            call flush(6)
          end if
          if (iterate_on_reduced) then
             ! A21 * p
@@ -1084,7 +1076,6 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          if (pap.le.0.0_kr) then
             if (myid.eq.0) then
                write(*,*) ' System matrix not positive definite!, pap =',pap
-               call flush(6)
             end if
 !            call MPI_ABORT(comm, 78, ierr)
          end if
@@ -1182,7 +1173,6 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          if (rmr.le.0.0_kr) then
             if (myid.eq.0) then
                write(*,*) 'WARNING: Preconditioner not positive definite! rmr =',rmr
-               call flush(6)
             end if
          end if
 
@@ -1204,7 +1194,6 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          if (iter.eq.maxit) then
             if (myid.eq.0) then
                write(*,*) 'bddcpcg: Iterations reached prescribed limit without reaching precision.'
-               call flush(6)
             end if
             stop
          end if
@@ -1218,7 +1207,6 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          write(*,*) 'Time of all iterations = ',time
          write(*,*) 'Time per 1 iteration = ',time/float(iter)
          write(*,*) '===================================='
-         call flush(6)
       end if
 
 !***************************************************CONDITION NUMBER ESTIMATION
@@ -1393,7 +1381,6 @@ subroutine bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrix
          write(*,*) '===================================='
          write(*,*) 'Time of initializing of BDDC = ',time
          write(*,*) '===================================='
-         call flush(6)
       end if
 !****************************************************************************BDDC
 
@@ -1409,7 +1396,6 @@ subroutine bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrix
       if (any(sol.ne.0_kr)) then
          if (myid.eq.0) then
             write(*,*) 'Nonzero initial solution -> create initial vector of residual.'
-            call flush(6)
             nonzero_initial_solution_loc = .true.
          end if
       end if
@@ -1457,7 +1443,6 @@ subroutine bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrix
       if (.not.any(v.ne.0.0_kr)) then
          if (myid.eq.0) then
             write(*,*) 'all zero RHS => solution without change'
-            call flush(6)
          end if
          goto 77
       end if
@@ -1466,7 +1451,6 @@ subroutine bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrix
 ! p = M_BDDC*res 
       if (myid.eq.0) then
          write(*,*) ' Initial action of preconditioner'
-         call flush(6)
       end if
       if (iterate_on_reduced) then
       ! check that residual is energy minimal
@@ -1563,7 +1547,6 @@ subroutine bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrix
          call bddc_time_start(comm)
          if (myid.eq.0) then
             write(*,*) ' Multiplication by system matrix'
-            call flush(6)
          end if
          if (iterate_on_reduced) then
             ! A21 * z
@@ -1603,14 +1586,12 @@ subroutine bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrix
          !   do i = 1,lap
          !      write(*,'(i8, f14.6)') i, ap(i)
          !   end do
-         !   call flush(6)
          !end if
 
 ! Control of positive definitenes of system matrix
 !         if (delta.le.0.0D0) then
 !            if (myid.eq.0) then
 !               write(*,*) ' System matrix not positive definite!, delta =',delta
-!               call flush(6)
 !            end if
 !!            call MPI_ABORT(comm, 78, ierr)
 !         end if
@@ -1629,7 +1610,6 @@ subroutine bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrix
          !   end do
          !end if
          !
-         !call flush(6)
 
 
 ! Action of preconditioner M on residual vector VNEW 
@@ -1759,7 +1739,6 @@ subroutine bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrix
          if (iter.eq.maxit) then
             if (myid.eq.0) then
                write(*,*) 'bddcminres: Iterations reached prescribed limit without reaching precision.'
-               call flush(6)
             end if
             stop
          end if
@@ -1772,7 +1751,6 @@ subroutine bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrix
          write(*,*) '===================================='
          write(*,*) 'Time of all iterations = ',time
          write(*,*) '===================================='
-         call flush(6)
       end if
 
 
