@@ -68,7 +68,7 @@ integer,parameter:: timeinfo = 1
 logical,parameter:: print_solution = .false.
 
 ! Use preconditioner?
-logical,parameter:: use_preconditioner = .false.
+logical,parameter:: use_preconditioner = .true.
 
 ! Use this structure of MUMPS for routines from mumps
 type(DMUMPS_STRUC) :: schur_mumps
@@ -656,7 +656,7 @@ character(100) :: filename, problemname
       end if
 
 ! Call Krylov method for solution of the system
-      if      (matrixtype.eq.1) then
+      if      (matrixtype.eq.1 .or. matrixtype.eq.2) then
          if (myid.eq.0) then
             write (*,*) 'Calling PCG method for solution.'
          end if
@@ -665,15 +665,15 @@ character(100) :: filename, problemname
                       ndim,nglb,inglb,linglb,nnglb,lnnglb,&
                       nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, nndft,lnndft, iintt,liintt, &
                       idtr, schur_mumps, rhst,lrhst,tol,maxit,ndecrmax,solt,lsolt)
-      else if (matrixtype.eq.2) then
-         if (myid.eq.0) then
-            write (*,*) 'Calling MINRES method for solution.'
-         end if
-         call bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
-                         mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,&
-                         ndim,nglb,inglb,linglb,nnglb,lnnglb,&
-                         nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, nndft,lnndft, iintt,liintt, &
-                         idtr, schur_mumps, rhst,lrhst,tol,maxit,ndecrmax,solt,lsolt)
+!      else if (matrixtype.eq.2) then
+!         if (myid.eq.0) then
+!            write (*,*) 'Calling MINRES method for solution.'
+!         end if
+!         call bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
+!                         mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,&
+!                         ndim,nglb,inglb,linglb,nnglb,lnnglb,&
+!                         nnodt,ndoft,ihntn,lihntn,slavery,lslavery,kdoft,lkdoft, nndft,lnndft, iintt,liintt, &
+!                         idtr, schur_mumps, rhst,lrhst,tol,maxit,ndecrmax,solt,lsolt)
       else
          if (myid.eq.0) then
             write (*,*) 'Matrixtype not supported by iterations.', matrixtype
