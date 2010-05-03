@@ -1118,6 +1118,7 @@ subroutine dd_prepare_schur(myid,comm,isub)
       ! local vars
       integer :: ndofo, la11, nnza11
       integer :: mumpsinfo
+      logical :: parallel_analysis
 
       ! check the prerequisities
       if (.not.sub(isub)%is_proc_assigned) then
@@ -1157,7 +1158,8 @@ subroutine dd_prepare_schur(myid,comm,isub)
       call mumps_load_triplet(sub(isub)%mumps_interior_block,ndofo,nnza11,&
                               sub(isub)%i_a11_sparse,sub(isub)%j_a11_sparse,sub(isub)%a11_sparse,la11)
       ! Analyze matrix
-      call mumps_analyze(sub(isub)%mumps_interior_block) 
+      parallel_analysis = .false.
+      call mumps_analyze(sub(isub)%mumps_interior_block,parallel_analysis) 
       ! Factorize matrix 
       call mumps_factorize(sub(isub)%mumps_interior_block) 
 
@@ -1820,6 +1822,7 @@ subroutine dd_prepare_aug(myid,comm,isub)
       integer ::  i, iaaug
       integer ::  mumpsinfo, aaugmatrixtype
       integer ::  icol, icoli
+      logical :: parallel_analysis
 
       ! check the prerequisities
       if (sub(isub)%proc .ne. myid) then
@@ -1930,7 +1933,8 @@ subroutine dd_prepare_aug(myid,comm,isub)
       call mumps_load_triplet(sub(isub)%mumps_aug,ndofaaug,nnzaaug,&
                                   sub(isub)%i_aaug_sparse,sub(isub)%j_aaug_sparse,sub(isub)%aaug_sparse,laaug)
       ! Analyze matrix
-      call mumps_analyze(sub(isub)%mumps_aug) 
+      parallel_analysis = .false.
+      call mumps_analyze(sub(isub)%mumps_aug,parallel_analysis) 
       ! Factorize matrix 
       call mumps_factorize(sub(isub)%mumps_aug) 
 

@@ -36,6 +36,7 @@ program test_module_mumps
 
 !  local variables
       integer :: matrixtype, mumpsinfo
+      logical :: parallel_analysis
    
 ! Communicator
       comm = MPI_COMM_WORLD
@@ -74,7 +75,8 @@ program test_module_mumps
       call mumps_load_triplet(test_mumps,n,nnz,i_sparse,j_sparse,a_sparse,la)
 
 ! Analyze matrix
-      call mumps_analyze(test_mumps)
+      parallel_analysis = .true.
+      call mumps_analyze(test_mumps,parallel_analysis)
 
 ! Analyze matrix
       call mumps_factorize(test_mumps)

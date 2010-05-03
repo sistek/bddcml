@@ -507,7 +507,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          !do i = 1,ninstructions
          !   write(90+myid,*) instructions(i,:)
          !end do
-         !call flush(90+myid)
 
          ! build the local matrix of projection on common globs for active pair
          !  get sizes of interface of subdomains in my problem
@@ -538,7 +537,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*) 'I am ',myid, 'All messages in pack 1 received, MPI is fun!.'
-            call flush(6)
          end if
 
          !if (my_pair.ge.0) then
@@ -569,7 +567,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*) 'I am ',myid, 'All messages in pack 2 received, MPI is fun!.'
-            call flush(6)
          end if
 
          !if (my_pair.ge.0) then
@@ -600,7 +597,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*) 'I am ',myid, 'All messages in pack 2.2 received, MPI is fun!.'
-            call flush(6)
          end if
 
          !if (my_pair.ge.0) then
@@ -631,7 +627,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*) 'I am ',myid, 'All messages in pack 2.5 received, MPI is fun!.'
-            call flush(6)
          end if
          !if (my_pair.ge.0) then
          !   write(90+myid,*) 'nnodi_i',nnodi_i,'nnodi_j',nnodi_j
@@ -681,14 +676,12 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*) 'I am ',myid, 'All messages in pack 3 received, MPI is fun!.'
-            call flush(6)
          end if
          !if (my_pair.ge.0) then
          !   write(*,*) 'indrowc_i'
          !   write(*,*)  indrowc_i
          !   write(*,*) 'indrowc_j'
          !   write(*,*)  indrowc_j
-         !   call flush(6)
          !end if
 
          if (my_pair.ge.0) then
@@ -726,7 +719,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*) 'I am ',myid, 'All messages in pack 4.1 received, MPI is fun!.'
-            call flush(6)
          end if
          ! get data about coarse nodes
          ireq = 0
@@ -756,7 +748,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*) 'I am ',myid, 'All messages in pack 4.2 received, MPI is fun!.'
-            call flush(6)
          end if
          !if (my_pair.ge.0) then
          !   write(*,*) 'i_c_sparse_i'
@@ -799,7 +790,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*) 'I am ',myid, 'All messages in pack 5 received, MPI is fun!.'
-            call flush(6)
          end if
          !if (my_pair.ge.0) then
          !   write(90+myid,*) 'nndfi_i'
@@ -964,7 +954,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*) 'I am ',myid, 'All messages in pack 7 received, MPI is fun!.'
-            call flush(6)
          end if
          !if (my_pair.ge.0) then
          !   write(90+myid,*)'rhoi_i'
@@ -1003,7 +992,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*)  'I am ',myid,'All messages in pack 8 received, MPI is fun!.'
-            call flush(6)
          end if
          !if (my_pair.ge.0) then
          !   write(90+myid,*)'iingn_i'
@@ -1136,7 +1124,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end if
          if (debug) then
             write(*,*)  'I am ',myid,'All messages in pack 9 received, MPI is fun!.'
-            call flush(6)
          end if
          lbufsend = 0
          do i = 1,ninstructions
@@ -1171,7 +1158,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                ! compute eigenvectors and store them into file
                if (debug) then
                   write(*,*) 'myid =',myid,', I am calling eigensolver for pair ',my_pair
-                  call flush(6)
                end if
                call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,use_vec_values,&
                                   eigval,eigvec,lobpcg_iter,ierr)
@@ -1181,7 +1167,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                end if
                !if (debug) then
                write(*,*) 'myid =',myid,', LOBPCG converged in ',lobpcg_iter,' iterations.'
-               call flush(6)
                !end if
 
                ! turn around the eigenvalues to be the largest
@@ -1201,7 +1186,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                !if (debug) then
                if (debug) then
                   write(*,*) 'myid =',myid,', Eigenvalues stored in file ',trim(filename)
-                  call flush(6)
                end if
                !end if
                !write(90+myid,*) 'x ='
@@ -1215,7 +1199,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                ! read eigenvectors from file
                if (debug) then
                   write(*,*) 'myid =',myid,', I am reading eigenvalues for pair ',my_pair,' from file ',trim(filename)
-                  call flush(6)
                end if
                open(unit = idmyunit,file=filename,status='old',form='formatted')
                read(idmyunit,*) neigvecf, problemsizef
@@ -1242,7 +1225,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             nadaptive = count(eigval.ge.threshold_eigval)
 
             write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: I am going to add ',nadaptive,' constraints for pair ',my_pair
-            call flush(6)
 
             ! find estimator of condition number
             if (nadaptive.lt.neigvec) then
@@ -1271,7 +1253,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          !   do i = 1,problemsize
          !      write(*,'(100f15.3)') (constraints(i,j),j = 1,nadaptive)
          !   end do
-         !   call flush(6)
          !end if
 
          ! REALLOCATE BUFFERS
@@ -1316,7 +1297,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end if
          if (debug) then
             write(*,*)  'myid =',myid,'All messages in pack 10 received, MPI is fun!.'
-            call flush(6)
          end if
          lbufsend = 0
          do i = 1,ninstructions
@@ -1373,7 +1353,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*)  'myid =',myid,'All messages in pack 11 received, MPI is fun!.'
-            call flush(6)
          end if
 
          ! processors now own data of adaptively found constraints on their subdomains, they have to filter globs and load them into the structure
@@ -1439,7 +1418,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
       if (myid.eq.0) then
          write(*,*) 'Expected estimated condition number: ',est
-         call flush(6)
       end if
 
 

@@ -1070,7 +1070,6 @@ subroutine sm_from_sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la
                   length = icol
                case default
                   write(*,*) 'sm_from_sm_mat_mult: Unknown type of storage. Maybe STORE_TYPE not set.'
-                  call flush(6)
                   stop
             end select
             space_left = lmout_sparse - nnz_mout
@@ -1198,7 +1197,6 @@ subroutine sm_from_sm_mat_mult_emb(matrixtype, nnz, i_sparse, j_sparse, a_sparse
                   length = mask_col(icol)
                case default
                   write(*,*) 'sm_from_sm_mat_mult_emb: Unknown type os storage. Maybe STORE_TYPE not set.'
-                  call flush(6)
                   stop
             end select
             space_left = lmout_sparse - nnz_mout
@@ -1250,7 +1248,6 @@ subroutine sm_from_vec(vec,lvec, i_sparse, a_sparse, la, nnz)
             ia = ia + 1
             if (ia.gt.la) then
                write(*,*) 'sm_from_vec: No space left for conversion to sparse matrix.'
-               call flush(6)
                stop
             end if
             i_sparse(ia) = i
@@ -1467,7 +1464,6 @@ subroutine sm_from_dmatmult(matrixtype, m,lm1,lm2, n,ln1,ln2, i_sparse,j_sparse,
                      ia = ia + 1
                      if (ia.gt.la) then
                         write(*,*) 'sm_from_dmatmult: No space left for conversion to sparse matrix.'
-                        call flush(6)
                         stop
                      end if
                      i_sparse(ia) = irow

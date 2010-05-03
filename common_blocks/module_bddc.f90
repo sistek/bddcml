@@ -159,6 +159,8 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
 
       real(kr) :: time
 
+      logical :: parallel_analysis
+
 ! Optional arguments
       if (present(idtrmain)) then
          idtr = idtrmain
@@ -217,7 +219,6 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
             write(*,*) '==========================================='
             write(*,*) 'Time of construction of projection = ',time
             write(*,*) '==========================================='
-            call flush(6)
          end if
       end if
 
@@ -234,7 +235,6 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
             write(*,*) '==========================================='
             write(*,*) 'Time of transforming the matrix = ',time
             write(*,*) '==========================================='
-            call flush(6)
          end if
       end if
 
@@ -252,14 +252,14 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
       call mumps_load_triplet(bddc_mumps,ndoft,nnz+nnz_transform+nnz_proj,i_sparse,j_sparse,a_sparse,la)
 
 ! Analyze matrix
+      parallel_analysis = .true.
       call bddc_time_start(comm)
-      call mumps_analyze(bddc_mumps) 
+      call mumps_analyze(bddc_mumps,parallel_analysis) 
       call bddc_time_end(comm,time)
       if (myid.eq.0.and.time_verbose.ge.1) then
          write(*,*) '==========================================='
          write(*,*) 'Time of MUMPS analysis = ',time
          write(*,*) '==========================================='
-         call flush(6)
       end if
 
 ! Factorize matrix
@@ -270,7 +270,6 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
          write(*,*) '==========================================='
          write(*,*) 'Time of MUMPS factorization = ',time
          write(*,*) '==========================================='
-         call flush(6)
       end if
 
 ! Create weigth matrix DP
@@ -304,7 +303,6 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,iterate_on_transfor
                write(*,*) '=============================================='
                write(*,*) 'Time of application of initial transformation = ',time
                write(*,*) '=============================================='
-               call flush(6)
             end if
          end if
       end if
@@ -472,7 +470,6 @@ subroutine bddc_M(myid,comm,iterate_on_transformed,nnodt,nndft,lnndft,slavery,ls
             write(*,*) '=============================================='
             write(*,*) 'Time of dual problem solution = ',time
             write(*,*) '=============================================='
-            call flush(6)
          end if
       end if
 
@@ -487,7 +484,6 @@ subroutine bddc_M(myid,comm,iterate_on_transformed,nnodt,nndft,lnndft,slavery,ls
                write(*,*) '=============================================='
                write(*,*) 'Time of application of transformation on residual = ',time
                write(*,*) '=============================================='
-               call flush(6)
             end if
          end if
       end if
@@ -503,7 +499,6 @@ subroutine bddc_M(myid,comm,iterate_on_transformed,nnodt,nndft,lnndft,slavery,ls
             write(*,*) '==========================================='
             write(*,*) 'Time of application of projection = ',time
             write(*,*) '==========================================='
-            call flush(6)
          end if
       end if
 
@@ -962,7 +957,6 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
                end do
                if (indnglb_s.eq.0) then
                   write(*,*) 'bddc_P_init: Error in searching slave index.'
-                  call flush(6)
                   stop
                end if
                iglbntn(iconstr*nglbn + inodglb) = indnglb_s
@@ -983,7 +977,6 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !         do i = 1,lg1
 !            write(*,'(30f10.5)') g(i,:)
 !         end do
-!         call flush(6)
 
 !        QR decomposition of matrix G^T
          lr1 = lg2
@@ -1000,7 +993,6 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          call DGEQR2( lr1, lr2, r, ldim, tau, work, lapack_info)
          if (lapack_info.ne.0) then
             write(*,*) 'bddc_P_init: Error in LAPACK QR factorization of G: ', lapack_info
-            call flush(6)
             stop
          end if
          deallocate(tau,work)
@@ -1008,7 +1000,6 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !         do i = 1,lr1
 !            write(*,'(30f10.5)') r(i,:)
 !         end do
-!         call flush(6)
 
 !        find local block of F, such that R^T F = G, store F in G
          lrt1 = lr2
@@ -1021,7 +1012,6 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          call DTRTRS( 'L',   'N',   'N', lr2 , nrhs, rt, ldim, g, ldim, lapack_info)
          if (lapack_info.ne.0) then
             write(*,*) 'Error in LAPACK solution of R^T * F = G :', lapack_info
-            call flush(6)
             stop
          end if
          deallocate(r)
@@ -1082,7 +1072,6 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !      do i = 1,lf1
 !         write(*,'(30f10.5)') f(i,:)
 !      end do
-!      call flush(6)
       call bddc_time_end(comm,time)
       if (myid.eq.0.and.time_verbose.ge.2) then
          write(*,*) '==========================================='
@@ -1113,7 +1102,6 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !      do i = 1,lh1
 !         write(*,'(30f10.5)') h(i,:)
 !      end do
-!      call flush(6)
       
 ! Convert F to sparse matrix
       lf_sparse = count(f.ne.0._kr) 
@@ -1125,7 +1113,6 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       ! clear memory
       deallocate(f)
       write(*,*) 'myid =',myid,': F converted to sparse, nnz_f =',nnz_f
-      call flush(6)
 
 ! Add entries from projection to the matrix
       call bddc_time_start(comm)
@@ -1215,11 +1202,9 @@ subroutine bddc_P_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 
 ! Assembly new entries in matrix
       write(*,*) 'myid =',myid,': Space really needed for projection =',nnz_new
-      call flush(6)
       call sm_assembly(i_sparse(nnz+1),j_sparse(nnz+1),a_sparse(nnz+1),nnz_new, nnz_proj)
       write(*,*) 'myid =',myid,': Number of nonzeros from projection nnz_proj =',nnz_proj
       write(*,*) 'myid =',myid,': Local fill-in by projection nnz_proj/nnz =',float(nnz_proj)/nnz
-      call flush(6)
 
       return
 end subroutine
@@ -1417,7 +1402,6 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
                end do
                if (indnglb_s.eq.0) then
                   write(*,*) 'bddc_P_init: Error in searching slave index.'
-                  call flush(6)
                   stop
                end if
 
@@ -1452,7 +1436,6 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
          !do i = 1,lg1
          !   write(*,'(30f10.5)') g(i,:)
          !end do
-         !call flush(6)
 
 !        QR decomposition of matrix G^T
          lr1 = lg2
@@ -1472,7 +1455,6 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
             call DGEQR2( lr1, lr2, r, ldim, tau, work, lapack_info)
             if (lapack_info.ne.0) then
                write(*,*) 'bddc_P_init: Error in LAPACK QR factorization of G: ', lapack_info
-               call flush(6)
                stop
             end if
          end if
@@ -1481,7 +1463,6 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
          !do i = 1,lr1
          !   write(*,'(30f10.5)') r(i,:)
          !end do
-         !call flush(6)
 
 !        find local block of F, such that R^T F = G, store F in G
          ldimr = max(1,lr1)
@@ -1491,7 +1472,6 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
             call DTRTRS( 'U',   'T',   'N', lr2 , nrhs, r, ldimr, g, ldimg, lapack_info)
             if (lapack_info.ne.0) then
                write(*,*) 'Error in LAPACK solution of R^T * F = G :', lapack_info
-               call flush(6)
                stop
             end if
          end if
@@ -1555,8 +1535,6 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
       !do i = 1,lf2
       !   write(90+myid,'(150f10.5)') f(:,i)
       !end do
-      !call flush(6)
-      !call flush(90+myid)
       call bddc_time_end(comm,time)
       if (myid.eq.0.and.time_verbose.ge.2) then
          write(*,*) '==========================================='
@@ -1574,7 +1552,6 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
       lh2 = lf1
       allocate(h(lh1,lh2))
       print *, 'myid =',myid,'lh1 =',lh1,'lh2 =',lh2
-      call flush(6)
       call sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                        ft,lft1,lft2, h,lh1,lh2)
       deallocate(ft)
@@ -1588,8 +1565,6 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
       !do i = 1,lh1
       !   write(90+myid,'(30f10.5)') h(i,:)
       !end do
-      !call flush(6)
-      !call flush(90+myid)
       
 ! Convert F to sparse matrix
       lf_sparse = count(f.ne.0._kr) 
@@ -1601,7 +1576,6 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
       ! clear memory
       deallocate(f)
       write(*,*) 'myid =',myid,': F converted to sparse, nnz_f =',nnz_f
-      call flush(6)
 
 ! Add entries from projection to the matrix
       call bddc_time_start(comm)
@@ -1701,11 +1675,9 @@ subroutine bddc_P_adapt_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,ncons
 
 ! Assembly new entries in matrix
       write(*,*) 'myid =',myid,': Space really needed for projection =',nnz_new
-      call flush(6)
       call sm_assembly(i_sparse(nnz+1),j_sparse(nnz+1),a_sparse(nnz+1),nnz_new, nnz_proj)
       write(*,*) 'myid =',myid,': Number of nonzeros from projection nnz_proj =',nnz_proj
       write(*,*) 'myid =',myid,': Local fill-in by projection nnz_proj/nnz =',float(nnz_proj)/nnz
-      call flush(6)
 
       return
 end subroutine
@@ -1876,9 +1848,7 @@ subroutine bddc_T_nnz_est(myid,matrixtype,sparsity,ndofs,ndim,nglb,inglb,linglb,
       nnz_tr_proj_est = nnz_transform_est + nnz_proj_est
 
       write(*,*) 'myid =',myid,': Space estimated for transformation =',nnz_transform_est
-      call flush(6)
       write(*,*) 'myid =',myid,': Space estimated for projection after transformation =',nnz_proj_est
-      call flush(6)
 
       deallocate(nnglbtr)
       deallocate(inglbtr)
@@ -2033,7 +2003,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
    !         do i = 1,lt1
    !            write(*,'(30f10.5)') t(i,:)
    !         end do
-   !         call flush(6)
    
             ! correct solution if desired
             ! u^hat = T u
@@ -2074,7 +2043,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
    !         do i = 1,lt1
    !            write(*,'(30f10.5)') t(i,:)
    !         end do
-   !         call flush(6)
    
    ! Inflate the inversion of matrix from nodes to globs
             nglbv = ndofn*nglbn
@@ -2161,7 +2129,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
       !         do i = 1,lt1
       !            write(*,'(30f10.5)') t(i,:)
       !         end do
-      !         call flush(6)
       
                ! correct solution if desired
                ! u^hat = T u
@@ -2210,7 +2177,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !         do i = 1,ltdof1
 !            write(*,'(30f10.5)') tdof(i,:)
 !         end do
-!         call flush(6)
 
 ! Subtract unity from matrix TDOF
 ! This small trick allows the matrix to only generate new values without
@@ -2224,7 +2190,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !         do i = 1,ltdof1
 !            write(*,'(30f10.5)') tdof(i,:)
 !         end do
-!         call flush(6)
 
 ! Find mapping of glob variables into global variables
             liglbvgvn = nglbv
@@ -2243,7 +2208,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          !write(*,*) iglbvgvn
          !write(*,*) 'myid =',myid,'array inglb'
          !write(*,*) inglb
-         !call flush(6)
 
 ! Find new entries in the matrix from Ac*T
             point = nnz + nnz_new
@@ -2281,14 +2245,12 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          write(*,*) '======================================================='
          write(*,*) 'Time of right multiplication by transformation = ',time
          write(*,*) '======================================================='
-         call flush(6)
       end if
 
       ! Set file with tranformation matrices to beginning
       rewind idtr
       ! Prepare sparse matrix T
       write(*,*) 'myid =',myid,': Estimated number of nonzeros in transformation T =',nnz_t_est
-      call flush(6)
       lt_sparse = nnz_t_est
       allocate(i_t_sparse(lt_sparse),j_t_sparse(lt_sparse),t_sparse(lt_sparse))
 
@@ -2358,25 +2320,21 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 !      call sm_print(6, i_sparse, j_sparse, a_sparse, la, nnz + nnz_transform)
 
       write(*,*) 'myid =',myid,': Final number of nonzeros in transformation T =',nnz_t
-      call flush(6)
 
       call bddc_time_end(comm,time)
       if (myid.eq.0.and.time_verbose.ge.2) then
          write(*,*) '======================================================='
          write(*,*) 'Time of left multiplication by transformation = ',time
          write(*,*) '======================================================='
-         call flush(6)
       end if
 
 
 ! Assembly new entries in matrix
       write(*,*) 'myid =',myid,': Space really needed by transformation =',nnz_transform
-      call flush(6)
       call sm_assembly(i_sparse(nnz+1),j_sparse(nnz+1),a_sparse(nnz+1),nnz_transform, nnz_transform_as)
       nnz_transform = nnz_transform_as
       write(*,*) 'myid =',myid,': Number of nonzeros from transformation nnz_transform =',nnz_transform
       write(*,*) 'myid =',myid,': Local fill-in by transformation nnz_transform/nnz =',float(nnz_transform)/nnz
-      call flush(6)
 
 
 !      call sm_print(6,i_sparse,j_sparse,a_sparse,la,nnz+nnz_transform)
@@ -2396,7 +2354,6 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
          write(*,*) '================================================================'
          write(*,*) 'Time of construction of projection after transformation = ',time
          write(*,*) '================================================================'
-         call flush(6)
       end if
 
       deallocate(nconstrgl)
@@ -2526,7 +2483,6 @@ subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
       !do i = 1,lavg1
       !   write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
       !end do
-      !call flush(90+myid)
 !      call bddc_T_LU(avg,lavg1,lavg2,ipiv,lipiv)
       ldavg = max(1,lavg1)
       call DGEQP3( lavg1, lavg2, avg, ldavg, ipiv, tau, work, lwork, lapack_info )
@@ -2543,7 +2499,6 @@ subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
       !do i = 1,lavg1
       !   write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
       !end do
-      !call flush(90+myid)
 
       ! determine number of valid averages for stable inverse check values bellow treshold
       if (lavg1.gt.0) then
@@ -2571,7 +2526,6 @@ subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
       !do i = 1,nvalid
       !   write(90+myid,'(100f14.6)') (avg(i,j),j = 1,lavg2)
       !end do
-      !call flush(90+myid)
 
       ! construct new array T
       t = 0._kr
@@ -2597,7 +2551,6 @@ subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
       !do i = 1,lt1
       !   write(90+myid,'(100f14.6)') (t(i,j),j = 1,lt2)
       !end do
-      !call flush(90+myid)
 
       deallocate(aux)
       deallocate(ipiv)
