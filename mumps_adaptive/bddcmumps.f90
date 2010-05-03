@@ -154,6 +154,7 @@ real(kr),allocatable :: aux(:)
 
 logical :: nonzero_bc_loc = .false. , nonzero_bc
 logical :: is_this_the_first_run
+logical :: parallel_analysis
 
 
 ! variables for module DD
@@ -628,7 +629,8 @@ character(100) :: filename, problemname
             ! Load matrix to MUMPS
             call mumps_load_triplet(schur_mumps,ndoft,nnz,i_sparse,j_sparse,a_sparse,la)
             ! Analyze matrix
-            call mumps_analyze(schur_mumps) 
+            parallel_analysis = .true.
+            call mumps_analyze(schur_mumps,parallel_analysis) 
             ! Factorize matrix 
             call mumps_factorize(schur_mumps)
             ! Solve the system for given rhs
