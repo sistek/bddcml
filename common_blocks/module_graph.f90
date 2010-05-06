@@ -102,7 +102,8 @@ integer, intent(out) ::  ladjwgt
 
 ! local variables
 integer,allocatable :: onerow(:), onerowweig(:)
-integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionerow, nelmn, nne, pointietn, lor
+integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionerow, nelmn, nne, pointietn, lorin, lorout
+integer :: lor
 
 ! prepare arrays for storing a row
       nnetx = maxval(nnet)
@@ -129,8 +130,9 @@ integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionero
             onerow(ionerow+1:ionerow + nelmn) = ietn(pointietn+1:pointietn+nelmn)
             ionerow = ionerow + nelmn
          end do
+         lorin = ionerow
          ! parse onerow
-         call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lor)
+         call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lorin,lorout)
          xadj(ie + 1) = xadj(ie) + count(onerowweig.ge.neighbouring)
       end do
 
@@ -185,7 +187,7 @@ integer, intent(out) :: adjwgt(ladjwgt)
 
 ! local variables
 integer,allocatable :: onerow(:), onerowweig(:)
-integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionerow, nelmn, nne, pointietn, lor
+integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionerow, nelmn, nne, pointietn, lorin, lorout
 
 ! prepare arrays for storing a row
       nnetx = maxval(nnet)
@@ -208,12 +210,13 @@ integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionero
             onerow(ionerow+1:ionerow + nelmn) = ietn(pointietn+1:pointietn+nelmn)
             ionerow = ionerow + nelmn
          end do
+         lorin = ionerow
          ! parse onerow
-         call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lor)
+         call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lorin,lorout)
          ! now only adjacencies above the level considered
-         adjncy(xadj(ie):xadj(ie)+lor-1) = onerow(1:lor)
+         adjncy(xadj(ie):xadj(ie)+lorout-1) = onerow(1:lorout)
          if (graphtype.eq.1) then
-            adjwgt(xadj(ie):xadj(ie+1)-1) = onerowweig(1:lor)
+            adjwgt(xadj(ie):xadj(ie+1)-1) = onerowweig(1:lorout)
          end if
       end do
 
@@ -325,7 +328,80 @@ integer :: ie, nadje, j
       end do
 end subroutine graph_write_to_file
 
-subroutine graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lor)
+subroutine graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lorin,lorout)
+
+! contains quicksort routine for integers
+use module_utils
+
+implicit none
+
+integer,intent(in) :: ie
+integer,intent(in) :: neighbouring
+integer,intent(in) ::    lorin
+integer,intent(inout) :: onerow(lorin)
+integer,intent(inout) :: onerowweig(lorin)
+integer,intent(out) :: lorout
+
+! local variables
+integer :: valid, ivalid, nvalid, i, i1, i2
+
+         ! eliminate myself
+         where(onerow .eq. ie) onerow = 0
+
+         ! sort elements
+         call iquick_sort(onerow,lorin)
+
+         ! trim initial zeros
+         !  - find where nonzeros start
+         do i = 1,lorin
+            if (onerow(i) .ne. 0) then
+               i2 = i
+               exit
+            end if
+         end do
+         ! shift array
+         onerow = cshift(onerow,i2-1)
+
+         ! remove multiplicities
+         ivalid = 1
+         valid  = onerow(1)
+         nvalid = 1
+         do i = 2,lorin
+            if (onerow(i).gt.valid) then
+               onerowweig(ivalid) = nvalid
+               nvalid = 1 ! reset count
+               ivalid = ivalid + 1
+               valid  = onerow(i)
+               onerow(ivalid) = valid
+            else if (onerow(i).lt.valid) then
+               onerowweig(ivalid) = nvalid
+               exit
+            else               
+               nvalid = nvalid + 1 ! add count
+            end if
+         end do
+         do i = ivalid+1,lorin
+            onerow(i)     = 0
+            onerowweig(i) = 0
+         end do
+
+         lorout = ivalid
+         ! no repeating indices in onerow
+
+         ! eliminate down limit for adjacencies
+         where(onerowweig(1:lorout).lt.neighbouring) onerow(1:lorout)     = 0
+         where(onerowweig(1:lorout).lt.neighbouring) onerowweig(1:lorout) = 0
+
+         lorout = count(onerow .ne. 0)
+         onerow     = pack(onerow,onerow.ne.0)
+         onerowweig = pack(onerowweig,onerowweig.ne.0)
+         onerow(lorout+1:)     = 0
+         onerowweig(lorout+1:) = 0
+
+end subroutine graph_parse_onerow
+
+subroutine graph_parse_onerow2(ie,neighbouring,onerow,onerowweig,lor)
+! older (and slower) version of the routine
 implicit none
 
 integer,intent(in) :: ie
@@ -364,7 +440,7 @@ integer :: io, indel
          onerow(lor+1:)     = 0
          onerowweig(lor+1:) = 0
 
-end subroutine graph_parse_onerow
+end subroutine graph_parse_onerow2
 
 
 recursive subroutine graph_components(nvertex,xadj,lxadj,adjncy,ladjncy,components,lcomponents,ncomponents)
@@ -384,9 +460,17 @@ integer, intent(out) ::    ncomponents
 
 ! Local variable
 integer :: i, icompo
+integer,parameter :: sizelimit = 2000000
 
 ! initialize the components array
 components = -1
+
+! check size of graph - recursion fails for huge graphs
+if (nvertex.gt.1000000) then
+   write(*,*) 'GRAPH_COMPONENTS: I am recursive subroutine, use me only for graphs smaller than ',sizelimit,' vertices.'
+   ncomponents = -1
+   return
+end if
 
 icompo = 0
 do i = 1,nvertex

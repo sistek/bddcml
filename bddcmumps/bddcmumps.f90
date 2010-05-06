@@ -10,7 +10,7 @@ program bddcmumps
 ! module for using sparse matrices 
 use module_sm
 ! module for using BDDC preconditioner
-use module_bddc
+use module_bddc1
 ! module for using MUMPS
 use module_mumps
 ! module with auxiliary utilities
@@ -181,6 +181,7 @@ character(100) :: filename, problemname
          if(lname1.eq.-1) then
            lname1 = lname1x
          end if
+         call flush(6)
       end if
 ! Broadcast of name of the problem      
 !***************************************************************PARALLEL
@@ -236,6 +237,7 @@ character(100) :: filename, problemname
          write(*,*)'  number of incresing residual ndecrmax =',ndecrmax
          write(*,*)'Characteristics of frontal solution:'
          write(*,*)'  minimal pivot                   pival =',pival
+         call flush(6)
       end if
 ! Broadcast basic properties of the problem
 !***************************************************************PARALLEL
@@ -349,22 +351,27 @@ character(100) :: filename, problemname
       case(0)
          if (myid.eq.0) then
             write(*,*) 'Approach to averages: NO AVERAGES APPLIED'
+            call flush(6)
          end if
       case(1)
          if (myid.eq.0) then
             write(*,*) 'Approach to averages: LAGRANGE MULTIPLIERS'
+            call flush(6)
          end if
       case(2)
          if (myid.eq.0) then
             write(*,*) 'Approach to averages: PROJECTION ON NULLSPACE OF G'
+            call flush(6)
          end if
       case(3)
          if (myid.eq.0) then
             write(*,*) 'Approach to averages: CHANGE OF VARIABLES + PROJECTION'
+            call flush(6)
          end if
       case default
          if (myid.eq.0) then
             write(*,*) 'bddcmumps: Illegal value of AVERAGES_APPROACH.', averages_approach
+            call flush(6)
          end if
          stop
       end select
@@ -459,10 +466,12 @@ character(100) :: filename, problemname
       if (is_this_the_first_run) then
          if (myid.eq.0) then
             write (*,*) 'Building the system for the FIRST time to find the internal solution.'
+            call flush(6)
          end if
       else
          if (myid.eq.0) then
             write (*,*) 'Building the system for the SECOND time.'
+            call flush(6)
          end if
       end if
 
@@ -539,6 +548,7 @@ character(100) :: filename, problemname
 ! Assembly entries in matrix
       call sm_assembly(i_sparse,j_sparse,a_sparse,la_pure,nnz)
       write(*,*) 'myid =',myid,': Matrix loaded and assembled'
+      call flush(6)
 
       ! remove BCT array if it was used
       if (allocated(bct)) then
@@ -658,6 +668,7 @@ character(100) :: filename, problemname
 !      if      (matrixtype.eq.1) then
          if (myid.eq.0) then
             write (*,*) 'Calling PCG method for solution.'
+            call flush(6)
          end if
          call bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
                       mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,&
@@ -667,6 +678,7 @@ character(100) :: filename, problemname
 !      else if (matrixtype.eq.2) then
 !         if (myid.eq.0) then
 !            write (*,*) 'Calling MINRES method for solution.'
+!            call flush(6)
 !         end if
 !         call bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtype,nnz,a_sparse,i_sparse,j_sparse,la, &
 !                         mumpsinfo,timeinfo,use_preconditioner,weight_approach,averages_approach,&
@@ -714,6 +726,7 @@ character(100) :: filename, problemname
          end if
 
          write(*,*) 'Writing solution on disk ...'
+         call flush(6)
          write(idsol) (sol(i), i = 1,lsol)
 ! Nonsense writing in place where postprocessor expect reactions
          write(idsol) (sol(i), i = 1,lsol), 0.0_kr, 0.0_kr, 0.0_kr
@@ -723,6 +736,7 @@ character(100) :: filename, problemname
                     'resolve reaction forces. Record of these does not',&
                     ' make sense and is present only to make ',&
                     'postprocessor str3 happy with input data.'
+         call flush(6)
          
          close (idsol)
       end if
@@ -751,6 +765,7 @@ character(100) :: filename, problemname
          write(*,*) '=========================='
          write(*,*) 'Time of whole run = ',time
          write(*,*) '=========================='
+         call flush(6)
       end if
 
 ! Finalize MPI
@@ -771,7 +786,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 ! Preconditioned conjugate gradient solver based on BDDC
 !******************************************************************************************************
 ! Use module for BDDC
-      use module_bddc
+      use module_bddc1
 
 ! Use module for sparse matrices
       use module_sm
@@ -904,6 +919,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          write(*,*) '===================================='
          write(*,*) 'Time of initializing of BDDC = ',time
          write(*,*) '===================================='
+         call flush(6)
       end if
 !****************************************************************************BDDC
 
@@ -968,6 +984,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 ! p = M_BDDC*res 
       if (myid.eq.0) then
          write(*,*) ' Initial action of preconditioner'
+         call flush(6)
       end if
       if (iterate_on_reduced) then
       ! check that residual is energy minimal
@@ -1037,6 +1054,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          call bddc_time_start(comm)
          if (myid.eq.0) then
             write(*,*) ' Multiplication by system matrix'
+            call flush(6)
          end if
          if (iterate_on_reduced) then
             ! A21 * p
@@ -1137,6 +1155,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
 ! h = M*res
          if (myid.eq.0) then
             write(*,*) ' Action of preconditioner'
+            call flush(6)
          end if
          call bddc_time_start(comm)
          if (use_preconditioner) then
@@ -1207,6 +1226,7 @@ subroutine bddcpcg(myid,comm,iterate_on_reduced,iterate_on_transformed,matrixtyp
          write(*,*) 'Time of all iterations = ',time
          write(*,*) 'Time per 1 iteration = ',time/float(iter)
          write(*,*) '===================================='
+         call flush(6)
       end if
 
 !***************************************************CONDITION NUMBER ESTIMATION
@@ -1258,7 +1278,7 @@ subroutine bddcminres(myid,comm,iterate_on_reduced,iterate_on_transformed,matrix
 ! Preconditioned minimal residual solver based on BDDC
 !******************************************************************************************************
 ! Use module for BDDC
-      use module_bddc
+      use module_bddc1
 
 ! Use module for sparse matrices
       use module_sm

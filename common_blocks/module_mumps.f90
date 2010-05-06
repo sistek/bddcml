@@ -95,6 +95,7 @@ contains
 
       use dmumps_struc_def
       implicit none
+      include "mpif.h"
       type(DMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in):: n, nnz, la
       integer,intent(in),target:: i_sparse(la), j_sparse(la)

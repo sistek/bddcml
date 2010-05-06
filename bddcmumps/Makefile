@@ -2,11 +2,11 @@
 include ../make.inc
 
 # include files needed
- INC = $(INCMPI) $(INCMUMPS) -I../common_blocks/
+ INC = $(INCMUMPS) -I../common_blocks/
 # libraries needed
 LIBS = $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
-       $(LIBPORD) $(LIBLAPACK) $(LIBBLAS) $(LIBMPI) \
-       $(LIBPTHREAD)
+       $(LIBPORD) $(LIBLAPACK) $(LIBBLAS) 
+#$(LIBMPI) $(LIBPTHREAD)
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -22,12 +22,12 @@ all: \
 	$(MPFC) $(MPFFLAGS) $(INC) -c $<
 
 # module dependencies
-module_bddc.o: \
+module_bddc1.o: \
    ../common_blocks/module_mumps.o \
    ../common_blocks/module_sm.o
 
 bddcmumps.o: \
-   module_bddc.o \
+   module_bddc1.o \
    ../common_blocks/module_mumps.o \
    ../common_blocks/module_sm.o \
    ../common_blocks/module_utils.o
@@ -35,7 +35,7 @@ bddcmumps.o: \
 # building binaries
 bddcmumps: \
    bddcmumps.o \
-   module_bddc.o \
+   module_bddc1.o \
    ../common_blocks/module_mumps.o \
    ../common_blocks/module_sm.o \
    ../common_blocks/module_utils.o

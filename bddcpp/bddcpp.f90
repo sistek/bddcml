@@ -32,7 +32,7 @@ integer,parameter:: idpar = 1, idbase = 100, idgmi = 2, ides = 4, idfvs = 3, &
                     idgmist = 20, idgmis = 21, idgraph = 22, idint = 23, idpair = 24, &
                     idlevel = 25
 
-integer,parameter:: lname1x = 8, lnamex = 100, lfnamex = 20
+integer,parameter:: lname1x = 100, lnamex = 130, lfnamex = 130
 
 integer:: lname1
 integer:: ndim, nsub, nelem, ndof, nnod, nnodc
@@ -905,7 +905,7 @@ character(100) :: filename
       lkmynodes = nnod
       allocate(kmynodes(lkmynodes))
       do isub = 1,nsub
-         call bddc_getfname(name1,lname1,isub,'RHSS',fname)
+         call getfname(name1,isub,'RHSS',fname)
          open(unit=idrhss, file=fname, status='replace', form='unformatted')
 ! Begin loop over subdomains
 ! Creation of field kmynodes(nnod) - local usage of global nodes
@@ -946,7 +946,7 @@ character(100) :: filename
       lkmynodes = nnod
       allocate(kmynodes(lkmynodes))
       do isub = 1,nsub
-         call bddc_getfname(name1,lname1,isub,'FVSS',fname)
+         call getfname(name1,isub,'FVSS',fname)
          open(unit=idfvss, file=fname, status='replace', form='unformatted')
 ! Begin loop over subdomains
 ! Creation of field kmynodes(nnod) - local usage of global nodes
@@ -2769,6 +2769,8 @@ subroutine createtilde
 !***********************************************************************
 !     Subroutine for creation of space W_tilde
 !***********************************************************************
+use module_utils
+
 implicit none
 
 integer ::            lihntn,   lslavery,   linett,   lnndft
@@ -2987,11 +2989,11 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
          end do
 
          ! open GMISTS
-         call bddc_getfname(name1,lname1,isub,'GMISTS',fname)
+         call getfname(name1,isub,'GMISTS',fname)
          open (unit=idgmist,file=fname,status='replace',form='formatted')
 
          ! open GMISS
-         call bddc_getfname(name1,lname1,isub,'GMISS',fname)
+         call getfname(name1,isub,'GMISS',fname)
          open (unit=idgmis,file=fname,status='replace',form='formatted')
 
          ! write header
@@ -3104,7 +3106,7 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
          end do
 
          ! write globs into subdomain file
-         call bddc_getfname(name1,lname1,isub,'GLB',fname)
+         call getfname(name1,isub,'GLB',fname)
          open (unit=idglb,file=fname,status='replace',form='formatted')
 
          write(idglb,'(2i15)') nglb_loc, linglb_loc
@@ -3433,6 +3435,7 @@ subroutine solassembly
 !***********************************************************************
 !     Subroutine for global solution assembly
 !***********************************************************************
+use module_utils
 implicit none
 
 ! Local variables
@@ -3492,7 +3495,7 @@ integer :: idofn, i, isol, inod, isub, isols, point, ndofn, ie
       lkmynodes = nnod
       allocate(kmynodes(lkmynodes))
       do isub = 1,nsub
-         call bddc_getfname(name1,lname1,isub,'SOLS',fname)
+         call getfname(name1,isub,'SOLS',fname)
          open(unit=idsols, file=fname, status='old', form='unformatted')
 ! Begin loop over subdomains
 ! Creation of field kmynodes(nnod) - local usage of global nodes
@@ -3633,6 +3636,10 @@ integer :: neighbouring
                            xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
       write (*,'(a)') 'done.'
 
+      deallocate(inet,nnet,nndf)
+      deallocate(netn)
+      deallocate(ietn,kietn)
+
       write (*,'(a,$)') 'Check graph ... '
 ! Check the graph
       call graph_check(nelem,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
@@ -3644,6 +3651,8 @@ integer :: neighbouring
       call graph_components(nelem, xadj,lxadj, adjncy,ladjncy, components,lcomponents, ncomponents)
       if (ncomponents.eq.1) then
          write(*,'(a)') 'mesh seems continuous.'
+      else if (ncomponents.eq.-1) then
+         write(*,'(a)') 'failed for size of mesh.'
       else
          write(*,'(a,i8,a)') 'mesh discontinuous - it contains ',ncomponents,' components.'
       end if
@@ -3661,9 +3670,6 @@ integer :: neighbouring
       write(*,'(a,a)') 'Graph exported into file ',trim(name)
 
       deallocate(components)
-      deallocate(inet,nnet,nndf)
-      deallocate(netn)
-      deallocate(ietn,kietn)
       deallocate(xadj)
       deallocate(adjncy,adjwgt)
 
@@ -4284,56 +4290,5 @@ integer,allocatable :: iaux(:)
 
       return
 end subroutine es0toes
-
-!*******************************************************
-subroutine bddc_getfname(name1,lname1,isub,suffix,fname)
-!*******************************************************
-!     Prepares name of file for subdomain ISUB with structure:
-!     name of problem / number of subdomain + . + suffix
-
-      implicit none
-      
-! subdomain number
-      integer,intent(in) :: isub
-
-! name of the problem
-      integer,intent(in) ::     lname1
-      character(*),intent(in) :: name1 
-
-! suffix of the generated file
-      character(*),intent(in) :: suffix
-
-! generated name
-      character(*),intent(out) :: fname
-
-! local variables
-      integer lsuffix, lfname, zerostart, zeroend, i
-
-      fname = ' '
-      lsuffix = len(suffix)
-      lfname = len(fname)
-      fname(1:lname1) = name1(1:lname1)
-      fname(lname1+1:lname1+1) = '/'
-      zerostart = lname1+2
-      zeroend = lfname-lsuffix-1
-      do i = zerostart,zeroend
-         fname(i:i) = '0'
-      end do
-      fname(zeroend+1:zeroend+1) = '.'
-      fname(zeroend+2:zeroend+lsuffix+1) = suffix
-
-      if (isub.lt.10) then
-         write(fname(zeroend:zeroend),'(i1)') isub
-      else if (isub.lt.100) then
-         write(fname(zeroend-1:zeroend),'(i2)') isub
-      else if (isub.lt.1000) then
-         write(fname(zeroend-2:zeroend),'(i3)') isub
-      else if (isub.lt.10000) then
-         write(fname(zeroend-3:zeroend),'(i4)') isub
-      else
-         write(*,*) 'isub = ',isub,': Out of range for file name!'
-      end if
-
-end subroutine
 
 end

@@ -1,5 +1,5 @@
-module module_bddc
-!*****************
+module module_bddc1
+!******************
 ! Module for realization of the BDDC preconditioner
 ! Jakub Sistek, Denver, 12/2007
 
@@ -2677,5 +2677,5 @@ subroutine bddc_time_end(comm,time)
       return
 end subroutine
 
-end module module_bddc
+end module module_bddc1
 

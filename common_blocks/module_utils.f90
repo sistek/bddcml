@@ -5,7 +5,7 @@ implicit none
 integer,parameter,private :: kr = kind(1.D0)
 
 real(kr),parameter,private :: numerical_zero = 1.e-14
-logical,parameter,private :: debug = .true.
+logical,parameter,private :: debug = .false.
 
 interface zero
    module procedure zero_int_1

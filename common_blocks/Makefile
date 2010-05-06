@@ -2,11 +2,11 @@
 include ../make.inc
 
 # include files needed
-INC = $(INCMPI) $(INCMUMPS) 
+INC = $(INCMUMPS) 
 # libraries needed
 LIBS = $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
-       $(LIBLAPACK) $(LIBBLAS) $(LIBPORD) $(LIBMPI) \
-       $(LIBPTHREAD)
+       $(LIBLAPACK) $(LIBBLAS) $(LIBPORD) 
+# $(LIBMPI)$(LIBPTHREAD)
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target

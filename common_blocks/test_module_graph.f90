@@ -17,8 +17,12 @@ integer,allocatable  ::  adjwgt(:)
 integer  ::            lcomponents
 integer,allocatable  :: components(:)
 integer  ::    ncomponents
+integer  ::            lonerow
+integer,allocatable  :: onerow(:)
+integer,allocatable  :: onerowweig(:)
+integer :: neighbouring, lorout
 
-integer :: i
+integer :: i, ie
 
       write(*,*) 'Test on connected graph with 1 component.'
 ! GRAPH - list of neighbours for elements
@@ -85,5 +89,25 @@ integer :: i
       deallocate(adjncy)
       deallocate(adjwgt)
       deallocate(xadj)
+
+      write(*,*) 'Test of parsing routine.'
+      lonerow = 10
+      allocate(onerow(lonerow),onerowweig(lonerow))
+      onerow     = (/1, 4, 6, 5, 5, 3, 2, 2, 4, 5/)
+      ie = 4
+      write(*,*) 'Chosen element:', ie
+      neighbouring = 2
+      write(*,*) 'Chosen neighbouring:', neighbouring
+      write(*,*) 'Array before parsing:'
+      write(*,'(10i5)') onerow
+      call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lonerow,lorout)
+      write(*,*) 'Array after parsing:'
+      write(*,'(10i5)') onerow
+      write(*,*) 'Multiplicity:'
+      write(*,'(10i5)') onerowweig
+      write(*,*) 'Used length: ',lorout
+
+
+      deallocate(onerow,onerowweig)
 
 end program test_module_graph
