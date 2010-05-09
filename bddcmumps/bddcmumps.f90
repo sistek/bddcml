@@ -49,7 +49,7 @@ integer,parameter:: weight_approach = 1
 ! 1 - only errors printed
 ! 2 - errors and global information printed
 ! 3 - errors, diagnostics, and global information printed
-integer,parameter:: mumpsinfo = 1
+integer,parameter:: mumpsinfo = 2
 
 ! Iterate on staticaly condensed problem on interface?
 logical,parameter:: iterate_on_reduced = .true.

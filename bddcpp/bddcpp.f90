@@ -772,10 +772,11 @@ character(*),intent(in) :: problemname
 integer :: idelms
 integer :: i, inod, indn, idofn, ine, isub, nne, lelmx, nevab, ndofn, nevax, point, ie, &
            indsub
+integer :: linets, nelems, pinet
 
 character(100) :: filename
 
-      write(*,*) 'Generating subdomain files with element matrices...'
+      write(*,*) 'Generating subdomain ELM files with element matrices...'
 
 ! Import of basic geometry
 ! GMIS - basic mesh data - structure:
@@ -901,7 +902,7 @@ character(100) :: filename
       close(idrhs)
 
 ! Distribute RHS and FIXV
-      write(*,*) 'Generating subdomain files with right hand sides...'
+      write(*,*) 'Generating subdomain RHSS files with right hand sides...'
       lkmynodes = nnod
       allocate(kmynodes(lkmynodes))
       do isub = 1,nsub
@@ -942,7 +943,7 @@ character(100) :: filename
       close(idfvs)
 
 ! Distribute RHS and FIXV
-      write(*,*) 'Generating subdomain files with fixed variables...'
+      write(*,*) 'Generating subdomain FVSS files with fixed variables...'
       lkmynodes = nnod
       allocate(kmynodes(lkmynodes))
       do isub = 1,nsub
@@ -967,6 +968,49 @@ character(100) :: filename
       end do
       deallocate(kmynodes)
       deallocate(ifix,fixv)
+      write(*,*) '...done'
+
+! Generate file with description of W_tilde
+      write(*,*) 'Generating subdomain GMISS files with mesh ...'
+      ! GMIST 
+      do isub = 1,nsub
+         ! Find nelems
+         nelems = count(iets.eq.isub)
+         ! Find linets
+         linets = 0
+         do ie = 1,nelem
+            if (iets(ie).eq.isub) then
+               linets = linets + nnet(ie)
+            end if
+         end do
+
+         ! open GMISS
+         call getfname(name1,isub,'GMISS',fname)
+         open (unit=idgmis,file=fname,status='replace',form='formatted')
+
+         write(idgmis,*)   nnod, ndof
+         write(idgmis,*)   nelems, linets
+
+         ! write inets
+         pinet = 0
+         do ie = 1,nelem
+            nne = nnet(ie)
+            if (iets(ie).eq.isub) then
+               write(idgmis,*)  inet(pinet+1:pinet+nne)
+            end if
+            pinet = pinet + nne
+         end do
+
+         ! write nnets
+         do ie = 1,nelem
+            if (iets(ie).eq.isub) then
+               write(idgmis,*)  nnet(ie)
+            end if
+         end do
+
+         write(idgmis,*)  nndf
+         close(idgmis)
+      end do
       write(*,*) '...done'
 
       deallocate(kinet)
@@ -2992,16 +3036,9 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
          call getfname(name1,isub,'GMISTS',fname)
          open (unit=idgmist,file=fname,status='replace',form='formatted')
 
-         ! open GMISS
-         call getfname(name1,isub,'GMISS',fname)
-         open (unit=idgmis,file=fname,status='replace',form='formatted')
-
          ! write header
          write(idgmist,*)  nnodt, lsolt
          write(idgmist,*)  nelems, linets, ndofsa(isub)
-
-         write(idgmis,*)   nnod, ndof
-         write(idgmis,*)   nelems, linets
 
          ! write inetst
          pinet = 0
@@ -3009,7 +3046,6 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
             nne = nnet(ie)
             if (iets(ie).eq.isub) then
                write(idgmist,*) inett(pinet+1:pinet+nne)
-               write(idgmis,*)  inet(pinet+1:pinet+nne)
             end if
             pinet = pinet + nne
          end do
@@ -3018,18 +3054,14 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
          do ie = 1,nelem
             if (iets(ie).eq.isub) then
                write(idgmist,*) nnet(ie)
-               write(idgmis,*)  nnet(ie)
             end if
          end do
 
          write(idgmist,*) nndft
 
-         write(idgmis,*)  nndf
-
          write(idgmist,*) slavery
          write(idgmist,*) ihntn
          close(idgmist)
-         close(idgmis)
       end do
       write(*,*) 'Generated files with description of W_tilde and W_hat spaces.'
 
