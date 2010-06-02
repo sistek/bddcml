@@ -20,6 +20,11 @@ program test_module_adaptivity
       integer :: npair_locx
       integer :: ndim, nsub, nelem, ndof, nnod, nnodc, linet
 
+      integer :: idlevel
+      integer ::             lnndf_coarse
+      integer,allocatable ::  nndf_coarse(:)
+      integer :: iaux, ncnodes, nedge, nface
+
       integer :: isub, glob_type
       logical :: remove_original 
 
@@ -103,9 +108,39 @@ program test_module_adaptivity
       do isub = 1,nsub
          call dd_prepare_schur(myid,comm_self,isub)
       end do
+
+! create coarse mesh 
+! read second level
+      if (myid.eq.0) then
+         filename = trim(problemname)//'.L2'
+         write(*,*) 'Reading data from file ',trim(filename)
+         call allocate_unit(idlevel)
+         open (unit=idlevel,file=filename,status='old',form='formatted')
+
+         read(idlevel,*) iaux, iaux, iaux, iaux
+         read(idlevel,*) nnodc, nedge, nface
+      end if
+!*****************************************************************MPI
+      call MPI_BCAST(nnodc,1, MPI_INTEGER, 0, comm_all, ierr)
+      call MPI_BCAST(nedge,1, MPI_INTEGER, 0, comm_all, ierr)
+      call MPI_BCAST(nface,1, MPI_INTEGER, 0, comm_all, ierr)
+!*****************************************************************MPI
+       
+      ncnodes = nnodc + nedge + nface
+
+      ! prepare array of number of coarse dof in generalized coarse nodes
+      lnndf_coarse = ncnodes
+      allocate(nndf_coarse(lnndf_coarse))
+
+      nndf_coarse = 0
+      ! corners contain ndim coarse dof
+      nndf_coarse(1:nnodc) = ndim
+      ! edges contain ndim coarse dof
+      nndf_coarse(nnodc+1:nnodc+nedge) = ndim
+
       ! start preparing cnodes
       do isub = 1,nsub
-         call dd_get_cnodes(myid,isub)
+         call dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
       end do
       ! load arithmetic averages on edges
       glob_type = 2
@@ -194,5 +229,7 @@ program test_module_adaptivity
 !***************************************************************PARALLEL
       call MPI_FINALIZE(ierr)
 !***************************************************************PARALLEL
+
+      deallocate(nndf_coarse)
 
 end program

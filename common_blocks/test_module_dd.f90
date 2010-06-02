@@ -65,6 +65,14 @@ program test_module_dd
          call dd_prepare_schur(myid,comm_self,isub)
       end do
 
+      ! prepare reduced RHS
+      do isub = 1,nsub
+         call dd_prepare_reduced_rhs(myid,isub)
+      end do
+
+      ! create neigbouring reduced RHS
+      call dd_create_neighbouring(myid,nsub,comm_all)
+
       ! test who owns data for subdomain
       isub = 1
       call dd_where_is_subdomain(isub,idproc)
@@ -85,28 +93,27 @@ program test_module_dd
       call dd_multiply_by_schur(myid,isub,x,lx,y,ly)
       write(*,*) 'I am ',myid,'y =',y
 
-      ! auxiliary routine, until reading directly the globs
-      isub = 1
-      call dd_get_cnodes(myid,isub)
-      isub = 2
-      call dd_get_cnodes(myid,isub)
-
-      ! test who owns data for subdomain
-      isub = 1
-      call dd_prepare_c(myid,isub)
-      isub = 2
-      call dd_prepare_c(myid,isub)
-
-      ! prepare augmented matrix for BDDC
-      do isub = 1,nsub
-         call dd_prepare_aug(myid,comm_self,isub)
-      end do
-
-      ! prepare coarse space basis functions for BDDC
-      do isub = 1,nsub
-         call dd_prepare_coarse(myid,isub)
-      end do
-
+!      ! auxiliary routine, until reading directly the globs
+!      isub = 1
+!      call dd_get_cnodes(myid,isub)
+!      isub = 2
+!      call dd_get_cnodes(myid,isub)
+!
+!      isub = 1
+!      call dd_prepare_c(myid,isub)
+!      isub = 2
+!      call dd_prepare_c(myid,isub)
+!
+!      ! prepare augmented matrix for BDDC
+!      do isub = 1,nsub
+!         call dd_prepare_aug(myid,comm_self,isub)
+!      end do
+!
+!      ! prepare coarse space basis functions for BDDC
+!      do isub = 1,nsub
+!         call dd_prepare_coarse(myid,isub)
+!      end do
+!
       if (debug) then
          call dd_print_sub(myid)
       end if

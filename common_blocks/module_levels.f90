@@ -3,6 +3,9 @@ module module_levels
 ! Module for handling levels in multilevel BDDC 
 ! Jakub Sistek, Praha 2/2010
 
+!     definition of MUMPS structure
+      use dmumps_struc_def
+
       implicit none
 
 ! type of real variables
@@ -11,19 +14,19 @@ module module_levels
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! debugging 
-      logical,parameter,private :: debug = .false.
+      logical,parameter,private :: debug = .true.
 
 ! type for data about levels
       type levels_type
          integer ::             nelem    ! number of elements (subdomains) on level
          integer ::             nnod     ! number of nodes (corse nodes) on level
-         integer ::             ndof     ! number of nodes (corse nodes) on level
+         integer ::             ndof     ! number of dof (corse dof) on level
 
          integer ::             nnodc    ! number of corners on level
          integer ::             nedge    ! number of edges on level
          integer ::             nface    ! number of faces on level
 
-         ! description of subdomain mesh
+         ! description of mesh
          integer ::             linet    ! length of INET array 
          integer,allocatable ::  inet(:) ! INET array - indices of nodes on elements
          integer ::             lnnet    ! length of NNET array
@@ -34,27 +37,83 @@ module module_levels
          integer,allocatable ::  iets(:)  ! IETS array - indices of elements in numbering of elements in (level + 1)
          integer ::             lxyz1, lxyz2 ! length of array
          real(kr),allocatable :: xyz(:,:) ! coordinates of nodes of level
+
+         ! subdomain data
+         integer             :: lindexsub    
+         integer,allocatable ::  indexsub(:) ! indices of elements in array sub
+
       end type levels_type
 
       integer, private ::                          nlevels
       integer, private ::                          llevels
       type(levels_type), allocatable, private ::    levels(:)
 
+      logical,private :: is_mumps_coarse_ready = .false.
+      type(DMUMPS_STRUC), private :: mumps_coarse  
+
 contains
 
-!*************************
-subroutine levels_init(nl)
-!*************************
+!******************************
+subroutine levels_init(nl,nsub)
+!******************************
 ! Subroutine for initialization of levels data
+      use module_dd
       implicit none
 
 ! given number of levels
       integer,intent(in) :: nl
+! number of subdomains in all levels
+      integer,intent(in) :: nsub
 
 ! initialize basic structure
       nlevels = nl
       llevels = nlevels
       allocate (levels(llevels))
+
+! initialize DD module
+      call dd_init(nsub)
+
+end subroutine
+
+!*****************************************************************************************
+subroutine levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,ndim,nsub)
+!*****************************************************************************************
+! subroutine for multilevel BDDC preconditioner setup
+      implicit none
+      include "mpif.h"
+
+! name of problem
+      character(*),intent(in) :: problemname
+! number of processor
+      integer,intent(in) :: myid
+! number of all processors
+      integer,intent(in) :: nproc
+! communicator for all processors
+      integer,intent(in) :: comm_all
+! communicator for single processor
+      integer,intent(in) :: comm_self
+! type of matrix (0 - nosymetric, 1 - SPD, 2 - general symmetric)
+      integer,intent(in) :: matrixtype
+! dimension
+      integer,intent(in) :: ndim
+! number of subdomains
+      integer,intent(in) :: nsub
+
+
+      ! local vars
+      integer :: ilevel
+
+      ilevel = 1
+      call levels_read_level_from_file(problemname,myid,comm_all,ndim,ilevel)
+
+      ilevel = 2
+      call levels_read_level_from_file(problemname,myid,comm_all,ndim,ilevel)
+
+      ! associate subdomains with first level
+      do ilevel = 1,nlevels-1
+         call levels_prepare_standard_level(ilevel,nsub,1,nsub)
+      end do
+      call levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,ndim,problemname)
 
 end subroutine
 
@@ -89,6 +148,8 @@ subroutine levels_read_level_from_file(problemname,myid,comm,ndim,ilevel)
 
       integer ::              lxyz1, lxyz2
       real(kr), allocatable :: xyz(:,:)
+
+      integer :: i,j
 
       character(100) :: filename
 
@@ -137,8 +198,6 @@ subroutine levels_read_level_from_file(problemname,myid,comm,ndim,ilevel)
       levels(ilevel)%nedge = nedge
       levels(ilevel)%nface = nface
 
-      print *, 'I am here!'
-
 ! continue only for levels 2 and larger
       if (ilevel.ge.2) then
 
@@ -151,7 +210,9 @@ subroutine levels_read_level_from_file(problemname,myid,comm,ndim,ilevel)
          if (myid.eq.0) then
             read(idlevel,*) inet
             read(idlevel,*) nnet
-            read(idlevel,*) xyz
+            do i = 1,nnod
+               read(idlevel,*) (xyz(i,j),j = 1,ndim)
+            end do
          end if
 !*****************************************************************MPI
          call MPI_BCAST(inet,linet,      MPI_INTEGER, 0, comm, ierr)
@@ -228,6 +289,270 @@ subroutine levels_upload_level_mesh(ilevel, nelem,nnod, inet,linet, nnet,lnnet, 
 
 end subroutine
 
+!*************************************************************************
+subroutine levels_prepare_standard_level(ilevel,nsub,isubstart,isubfinish)
+!*************************************************************************
+! Subroutine for building the standard level
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+      integer,intent(in) :: ilevel
+      integer,intent(in) :: nsub
+      integer,intent(in) :: isubstart
+      integer,intent(in) :: isubfinish
+
+      ! local vars
+      integer :: lindexsub, i, ind
+
+      lindexsub = nsub
+      levels(ilevel)%lindexsub = lindexsub
+      allocate(levels(ilevel)%indexsub(lindexsub))
+
+      ! associate numbers of subdomains in array sub with this level
+      ind = 0
+      do i = isubstart,isubfinish
+         ind = ind + 1
+
+         levels(ilevel)%indexsub(ind) = i
+      end do
+
+end subroutine
+
+!**********************************************************************************************
+subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,ndim,problemname)
+!**********************************************************************************************
+! Subroutine for building the coarse problem on root process
+
+!      use module_adaptivity
+      use module_dd
+      use module_sm
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+      integer,intent(in) :: myid
+      integer,intent(in) :: nproc
+      integer,intent(in) :: comm_all
+      integer,intent(in) :: comm_self
+      integer,intent(in) :: matrixtype
+      integer,intent(in) :: ndim
+      character(90)  :: problemname
+
+      ! local vars
+      integer :: ilevel
+      integer :: glob_type
+      integer :: nnod, nnodc, nedge, nface, isub, nsub, ndof
+      integer :: i
+
+      integer :: la, nnz
+      integer,allocatable :: i_sparse(:),j_sparse(:)
+      real(kr),allocatable :: a_sparse(:)
+
+      integer ::            lnndf
+      integer,allocatable :: nndf(:)
+
+      integer :: mumpsinfo
+      logical :: parallel_analysis 
+      logical :: remove_original 
+      logical :: use_arithmetic = .true.
+
+      ! last level has index of number of levels
+      ilevel = nlevels
+
+! number of elements
+      nsub = levels(ilevel)%nelem
+
+! prepare nndf
+      nnodc = levels(ilevel)%nnodc
+      nedge = levels(ilevel)%nedge
+      nface = levels(ilevel)%nface
+
+      ! in nndf, nodes are ordered as corners - edges - faces
+      nnod  = nnodc + nedge + nface
+      lnndf = nnod
+      allocate (nndf(lnndf))
+
+      nndf = 0
+      ! in corners, prescribe as many constraints as dimension
+      nndf(1:nnodc) = ndim
+      if (use_arithmetic) then
+         ! on edges
+         nndf(nnodc+1:nnodc+nedge) = ndim
+         ! on faces
+         nndf(nnodc+nedge+1:nnodc+nedge+nface) = ndim
+      else
+         ! on edges
+         nndf(nnodc+1:nnodc+nedge) = 0
+         ! on faces
+         nndf(nnodc+nedge+1:nnodc+nedge+nface) = 0
+      end if
+      ! TODO in case of adaptivity, add number of constraints on faces to nndf
+
+      call dd_distribute_subdomains(nsub,nproc)
+      call dd_read_mesh_from_file(myid,trim(problemname))
+      call dd_read_matrix_from_file(myid,trim(problemname),matrixtype)
+      call dd_assembly_local_matrix(myid)
+      remove_original = .false.
+      call dd_matrix_tri2blocktri(myid,remove_original)
+      do isub = 1,nsub
+         call dd_prepare_schur(myid,comm_self,isub)
+      end do
+      do isub = 1,nsub
+         call dd_prepare_reduced_rhs(myid,isub)
+      end do
+
+!      call dd_print_sub(myid)
+      call dd_create_neighbouring(myid,nsub,comm_all)
+
+      ! weights
+      call dd_weights_prepare(myid, nsub, comm_all)
+      call dd_print_sub(myid)
+
+      ! BDDC data
+      ! start preparing cnodes
+      do isub = 1,nsub
+         call dd_get_cnodes(myid,isub,nndf,lnndf)
+      end do
+      ! load arithmetic averages on edges
+      glob_type = 2
+      do isub = 1,nsub
+         call dd_load_arithmetic_constraints(myid,isub,glob_type)
+      end do
+      ! load arithmetic averages on faces
+      glob_type = 1
+      do isub = 1,nsub
+         call dd_load_arithmetic_constraints(myid,isub,glob_type)
+      end do
+      ! prepare matrix C for corners and arithmetic averages on edges
+      do isub = 1,nsub
+         call dd_prepare_c(myid,isub)
+      end do
+
+      ! prepare augmented matrix for BDDC
+      do isub = 1,nsub
+         call dd_prepare_aug(myid,comm_self,isub)
+      end do
+
+      ! prepare coarse space basis functions for BDDC
+      do isub = 1,nsub
+         call dd_prepare_coarse(myid,isub)
+      end do
+
+      ! print the output
+!      call dd_print_sub(myid)
+
+      ndof = sum(nndf)
+      ! load nndf to level
+      levels(ilevel)%ndof = ndof
+      levels(ilevel)%lnndf = lnndf
+      allocate(levels(ilevel)%nndf(lnndf))
+      do i = 1,lnndf
+         levels(ilevel)%nndf(i) = nndf(i)
+      end do
+
+
+      if (debug) then
+         write(*,*) 'ilevel = ',ilevel
+         write(*,*) 'LEVEL',ilevel-1,', indexsub = ',levels(ilevel-1)%indexsub
+      end if
+
+      if (levels(ilevel)%nelem .ne. levels(ilevel-1)%lindexsub) then
+         write(*,*) 'LEVELS_PREPARE_LAST_LEVEL: Error in levels consistency.'
+         call error_exit
+      end if
+
+      ! find length of coarse matrix
+      call dd_get_my_coarsem_length(myid,levels(ilevel-1)%indexsub,levels(ilevel-1)%lindexsub,la)
+
+!      write(*,*) 'myid =',myid,'la =',la
+
+! Allocate proper size of matrix A on processor
+      allocate(i_sparse(la), j_sparse(la), a_sparse(la))
+      i_sparse = 0
+      j_sparse = 0
+      a_sparse = 0.0D0
+
+      ! load coarse matrix
+      call dd_get_my_coarsem(myid,matrixtype,levels(ilevel-1)%indexsub,levels(ilevel-1)%lindexsub, &
+                             i_sparse, j_sparse, a_sparse, la)
+
+! Assembly entries in matrix
+      call sm_assembly(i_sparse,j_sparse,a_sparse,la,nnz)
+
+      nnz = la
+!      write(*,*) 'myid =',myid,'la =',la
+!      call sm_print(6, i_sparse, j_sparse, a_sparse, la, nnz)
+
+! Initialize MUMPS
+      call mumps_init(mumps_coarse,comm_all,matrixtype)
+      write(*,*)'myid =',myid,': MUMPS Initialized'
+      call flush(6)
+
+! Level of information from MUMPS
+      mumpsinfo  = 1
+      call mumps_set_info(mumps_coarse,mumpsinfo)
+
+! Load matrix to MUMPS
+      ndof = levels(ilevel)%ndof
+      write(*,*) 'ndof',ndof
+      call mumps_load_triplet(mumps_coarse,ndof,nnz,i_sparse,j_sparse,a_sparse,la)
+      write(*,*)'myid =',myid,': Triplet loaded'
+      call flush(6)
+
+! Analyze matrix
+      parallel_analysis = .false.
+      call mumps_analyze(mumps_coarse,parallel_analysis)
+      write(*,*)'myid =',myid,': Matrix analyzed'
+      call flush(6)
+
+! Factorize matrix
+      call mumps_factorize(mumps_coarse)
+      write(*,*)'myid =',myid,': Matrix factorized'
+      call flush(6)
+
+      is_mumps_coarse_ready = .true.
+
+! Clear memory
+      deallocate(i_sparse, j_sparse, a_sparse)
+      deallocate (nndf)
+
+end subroutine
+
+!***********************************
+subroutine levels_pc_apply(vec,lvec)
+!***********************************
+! Apply last level coarse problem to array lvec
+      implicit none
+      include "mpif.h"
+
+      integer,intent(in)    ::  lvec
+      real(kr),intent(inout) ::  vec(lvec)
+
+! Solve problem matrix
+      call levels_apply_last_level(vec,lvec)
+
+end subroutine
+
+
+
+!*******************************************
+subroutine levels_apply_last_level(vec,lvec)
+!*******************************************
+! Apply last level coarse problem to array lvec
+
+      use module_mumps
+
+      implicit none
+      include "mpif.h"
+
+      integer,intent(in)    ::  lvec
+      real(kr),intent(inout) ::  vec(lvec)
+
+! Solve problem matrix
+      call mumps_resolve(mumps_coarse,vec,lvec)
+
+end subroutine
 
 !************************************
 subroutine levels_clear_level(level)
@@ -258,6 +583,9 @@ subroutine levels_clear_level(level)
       if (allocated(level%xyz)) then
          deallocate (level%xyz)
       end if
+      if (allocated(level%indexsub)) then
+         deallocate (level%indexsub)
+      end if
       level%lxyz1 = 0
       level%lxyz2 = 0
 
@@ -269,16 +597,28 @@ subroutine levels_clear_level(level)
       level%nedge  = 0
       level%nface  = 0
 
+      level%lindexsub = 0
+
 end subroutine
 
 !*************************
 subroutine levels_finalize
 !*************************
 ! Subroutine for initialization of levels data
+      use module_dd
+      use module_mumps
       implicit none
 
 ! local variables
       integer :: ilevel
+      
+! destroy MUMPS structure of the last level
+      if (is_mumps_coarse_ready) then
+         call mumps_finalize(mumps_coarse)
+      end if
+
+! finalize DD module
+      call dd_finalize
 
 ! deallocate basic structure
       if (allocated(levels)) then
@@ -289,6 +629,7 @@ subroutine levels_finalize
 
          deallocate (levels)
       end if
+
 
 end subroutine
 

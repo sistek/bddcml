@@ -2022,6 +2022,8 @@ integer::            lglob_type
 integer,allocatable:: glob_type(:)
 integer::            lnglobvars
 integer,allocatable:: nglobvars(:)
+integer::            liadjs
+integer,allocatable:: iadjs(:)
 integer::            ligvsivns1, ligvsivns2
 integer,allocatable:: igvsivns(:,:)
 integer ::            nelemsadj, nnodsadj
@@ -2037,6 +2039,8 @@ integer,allocatable :: cinet(:)
 
 integer ::            lrhss,   lfixvs,   lxyzs1, lxyzs2
 real(kr),allocatable:: rhss(:), fixvs(:), xyzs(:,:)
+integer ::            lcxyz1, lcxyz2
+real(kr),allocatable:: cxyz(:,:)
 
 character(100) :: filename
 
@@ -2047,7 +2051,7 @@ integer:: isub, ie, inc, ndofn, &
           inods, jsub, i, j, indn, idofis, idofos, inodis, &
           indns, indins, inodcs, iglbn, nglbn, iglb, iglobs, indn1,&
           nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs, indg, ncnod, &
-          ncnodes, pointcinet
+          ncnodes, pointcinet, indcxyz
 integer:: nadjs, nnodcs, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs, nedge, nface
 integer:: idsmd
 
@@ -2189,6 +2193,8 @@ integer:: idsmd
 
 ! find number of adjacent subdomains NADJS
          nadjs = 0
+         liadjs = nsub
+         allocate(iadjs(liadjs))
          lkinodes = nnods
          allocate(kinodes(lkinodes))
          kinodes = 0
@@ -2215,6 +2221,7 @@ integer:: idsmd
                call get_array_intersection(isngns,nnods,isngnsadj,nnodsadj,ishared,lishared,nshared)
                if (nshared.gt.0) then
                   nadjs = nadjs + 1
+                  iadjs(nadjs) = jsub
                   ! mark interface nodes
                   do i = 1,nshared
                      indg = ishared(i)
@@ -2501,6 +2508,10 @@ integer:: idsmd
          write(idsmd,*) ifixs
          write(idsmd,*) fixvs
 
+         ! --- neigbouring
+         write(idsmd,*) nadjs
+         write(idsmd,*) (iadjs(i),i = 1,nadjs)
+
          ! --- corners 
          write(idsmd,*) nnodcs
          write(idsmd,*) global_corner_numbers
@@ -2516,8 +2527,12 @@ integer:: idsmd
          end do
          write(idsmd,*) glob_type
 
+         ! --- right hand side
+         write(idsmd,*) rhss
+
          close(idsmd)
 
+         deallocate(iadjs)
          deallocate(kinodes)
          deallocate(igvsivns)
          deallocate(nglobvars)
@@ -2562,8 +2577,10 @@ integer:: idsmd
 ! prepare array for level 2
       allocate(cinet(lcinet))
       cinet = 0
+
       pointcinet = 0
       do isub = 1,nsub
+
 
 ! find local number of elements on subdomain NELEMS
 ! create subdomain description of MESH
@@ -2611,8 +2628,6 @@ integer:: idsmd
 ! find mapping of corners
          lglobal_corner_numbers = nnodcs
          allocate(global_corner_numbers(lglobal_corner_numbers))
-         licnsins = nnodcs
-         allocate(icnsins(licnsins))
 
          inodcs = 0
          do inc = 1,nnodc
@@ -2622,18 +2637,6 @@ integer:: idsmd
 
                ! mapping to global corner numbers
                global_corner_numbers(inodcs) = inc
-               ! mapping to subdomain interface numbers
-               call get_index(indnc,isngns,nnods,indns)
-               if (indns .eq. -1) then
-                  write(*,*) 'CREATE_SUB_FILES: Index of subdomain node not found.'
-                  stop
-               end if
-               call get_index(indns,iins,liins,indins)
-               if (indins .eq. -1) then
-                  write(*,*) 'CREATE_SUB_FILES: Index of subdomain interface node not found.'
-                  stop
-               end if
-               icnsins(inodcs) = indins
             end if
          end do
 
@@ -2656,8 +2659,6 @@ integer:: idsmd
 ! mapping of globs
          lglobal_glob_numbers = nglobs
          allocate(global_glob_numbers(lglobal_glob_numbers))
-         lnglobvars = nglobs
-         allocate(nglobvars(lnglobvars))
          lglob_type = nglobs
          allocate(glob_type(lglob_type))
 
@@ -2670,17 +2671,8 @@ integer:: idsmd
             indn1 = inglb(pointinglb + 1)
 
             if (any(isngns(1:nnods).eq.indn1)) then
-
                iglobs = iglobs + 1
 
-               nglbv = 0
-               do iglbn = 1,nglbn
-                  ndofn = nndf(pointinglb + iglbn)
-
-                  nglbv = nglbv + ndofn
-               end do
-
-               nglobvars(iglobs) = nglbv
                global_glob_numbers(iglobs) = iglb
             end if
 
@@ -2694,18 +2686,17 @@ integer:: idsmd
          ! shift numbering behind corners
          global_glob_numbers = global_glob_numbers + nnodc
 
-         deallocate(global_glob_numbers)
-         deallocate(glob_type)
-         deallocate(icnsins)
-         deallocate(global_corner_numbers)
-         deallocate(inets,nnets,nndfs,kdofs)
-         deallocate(isngns)
-
          ncnodes = nnodcs + nglobs
-         cinet(pointcinet+1:pointcinet+nnodcs) = global_corner_numbers
+         cinet(pointcinet+1:pointcinet+nnodcs)               = global_corner_numbers
          cinet(pointcinet+nnodcs+1:pointcinet+nnodcs+nglobs) = global_glob_numbers
 
          pointcinet = pointcinet + ncnodes
+
+         deallocate(global_glob_numbers)
+         deallocate(glob_type)
+         deallocate(global_corner_numbers)
+         deallocate(inets,nnets,nndfs,kdofs)
+         deallocate(isngns)
 
 ! Finish loop over subdomains
       end do
@@ -2714,6 +2705,32 @@ integer:: idsmd
          write(*,*) 'Zeros in CINET array.'
          call error_exit
       end if
+
+! prepare array of nodes for coarse mesh
+      lcxyz1 = ncnod
+      lcxyz2 = ndim
+      allocate(cxyz(lcxyz1,lcxyz2))
+
+! copy coordinates of corners
+      indcxyz = 0
+      do inc = 1,nnodc
+         indcxyz = indcxyz + 1
+
+         indnc = inodc(inc)
+         cxyz(indcxyz,:) = xyz(indnc,:)
+      end do
+! create coordinates of globs as mean values
+      do iglb = 1,nglb
+         indcxyz = indcxyz + 1
+
+         nglbn = nnglb(iglb)
+
+         ! touch first node in glob
+         cxyz(indcxyz,:) = sum(xyz(inglb(pointinglb + iglbn:pointinglb + nglbn),:),dim=1)/nglbn
+
+         pointinglb = pointinglb + nglbn
+      end do
+      
 
 ! Write file for second level
       name = trim(problemname)//'.L2'
@@ -2724,6 +2741,9 @@ integer:: idsmd
       write(idlevel,*) nnodc, nedge, nface
       write(idlevel,*) cinet
       write(idlevel,*) nnet2
+      do i = 1,lcxyz1
+         write(idlevel,*) (cxyz(i,j),j = 1,lcxyz2)
+      end do
 
       close (idlevel)
       write (*,*) 'File ',trim(name), ' created.'
@@ -2739,8 +2759,10 @@ integer:: idsmd
       deallocate(iets)
       deallocate(xyz)
       deallocate(rhs)
+
       deallocate(cinet)
       deallocate(nnet2)
+      deallocate(cxyz)
 
       close(ides)
       close(idfvs)

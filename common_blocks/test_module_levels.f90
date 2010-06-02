@@ -10,12 +10,16 @@ program test_module_levels
       !  parallel variables
       integer :: myid, comm_all, comm_self, nproc, ierr
       integer :: idpar
-      integer :: ilevel
 
       ! number of levels
       integer :: nlevels
 
       integer :: ndim, nsub, nelem, ndof, nnod, nnodc, linet
+
+      integer :: matrixtype
+
+      integer ::             lvec
+      real(kr),allocatable :: vec(:)
 
       character(90)  :: problemname 
       character(100) :: name
@@ -72,20 +76,39 @@ program test_module_levels
       call MPI_BCAST(linet,    1, MPI_INTEGER,         0, comm_all, ierr)
 !***************************************************************PARALLEL
 
+
       write (*,*) 'myid = ',myid,': Initializing LEVELS.'
       !============
       ! number of levels
       nlevels = 2
       !============
-      call levels_init(nlevels)
+      call levels_init(nlevels,nsub)
 
       ! create first two levels
       ! open file with description of pairs
-      ilevel = 1
-      call levels_read_level_from_file(problemname,myid,comm_all,ndim,ilevel)
+!      ilevel = 1
+!      call levels_read_level_from_file(problemname,myid,comm_all,ndim,ilevel)
+!
+!      ilevel = 2
+!      call levels_read_level_from_file(problemname,myid,comm_all,ndim,ilevel)
+!
+!      ! associate subdomains with first level
+!      ilevel = 1
+!      call levels_prepare_standard_level(ilevel,nsub,1,nsub)
+!
+!      call levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,ndim,problemname)
+      matrixtype = 1 ! SPD matrix
+      call levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,ndim,nsub)
 
-      ilevel = 2
-      call levels_read_level_from_file(problemname,myid,comm_all,ndim,ilevel)
+      lvec = 15
+      allocate(vec(lvec))
+      vec = 1.0_kr
+      call levels_pc_apply(vec,lvec)
+      if (myid.eq.0) then
+         write(*,*) 'vec:'
+         write(*,'(e18.9)') vec
+      end if
+      deallocate(vec)
 
       write (*,*) 'myid = ',myid,': Finalize LEVELS.'
       call levels_finalize

@@ -100,6 +100,13 @@ test_module_adaptivity.o: \
    module_adaptivity.o \
    module_dd.o
 
+test_module_levels.o: \
+   module_levels.o \
+   module_dd.o \
+   module_mumps.o \
+   module_sm.o \
+   module_utils.o 
+
 test_module_dd.o: \
    module_dd.o
 
@@ -179,6 +186,9 @@ test_module_dd2: \
 test_module_levels: \
    test_module_levels.o \
    module_levels.o \
+   module_dd.o \
+   module_mumps.o \
+   module_sm.o \
    module_utils.o 
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
 
