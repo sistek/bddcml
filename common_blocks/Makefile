@@ -30,6 +30,7 @@ TESTS = \
 
 OBJ = \
    lobpcg_mvecmult_f.o \
+   module_krylov_types_def.o \
    module_adaptivity.o \
    module_dd.o \
    module_levels.o \

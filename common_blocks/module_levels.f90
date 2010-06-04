@@ -22,6 +22,8 @@ module module_levels
          integer ::             nnod     ! number of nodes (corse nodes) on level
          integer ::             ndof     ! number of dof (corse dof) on level
 
+         integer ::             nsub     ! number of subdomains on level
+
          integer ::             nnodc    ! number of corners on level
          integer ::             nedge    ! number of edges on level
          integer ::             nface    ! number of faces on level
@@ -395,11 +397,9 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       call dd_assembly_local_matrix(myid)
       remove_original = .false.
       call dd_matrix_tri2blocktri(myid,remove_original)
+
       do isub = 1,nsub
          call dd_prepare_schur(myid,comm_self,isub)
-      end do
-      do isub = 1,nsub
-         call dd_prepare_reduced_rhs(myid,isub)
       end do
 
 !      call dd_print_sub(myid)
@@ -407,7 +407,11 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
 
       ! weights
       call dd_weights_prepare(myid, nsub, comm_all)
-      call dd_print_sub(myid)
+
+      ! reduced RHS
+      call dd_prepare_reduced_rhs(myid,nsub, comm_all)
+
+!      call dd_print_sub(myid)
 
       ! BDDC data
       ! start preparing cnodes
@@ -519,18 +523,164 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
 
 end subroutine
 
-!***********************************
-subroutine levels_pc_apply(vec,lvec)
-!***********************************
+!******************************************************************
+subroutine levels_pc_apply(myid,comm_all, krylov_data,lkrylov_data)
+!******************************************************************
 ! Apply last level coarse problem to array lvec
+      use module_krylov_types_def
+      use module_dd
+      use module_utils
       implicit none
       include "mpif.h"
 
-      integer,intent(in)    ::  lvec
-      real(kr),intent(inout) ::  vec(lvec)
+      ! my ID
+      integer,intent(in) :: myid
+      ! MPI communicator
+      integer,intent(in) :: comm_all
 
+      integer,intent(in)    ::       lkrylov_data
+      type(pcg_data_type),intent(inout) :: krylov_data(lkrylov_data)
+
+      ! local vars
+      integer ::             lsolc
+      real(kr),allocatable :: solc(:)
+      real(kr),allocatable :: solcaux(:)
+      integer ::             lrescs
+      real(kr),allocatable :: rescs(:)
+      integer ::             laux
+      real(kr),allocatable :: aux(:)
+      integer ::             laux2
+      real(kr),allocatable :: aux2(:)
+      integer ::             lsolcs
+      real(kr),allocatable :: solcs(:)
+
+      integer :: lindexsub, ndofs, nnods, nelems, ndofaaugs, ndofcs, ncnodess
+      integer :: is, i, isub, nrhs
+      integer :: ilevel
+      logical :: transposed
+
+      ! MPI vars
+      integer :: ierr
+
+! Apply subdomain corrections on first level 
+      ilevel = 1
+
+      lindexsub = levels(ilevel)%lindexsub
+      ! check the length
+      if (lkrylov_data .ne. lindexsub) then
+         write(*,*) 'LEVELS_PC_APPLY: Inconsistent length of data.'
+         call error_exit
+      end if
+
+      ! prepare global residual 
+      lsolc = levels(ilevel + 1)%ndof
+      allocate(solcaux(lsolc))
+      allocate(solc(lsolc))
+      call zero(solcaux,lsolc)
+
+      ! get local contribution to coarse residual
+      do is = 1,lindexsub
+         isub = levels(ilevel)%indexsub(is)
+
+         call dd_get_coarse_size(myid,isub,ndofcs,ncnodess)
+
+         laux = krylov_data(isub)%lresi
+         allocate(aux(laux))
+         do i = 1,laux
+            aux(i) = krylov_data(isub)%resi(i)
+         end do
+
+         ! aux = wi * resi
+         call dd_weights_apply(myid, isub, aux,laux)
+
+         lrescs = ndofcs
+         allocate(rescs(lrescs))
+         call zero(rescs,lrescs)
+
+         ! rc = phis' * wi * resi
+         transposed = .true.
+         call dd_phis_apply(myid,isub, transposed, aux,laux, rescs,lrescs)
+
+         ! embed local resc to global one
+         call dd_map_subc_to_globc(myid,isub, rescs,lrescs, solcaux,lsolc)
+
+         ! SUBDOMAIN CORRECTION
+         ! prepare array of augmented size
+         call dd_get_aug_size(myid,isub, ndofaaugs)
+         laux2 = ndofaaugs
+         allocate(aux2(laux2))
+         call zero(aux2,laux2)
+         call dd_get_size(myid,isub, ndofs,nnods,nelems)
+         ! truncate the vector for embedding - zeros at the end
+         call dd_map_subi_to_sub(myid,isub, aux,laux, aux2,ndofs)
+
+         nrhs = 1
+         call dd_solve_aug(myid,isub, aux2,laux2, nrhs)
+
+         ! get interface part of the vector of preconditioned residual
+         call zero(krylov_data(isub)%z,krylov_data(isub)%lz)
+         call dd_map_sub_to_subi(myid,isub, aux2,ndofs, krylov_data(isub)%z,krylov_data(isub)%lz)
+
+         deallocate(aux2)
+         deallocate(aux)
+         deallocate(rescs)
+      end do
+
+      ! communicate coarse residual along processes
+!***************************************************************PARALLEL
+      call MPI_REDUCE(solcaux,solc,lsolc, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+!***************************************************************PARALLEL
 ! Solve problem matrix
-      call levels_apply_last_level(vec,lvec)
+      call levels_apply_last_level(solc,lsolc)
+!***************************************************************PARALLEL
+      call MPI_BCAST(solc, lsolc, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
+!***************************************************************PARALLEL
+
+      do is = 1,lindexsub
+         isub = levels(ilevel)%indexsub(is)
+
+         call dd_get_coarse_size(myid,isub,ndofcs,ncnodess)
+
+         lsolcs = ndofcs
+         allocate(solcs(lsolcs))
+
+         ! restrict global solc to local solcs
+         call dd_map_globc_to_subc(myid,isub, solc,lsolc, solcs,lsolcs)
+
+         ! COARSE CORRECTION
+         ! z_i = z_i + phis_i * uc_i
+         transposed = .false.
+         call dd_phis_apply(myid,isub, transposed, solcs,lsolcs, krylov_data(isub)%z,krylov_data(isub)%lz)
+
+         ! load Z for communication
+         call dd_comm_upload(myid, isub,  krylov_data(isub)%z,krylov_data(isub)%lz)
+
+         deallocate(solcs)
+      end do
+      ! communicate vector Z
+      ! Interchange data
+      call dd_comm_swapdata(myid, lindexsub, comm_all)
+      ! Download data
+      do is = 1,lindexsub
+         isub = levels(ilevel)%indexsub(is)
+
+         if (krylov_data(isub)%is_mine) then
+
+            call zero(krylov_data(isub)%zadj,krylov_data(isub)%lz)
+            ! get contibution from neigbours
+            call dd_comm_download(myid, isub,  krylov_data(isub)%zadj,krylov_data(isub)%lz)
+            ! join data
+            do i = 1,krylov_data(isub)%lz
+               krylov_data(isub)%z(i) = krylov_data(isub)%z(i) + krylov_data(isub)%zadj(i)
+            end do
+
+         end if
+      end do
+
+      ! clear local memory
+      deallocate(solc)
+      deallocate(solcaux)
+
 
 end subroutine
 

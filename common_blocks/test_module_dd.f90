@@ -21,8 +21,12 @@ program test_module_dd
       real(kr) :: x(lx)
       integer,parameter :: ly = 2
       real(kr) :: y(ly)
+      integer,parameter :: lz = 4
+      real(kr) :: z(lz)
 
       integer idproc
+
+      integer :: i
 
       logical :: debug = .true.
       logical :: remove_original 
@@ -65,13 +69,17 @@ program test_module_dd
          call dd_prepare_schur(myid,comm_self,isub)
       end do
 
-      ! prepare reduced RHS
-      do isub = 1,nsub
-         call dd_prepare_reduced_rhs(myid,isub)
-      end do
+      print *, 'I am here 1'
+      call flush(6)
 
-      ! create neigbouring reduced RHS
+      ! create neigbouring 
       call dd_create_neighbouring(myid,nsub,comm_all)
+
+      ! prepare weights
+      call dd_weights_prepare(myid, nsub, comm_all)
+
+      ! prepare reduced RHS
+      call dd_prepare_reduced_rhs(myid,nsub,comm_all)
 
       ! test who owns data for subdomain
       isub = 1
@@ -114,6 +122,30 @@ program test_module_dd
 !         call dd_prepare_coarse(myid,isub)
 !      end do
 !
+
+      print *, 'I am here 2'
+      call flush(6)
+
+!      ! test selection to interface
+      write(*,*) 'I am ',myid,'Mapping subdomain variables to subdomain interface vars.'
+      do i = 1,4
+         z(i) = float(i)
+      end do
+      isub = 1
+      x = -1._kr
+      call dd_map_sub_to_subi(myid,isub, z,lz, x,lx)
+      write(*,*) 'I am ',myid,'z =',z
+      write(*,*) 'I am ',myid,'x =',x
+      do i = 1,4
+         z(i) = float(i)
+      end do
+      isub = 2
+      x = -1._kr
+      call dd_map_sub_to_subi(myid,isub, z,lz, x,lx)
+      write(*,*) 'I am ',myid,'z =',z
+      write(*,*) 'I am ',myid,'x =',x
+
+
       if (debug) then
          call dd_print_sub(myid)
       end if

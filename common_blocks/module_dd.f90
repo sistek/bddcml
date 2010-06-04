@@ -114,7 +114,7 @@ module module_dd
          integer ::             lngdf                  ! length of array NGDF
          integer, allocatable :: ngdf(:)               ! number of degrees of freedom associated with a glob (e.g. number of averages on glob) - lenght NGLOB
 
-         ! description of neigbouring of subdomain for data interchange
+         ! description of neighbouring of subdomain for data interchange
          integer ::             nadj                   ! number of adjacent subdomains
          integer ::             liadj                  ! length of array IADJ
          integer, allocatable :: iadj(:)               ! indices of adjacent subdomains
@@ -127,7 +127,7 @@ module module_dd
          integer ::              lcommvec
          real(kr),allocatable ::  commvec_out(:)       ! communication vector for sending data
          real(kr),allocatable ::  commvec_in(:)        ! communication vector for receiving data
-         logical ::              is_neighbouring_ready =.false. ! are neigbouring arrays ready?
+         logical ::              is_neighbouring_ready =.false. ! are neighbouring arrays ready?
 
          ! weights on interface
          integer ::              lwi
@@ -242,8 +242,6 @@ module module_dd
          real(kr),allocatable :: sol(:)      ! array of solution restricted to subdomain
          integer ::             lsoli
          real(kr),allocatable :: soli(:)     ! array of solution at interface
-         integer ::             lresi
-         real(kr),allocatable :: resi(:)     ! array of residual at interface
 
       end type subdomain_type
 
@@ -406,7 +404,7 @@ subroutine dd_read_mesh_from_file(myid,problemname)
             read(idsmd,*) ifix
             read(idsmd,*) fixv
 
-            ! --- neigbouring
+            ! --- neighbouring
             read(idsmd,*) nadj
             liadj = nadj
             allocate(iadj(liadj))
@@ -856,7 +854,7 @@ subroutine dd_upload_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndo
          sub(isub)%glob_type(i) = glob_type(i)
       end do
 
-      ! data about neigbours
+      ! data about neighbours
       sub(isub)%nadj = nadj
       sub(isub)%liadj = liadj
       allocate(sub(isub)%iadj(liadj))
@@ -955,6 +953,243 @@ subroutine dd_load_rhs(myid, isub, rhs,lrhs)
       sub(isub)%is_rhs_loaded = .true.
    
 end subroutine
+
+!****************************************
+subroutine dd_fix_bc(myid,isub, vec,lvec)
+!****************************************
+! Subroutine for enforcing Dirichlet boundary conditions in vector VEC
+      use module_utils
+      implicit none
+
+      integer,intent(in) :: myid, isub
+      integer,intent(in) ::    lvec
+      real(kr),intent(inout)::  vec(lvec)
+
+      ! check if I store the subdomain
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_FIX_BC: myid =',myid,', not my subdomain: ',isub
+         end if
+         return
+      end if
+      ! check if there are nonzero BC at subdomain
+      if (.not. sub(isub)%is_bc_present) then
+         return
+      end if
+      ! check size
+      if (sub(isub)%lifix .ne. lvec) then
+         write(*,*) 'DD_FIX_BC: myid =',myid,', vector size mismatch: ',isub
+         call error_exit
+      end if
+
+      ! enforce boundary conditions
+      where (sub(isub)%ifix .ne. 0) vec = sub(isub)%fixv
+
+end subroutine
+
+!*************************************************************
+subroutine dd_map_sub_to_subi(myid,isub, vec,lvec, veci,lveci)
+!*************************************************************
+! Subroutine that maps subdomain vector to interface vector
+      use module_utils
+      implicit none
+
+      integer,intent(in) :: myid, isub
+
+      integer,intent(in)  ::  lvec
+      real(kr),intent(in) ::   vec(lvec)
+
+      integer,intent(in)  ::  lveci
+      real(kr),intent(out) ::  veci(lveci)
+
+      ! local vars
+      integer :: i, ind
+      integer :: ndofi, ndof, nnod, nnodi, nelem
+
+      ! check if I store the subdomain
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_MAP_SUB_TO_SUBI: myid =',myid,', not my subdomain: ',isub
+         end if
+         return
+      end if
+      ! check if mesh is loaded
+      if (.not. sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_MAP_SUB_TO_SUBI: myid =',myid,', Mesh not loaded for subdomain: ',isub
+         call error_exit
+      end if
+
+      ! get dimensions
+      call dd_get_size(myid,isub,ndof,nnod,nelem)
+      call dd_get_interface_size(myid,isub,ndofi,nnodi)
+
+      ! check dimensions
+      if (lvec .ne. ndof .or. lveci .ne. ndofi) then
+         write(*,*) 'DD_MAP_SUB_TO_SUBI: myid =',myid,', Vectors size mismatch, isub : ',isub
+         call error_exit
+      end if
+
+      do i = 1,ndofi
+         ind = sub(isub)%iivsvn(i)
+
+         veci(i) = vec(ind)
+      end do
+
+end subroutine
+
+!*************************************************************
+subroutine dd_map_subi_to_sub(myid,isub, veci,lveci, vec,lvec)
+!*************************************************************
+! Subroutine that maps interface vector to subdomain vector
+      use module_utils
+      implicit none
+
+      integer,intent(in) :: myid, isub
+
+      integer,intent(in)  ::  lveci
+      real(kr),intent(in) ::   veci(lveci)
+
+      integer,intent(in)  ::  lvec
+      real(kr),intent(out) ::  vec(lvec)
+
+      ! local vars
+      integer :: i, ind
+      integer :: ndofi, ndof, nnod, nnodi, nelem
+
+      ! check if I store the subdomain
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_MAP_SUBI_TO_SUB: myid =',myid,', not my subdomain: ',isub
+         end if
+         return
+      end if
+      ! check if mesh is loaded
+      if (.not. sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_MAP_SUBI_TO_SUB: myid =',myid,', Mesh not loaded for subdomain: ',isub
+         call error_exit
+      end if
+
+      ! get dimensions
+      call dd_get_size(myid,isub,ndof,nnod,nelem)
+      call dd_get_interface_size(myid,isub,ndofi,nnodi)
+
+      ! check dimensions
+      if (lvec .ne. ndof .or. lveci .ne. ndofi) then
+         write(*,*) 'DD_MAP_SUBI_TO_SUB: myid =',myid,', Vectors size mismatch, isub : ',isub
+         call error_exit
+      end if
+
+      do i = 1,ndofi
+         ind = sub(isub)%iivsvn(i)
+
+         vec(ind) = vec(ind) + veci(i)
+      end do
+
+end subroutine
+
+!*********************************************************************
+subroutine dd_map_subc_to_globc(myid,isub, vecsc,lvecsc, vecgc,lvecgc)
+!*********************************************************************
+! Subroutine that maps subdomain coarse vector to global coarse vector
+      use module_utils
+      implicit none
+
+      integer,intent(in) :: myid, isub
+
+      integer,intent(in)  ::  lvecsc
+      real(kr),intent(in) ::   vecsc(lvecsc)
+
+      integer,intent(in)  ::  lvecgc
+      real(kr),intent(out) ::  vecgc(lvecgc)
+
+      ! local vars
+      integer :: i, ind
+      integer :: ndofc, nnodc
+
+      ! check if I store the subdomain
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_MAP_SUBC_TO_GLOBC: myid =',myid,', not my subdomain: ',isub
+         end if
+         return
+      end if
+      ! check if mesh is loaded
+      if (.not. sub(isub)%is_c_loaded) then
+         write(*,*) 'DD_MAP_SUBC_TO_GLOBC: myid =',myid,', Embedding not loaded for subdomain: ',isub
+         call error_exit
+      end if
+
+      ! get dimensions
+      call dd_get_coarse_size(myid,isub,ndofc,nnodc)
+
+      ! check dimensions
+      if (lvecsc .ne. ndofc .or. maxval(sub(isub)%indrowc) .gt. lvecgc) then
+         write(*,*) 'DD_MAP_SUBC_TO_GLOBC: myid =',myid,', Vectors size mismatch, isub : ',isub
+         call error_exit
+      end if
+
+      ! embed the arrays
+      ! vecgc = vecgc + Rc_i * vecsc
+      do i = 1,ndofc
+         ind = sub(isub)%indrowc(i)
+
+         vecgc(ind) = vecgc(ind) + vecsc(i)
+      end do
+
+end subroutine
+
+!*********************************************************************
+subroutine dd_map_globc_to_subc(myid,isub, vecgc,lvecgc, vecsc,lvecsc)
+!*********************************************************************
+! Subroutine that maps global coarse vector subdomain coarse vector to subdomain coarse vector
+
+      use module_utils
+      implicit none
+
+      integer,intent(in) :: myid, isub
+
+      integer,intent(in)  ::  lvecgc
+      real(kr),intent(in) ::   vecgc(lvecgc)
+
+      integer,intent(in)  ::  lvecsc
+      real(kr),intent(out) ::  vecsc(lvecsc)
+
+      ! local vars
+      integer :: i, ind
+      integer :: ndofc, nnodc
+
+      ! check if I store the subdomain
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_MAP_SUBC_TO_GLOBC: myid =',myid,', not my subdomain: ',isub
+         end if
+         return
+      end if
+      ! check if mesh is loaded
+      if (.not. sub(isub)%is_c_loaded) then
+         write(*,*) 'DD_MAP_SUBC_TO_GLOBC: myid =',myid,', Embedding not loaded for subdomain: ',isub
+         call error_exit
+      end if
+
+      ! get dimensions
+      call dd_get_coarse_size(myid,isub,ndofc,nnodc)
+
+      ! check dimensions
+      if (lvecsc .ne. ndofc .or. maxval(sub(isub)%indrowc) .gt. lvecgc) then
+         write(*,*) 'DD_MAP_SUBC_TO_GLOBC: myid =',myid,', Vectors size mismatch, isub : ',isub
+         call error_exit
+      end if
+
+      ! embed the arrays
+      ! vecgc = vecgc + Rc_i * vecsc
+      do i = 1,ndofc
+         ind = sub(isub)%indrowc(i)
+
+         vecsc(i) = vecgc(ind)
+      end do
+
+end subroutine
+
 
 !****************************************
 subroutine dd_assembly_local_matrix(myid)
@@ -1464,24 +1699,24 @@ subroutine dd_get_adaptive_constraints(myid,isub,iglb,avg,lavg1,lavg2)
 
       ! check the prerequisities
       if (.not.allocated(sub)) then
-         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Main DD structure is not ready.'
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS: Main DD structure is not ready.'
          call error_exit
       end if
       if (sub(isub)%proc .ne. myid) then
-         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Not my subdomain ',isub
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS: Not my subdomain ',isub
          return
       end if
       if (sub(isub)%proc .ne. myid) then
-         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Not my subdomain.'
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS: Not my subdomain.'
          call error_exit
       end if
       if (.not.allocated(sub(isub)%cnodes)) then
-         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Array for coarse nodes constraints not ready.'
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS: Array for coarse nodes constraints not ready.'
          call error_exit
       end if
       if (sub(isub)%cnodes(iglb)%lmatrix1.ne.lavg1 .or. &
           sub(isub)%cnodes(iglb)%lmatrix2.ne.lavg2) then
-         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS_SIZE: Matrix dimensions for averages do not match.'
+         write(*,*) 'DD_GET_ADAPTIVE_CONSTRAINTS: Matrix dimensions for averages do not match.'
          call error_exit
       end if
 
@@ -2062,7 +2297,7 @@ subroutine dd_prepare_coarse(myid,isub)
 !**************************************
 ! Subroutine for solving of system 
 ! | A C^T|| phis | = | 0 |
-! ! C  0 ||lambda|   | I |
+! | C  0 ||lambda|   | I |
 ! phis are coarse space basis functions on subdomain
 ! Then the routine builds the local coarse matrix:
 ! Ac = phis^T * A * phis 
@@ -2124,7 +2359,7 @@ subroutine dd_prepare_coarse(myid,isub)
 
       ! solve the system with multiple RHS
       nrhs = nconstr
-      call mumps_resolve(sub(isub)%mumps_aug,phis,lphis,nrhs)
+      call dd_solve_aug(myid,isub, phis,lphis, nrhs) 
 
       if (debug) then
          write(*,*) 'Subdomain ',isub,' coarse basis functions phis:'
@@ -2210,6 +2445,190 @@ subroutine dd_prepare_coarse(myid,isub)
       deallocate(phis)
 end subroutine
 
+!**********************************************
+subroutine dd_get_aug_size(myid,isub, ndofaaug)
+!**********************************************
+! Subroutine for getting size of the system 
+! | A C^T|| z_i | = | res_i |
+! | C  0 || mu  |   |   0   |
+
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain
+      integer,intent(in) :: isub
+
+      ! augmented problem size 
+      integer,intent(out) :: ndofaaug
+
+      ! local vars
+      integer :: ndof, nconstr
+
+      ! check the prerequisities
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_GET_AUG_SIZE: myid =',myid,'Subdomain', isub,' is not mine.'
+         end if
+         return
+      end if
+      if (.not.sub(isub)%is_c_loaded) then
+         write(*,*) 'DD_GET_AUG_SIZE: C is not loaded:', isub
+         call error_exit
+      end if
+
+      ndof     = sub(isub)%ndof
+      nconstr  = sub(isub)%nconstr
+
+      ndofaaug = ndof + nconstr
+
+end subroutine
+
+!*************************************************
+subroutine dd_solve_aug(myid,isub, vec,lvec, nrhs)
+!*************************************************
+! Subroutine for solving system 
+! | A C^T|| z_i | = | res_i |
+! | C  0 || mu  |   |   0   |
+! on entry, vec contains res_i
+! on exit, vec contains z_i
+
+      use module_sm
+      use module_mumps
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain
+      integer,intent(in) :: isub
+
+      integer,intent(in) ::    lvec
+      real(kr),intent(inout) :: vec(lvec)
+
+      ! how many right hand sides are hidden in vec
+      integer,intent(in) ::    nrhs
+
+      ! local vars
+      integer ::  ndofaaug
+
+      ! check the prerequisities
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_SOLVE_AUG: myid =',myid,'Subdomain', isub,' is not mine.'
+         end if
+         return
+      end if
+      if (.not.sub(isub)%is_aug_factorized) then
+         write(*,*) 'DD_SOLVE_AUG: Augmented matrix in not factorized for subdomain:', isub
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_mumps_aug_active) then
+         write(*,*) 'DD_SOLVE_AUG: Augmented matrix solver in not ready for subdomain:', isub
+         call error_exit
+      end if
+      if (mod(lvec,nrhs) .ne. 0) then
+         write(*,*) 'DD_SOLVE_AUG: Unclear what the augmented size is:', isub
+         call error_exit
+      end if
+
+      call dd_get_aug_size(myid,isub, ndofaaug)
+      if (ndofaaug.ne.lvec/nrhs) then
+         write(*,*) 'DD_SOLVE_AUG: Length of augmented system does not match:', isub
+         call error_exit
+      end if
+
+      ! solve the system with multiple RHS
+      call mumps_resolve(sub(isub)%mumps_aug,vec,lvec,nrhs)
+
+end subroutine
+
+!**********************************************************************
+subroutine dd_phis_apply(myid,isub, transposed, vec1,lvec1, vec2,lvec2)
+!**********************************************************************
+! Subroutine for multiplication of vector VEC1 by PHIS matrix
+! vec2 = phis * vec1 + vec2
+! phis are coarse space basis functions on subdomain
+
+      use module_sm
+      use module_mumps
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain
+      integer,intent(in) :: isub
+
+      ! is matrix transposed
+      logical,intent(in) :: transposed
+
+      ! input vector
+      integer,intent(in) :: lvec1
+      real(kr),intent(in) :: vec1(lvec1)
+      ! output vector
+      integer,intent(in) ::  lvec2
+      real(kr),intent(out) :: vec2(lvec2)
+
+      ! local vars
+      logical :: wrong_dim
+
+      ! BLAS vars
+      character(1) :: TRANS
+      integer :: M, N, LDA, INCX, INCY
+      real(kr) :: alpha, beta
+
+      ! check the prerequisities
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_PHIS_APPLY: myid =',myid,'Subdomain', isub,' is not mine.'
+         end if
+         return
+      end if
+      if (.not.sub(isub)%is_phisi_prepared) then
+         write(*,*) 'DD_PHIS_APPLY: PHIS matrix not ready:', isub
+         call error_exit
+      end if
+      ! check dimensions
+      wrong_dim = .false.
+      if (transposed) then
+         if (lvec1 .ne. sub(isub)%lphisi1 .or. lvec2 .ne. sub(isub)%lphisi2) then 
+            wrong_dim = .true.
+         end if
+      else
+         if (lvec1 .ne. sub(isub)%lphisi2 .or. lvec2 .ne. sub(isub)%lphisi1) then 
+            wrong_dim = .true.
+         end if
+      end if
+      if (wrong_dim) then
+         write(*,*) 'DD_PHIS_APPLY: Dimensions mismatch:', isub
+         call error_exit
+      end if
+
+      ! checking done, perform multiply by BLAS
+      if (transposed) then
+         TRANS = 'T'
+      else
+         TRANS = 'N'
+      end if
+      M = sub(isub)%lphisi1
+      N = sub(isub)%lphisi2
+      ALPHA = 1._kr
+      LDA = max(1,M)
+      INCX = 1
+      BETA = 1._kr ! sum second vector
+      INCY = 1
+      if (kr.eq.8) then
+         ! double precision
+         call DGEMV(TRANS,M,N,ALPHA,sub(isub)%phisi,LDA,vec1,INCX,BETA,vec2,INCY)
+      else if (kr.eq.4) then
+         ! single precision
+         call SGEMV(TRANS,M,N,ALPHA,sub(isub)%phisi,LDA,vec1,INCX,BETA,vec2,INCY)
+      end if
+
+end subroutine
+
 !**************************************************************
 subroutine dd_get_my_coarsem_length(myid,indexsub,lindexsub,la)
 !**************************************************************
@@ -2244,9 +2663,9 @@ subroutine dd_get_my_coarsem_length(myid,indexsub,lindexsub,la)
 
 end subroutine
       
-!************************************************************************************
+!***********************************************************************************************
 subroutine dd_get_my_coarsem(myid,matrixtype,indexsub,lindexsub,i_sparse, j_sparse, a_sparse,la)
-!************************************************************************************
+!***********************************************************************************************
 ! Subroutine for obtaining length of coarse matrix
       use module_utils
       implicit none
@@ -2447,9 +2866,9 @@ subroutine dd_multiply_by_schur(myid,isub,x,lx,y,ly)
 
 end subroutine
 
-!*******************************************
-subroutine dd_prepare_reduced_rhs(myid,isub)
-!*******************************************
+!****************************************************
+subroutine dd_prepare_reduced_rhs(myid,nsub,comm_all)
+!****************************************************
 ! Subroutine for construction of reduced rhs
 ! g = f_2 - A_21 * A_11^-1 * f_1
       use module_utils
@@ -2459,8 +2878,10 @@ subroutine dd_prepare_reduced_rhs(myid,isub)
 
       ! processor ID
       integer,intent(in) :: myid
-      ! subdomain number
-      integer,intent(in) :: isub
+      ! number of subdomains
+      integer,intent(in) :: nsub
+      ! communicator
+      integer,intent(in) :: comm_all
 
       ! local vars
       integer ::              laux1
@@ -2472,10 +2893,15 @@ subroutine dd_prepare_reduced_rhs(myid,isub)
 
       integer :: ndofi, ndofo, nnza12, la12, nnza21, la21, &
                  matrixtype_aux, lg
-      integer :: i
+      integer :: i, isub
       logical :: is_symmetric_storage
 
-      if (sub(isub)%proc .eq. myid) then
+
+      ! loop over subdomains
+      do isub = 1,nsub
+         if (.not. sub(isub)%proc .eq. myid) then
+            cycle
+         end if
 
          ! check the prerequisities
          if (.not.sub(isub)%is_matrix_loaded) then
@@ -2494,6 +2920,10 @@ subroutine dd_prepare_reduced_rhs(myid,isub)
             write(*,*) 'DD_PREPARE_REDUCED_RHS: RHS not loaded.'
             call error_exit
          end if
+         if (.not. (sub(isub)%is_weights_ready)) then
+            write(*,*) 'DD_PREPARE_REDUCED_RHS: Weights not ready.'
+            call error_exit
+         end if
  
          ! prepare f_1
          ndofo = sub(isub)%ndofo
@@ -2503,6 +2933,12 @@ subroutine dd_prepare_reduced_rhs(myid,isub)
          do i = 1,ndofo
             aux1(i) = sub(isub)%rhs(sub(isub)%iovsvn(i))
          end do
+         ! add eliminated BC to right hand side
+         if (sub(isub)%is_bc_nonzero) then
+            do i = 1,ndofo
+               aux1(i) = aux1(i) + sub(isub)%bc(sub(isub)%iovsvn(i))
+            end do
+         end if
 
          ! solve problem A_11*aux1 = f_1
          ! by MUMPS
@@ -2544,24 +2980,103 @@ subroutine dd_prepare_reduced_rhs(myid,isub)
          do i = 1,ndofi
             aux3(i) = sub(isub)%rhs(sub(isub)%iivsvn(i))
          end do
+         ! weigh f_2
+         do i = 1,ndofi
+            aux3(i) = sub(isub)%wi(i) * aux3(i)
+         end do
+         ! add eliminated BC to right hand side
+         if (sub(isub)%is_bc_nonzero) then
+            do i = 1,ndofi
+               aux3(i) = aux3(i) + sub(isub)%bc(sub(isub)%iivsvn(i))
+            end do
+         end if
 
          ! add results together to get aux3 = aux3 - aux2, i.e. aux3 = f_2 - A_21 * (A_11)^-1 * f_1
          do i = 1,ndofi
             aux3(i) = aux3(i) - aux2(i)
          end do
 
-         ! load reduced RHS to structure
+         ! load reduced RHS for communication structure
+         call dd_comm_upload(myid, isub, aux3,laux3) 
+ 
+         ! save my own g into sub
          lg = ndofi
          sub(isub)%lg = lg
          allocate(sub(isub)%g(lg))
          do i = 1,lg
             sub(isub)%g(i) = aux3(i)
          end do
-         sub(isub)%is_reduced_rhs_loaded = .true.
- 
+
          deallocate(aux1)
          deallocate(aux2)
          deallocate(aux3)
+      end do
+
+      ! communicate condensed right hand side
+      call dd_comm_swapdata(myid, nsub, comm_all)
+
+      ! loop over subdomains
+      do isub = 1,nsub
+         if (.not. sub(isub)%proc .eq. myid) then
+            cycle
+         end if
+
+         ndofi = sub(isub)%ndofi
+         laux3 = ndofi
+         allocate(aux3(laux3))
+
+         ! download contribution to g from my neighbours
+         call dd_comm_download(myid, isub, aux3,laux3) 
+
+         ! sum the contributions
+         do i = 1,lg
+            sub(isub)%g(i) = sub(isub)%g(i) + aux3(i)
+         end do
+
+         sub(isub)%is_reduced_rhs_loaded = .true.
+ 
+         deallocate(aux3)
+      end do
+end subroutine
+
+!************************************************
+subroutine dd_get_reduced_rhs(myid,isub,rhs,lrhs)
+!************************************************
+! Subroutine for construction of reduced rhs
+! g = f_2 - A_21 * A_11^-1 * f_1
+      use module_utils
+      use module_mumps
+      use module_sm
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain number
+      integer,intent(in) :: isub
+      ! reduced rhs
+      integer,intent(in) ::  lrhs
+      real(kr),intent(out) :: rhs(lrhs)
+
+      ! local vars
+      integer :: i
+
+      if (sub(isub)%proc .eq. myid) then
+
+         ! check the prerequisities
+         if (.not.sub(isub)%is_reduced_rhs_loaded) then
+            write(*,*) 'DD_GET_REDUCED_RHS: Reduced RHS is not loaded for subdomain:', isub
+            call error_exit
+         end if
+         ! check the size
+         if (lrhs .ne. sub(isub)%lg) then
+            write(*,*) 'DD_GET_REDUCED_RHS: RHS size mismatch for subdomain:', isub
+            call error_exit
+         end if
+ 
+         ! copy rhs
+         do i = 1,lrhs
+            rhs(i) = sub(isub)%g(i)
+         end do
       end if
 
 end subroutine
@@ -2650,6 +3165,112 @@ subroutine dd_get_interface_size(myid,isub,ndofi,nnodi)
       ! if all checks are OK, return subdomain interface size
       ndofi = sub(isub)%ndofi
       nnodi = sub(isub)%nnodi
+
+end subroutine
+
+!************************************************
+subroutine dd_get_size(myid,isub,ndof,nnod,nelem)
+!************************************************
+! Subroutine for finding size of subdomain data
+      implicit none
+! processor ID
+      integer,intent(in) :: myid
+! Index of subdomain whose data I want to get
+      integer,intent(in) :: isub
+! Number of subdomain dof
+      integer,intent(out) :: ndof
+! Number of subdomain nodes
+      integer,intent(out) :: nnod
+! Number of subdomain elements
+      integer,intent(out) :: nelem
+
+      if (.not.allocated(sub).or.isub.gt.lsub) then
+         write(*,*) 'DD_GET_SIZE: Trying to localize nonexistent subdomain.'
+         ndof = -1
+         return
+      end if
+      if (.not.sub(isub)%is_sub_identified) then
+         write(*,*) 'DD_GET_SIZE: Subdomain is not identified.'
+         ndof = -2
+         return
+      end if
+      if (sub(isub)%isub .ne. isub) then
+         write(*,*) 'DD_GET_SIZE: Subdomain has strange number.'
+         ndof = -3
+         return
+      end if
+      if (.not.sub(isub)%is_proc_assigned) then
+         write(*,*) 'DD_GET_SIZE: Processor is not assigned.'
+         ndof = -4
+         return
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_SIZE: Subdomain ',isub,' is not mine, myid = ',myid
+         ndof = -5
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_GET_SIZE: Mesh is not loaded yet for subdomain ',isub
+         ndof = -6
+         return
+      end if
+
+      ! if all checks are OK, return subdomain size
+      ndof  = sub(isub)%ndof
+      nnod  = sub(isub)%nnod
+      nelem = sub(isub)%nelem
+
+end subroutine
+
+!*****************************************************
+subroutine dd_get_coarse_size(myid,isub,ndofc,ncnodes)
+!*****************************************************
+! Subroutine for finding local size of subdomain coarse vector
+      use module_utils
+      implicit none
+! processor ID
+      integer,intent(in) :: myid
+! Index of subdomain whose data I want to get
+      integer,intent(in) :: isub
+! Length of vector of coarse dof on subdomain
+      integer,intent(out) :: ndofc
+! Length of vector of coarse nodes on subdomain
+      integer,intent(out) :: ncnodes
+
+      ! check prerequisites
+      if (.not.allocated(sub).or.isub.gt.lsub) then
+         write(*,*) 'DD_GET_COARSE_SIZE: Trying to localize nonexistent subdomain.'
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_sub_identified) then
+         write(*,*) 'DD_GET_COARSE_SIZE: Subdomain is not identified.'
+         call error_exit
+      end if
+      if (sub(isub)%isub .ne. isub) then
+         write(*,*) 'DD_GET_COARSE_SIZE: Subdomain has strange number.'
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_proc_assigned) then
+         write(*,*) 'DD_GET_COARSE_SIZE: Processor is not assigned.'
+         call error_exit
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         write(*,*) 'DD_GET_COARSE_SIZE: Subdomain ',isub,' is not mine, myid = ',myid
+         ndofc = -5
+         return
+      end if
+      if (.not.sub(isub)%is_coarse_prepared) then
+         write(*,*) 'DD_GET_COARSE_SIZE: Coarse matrix not ready, ',isub
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_cnodes_loaded) then
+         write(*,*) 'DD_GET_COARSE_SIZE: Coarse nodes not loaded, ',isub
+         call error_exit
+      end if
+
+      ! if all checks are OK, return subdomain coarse size
+      ndofc = sub(isub)%ndofc
+      ncnodes = sub(isub)%ncnodes
 
 end subroutine
 
@@ -3162,7 +3783,7 @@ subroutine dd_create_neighbouring(myid, nsub, comm_all)
          sub_aux(isub)%lstatarray2 = sub_aux(isub)%lrequest
          allocate(sub_aux(isub)%statarray(sub_aux(isub)%lstatarray1,sub_aux(isub)%lstatarray2))
 
-! Determine sizes of interace of my neigbours
+! Determine sizes of interace of my neighbours
          ireq = 0
          do ia = 1,nadj
             ! get index of neighbour
@@ -3215,7 +3836,7 @@ subroutine dd_create_neighbouring(myid, nsub, comm_all)
          nnodi = sub(isub)%nnodi
          nadj  = sub(isub)%nadj
 
-! Allocate array for global node numbers at interface of for neigbours
+! Allocate array for global node numbers at interface of for neighbours
          sub_aux(isub)%liinadj = sum(sub_aux(isub)%nnodiadj)
          allocate(sub_aux(isub)%iinadj(sub_aux(isub)%liinadj))
    
@@ -3223,10 +3844,7 @@ subroutine dd_create_neighbouring(myid, nsub, comm_all)
 ! prepare array of interface nodes in global numbering
          sub_aux(isub)%liingn = nnodi
          allocate(sub_aux(isub)%iingn(sub_aux(isub)%liingn))
-         do i = 1,nnodi
-            inds                   = sub(isub)%iin(i)
-            sub_aux(isub)%iingn(i) = sub(isub)%isngn(inds)
-         end do
+         call dd_get_interface_global_numbers(myid, isub, sub_aux(isub)%iingn,sub_aux(isub)%liingn)
 
 !     Interchange interface nodes in global numbering
          ireq = 0
@@ -3402,7 +4020,7 @@ subroutine dd_comm_upload(myid, isub, vec,lvec)
          end if
          return
       end if
-      ! check neigbouring
+      ! check neighbouring
       if (.not. sub(isub)%is_neighbouring_ready) then
          write(*,*) 'DD_COMM_UPLOAD: Neighbouring is not ready for subdomain ',isub
          call error_exit
@@ -3610,7 +4228,7 @@ subroutine dd_comm_download(myid, isub, vec,lvec)
          end if
          return
       end if
-      ! check neigbouring
+      ! check neighbouring
       if (.not. sub(isub)%is_neighbouring_ready) then
          write(*,*) 'DD_COMM_DOWNLOAD: Neighbouring is not ready for subdomain ',isub
          call error_exit
@@ -3815,58 +4433,6 @@ subroutine dd_weights_apply(myid, isub, vec,lvec)
 
 end subroutine
 
-
-!************************************
-subroutine dd_krylov_init(myid, isub)
-!************************************
-! Subroutine for getting subdomain diagonal from the structure
-      use module_utils
-      implicit none
-
-      integer,intent(in) :: myid, isub
-
-      ! local vars
-      integer :: ndof, ndofi, lsol, lsoli
-      integer :: i, ind
-      integer :: lresi
-
-      ! check if I store the subdomain
-      if (.not. sub(isub)%proc .eq. myid) then
-         if (debug) then
-            write(*,*) 'DD_KRYLOV_INIT: myid =',myid,', not my subdomain: ',isub
-         end if
-         return
-      end if
-
-      ! load data
-      ndof  = sub(isub)%ndof
-      ndofi = sub(isub)%ndofi
-
-      ! allocate vectors for Krylov method 
-      lsol  = ndof
-      lsoli = ndofi
-      lresi = ndofi
-      allocate(sub(isub)%sol(lsol))
-      allocate(sub(isub)%soli(lsoli))
-      allocate(sub(isub)%resi(lresi))
-
-      call zero(sub(isub)%sol,lsol)
-      call zero(sub(isub)%soli,lsoli)
-
-      ! set Dirichlet boundary conditions
-      if (sub(isub)%is_bc_nonzero) then
-         where (sub(isub)%ifix .ne. 0) sub(isub)%sol = sub(isub)%fixv
-      end if
-
-      ! setup initial solution at interface from initial solution
-      do i = 1,ndofi
-         ind = sub(isub)%iivsvn(i)
-
-         sub(isub)%soli(i) = sub(isub)%sol(ind)
-      end do
-
-end subroutine
-
 !***********************************************************
 subroutine dd_get_interface_diagonal(myid, isub, rhoi,lrhoi)
 !***********************************************************
@@ -3933,6 +4499,62 @@ subroutine dd_get_interface_diagonal(myid, isub, rhoi,lrhoi)
       deallocate(rho)
 end subroutine
 
+!**********************************************************************
+subroutine dd_dotprod_local(myid,isub, vec1,lvec1, vec2,lvec2, dotprod)
+!**********************************************************************
+! Subroutine for computing weighted dot product to be used in repeated entries with DD
+! dotprod = vec1 * wi * vec2
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain number
+      integer,intent(in) :: isub
+
+      ! vectors to multiply
+      integer,intent(in) ::  lvec1
+      real(kr), intent(in) :: vec1(lvec1)
+      integer,intent(in) ::  lvec2
+      real(kr), intent(in) :: vec2(lvec2)
+      
+      ! result
+      real(kr), intent(out) :: dotprod
+
+      ! local vars
+      integer :: i
+
+      ! loop over subdomains
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_DOTPROD_LOCAL: Subdomain not mine:', isub
+         end if
+         return
+      end if
+
+      ! check the prerequisities
+      if (.not. (sub(isub)%is_weights_ready)) then
+         write(*,*) 'DD_DOTPROD_LOCAL: Weights not ready.'
+         call error_exit
+      end if
+
+      ! check dimensions
+      if (lvec1 .ne. lvec2) then
+         write(*,*) 'DD_DOTPROD_LOCAL: Dimensions mismatch.'
+         call error_exit
+      end if
+      if (lvec1 .ne. sub(isub)%lwi) then
+         write(*,*) 'DD_DOTPROD_LOCAL: Dimensions mismatch with weights.'
+         call error_exit
+      end if
+
+      dotprod = 0._kr
+      do i = 1,lvec1
+         dotprod = dotprod + vec1(i) * sub(isub)%wi(i) * vec2(i)
+      end do
+
+end subroutine
+ 
 !**********************************
 subroutine dd_clear_subdomain(isub)
 !**********************************
@@ -4143,9 +4765,6 @@ subroutine dd_clear_subdomain(isub)
       if (allocated(sub(isub)%soli)) then
          deallocate(sub(isub)%soli)
       end if
-      if (allocated(sub(isub)%resi)) then
-         deallocate(sub(isub)%resi)
-      end if
 
       sub(isub)%is_mesh_loaded          = .false.
       sub(isub)%is_matrix_loaded        = .false.
@@ -4203,16 +4822,22 @@ subroutine dd_print_sub(myid)
          write(*,*) '*** GLOB INFO :               '
          write(*,*) '     number of globs:         ', sub(isub)%nglob
          write(*,*) '*** NEIGHBOURING INFO :       '
+         write(*,*) '     neighbouring ready:      ', sub(isub)%is_neighbouring_ready
          write(*,*) '     number of neighbours:    ', sub(isub)%nadj
          write(*,*) '     indices of neighbours:   ', sub(isub)%iadj
-         kishnadj = 0
-         do ia = 1,sub(isub)%nadj
-            write(*,*) '      number of nodes shared with subdomain ',sub(isub)%iadj(ia),'is: ', sub(isub)%nshnadj(ia)
-            write(*,*) '      indices of nodes shared: ', sub(isub)%ishnadj(kishnadj+1:kishnadj+sub(isub)%nshnadj(ia))
-         end do
+         if (sub(isub)%is_neighbouring_ready) then
+            kishnadj = 0
+            do ia = 1,sub(isub)%nadj
+               write(*,*) '      number of nodes shared with subdomain ',sub(isub)%iadj(ia),'is: ', sub(isub)%nshnadj(ia)
+               write(*,*) '      indices of nodes shared: ', sub(isub)%ishnadj(kishnadj+1:kishnadj+sub(isub)%nshnadj(ia))
+               kishnadj = kishnadj + sub(isub)%nshnadj(ia)
+            end do
+         end if
          write(*,*) '*** WEIGHTS INFO :            '
          write(*,*) '     are weights ready?:      ', sub(isub)%is_weights_ready
-         write(*,*) '     weights:                 ', sub(isub)%wi
+         if (sub(isub)%is_weights_ready) then
+            write(*,*) '     weights:                 ', sub(isub)%wi
+         end if
          write(*,*) '*** COARSE NODES INFO :       '
          write(*,*) '     number of coarse nodes:  ', sub(isub)%ncnodes
          do i = 1,sub(isub)%ncnodes

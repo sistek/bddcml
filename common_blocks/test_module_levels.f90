@@ -18,9 +18,6 @@ program test_module_levels
 
       integer :: matrixtype
 
-      integer ::             lvec
-      real(kr),allocatable :: vec(:)
-
       character(90)  :: problemname 
       character(100) :: name
       !character(100) :: filename
@@ -100,15 +97,15 @@ program test_module_levels
       matrixtype = 1 ! SPD matrix
       call levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,ndim,nsub)
 
-      lvec = 15
-      allocate(vec(lvec))
-      vec = 1.0_kr
-      call levels_pc_apply(vec,lvec)
-      if (myid.eq.0) then
-         write(*,*) 'vec:'
-         write(*,'(e18.9)') vec
-      end if
-      deallocate(vec)
+   !   lvec = 15
+   !   allocate(vec(lvec))
+   !   vec = 1.0_kr
+   !   call levels_pc_apply(vec,lvec, )
+   !   if (myid.eq.0) then
+   !      write(*,*) 'vec:'
+   !      write(*,'(e18.9)') vec
+   !   end if
+   !   deallocate(vec)
 
       write (*,*) 'myid = ',myid,': Finalize LEVELS.'
       call levels_finalize
