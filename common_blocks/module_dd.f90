@@ -606,6 +606,60 @@ subroutine dd_read_matrix_from_file(myid,problemname,matrixtype)
 
 end subroutine
 
+!**************************************************************************************
+subroutine dd_write_solution_to_file(myid, problemname, isub, sol,lsol, print_solution)
+!**************************************************************************************
+! Subroutine for writing subdomain solution into file
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! name of problem
+      character(*),intent(in) :: problemname
+      ! subdomain number
+      integer,intent(in) :: isub
+
+      ! solution
+      integer,intent(in)  :: lsol
+      real(kr),intent(in) :: sol(lsol)
+
+      ! print the solution to screen?
+      logical,intent(in)  :: print_solution
+
+      ! local vars
+      integer :: idsols, i
+      character(100):: fname
+
+      ! check if I store the subdomain
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_WRITE_SOLUTION_TO_FILE: myid =',myid,', not my subdomain: ',isub
+         end if
+         call error_exit
+      end if
+
+      ! open subdomain SOLS file for solution
+      call getfname(problemname,isub,'SOLS',fname)
+      if (debug) then
+         write(*,*) 'DD_WRITE_SOLUTION_TO_FILE: Opening file fname: ', trim(fname)
+      end if
+      call allocate_unit(idsols)
+      open (unit=idsols,file=trim(fname),status='replace',form='unformatted')
+
+      rewind idsols
+      write(idsols) (sol(i),i=1,lsol)
+      
+      if (print_solution) then
+         write(*,*) 'myid =',myid,'isub =',isub,' solution: '
+         write(*,'(e15.7)') sol
+      end if
+
+      close(idsols)
+
+end subroutine
+
+
 !*********************************************************************************
 subroutine dd_load_matrix_triplet(myid, isub, matrixtype, &
                                   i_sparse,j_sparse,a_sparse,la,nnza,is_assembled)
@@ -987,6 +1041,49 @@ subroutine dd_fix_bc(myid,isub, vec,lvec)
 
 end subroutine
 
+!*******************************************************
+subroutine dd_fix_bc_interface_dual(myid,isub, vec,lvec)
+!*******************************************************
+! Subroutine for enforcing Dirichlet boundary conditions in interface residual vector
+      use module_utils
+      implicit none
+
+      integer,intent(in) :: myid, isub
+      integer,intent(in) ::    lvec
+      real(kr),intent(inout)::  vec(lvec)
+
+      ! local vars
+      integer :: ndofi
+      integer :: i, ind
+
+      ! check if I store the subdomain
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_FIX_BC_INTERFACE_DUAL: myid =',myid,', not my subdomain: ',isub
+         end if
+         return
+      end if
+      ! check if there are nonzero BC at subdomain
+      if (.not. sub(isub)%is_bc_present) then
+         return
+      end if
+      ! check size
+      ndofi = sub(isub)%ndofi
+      if (ndofi .ne. lvec) then
+         write(*,*) 'DD_FIX_BC_INTERFACE_DUAL: myid =',myid,', vector size mismatch: ',isub
+         call error_exit
+      end if
+
+      ! enforce boundary conditions
+      do i = 1,ndofi
+         ind = sub(isub)%iivsvn(i)
+         if (sub(isub)%ifix(ind) .ne. 0) then
+            vec(i) = 0._kr
+         end if
+      end do
+
+end subroutine
+
 !*************************************************************
 subroutine dd_map_sub_to_subi(myid,isub, vec,lvec, veci,lveci)
 !*************************************************************
@@ -1083,6 +1180,56 @@ subroutine dd_map_subi_to_sub(myid,isub, veci,lveci, vec,lvec)
          ind = sub(isub)%iivsvn(i)
 
          vec(ind) = vec(ind) + veci(i)
+      end do
+
+end subroutine
+
+!*************************************************************
+subroutine dd_map_sub_to_subo(myid,isub, vec,lvec, veco,lveco)
+!*************************************************************
+! Subroutine that maps subdomain vector to interiOr vector
+      use module_utils
+      implicit none
+
+      integer,intent(in) :: myid, isub
+
+      integer,intent(in)  ::  lvec
+      real(kr),intent(in) ::   vec(lvec)
+
+      integer,intent(in)  ::  lveco
+      real(kr),intent(out) ::  veco(lveco)
+
+      ! local vars
+      integer :: i, ind
+      integer :: ndofo, ndof, nnod, nelem
+
+      ! check if I store the subdomain
+      if (.not. sub(isub)%proc .eq. myid) then
+         if (debug) then
+            write(*,*) 'DD_MAP_SUB_TO_SUBO: myid =',myid,', not my subdomain: ',isub
+         end if
+         return
+      end if
+      ! check if mesh is loaded
+      if (.not. sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_MAP_SUB_TO_SUBO: myid =',myid,', Mesh not loaded for subdomain: ',isub
+         call error_exit
+      end if
+
+      ! get dimensions
+      call dd_get_size(myid,isub,ndof,nnod,nelem)
+      ndofo = sub(isub)%ndofo
+
+      ! check dimensions
+      if (lvec .ne. ndof .or. lveco .ne. ndofo) then
+         write(*,*) 'DD_MAP_SUB_TO_SUB0: myid =',myid,', Vectors size mismatch, isub : ',isub
+         call error_exit
+      end if
+
+      do i = 1,ndofo
+         ind = sub(isub)%iovsvn(i)
+
+         veco(i) = vec(ind)
       end do
 
 end subroutine
@@ -1896,9 +2043,10 @@ subroutine dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
             sub(isub)%cnodes(icnode)%ivsivn(i) = sub(isub)%igvsivn(iglob,i)
          end do
 
-         sub(isub)%is_cnodes_loaded = .true.
 
       end do
+
+      sub(isub)%is_cnodes_loaded = .true.
 
       deallocate(kdof_coarse)
 
@@ -2807,6 +2955,7 @@ subroutine dd_multiply_by_schur(myid,isub,x,lx,y,ly)
          laux1 = ndofo
          allocate(aux1(laux1))
 
+         ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
          ! with offdiagonal blocks, use as nonsymmetric
          matrixtype_aux = 0
          nnza12     = sub(isub)%nnza12
@@ -2817,7 +2966,7 @@ subroutine dd_multiply_by_schur(myid,isub,x,lx,y,ly)
 
          ! resolve interior problem by MUMPS
          call mumps_resolve(sub(isub)%mumps_interior_block,aux1,laux1)
-         
+
          if (sub(isub)%istorage .eq. 4) then
             is_symmetric_storage = .true.
          else
@@ -2866,6 +3015,124 @@ subroutine dd_multiply_by_schur(myid,isub,x,lx,y,ly)
 
 end subroutine
 
+!**************************************************
+subroutine dd_resolve_interior(myid,isub,x,lx,y,ly)
+!**************************************************
+! Subroutine for resolution of interior variables with interface fixed (aka solving Dirichlet problem)
+      use module_utils
+      use module_mumps
+      use module_sm
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain number
+      integer,intent(in) :: isub
+
+      ! input vector
+      integer,intent(in)  :: lx
+      real(kr),intent(in) ::  x(lx)
+
+      ! output vector
+      integer,intent(in)   :: ly
+      real(kr),intent(out) ::  y(ly)
+
+      ! local vars
+      integer ::   matrixtype_aux
+      integer ::  nnza12, la12
+
+      integer :: ndofo, ndof
+      integer ::              laux1
+      real(kr), allocatable :: aux1(:)
+      integer ::              laux2
+      real(kr), allocatable :: aux2(:)
+      integer ::              laux3
+      real(kr), allocatable :: aux3(:)
+
+      integer :: io, ind, i
+
+      if (sub(isub)%proc .eq. myid) then
+
+         ! check the prerequisities
+         if (.not.sub(isub)%is_matrix_loaded) then
+            write(*,*) 'DD_RESOLVE_INTERIOR: Matrix is not loaded for subdomain:', isub
+            call error_exit
+         end if
+         if (.not. (sub(isub)%is_blocked)) then
+            write(*,*) 'DD_RESOLVE_INTERIOR: Matrix is not in blocked format. Call routine to do this.'
+            call error_exit
+         end if
+         if (.not. (sub(isub)%is_interior_factorized)) then
+            write(*,*) 'DD_RESOLVE_INTERIOR: Interior block not factorized yet.'
+            call error_exit
+         end if
+         if (.not. (sub(isub)%ndofi .eq. lx)) then
+            write(*,*) 'DD_RESOLVE_INTERIOR: Inconsistent data size on input.'
+            call error_exit
+         end if
+         if (.not. (sub(isub)%ndof .eq. ly)) then
+            write(*,*) 'DD_RESOLVE_INTERIOR: Inconsistent data size on output.'
+            call error_exit
+         end if
+
+         ndofo = sub(isub)%ndofo
+         laux1 = ndofo
+         allocate(aux1(laux1))
+ 
+         ndof = sub(isub)%ndof
+         laux2 = ndof
+         allocate(aux2(laux2))
+         ! copy right hand side into aux2
+         do i = 1,ndof
+            aux2(i) = sub(isub)%rhs(i)
+         end do
+         ! fix BC in aux2
+         if (sub(isub)%is_bc_present) then
+            call sm_prepare_rhs(sub(isub)%ifix,sub(isub)%lifix,sub(isub)%bc,sub(isub)%lbc,aux2,laux2)
+         end if
+
+         laux3 = ndofo
+         allocate(aux3(laux3))
+
+         ! map aux2 (length of whole subdomain solution) to subdomain interior aux1
+         call dd_map_sub_to_subo(myid,isub, aux2,laux2, aux3,laux3)
+
+         deallocate(aux2)
+
+         ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
+         ! with offdiagonal blocks, use as nonsymmetric
+         matrixtype_aux = 0
+         nnza12     = sub(isub)%nnza12
+         la12       = sub(isub)%la12
+         call sm_vec_mult(matrixtype_aux, nnza12, &
+                          sub(isub)%i_a12_sparse, sub(isub)%j_a12_sparse, sub(isub)%a12_sparse, la12, &
+                          x,lx, aux1,laux1)
+
+         ! prepare rhs into aux1
+         ! aux = f - aux
+         do io = 1,ndofo
+            aux1(io) = aux3(io) - aux1(io)
+         end do
+
+         deallocate(aux3)
+
+         ! resolve interior problem by MUMPS
+         call mumps_resolve(sub(isub)%mumps_interior_block,aux1,laux1)
+
+         ! embed vector of interior solution into subdomain solution y
+         do io = 1,ndofo
+            ind = sub(isub)%iovsvn(io)
+            y(ind) = y(ind) + aux1(io)
+         end do
+
+         deallocate(aux1)
+
+         ! embed interface solution x into y
+         call dd_map_subi_to_sub(myid,isub, x,lx, y,ly)
+         
+      end if
+
+end subroutine
 !****************************************************
 subroutine dd_prepare_reduced_rhs(myid,nsub,comm_all)
 !****************************************************
@@ -2892,7 +3159,7 @@ subroutine dd_prepare_reduced_rhs(myid,nsub,comm_all)
       real(kr),allocatable ::  aux3(:)
 
       integer :: ndofi, ndofo, nnza12, la12, nnza21, la21, &
-                 matrixtype_aux, lg
+                 matrixtype_aux, lg, ndof
       integer :: i, isub
       logical :: is_symmetric_storage
 
@@ -2925,20 +3192,27 @@ subroutine dd_prepare_reduced_rhs(myid,nsub,comm_all)
             call error_exit
          end if
  
+         ndof = sub(isub)%ndof
+         laux2 = ndof
+         allocate(aux2(laux2))
+         ! copy right hand side into aux2
+         do i = 1,ndof
+            aux2(i) = sub(isub)%rhs(i)
+         end do
+         ! fix BC in aux2
+         if (sub(isub)%is_bc_present) then
+            call sm_prepare_rhs(sub(isub)%ifix,sub(isub)%lifix,sub(isub)%bc,sub(isub)%lbc,aux2,laux2)
+         end if
+
          ! prepare f_1
          ndofo = sub(isub)%ndofo
          laux1 = ndofo
          allocate(aux1(laux1))
-         ! copy proper part of RHS
-         do i = 1,ndofo
-            aux1(i) = sub(isub)%rhs(sub(isub)%iovsvn(i))
-         end do
-         ! add eliminated BC to right hand side
-         if (sub(isub)%is_bc_nonzero) then
-            do i = 1,ndofo
-               aux1(i) = aux1(i) + sub(isub)%bc(sub(isub)%iovsvn(i))
-            end do
-         end if
+
+         ! map aux2 (length of whole subdomain solution) to subdomain interior aux1
+         call dd_map_sub_to_subo(myid,isub, aux2,laux2, aux1,laux1)
+
+         deallocate(aux2)
 
          ! solve problem A_11*aux1 = f_1
          ! by MUMPS
@@ -3205,7 +3479,9 @@ subroutine dd_get_size(myid,isub,ndof,nnod,nelem)
          return
       end if
       if (sub(isub)%proc .ne. myid) then
-         write(*,*) 'DD_GET_SIZE: Subdomain ',isub,' is not mine, myid = ',myid
+         if (debug) then
+            write(*,*) 'DD_GET_SIZE: Subdomain ',isub,' is not mine, myid = ',myid
+         end if
          ndof = -5
          return
       end if
@@ -3255,7 +3531,9 @@ subroutine dd_get_coarse_size(myid,isub,ndofc,ncnodes)
          call error_exit
       end if
       if (sub(isub)%proc .ne. myid) then
-         write(*,*) 'DD_GET_COARSE_SIZE: Subdomain ',isub,' is not mine, myid = ',myid
+         if (debug) then
+            write(*,*) 'DD_GET_COARSE_SIZE: Subdomain ',isub,' is not mine, myid = ',myid
+         end if
          ndofc = -5
          return
       end if
@@ -3264,7 +3542,7 @@ subroutine dd_get_coarse_size(myid,isub,ndofc,ncnodes)
          call error_exit
       end if
       if (.not.sub(isub)%is_cnodes_loaded) then
-         write(*,*) 'DD_GET_COARSE_SIZE: Coarse nodes not loaded, ',isub
+         write(*,*) 'DD_GET_COARSE_SIZE: Coarse nodes not loaded, proc, sub',myid, isub
          call error_exit
       end if
 
@@ -4839,6 +5117,7 @@ subroutine dd_print_sub(myid)
             write(*,*) '     weights:                 ', sub(isub)%wi
          end if
          write(*,*) '*** COARSE NODES INFO :       '
+         write(*,*) '     coarse nodes ready:      ', sub(isub)%is_cnodes_loaded
          write(*,*) '     number of coarse nodes:  ', sub(isub)%ncnodes
          do i = 1,sub(isub)%ncnodes
             call dd_print_cnode(isub,i)

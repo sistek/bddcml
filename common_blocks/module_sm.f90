@@ -213,6 +213,8 @@ subroutine sm_pmd_load(idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
          end do
          nve = ive
 
+!         write(*,*) ie, kdofe
+
          ! Read element matrix
          read(idelm) lelm,(a_sparse(inda + i), i = 1,lelm)
 

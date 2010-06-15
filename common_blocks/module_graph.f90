@@ -103,7 +103,6 @@ integer, intent(out) ::  ladjwgt
 ! local variables
 integer,allocatable :: onerow(:), onerowweig(:)
 integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionerow, nelmn, nne, pointietn, lorin, lorout
-integer :: lor
 
 ! prepare arrays for storing a row
       nnetx = maxval(nnet)
@@ -343,7 +342,7 @@ integer,intent(inout) :: onerowweig(lorin)
 integer,intent(out) :: lorout
 
 ! local variables
-integer :: valid, ivalid, nvalid, i, i1, i2
+integer :: valid, ivalid, nvalid, i, i2
 
          ! eliminate myself
          where(onerow .eq. ie) onerow = 0

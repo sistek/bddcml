@@ -456,10 +456,10 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       end do
 
 
-      if (debug) then
-         write(*,*) 'ilevel = ',ilevel
-         write(*,*) 'LEVEL',ilevel-1,', indexsub = ',levels(ilevel-1)%indexsub
-      end if
+!      if (debug) then
+!         write(*,*) 'ilevel = ',ilevel
+!         write(*,*) 'LEVEL',ilevel-1,', indexsub = ',levels(ilevel-1)%indexsub
+!      end if
 
       if (levels(ilevel)%nelem .ne. levels(ilevel-1)%lindexsub) then
          write(*,*) 'LEVELS_PREPARE_LAST_LEVEL: Error in levels consistency.'
@@ -519,7 +519,7 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
 
 ! Clear memory
       deallocate(i_sparse, j_sparse, a_sparse)
-      deallocate (nndf)
+      deallocate(nndf)
 
 end subroutine
 
@@ -583,6 +583,9 @@ subroutine levels_pc_apply(myid,comm_all, krylov_data,lkrylov_data)
          isub = levels(ilevel)%indexsub(is)
 
          call dd_get_coarse_size(myid,isub,ndofcs,ncnodess)
+         if (ndofcs.le.0) then
+            cycle
+         end if
 
          laux = krylov_data(isub)%lresi
          allocate(aux(laux))
@@ -621,6 +624,7 @@ subroutine levels_pc_apply(myid,comm_all, krylov_data,lkrylov_data)
          call zero(krylov_data(isub)%z,krylov_data(isub)%lz)
          call dd_map_sub_to_subi(myid,isub, aux2,ndofs, krylov_data(isub)%z,krylov_data(isub)%lz)
 
+
          deallocate(aux2)
          deallocate(aux)
          deallocate(rescs)
@@ -640,6 +644,9 @@ subroutine levels_pc_apply(myid,comm_all, krylov_data,lkrylov_data)
          isub = levels(ilevel)%indexsub(is)
 
          call dd_get_coarse_size(myid,isub,ndofcs,ncnodess)
+         if (ndofcs.le.0) then
+            cycle
+         end if
 
          lsolcs = ndofcs
          allocate(solcs(lsolcs))
@@ -651,6 +658,9 @@ subroutine levels_pc_apply(myid,comm_all, krylov_data,lkrylov_data)
          ! z_i = z_i + phis_i * uc_i
          transposed = .false.
          call dd_phis_apply(myid,isub, transposed, solcs,lsolcs, krylov_data(isub)%z,krylov_data(isub)%lz)
+         ! apply weights
+         ! z = wi * z
+         call dd_weights_apply(myid, isub, krylov_data(isub)%z,krylov_data(isub)%lz)
 
          ! load Z for communication
          call dd_comm_upload(myid, isub,  krylov_data(isub)%z,krylov_data(isub)%lz)

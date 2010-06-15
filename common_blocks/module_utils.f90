@@ -579,21 +579,8 @@ subroutine condtri(nw,nwx,w,lw, cond)
       real(kr) :: d(nw)
       real(kr) :: e(nw-1)
 
-      ! auxiliary variables
-      integer ::  iaux
-      real(kr) :: raux(1)
-
-      real(kr) :: eigmax
       integer ::  i
-
-      ! LAPACK
-      integer :: lapack_info
-
-      ! return silently if only 1 or less iterations were performed
-      if (nw.le.1) then
-         cond = 1._kr
-         return
-      end if
+      integer ::  ld, le
 
       ! prepare data for LAPACK
       ! diagonal
@@ -609,6 +596,52 @@ subroutine condtri(nw,nwx,w,lw, cond)
          write(*,*) d(1:nw)
          write(*,*) 'subdiagonal = '
          write(*,*) e(1:nw-1)
+      end if
+
+      ld = nw
+      le = nw-1
+      call condsparse(nw,d,ld,e,le, cond)
+
+end subroutine
+
+!****************************************
+subroutine condsparse(nw,d,ld,e,le, cond)
+!****************************************
+! Routine that estimates condition number of a real symmetric tridiagonal matrix 
+! using LAPACK
+
+! used dimension of matrix
+      integer,intent(in) :: nw
+
+! diagonal of matrix
+      integer,intent(in) :: ld
+      real(kr),intent(in) :: d(ld)
+! subdiagonal of matrix
+      integer,intent(in) :: le
+      real(kr),intent(in) :: e(le)
+
+! estimate of the condition number
+      real(kr),intent(out) :: cond
+
+      ! auxiliary variables
+      integer ::  iaux
+      real(kr) :: raux(1)
+
+      real(kr) :: eigmax
+
+      ! LAPACK
+      integer :: lapack_info
+
+      ! checks
+      if (ld.ne.nw .or. le .ne. ld-1) then
+         write(*,*) 'CONDSPARSE: Dimensions mismatch.'
+         call error_exit
+      end if
+
+      ! return silently if only 1 or less iterations were performed
+      if (nw.le.1) then
+         cond = 1._kr
+         return
       end if
 
       ! LAPACK routine for searching eigenvalues (returned in ascending order)

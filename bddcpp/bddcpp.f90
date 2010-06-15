@@ -32,6 +32,8 @@ integer,parameter:: idpar = 1, idbase = 100, idgmi = 2, ides = 4, idfvs = 3, &
                     idgmist = 20, idgmis = 21, idgraph = 22, idint = 23, idpair = 24, &
                     idlevel = 25
 
+real(kr),parameter :: numerical_zero = 1e-16_kr
+
 integer,parameter:: lname1x = 100, lnamex = 130, lfnamex = 130
 
 integer:: lname1
@@ -3498,6 +3500,8 @@ real(kr),allocatable :: sols(:)
 
 integer :: idofn, i, isol, inod, isub, isols, point, ndofn, ie
 
+real(kr) :: initialize = -Huge(1._kr)
+
 ! Import of basic geometry
 ! GMIS - basic mesh data - structure:
 !  * INET(LINET) * NNET(LNNET) * NNDF(LNNDF) * XYF(LXYF) *
@@ -3542,7 +3546,8 @@ integer :: idofn, i, isol, inod, isub, isols, point, ndofn, ie
 ! Prepare space for global solution 
       lsol = ndof
       allocate(sol(lsol))
-      sol = 0._kr
+      ! initialize global solution
+      sol = initialize
 
 ! Assembly solution
       write(*,*) 'Assembling global solution from subdomain files...'
@@ -3577,7 +3582,13 @@ integer :: idofn, i, isol, inod, isub, isols, point, ndofn, ie
                do idofn = 1,ndofn
                   isols = isols + 1
                   isol = point + idofn
-                  sol(isol) = sol(isol) + sols(isols)
+                  if (sol(isol) .eq. initialize) then
+                     sol(isol) = sols(isols)
+                  else if (abs(sol(isol) - sols(isols)).gt.numerical_zero) then
+                     write(*,*) 'SOLASSEMBLY: Different solution from two subdomains:',&
+                                sol(isol),sols(isols)
+                     stop
+                  end if
                end do
             end if
          end do
@@ -3587,6 +3598,12 @@ integer :: idofn, i, isol, inod, isub, isols, point, ndofn, ie
 ! Close SOLS files
          close(idsols)
       end do
+
+      ! check that all entries were modified according to subdomain files
+      if (any(sol .eq. initialize)) then
+         write(*,*) 'SOLASSEMBLY: There are entries of solution that were not determined by subdomains.'
+         stop
+      end if
       
 ! SOL - global solution
       name = name1(1:lname1)//'.SOL'
