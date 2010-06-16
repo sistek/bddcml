@@ -22,6 +22,7 @@ program test_module_levels
       character(100) :: name
       !character(100) :: filename
 
+      logical :: use_arithmetic, use_adaptive
 
       ! MPI initialization
 !***************************************************************PARALLEL
@@ -95,7 +96,9 @@ program test_module_levels
 !
 !      call levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,ndim,problemname)
       matrixtype = 1 ! SPD matrix
-      call levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,ndim,nsub)
+      use_arithmetic = .true.
+      use_adaptive   = .true.
+      call levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,ndim,nsub,use_arithmetic, use_adaptive)
 
    !   lvec = 15
    !   allocate(vec(lvec))

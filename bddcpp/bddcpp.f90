@@ -2722,13 +2722,14 @@ integer:: idsmd
          cxyz(indcxyz,:) = xyz(indnc,:)
       end do
 ! create coordinates of globs as mean values
+      pointinglb = 0
       do iglb = 1,nglb
          indcxyz = indcxyz + 1
 
          nglbn = nnglb(iglb)
 
          ! touch first node in glob
-         cxyz(indcxyz,:) = sum(xyz(inglb(pointinglb + iglbn:pointinglb + nglbn),:),dim=1)/nglbn
+         cxyz(indcxyz,:) = sum(xyz(inglb(pointinglb + 1:pointinglb + nglbn),:),dim=1)/nglbn
 
          pointinglb = pointinglb + nglbn
       end do

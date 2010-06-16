@@ -3303,6 +3303,7 @@ subroutine dd_prepare_reduced_rhs(myid,nsub,comm_all)
          call dd_comm_download(myid, isub, aux3,laux3) 
 
          ! sum the contributions
+         lg = sub(isub)%lg
          do i = 1,lg
             sub(isub)%g(i) = sub(isub)%g(i) + aux3(i)
          end do

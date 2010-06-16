@@ -14,6 +14,12 @@ interface zero
    module procedure zero_real_2
 end interface zero
 
+! Time measurements
+integer,parameter,private :: level_time_max = 30
+real(kr),private ::          times(level_time_max) = 0._kr
+integer,private  ::          level_time = 0
+integer,private  ::          time_verbose = 1
+
 contains
 
 subroutine zero_int_1(ia,lia)
@@ -660,6 +666,86 @@ subroutine condsparse(nw,d,ld,e,le, cond)
       end if
       cond = eigmax
 
+end subroutine
+
+!*******************************
+subroutine time_start(comm)
+!*******************************
+! Routine that starts new time measurement
+! Levels of timing work like opening and closing brackets,
+! measuring time elapsed between a pair of them.
+! This routine is like opening a bracket, 
+! see routine TIME_END for the opposite.
+
+      implicit none
+      include "mpif.h"
+      
+! MPI communicator
+      integer,intent(in) :: comm
+      
+! Local variables
+      integer  :: ierr
+
+! add new level of timing
+      level_time = level_time + 1
+
+! check if it is not too many
+      if (level_time.gt.level_time_max) then
+         write(*,*) 'TIME_START: Maximal number of time levels reached.'
+         stop
+      end if
+
+! measure the time and add it to the times array
+!***************************************************************PARALLEL
+      call MPI_BARRIER(comm,ierr)
+      times(level_time) = MPI_WTIME()
+!***************************************************************PARALLEL
+
+
+      return
+end subroutine
+
+!**********************************
+subroutine time_end(comm,time)
+!**********************************
+! Routine that finish time measurement of a level
+! Levels of timing work like opening and closing brackets,
+! measuring time elapsed between a pair of them.
+! This routine is like closing a bracket, 
+! see routine TIME_START for the opposite.
+
+      implicit none
+      include "mpif.h"
+
+! MPI communicator
+      integer,intent(in) :: comm
+      
+! Time of run
+      real(kr),intent(out) :: time
+      
+! Local variables
+      integer  :: ierr
+      real(kr) :: current_time
+
+! measure the time
+!***************************************************************PARALLEL
+      call MPI_BARRIER(comm,ierr)
+      current_time = MPI_WTIME()
+!***************************************************************PARALLEL
+
+! check if it is not too few
+      if (level_time.le.0) then
+         write(*,*) 'TIME_END: All time levels already finished.'
+         stop
+      end if
+
+! find the elapsed time
+      time =  current_time - times(level_time)
+
+! subtract one level of timing
+      level_time = level_time - 1
+
+      return
 end subroutine
 
 end module module_utils

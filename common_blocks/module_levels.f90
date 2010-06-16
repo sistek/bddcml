@@ -78,7 +78,8 @@ subroutine levels_init(nl,nsub)
 end subroutine
 
 !*****************************************************************************************
-subroutine levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,ndim,nsub)
+subroutine levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,ndim,nsub,&
+                           use_arithmetic, use_adaptive)
 !*****************************************************************************************
 ! subroutine for multilevel BDDC preconditioner setup
       implicit none
@@ -100,6 +101,10 @@ subroutine levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,
       integer,intent(in) :: ndim
 ! number of subdomains
       integer,intent(in) :: nsub
+! Use arithmetic averages on globs as constraints?
+      logical,intent(in) :: use_arithmetic
+! Use adaptive constraints on faces?
+      logical,intent(in) :: use_adaptive
 
 
       ! local vars
@@ -115,7 +120,8 @@ subroutine levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,
       do ilevel = 1,nlevels-1
          call levels_prepare_standard_level(ilevel,nsub,1,nsub)
       end do
-      call levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,ndim,problemname)
+      call levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,ndim,problemname,&
+                                     use_arithmetic, use_adaptive)
 
 end subroutine
 
@@ -322,7 +328,8 @@ subroutine levels_prepare_standard_level(ilevel,nsub,isubstart,isubfinish)
 end subroutine
 
 !**********************************************************************************************
-subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,ndim,problemname)
+subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,ndim,problemname,&
+                                     use_arithmetic,use_adaptive)
 !**********************************************************************************************
 ! Subroutine for building the coarse problem on root process
 
@@ -339,7 +346,12 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       integer,intent(in) :: comm_self
       integer,intent(in) :: matrixtype
       integer,intent(in) :: ndim
-      character(90)  :: problemname
+      character(90),intent(in) :: problemname
+
+      ! Use arithmetic averages on globs as constraints?
+      logical,intent(in) :: use_arithmetic
+      ! Use adaptive constraints on faces?
+      logical,intent(in) :: use_adaptive
 
       ! local vars
       integer :: ilevel
@@ -357,7 +369,6 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       integer :: mumpsinfo
       logical :: parallel_analysis 
       logical :: remove_original 
-      logical :: use_arithmetic = .true.
 
       ! last level has index of number of levels
       ilevel = nlevels
@@ -382,7 +393,11 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
          ! on edges
          nndf(nnodc+1:nnodc+nedge) = ndim
          ! on faces
-         nndf(nnodc+nedge+1:nnodc+nedge+nface) = ndim
+         if (use_adaptive) then
+            nndf(nnodc+nedge+1:nnodc+nedge+nface) = 0
+         else
+            nndf(nnodc+nedge+1:nnodc+nedge+nface) = ndim
+         end if
       else
          ! on edges
          nndf(nnodc+1:nnodc+nedge) = 0
@@ -419,19 +434,39 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
          call dd_get_cnodes(myid,isub,nndf,lnndf)
       end do
       ! load arithmetic averages on edges
-      glob_type = 2
-      do isub = 1,nsub
-         call dd_load_arithmetic_constraints(myid,isub,glob_type)
-      end do
-      ! load arithmetic averages on faces
-      glob_type = 1
-      do isub = 1,nsub
-         call dd_load_arithmetic_constraints(myid,isub,glob_type)
-      end do
+      if (use_arithmetic) then
+         glob_type = 2
+         do isub = 1,nsub
+            call dd_load_arithmetic_constraints(myid,isub,glob_type)
+         end do
+         ! load arithmetic averages on faces
+         if (.not.use_adaptive) then
+            glob_type = 1
+            do isub = 1,nsub
+               call dd_load_arithmetic_constraints(myid,isub,glob_type)
+            end do
+         end if
+      end if
       ! prepare matrix C for corners and arithmetic averages on edges
       do isub = 1,nsub
          call dd_prepare_c(myid,isub)
       end do
+
+      if (use_adaptive) then
+         call adaptivity_init(myid,comm_all,idpair,npair)
+   
+         call adaptivity_assign_pairs(npair,nproc,npair_locx)
+   
+         !TODO: put nndf here
+         call adaptivity_solve_eigenvectors(myid,comm_all,npair_locx,npair,nproc)
+   
+         call adaptivity_finalize
+   
+         ! prepare AGAIN matrix C, now for corners, arithmetic averages on edges and adaptive on faces
+         do isub = 1,nsub
+            call dd_prepare_c(myid,isub)
+         end do
+      end if
 
       ! prepare augmented matrix for BDDC
       do isub = 1,nsub
@@ -499,7 +534,7 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
 
 ! Load matrix to MUMPS
       ndof = levels(ilevel)%ndof
-      write(*,*) 'ndof',ndof
+      !write(*,*) 'coarse ndof',ndof
       call mumps_load_triplet(mumps_coarse,ndof,nnz,i_sparse,j_sparse,a_sparse,la)
       write(*,*)'myid =',myid,': Triplet loaded'
       call flush(6)

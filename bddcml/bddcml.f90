@@ -1,5 +1,5 @@
 !***********************************************************************
-      program bddcml
+program bddcml
 !***********************************************************************
 ! module for distributed Krylov data storage
       use module_krylov_types_def
@@ -14,14 +14,24 @@
       
       include "mpif.h"
 
+!######### PARAMETERS TO SET
+! precision of floats
       integer,parameter :: kr = kind(1.D0)
+
+! number of levels
+      integer,parameter :: nlevels = 2
+
+! use arithmetic constraints?
+      logical,parameter :: use_arithmetic = .true.
+
+! use adaptive constraints?
+      logical,parameter :: use_adaptive = .true.
+
+!######### END OF PARAMETERS TO SET
 
       !  parallel variables
       integer :: myid, comm_all, comm_self, nproc, ierr
       integer :: idpar
-
-      ! number of levels
-      integer :: nlevels
 
       integer :: ndim, nsub, nelem, ndof, nnod, nnodc, linet
       integer :: maxit, ndecrmax
@@ -47,6 +57,9 @@
 
       logical :: print_solution 
 
+      ! time variables
+      real(kr) :: t_total, t_pc_setup, t_pcg
+
 
       ! MPI initialization
 !***************************************************************PARALLEL
@@ -57,9 +70,6 @@
       call MPI_COMM_RANK(comm_all,myid,ierr)
       call MPI_COMM_SIZE(comm_all,nproc,ierr)
 !***************************************************************PARALLEL
-
-      write (*,*) 'I am processor ',myid,': Hello nproc =',nproc
-
 
 ! Initial screen
       if (myid.eq.0) then
@@ -76,6 +86,9 @@
 !***************************************************************PARALLEL
       call MPI_BCAST(problemname, 90, MPI_CHARACTER, 0, comm_all, ierr)
 !***************************************************************PARALLEL
+
+! measuring time
+      call time_start(comm_all)
 
       if (myid.eq.0) then
          filename = trim(problemname)//'.PAR'
@@ -117,15 +130,14 @@
 !***************************************************************PARALLEL
 
       write (*,*) 'myid = ',myid,': Initializing LEVELS.'
-      !============
-      ! number of levels
-      nlevels = 2
-      !============
       call levels_init(nlevels,nsub)
 
+! PRECONDITIONER SETUP
+      call time_start(comm_all)
       matrixtype = 1 ! SPD matrix
-      call levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,ndim,nsub)
-
+      call levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,ndim,nsub,&
+                           use_arithmetic,use_adaptive)
+      call time_end(comm_all,t_pc_setup)
 
 ! Input zeros as initial vector of solution
       lpcg_data = nsub
@@ -199,7 +211,10 @@
          end if
       end do
 
+      ! call PCG method
+      call time_start(comm_all)
       call bddcpcg(pcg_data,lpcg_data, nsub, myid,comm_all,tol,maxit,ndecrmax)
+      call time_end(comm_all,t_pcg)
 
       ! Clear memory of PCG
       do isub = 1,nsub
@@ -221,6 +236,7 @@
             ! determine size of subdomain
             call dd_get_size(myid,isub,ndofs,nnods,nelems)
             call dd_get_interface_size(myid,isub,ndofis,nnodis)
+            lsolis = ndofis
 
             ! allocate local subdomain solution
             lsols  = ndofs
@@ -251,6 +267,17 @@
 
       write (*,*) 'myid = ',myid,': Finalize LEVELS.'
       call levels_finalize
+
+      call time_end(comm_all,t_total)
+
+      ! Information about times
+      if (myid.eq.0) then
+         write(*,'(a)')         ' TIMES OF RUN OF ROUTINES:'
+         write(*,'(a,f11.3,a)') '  pc_setup  ',t_pc_setup, ' s'
+         write(*,'(a,f11.3,a)') '  PCG       ',t_pcg, ' s'
+         write(*,'(a)')         '  ______________________'
+         write(*,'(a,f11.3,a)') '  total     ',t_total,    ' s'
+      end if
 
       ! MPI finalization
 !***************************************************************PARALLEL
