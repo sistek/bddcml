@@ -131,7 +131,7 @@ program test_module_dd2
 
       ! auxiliary routine, until reading directly the globs
       do isub = 1,nsub
-         call dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
+         call dd_get_cnodes(myid,isub)
       end do
 
       ! load arithmetic averages on edges
@@ -142,6 +142,7 @@ program test_module_dd2
 
       ! prepare matrix C
       do isub = 1,nsub
+         call dd_embed_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
          call dd_prepare_c(myid,isub)
       end do
 

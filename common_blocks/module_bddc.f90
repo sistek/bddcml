@@ -1944,6 +1944,7 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
                  nnz_t_est, nnz_t_est_loc, point_t, space_t_left, nnz_t_add
       logical :: correct_sol = .false.
       real(kr):: val, valnew
+      ! integer :: i,j
 
       real(kr):: time
 
@@ -2091,7 +2092,7 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
                call dd_get_adaptive_constraints(myid,isub,icnode,avg,lavg1,lavg2)
                !write(*,*) 'subdomain ',isub,' glob ',iglb
                !do i = 1,lavg1
-               !   write(*,'(100f6.2)') (avg(i,j),j = 1,lavg2)
+               !   write(*,'(100f12.2)') (avg(i,j),j = 1,lavg2)
                !end do
                !debug
                !write(substring ,'(i1)') myid+1

@@ -333,7 +333,7 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
 !**********************************************************************************************
 ! Subroutine for building the coarse problem on root process
 
-!      use module_adaptivity
+      use module_adaptivity
       use module_dd
       use module_sm
       use module_utils
@@ -369,6 +369,11 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       integer :: mumpsinfo
       logical :: parallel_analysis 
       logical :: remove_original 
+
+      ! adaptivity variables
+      integer :: idpair
+      character(100) :: filename
+      integer :: npair, npair_locx
 
       ! last level has index of number of levels
       ilevel = nlevels
@@ -431,7 +436,7 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       ! BDDC data
       ! start preparing cnodes
       do isub = 1,nsub
-         call dd_get_cnodes(myid,isub,nndf,lnndf)
+         call dd_get_cnodes(myid,isub)
       end do
       ! load arithmetic averages on edges
       if (use_arithmetic) then
@@ -449,21 +454,34 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       end if
       ! prepare matrix C for corners and arithmetic averages on edges
       do isub = 1,nsub
+         call dd_embed_cnodes(myid,isub,nndf,lnndf)
          call dd_prepare_c(myid,isub)
       end do
 
       if (use_adaptive) then
+
+         ! open file with description of pairs
+         if (myid.eq.0) then
+            filename = trim(problemname)//'.PAIR'
+            call allocate_unit(idpair)
+            open (unit=idpair,file=filename,status='old',form='formatted')
+         end if
+
          call adaptivity_init(myid,comm_all,idpair,npair)
    
          call adaptivity_assign_pairs(npair,nproc,npair_locx)
    
          !TODO: put nndf here
          call adaptivity_solve_eigenvectors(myid,comm_all,npair_locx,npair,nproc)
+
+         ! update nndf
+         call adaptivity_update_ndof(nndf,lnndf,nnodc,nedge,nface)
    
          call adaptivity_finalize
    
          ! prepare AGAIN matrix C, now for corners, arithmetic averages on edges and adaptive on faces
          do isub = 1,nsub
+            call dd_embed_cnodes(myid,isub,nndf,lnndf)
             call dd_prepare_c(myid,isub)
          end do
       end if

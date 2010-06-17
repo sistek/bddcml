@@ -46,9 +46,9 @@ integer,parameter,private :: idbase = 100 ! basic unit to add myid for independe
 
 ! table of pairs of eigenproblems to compute
 ! structure:
-!  PROC | IGLOB | ISUB | JSUB 
+!  PROC | IGLOB | ISUB | JSUB | NADAPTIVE
 integer,private            :: lpair_subdomains1 
-integer,parameter,private  :: lpair_subdomains2 = 4
+integer,parameter,private  :: lpair_subdomains2 = 5
 integer,allocatable,private :: pair_subdomains(:,:)
 
 
@@ -150,11 +150,12 @@ subroutine adaptivity_init(myid,comm,idpair,npair)
 !*****************************************************************MPI
       lpair_subdomains1 = npair
       allocate(pair_subdomains(lpair_subdomains1,lpair_subdomains2))
+      pair_subdomains(:,5) = 0
       if (myid.eq.0) then
          do ipair = 1,npair
             ! first column is associated with processors - initialize it to -1 = no processor assigned
             pair_subdomains(ipair,1) = -1
-            read(idpair,*) (pair_subdomains(ipair,j), j = 2,lpair_subdomains2)
+            read(idpair,*) (pair_subdomains(ipair,j), j = 2,4)
          end do
          close(idpair)
       end if
@@ -389,6 +390,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
       integer ::             lcadapt1, lcadapt2
       real(kr),allocatable :: cadapt(:,:)
+
+      integer ::            lnadaptivea
+      integer,allocatable :: nadaptivea(:)
 
       integer ::            ncommon_interface
       integer ::            lcommon_interface
@@ -1226,6 +1230,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: I am going to add ',nadaptive,' constraints for pair ',my_pair
 
+            ! store the number to the pair
+            pair_subdomains(my_pair,5) = nadaptive
+
             ! find estimator of condition number
             if (nadaptive.lt.neigvec) then
                est_loc = eigval(nadaptive + 1)
@@ -1416,10 +1423,16 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
       end do ! loop over rounds of eigenvalue pairs
 
+      ! globalize info on number of adaptive constraints
+      lnadaptivea = npair
+      allocate(nadaptivea(lnadaptivea))
+      call MPI_ALLREDUCE(pair_subdomains(1,5),nadaptivea,npair,MPI_INTEGER,MPI_SUM,comm_comm,ierr)
+      pair_subdomains(:,5) = nadaptivea
+      deallocate(nadaptivea)
+
       if (myid.eq.0) then
          write(*,*) 'Expected estimated condition number: ',est
       end if
-
 
       deallocate(statarray)
       deallocate(request)
@@ -1842,7 +1855,7 @@ subroutine adaptivity_get_pair_data(idpair,pair_data,lpair_data)
          write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - processor not assigned.'
          call error_exit
       end if
-      if (any(pair_subdomains(idpair,2:).eq.0)) then
+      if (any(pair_subdomains(idpair,2:4).eq.0)) then
          write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - zeros in subdomain data.'
          call error_exit
       end if
@@ -1854,6 +1867,46 @@ subroutine adaptivity_get_pair_data(idpair,pair_data,lpair_data)
 
 end subroutine
 
+!****************************************************************************
+subroutine adaptivity_update_ndof(nndf_coarse,lnndf_coarse,nnodc,nedge,nface)
+!****************************************************************************
+! Subroutine for parallel solution of distributed eigenproblems
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+! Number of dof at nodes
+      integer,intent(in) ::   lnndf_coarse
+      integer,intent(inout) :: nndf_coarse(lnndf_coarse)
+
+! Number of corners
+      integer,intent(in) :: nnodc
+! Number of edges
+      integer,intent(in) :: nedge
+! Number of faces
+      integer,intent(in) :: nface
+
+! local variables
+      integer :: indglb, nadaptive, i
+
+      ! check the length of vector for data
+      if (lnndf_coarse .ne. nnodc + nedge + nface) then
+         write(*,*) 'ADAPTIVITY_UPDATE_NDOF: Array size mismatch.'
+         call error_exit
+      end if
+      if (.not. allocated(pair_subdomains)) then
+         write(*,*) 'ADAPTIVITY_UPDATE_NDOF: Pair structure not allocated.'
+         call error_exit
+      end if
+
+      do i = 1,lpair_subdomains1
+         indglb = pair_subdomains(i,2)
+         nadaptive = pair_subdomains(i,5)
+
+         nndf_coarse(indglb) = nndf_coarse(indglb) + nadaptive
+      end do
+
+end subroutine
 
 !**************************************
 subroutine adaptivity_print_pairs(myid)

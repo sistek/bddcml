@@ -103,6 +103,7 @@ test_module_adaptivity.o: \
 
 test_module_levels.o: \
    module_levels.o \
+   module_adaptivity.o \
    module_dd.o \
    module_mumps.o \
    module_sm.o \
@@ -187,11 +188,14 @@ test_module_dd2: \
 test_module_levels: \
    test_module_levels.o \
    module_levels.o \
+   module_adaptivity.o \
    module_dd.o \
    module_mumps.o \
    module_sm.o \
-   module_utils.o 
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+   module_utils.o \
+   ../lobpcg_driver/lobpcg_driver.o \
+   lobpcg_mvecmult_f.o
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) $(BLOPEXLINK)
 
 test_module_graph: \
    test_module_graph.o \

@@ -140,7 +140,7 @@ program test_module_adaptivity
 
       ! start preparing cnodes
       do isub = 1,nsub
-         call dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
+         call dd_get_cnodes(myid,isub)
       end do
       ! load arithmetic averages on edges
       glob_type = 2
@@ -149,6 +149,7 @@ program test_module_adaptivity
       end do
       ! prepare matrix C for corners and arithmetic averages on edges
       do isub = 1,nsub
+         call dd_embed_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
          call dd_prepare_c(myid,isub)
       end do
 
@@ -186,6 +187,12 @@ program test_module_adaptivity
 
       call adaptivity_solve_eigenvectors(myid,comm_all,npair_locx,npair,nproc)
 
+      !print *,'nndf_coarse before update:'
+      !print *,nndf_coarse
+      call adaptivity_update_ndof(nndf_coarse,lnndf_coarse,nnodc,nedge,nface)
+      !print *,'nndf_coarse after update:'
+      !print *,nndf_coarse
+
       call adaptivity_finalize
 
 !*******************************************AUX
@@ -202,18 +209,20 @@ program test_module_adaptivity
 
       ! prepare matrix C for corners, arithmetic averages on edges and adaptive on faces
       do isub = 1,nsub
+         ! update glob data
+         call dd_embed_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
          call dd_prepare_c(myid,isub)
       end do
-
-      ! prepare augmented matrix for BDDC
-      do isub = 1,nsub
-         call dd_prepare_aug(myid,comm_self,isub)
-      end do
-
-      ! prepare coarse space basis functions for BDDC
-      do isub = 1,nsub
-         call dd_prepare_coarse(myid,isub)
-      end do
+!
+!      ! prepare augmented matrix for BDDC
+!      do isub = 1,nsub
+!         call dd_prepare_aug(myid,comm_self,isub)
+!      end do
+!
+!      ! prepare coarse space basis functions for BDDC
+!      do isub = 1,nsub
+!         call dd_prepare_coarse(myid,isub)
+!      end do
 
       ! print the output
       call dd_print_sub(myid)

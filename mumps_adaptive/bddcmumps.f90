@@ -81,14 +81,13 @@ type(DMUMPS_STRUC) :: schur_mumps
 integer,parameter:: idpar = 1, idfvs = 4, &
                     idelm = 10, idrhs = 11, idint = 12, &
                     idrhss = 15, idfvss = 16, idsols = 17, idsol = 18, idglb = 19, &
-                    idgmist = 20, idtr = 21
+                    idgmist = 20, idtr = 21, idcn = 22
 
 ! Lenght of names 
 integer,parameter:: lname1x = 8, lnamex = 15, lfnamex = 20
 ! Name of problem
 character(lname1x)::  name1
 character(lnamex) ::  name
-character(lfnamex)::  fname
 
 ! Global parameters of problem
 integer:: lname1, ndim, nsub, nelem, ndof, nnod, nnodc, linet, maxit, ndecrmax, &
@@ -137,6 +136,10 @@ real(kr),allocatable :: a_sparse(:)
 integer ::            linglb,   lnnglb
 integer,allocatable :: inglb(:), nnglb(:)
 
+! Description of coarse problem
+integer ::            lnndf_coarse
+integer,allocatable :: nndf_coarse(:)
+
 ! Variables for measuring time
 real(kr):: time
 
@@ -147,6 +150,7 @@ real(kr):: sparsity
 integer :: i, j, inodt, iaux, isub, nnz_proj_est, nnz_tr_proj_est, la_pure, la_proj, la_transform,&
            ndofs, inod, isol, ndofn, nnodi, ini, indnt, ndofnt, glob_type
 integer :: npair, npair_locx, idpair
+integer :: nedge, nface
 
 ! auxiliary array
 integer ::             laux
@@ -287,7 +291,39 @@ character(100) :: filename, problemname
       do isub = 1,nsub
          call dd_load_arithmetic_constraints(myid,isub,glob_type)
       end do
+
+      ! prepare array of coarse numbers of freedom
+      if (myid.eq.0) then
+         name = name1(1:lname1)//'.CN'
+         open (unit=idcn,file=name,status='old',form='formatted')
+         read(idcn,*) nnodc
+         close (idcn)
+
+         name = name1(1:lname1)//'.GLB'
+         open (unit=idglb,file=name,status='old',form='formatted')
+         read(idglb,*) nglb, linglb
+         lnnglb = nglb
+         allocate(inglb(linglb))
+         allocate(nnglb(lnnglb))
+         read(idglb,*) inglb
+         read(idglb,*) nnglb
+         read(idglb,*) nedge, nface
+         close (idglb)
+         deallocate(inglb)
+         deallocate(nnglb)
+      end if
+      call MPI_BCAST(nnodc,  1, MPI_INTEGER, 0, comm_all, ierr)
+      call MPI_BCAST(nedge,  1, MPI_INTEGER, 0, comm_all, ierr)
+      call MPI_BCAST(nface,  1, MPI_INTEGER, 0, comm_all, ierr)
+
+      lnndf_coarse = nnodc + nedge + nface
+      allocate(nndf_coarse(lnndf_coarse))
+      nndf_coarse(1:nnodc) = ndim
+      nndf_coarse(nnodc+1:nnodc+nedge) = ndim
+      nndf_coarse(nnodc+nedge+1:nnodc+nedge+nface) = 0
+
       do isub = 1,nsub
+         call dd_embed_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
          call dd_prepare_c(myid,isub)
       end do
 
@@ -299,13 +335,13 @@ character(100) :: filename, problemname
          call flush(6)
       end if
 
-
-
       call bddc_time_start(comm_all)
       call adaptivity_init(myid,comm_all,idpair,npair)
       call adaptivity_assign_pairs(npair,nproc,npair_locx)
       !call adaptivity_print_pairs(myid)
       call adaptivity_solve_eigenvectors(myid,comm_all,npair_locx,npair,nproc)
+      ! update nndf
+      call adaptivity_update_ndof(nndf_coarse,lnndf_coarse,nnodc,nedge,nface)
       call bddc_time_end(comm_all,time)
       if (myid.eq.0.and.timeinfo.ge.1) then
          write(*,*) '==================================='
@@ -313,6 +349,12 @@ character(100) :: filename, problemname
          write(*,*) '==================================='
          call flush(6)
       end if
+
+      do isub = 1,nsub
+         call dd_embed_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
+      end do
+
+      deallocate(nndf_coarse)
 
 ! Check the demanded number of processors
       if (nproc.ne.nsub) then
@@ -334,8 +376,8 @@ character(100) :: filename, problemname
 
 ! GMISTS - basic mesh data for subdomain in W_tilde space
 !  * INETTS(LINETS) * NNETTS(NELEMS) * NNDFT(NNODT) * SLAVERY(NNODT) * IHNTN(NNOD)
-      call bddc_getfname(name1,lname1,isub,'GMISTS',fname)
-      open (unit=idgmist,file=fname,status='old',form='formatted')
+      call getfname(trim(name1),isub,'GMISTS',filename)
+      open (unit=idgmist,file=filename,status='old',form='formatted')
       read(idgmist,*)  nnodt, ndoft
       read(idgmist,*)  nelems, linets, ndofs
       linetst = linets
@@ -405,7 +447,6 @@ character(100) :: filename, problemname
          call bddc_R_int(nnodt,nndft,lnndft,slavery,lslavery,kdoft,lkdoft,iintt,liintt)
       end if
 
-
 ! Approach to averages
       select case (averages_approach)
       case(0)
@@ -466,8 +507,8 @@ character(100) :: filename, problemname
          !***************************************************************PARALLEL
       case(2,3)
          ! For projection and transformation, LOCAL glob description is used
-         call bddc_getfname(name1,lname1,isub,'GLB',fname)
-         open (unit=idglb,file=fname,status='old',form='formatted')
+         call getfname(trim(name1),isub,'GLB',filename)
+         open (unit=idglb,file=filename,status='old',form='formatted')
          read(idglb,*) nglb, linglb
          linglb = linglb
          lnnglb = nglb
@@ -714,8 +755,8 @@ character(100) :: filename, problemname
 
 ! Open file for storing transformation matrices
       if (averages_approach.eq.3) then
-         call bddc_getfname(name1,lname1,isub,'TR',fname)
-         open(unit=idtr,file=fname,status='replace',form='unformatted')
+         call getfname(trim(name1),isub,'TR',filename)
+         open(unit=idtr,file=filename,status='replace',form='unformatted')
       end if
 
 ! Call PCG for solution of the system

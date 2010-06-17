@@ -135,7 +135,8 @@ module module_dd
          logical ::               is_weights_ready = .false. ! are weights ready?
 
          ! common description of joint coarse nodes/dofs
-         logical ::                     is_cnodes_loaded = .false. ! are coarse nodes activated?
+         logical ::                     is_cnodes_loaded   = .false. ! are coarse nodes activated?
+         logical ::                     is_cnodes_embedded = .false. ! are coarse nodes embedded in global coarse problem?
          integer ::                     ncnodes ! number of coarse nodes (including corners and globs)
          type(cnode_type),allocatable :: cnodes(:) ! structure with all information about coarse nodes
 
@@ -1875,9 +1876,9 @@ subroutine dd_get_adaptive_constraints(myid,isub,iglb,avg,lavg1,lavg2)
 
 end subroutine
 
-!***********************************************************
-subroutine dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
-!***********************************************************
+!**********************************
+subroutine dd_get_cnodes(myid,isub)
+!**********************************
 ! Merging corners with globs - order first corners, then globs
       use module_sm
       use module_utils
@@ -1887,20 +1888,14 @@ subroutine dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
       integer,intent(in) :: myid
       ! subdomain
       integer,intent(in) :: isub
-      ! coarse NNDF
-      integer,intent(in) :: lnndf_coarse
-      integer,intent(in) ::  nndf_coarse(lnndf_coarse)
 
       ! local vars
       integer ::             nnodc
       integer ::             nglob
       integer ::             ncnodes, lcnodes
       integer ::             icnode, igcnode
-      integer ::             inodc, indnode, indinode, i, kcdof, ncdof, nvar, iglob, nnodgl, indn
+      integer ::             inodc, indnode, indinode, i, nvar, iglob, nnodgl
       integer ::             lxyz
-
-      integer ::            lkdof_coarse
-      integer,allocatable :: kdof_coarse(:)
 
 
       ! check the prerequisities
@@ -1922,14 +1917,6 @@ subroutine dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
       ncnodes = nnodc + nglob
       sub(isub)%ncnodes = ncnodes
 
-      ! create array of global coarse dof KDOFC(NNODC) with addresses before first global dof
-      lkdof_coarse = lnndf_coarse
-      allocate(kdof_coarse(lkdof_coarse))
-      kdof_coarse(1) = 0
-      do indn = 2,lnndf_coarse
-         kdof_coarse(indn) = kdof_coarse(indn-1) + nndf_coarse(indn-1)
-      end do
-
       lcnodes = ncnodes
       allocate(sub(isub)%cnodes(lcnodes))
 
@@ -1947,9 +1934,6 @@ subroutine dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
          ! global number
          igcnode =  sub(isub)%global_corner_number(inodc)
          sub(isub)%cnodes(icnode)%global_cnode_number  = igcnode
-         ! number of coarse dof it contains
-         ncdof = nndf_coarse(igcnode)
-         sub(isub)%cnodes(icnode)%ncdof = ncdof
          ! number of nodes where it maps from
          sub(isub)%cnodes(icnode)%nnod = 1
          ! number of variables it maps from 
@@ -1965,13 +1949,6 @@ subroutine dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
          indinode = sub(isub)%icnsin(inodc)
          indnode  = sub(isub)%iin(indinode)
          sub(isub)%cnodes(icnode)%xyz = sub(isub)%xyz(indnode,:)
-
-         ! fill coarse node dof
-         allocate(sub(isub)%cnodes(icnode)%igcdof(ncdof))
-         kcdof = kdof_coarse(igcnode)
-         do i = 1,ncdof
-            sub(isub)%cnodes(icnode)%igcdof(i) = kcdof + i
-         end do
 
          ! fill coarse node nodes
          allocate(sub(isub)%cnodes(icnode)%insin(1))
@@ -2008,10 +1985,6 @@ subroutine dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
          ! global number
          igcnode = sub(isub)%global_glob_number(iglob)
          sub(isub)%cnodes(icnode)%global_cnode_number = igcnode
-         ! number of coarse dof it contains
-         ! ndim for arithmetic averages
-         ncdof = nndf_coarse(igcnode)
-         sub(isub)%cnodes(icnode)%ncdof = ncdof
          ! number of nodes where it maps from
          nnodgl = sub(isub)%nglobvar(iglob)/sub(isub)%ndim
          sub(isub)%cnodes(icnode)%nnod = nnodgl
@@ -2026,14 +1999,6 @@ subroutine dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
          !TODO: create averaged coordinates
          sub(isub)%cnodes(icnode)%xyz = 0.
 
-         ! fill coarse node dof
-         allocate(sub(isub)%cnodes(icnode)%igcdof(ncdof))
-         !CONTINU HERE! - does not work for adaptive constraints, only for arithmetic averages
-         kcdof = kdof_coarse(igcnode)
-         do i = 1,ncdof
-            sub(isub)%cnodes(icnode)%igcdof(i) = kcdof + i
-         end do
-
          ! fill coarse node nodes
          ! TODO: not for globs
 
@@ -2047,6 +2012,86 @@ subroutine dd_get_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
       end do
 
       sub(isub)%is_cnodes_loaded = .true.
+
+      return
+end subroutine
+
+!*************************************************************
+subroutine dd_embed_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
+!*************************************************************
+! Merging corners with globs - order first corners, then globs
+      use module_sm
+      use module_utils
+      implicit none
+
+      ! processor ID
+      integer,intent(in) :: myid
+      ! subdomain
+      integer,intent(in) :: isub
+      ! coarse NNDF
+      integer,intent(in) :: lnndf_coarse
+      integer,intent(in) ::  nndf_coarse(lnndf_coarse)
+
+      ! local vars
+      integer ::             nnodc
+      integer ::             nglob
+      integer ::             ncnodes
+      integer ::             icnode, igcnode
+      integer ::             ncdof, indn, i, kcdof
+
+      integer ::            lkdof_coarse
+      integer,allocatable :: kdof_coarse(:)
+
+
+      ! check the prerequisities
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_EMBED_CNODES: myid =',myid,'Subdomain', isub,' is not mine.'
+         end if
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_EMBED_CNODES: Mesh is not loaded for subdomain:', isub
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_cnodes_loaded) then
+         write(*,*) 'DD_EMBED_CNODES: Coarse nodes not loaded for subdomain:', isub
+         call error_exit
+      end if
+
+      ! determine number of coarse nodes
+      nnodc = sub(isub)%nnodc
+      nglob = sub(isub)%nglob
+      ncnodes = nnodc + nglob
+      sub(isub)%ncnodes = ncnodes
+
+      ! create array of global coarse dof KDOFC(NNODC) with addresses before first global dof
+      lkdof_coarse = lnndf_coarse
+      allocate(kdof_coarse(lkdof_coarse))
+      kdof_coarse(1) = 0
+      do indn = 2,lnndf_coarse
+         kdof_coarse(indn) = kdof_coarse(indn-1) + nndf_coarse(indn-1)
+      end do
+
+      ! Update embedding arrays
+      do icnode = 1,ncnodes
+         ! number of coarse dof it contains
+         igcnode = sub(isub)%cnodes(icnode)%global_cnode_number 
+         ncdof = nndf_coarse(igcnode)
+         if (allocated(sub(isub)%cnodes(icnode)%igcdof)) then
+            deallocate(sub(isub)%cnodes(icnode)%igcdof)
+         end if
+
+         sub(isub)%cnodes(icnode)%ncdof = ncdof
+         allocate(sub(isub)%cnodes(icnode)%igcdof(ncdof))
+         ! fill coarse node dof
+         kcdof = kdof_coarse(igcnode)
+         do i = 1,ncdof
+            sub(isub)%cnodes(icnode)%igcdof(i) = kcdof + i
+         end do
+
+      end do
+      sub(isub)%is_cnodes_embedded = .true.
 
       deallocate(kdof_coarse)
 
@@ -2097,6 +2142,10 @@ subroutine dd_prepare_c(myid,isub)
       end if
       if (.not.sub(isub)%is_matrix_loaded) then
          write(*,*) 'DD_PREPARE_C: Matrix is not loaded for subdomain:', isub
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_cnodes_embedded) then
+         write(*,*) 'DD_PREPARE_C: Corarse nodes not ready:', isub
          call error_exit
       end if
 

@@ -5,7 +5,7 @@ include ../make.inc
  INC = $(INCMUMPS) -I../common_blocks/
 # libraries needed
 LIBS = $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
-       $(LIBPORD) $(LIBLAPACK) $(LIBBLAS) 
+       $(LIBPORD) $(LIBLAPACK) $(LIBBLAS) $(BLOPEXLINK)
 #$(LIBMPI) $(LIBPTHREAD)
 ##############################################################
 # GNU Make automatic variables:
@@ -25,6 +25,7 @@ all: \
 bddcml.o: \
    ../common_blocks/module_krylov_types_def.o \
    ../common_blocks/module_levels.o \
+   ../common_blocks/module_adaptivity.o \
    ../common_blocks/module_dd.o \
    ../common_blocks/module_mumps.o \
    ../common_blocks/module_sm.o \
@@ -35,11 +36,14 @@ bddcml: \
    bddcml.o \
    ../common_blocks/module_krylov_types_def.o \
    ../common_blocks/module_levels.o \
+   ../common_blocks/module_adaptivity.o \
    ../common_blocks/module_dd.o \
    ../common_blocks/module_mumps.o \
    ../common_blocks/module_sm.o \
-   ../common_blocks/module_utils.o
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+   ../common_blocks/module_utils.o \
+   ../lobpcg_driver/lobpcg_driver.o \
+   ../common_blocks/lobpcg_mvecmult_f.o
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) 
 
 clean:
 	-rm -f *.o *.mod bddcml
