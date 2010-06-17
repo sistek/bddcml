@@ -669,22 +669,16 @@ subroutine condsparse(nw,d,ld,e,le, cond)
 end subroutine
 
 !*******************************
-subroutine time_start(comm)
+subroutine time_start
 !*******************************
 ! Routine that starts new time measurement
 ! Levels of timing work like opening and closing brackets,
 ! measuring time elapsed between a pair of them.
 ! This routine is like opening a bracket, 
 ! see routine TIME_END for the opposite.
-
       implicit none
-      include "mpif.h"
-      
-! MPI communicator
-      integer,intent(in) :: comm
       
 ! Local variables
-      integer  :: ierr
 
 ! add new level of timing
       level_time = level_time + 1
@@ -697,17 +691,15 @@ subroutine time_start(comm)
 
 ! measure the time and add it to the times array
 !***************************************************************PARALLEL
-      call MPI_BARRIER(comm,ierr)
-      times(level_time) = MPI_WTIME()
+      call wall_time(times(level_time))
 !***************************************************************PARALLEL
-
 
       return
 end subroutine
 
-!**********************************
-subroutine time_end(comm,time)
-!**********************************
+!************************
+subroutine time_end(time)
+!************************
 ! Routine that finish time measurement of a level
 ! Levels of timing work like opening and closing brackets,
 ! measuring time elapsed between a pair of them.
@@ -715,22 +707,16 @@ subroutine time_end(comm,time)
 ! see routine TIME_START for the opposite.
 
       implicit none
-      include "mpif.h"
 
-! MPI communicator
-      integer,intent(in) :: comm
-      
 ! Time of run
       real(kr),intent(out) :: time
       
 ! Local variables
-      integer  :: ierr
       real(kr) :: current_time
 
 ! measure the time
 !***************************************************************PARALLEL
-      call MPI_BARRIER(comm,ierr)
-      current_time = MPI_WTIME()
+      call wall_time(current_time)
 !***************************************************************PARALLEL
 
 ! check if it is not too few
@@ -747,6 +733,21 @@ subroutine time_end(comm,time)
 
       return
 end subroutine
+
+!***********************************************************************
+subroutine wall_time(t)
+!***********************************************************************
+! return wall clock time in s
+!***********************************************************************
+implicit none
+real(kr) :: t
+integer*8, dimension(8):: v
+!integer count,rate,cmax
+!call system_clock(count,rate,cmax)
+!t=dble(count)/dble(rate)
+CALL DATE_AND_TIME(VALUES=v) 
+t=(v(8)+1000*(v(7)+60*(v(6)+12*v(5)))) / 1000._kr
+end subroutine wall_time
 
 end module module_utils
 

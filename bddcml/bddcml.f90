@@ -88,7 +88,8 @@ program bddcml
 !***************************************************************PARALLEL
 
 ! measuring time
-      call time_start(comm_all)
+      call MPI_BARRIER(comm_all,ierr)
+      call time_start
 
       if (myid.eq.0) then
          filename = trim(problemname)//'.PAR'
@@ -133,11 +134,13 @@ program bddcml
       call levels_init(nlevels,nsub)
 
 ! PRECONDITIONER SETUP
-      call time_start(comm_all)
+      call MPI_BARRIER(comm_all,ierr)
+      call time_start
       matrixtype = 1 ! SPD matrix
       call levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,ndim,nsub,&
                            use_arithmetic,use_adaptive)
-      call time_end(comm_all,t_pc_setup)
+      call MPI_BARRIER(comm_all,ierr)
+      call time_end(t_pc_setup)
 
 ! Input zeros as initial vector of solution
       lpcg_data = nsub
@@ -212,9 +215,11 @@ program bddcml
       end do
 
       ! call PCG method
-      call time_start(comm_all)
+      call MPI_BARRIER(comm_all,ierr)
+      call time_start
       call bddcpcg(pcg_data,lpcg_data, nsub, myid,comm_all,tol,maxit,ndecrmax)
-      call time_end(comm_all,t_pcg)
+      call MPI_BARRIER(comm_all,ierr)
+      call time_end(t_pcg)
 
       ! Clear memory of PCG
       do isub = 1,nsub
@@ -268,7 +273,8 @@ program bddcml
       write (*,*) 'myid = ',myid,': Finalize LEVELS.'
       call levels_finalize
 
-      call time_end(comm_all,t_total)
+      call MPI_BARRIER(comm_all,ierr)
+      call time_end(t_total)
 
       ! Information about times
       if (myid.eq.0) then

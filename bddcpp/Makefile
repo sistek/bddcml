@@ -2,7 +2,7 @@
 include ../make.inc
 
 # libraries needed
-LIBS = $(LIBMETIS) $(LIBLAPACK) $(LIBBLAS) $(LIBMPI)
+LIBS = $(LIBMETIS) $(LIBLAPACK) $(LIBBLAS) 
 
 # includes
 INC = -I../common_blocks
