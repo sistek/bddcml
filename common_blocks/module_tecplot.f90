@@ -208,7 +208,7 @@ integer, intent(in) :: iddat
 integer, intent(in)  :: lvar
 real*4, intent(in) ::  var(lvar)
 
-write(iddat,'(5e15.6)') var
+write(iddat,'(5e16.6)') var
                    
 return
 end subroutine tecplot_export_block_variable_sp
@@ -226,7 +226,7 @@ integer, intent(in) :: iddat
 integer, intent(in)  :: lvar
 double precision, intent(in) ::  var(lvar)
 
-write(iddat,'(5e15.6)') var
+write(iddat,'(5e16.6)') var
                    
 return
 end subroutine tecplot_export_block_variable_dp
@@ -250,7 +250,7 @@ double precision, intent(in) ::  array(larray1,larray2)
 integer :: i
 
 do i = 1,larray1
-   write(iddat,'(8e17.9)') array(i,:)
+   write(iddat,'(8e18.9)') array(i,:)
 end do
                    
 return

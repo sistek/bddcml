@@ -471,7 +471,6 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
    
          call adaptivity_assign_pairs(npair,nproc,npair_locx)
    
-         !TODO: put nndf here
          call adaptivity_solve_eigenvectors(myid,comm_all,npair_locx,npair,nproc)
 
          ! update nndf

@@ -741,7 +741,7 @@ subroutine wall_time(t)
 !***********************************************************************
 implicit none
 real(kr) :: t
-integer*8, dimension(8):: v
+integer, dimension(8):: v
 !integer count,rate,cmax
 !call system_clock(count,rate,cmax)
 !t=dble(count)/dble(rate)

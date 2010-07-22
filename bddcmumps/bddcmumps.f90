@@ -80,11 +80,10 @@ integer,parameter:: idpar = 1, idfvs = 4, &
                     idgmist = 20, idtr = 21
 
 ! Lenght of names 
-integer,parameter:: lname1x = 8, lnamex = 15, lfnamex = 20
+integer,parameter:: lname1x = 100, lnamex = 15 
 ! Name of problem
 character(lname1x)::  name1
 character(lnamex) ::  name
-character(lfnamex)::  fname
 
 ! Global parameters of problem
 integer:: lname1, ndim, nsub, nelem, ndof, nnod, nnodc, linet, maxit, ndecrmax, &
@@ -274,8 +273,8 @@ character(100) :: filename, problemname
 
 ! GMISTS - basic mesh data for subdomain in W_tilde space
 !  * INETTS(LINETS) * NNETTS(NELEMS) * NNDFT(NNODT) * SLAVERY(NNODT) * IHNTN(NNOD)
-      call bddc_getfname(name1,lname1,isub,'GMISTS',fname)
-      open (unit=idgmist,file=fname,status='old',form='formatted')
+      call getfname(trim(name1),isub,'GMISTS',filename)
+      open (unit=idgmist,file=filename,status='old',form='formatted')
       read(idgmist,*)  nnodt, ndoft
       read(idgmist,*)  nelems, linets, ndofs
       linetst = linets
@@ -411,8 +410,8 @@ character(100) :: filename, problemname
          !***************************************************************PARALLEL
       case(2,3)
          ! For projection and transformation, LOCAL glob description is used
-         call bddc_getfname(name1,lname1,isub,'GLB',fname)
-         open (unit=idglb,file=fname,status='old',form='formatted')
+         call getfname(trim(name1),isub,'GLB',filename)
+         open (unit=idglb,file=filename,status='old',form='formatted')
          read(idglb,*) nglb, linglb
          linglb = linglb
          lnnglb = nglb
@@ -660,8 +659,8 @@ character(100) :: filename, problemname
 
 ! Open file for storing transformation matrices
       if (averages_approach.eq.3) then
-         call bddc_getfname(name1,lname1,isub,'TR',fname)
-         open(unit=idtr,file=fname,status='replace',form='unformatted')
+         call getfname(trim(name1),isub,'TR',filename)
+         open(unit=idtr,file=filename,status='replace',form='unformatted')
       end if
 
 ! Call Krylov method for solution of the system

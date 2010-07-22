@@ -1562,7 +1562,7 @@ subroutine sm_print(iunit, i_sparse, j_sparse, a_sparse, la, nnz)
       end if
 
 ! Write the matrix on the unit
-      write(iunit,'(i8,i8,f25.4)') (i_sparse(ia),j_sparse(ia),a_sparse(ia),ia = 1,nz)
+      write(iunit,'(i8,i8,e28.8)') (i_sparse(ia),j_sparse(ia),a_sparse(ia),ia = 1,nz)
 
       return
 end subroutine
