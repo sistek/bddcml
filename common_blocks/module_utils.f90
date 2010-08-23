@@ -327,6 +327,12 @@ subroutine get_array_norepeat(array,larray,nentries)
 ! local vars
       integer :: i, j, ind
 
+! return if array has zero length
+      if (larray .eq. 0) then
+         nentries = 0
+         return
+      end if
+
       ! find common intersection in one loop through the arrays
       i = 1
       j = 1

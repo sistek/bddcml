@@ -444,7 +444,13 @@ logical :: flow = .false.
 logical :: elasticity = .false.
 logical :: shells = .false.
 
-integer :: pp, pu, pv, pw, isol
+integer :: ntimes, itime
+integer :: lsolf
+
+! which filetype should be used for reading solution - set according to existence of files
+logical :: use_sol  = .false.
+logical :: use_sola = .false.
+logical :: use_solf = .false.
 
 ! Select problem
 20    write(*,'(a)') "Kind of problem ?"
@@ -490,6 +496,7 @@ integer :: pp, pu, pv, pw, isol
       write(*,*) 'Trying to read binary file '//trim(name)//' ...'
       open (unit=idsol,file=name,status='old',form='unformatted',err=79)
       read(idsol,err=79) sol
+      use_sol = .true.
       goto 85
 
  79   close (idsol)
@@ -498,6 +505,7 @@ integer :: pp, pu, pv, pw, isol
       ! Try with ASCII version
       open (unit=idsol,file=name,status='old',form='formatted',err=80)
       read(idsol,*,err=80) sol
+      use_sola = .true.
       goto 85
 
       ! Try with PMD solution file
@@ -506,45 +514,23 @@ integer :: pp, pu, pv, pw, isol
       write(*,*) 'Trying to read NAVIER file '//trim(name)//' ...'
       ! Try with ASCII version
       open (unit=idsol,file=name,status='old',form='unformatted',err=81)
+      use_solf = .true.
 
-      allocate(solf(lsol))
+      write(*,'(a,a)') "Opened file ",trim(name)
+      write(*,'(a,$)') "How many times are in it? "
+      read (*,*) ntimes
 
+      lsolf = (ndim+1) * nnod
+      allocate(solf(lsolf))
+
+      ! move in the binary file to proper position
+      do itime = 1,ntimes
+         read(idsol,err=81)
+      end do
       read(idsol,err=81) solf
       if (all(solf.eq.0._kr)) then
          write(*,*) 'WARNING: All zero solution...'
       end if
-      ! remap the solution from u,v,w,p storage to storage per nodes
-      sol = 0.
-      ! set pointers
-      pu = 0
-      pv = nnod
-      pw = 2*nnod
-      pp = ndim*nnod
-      isol = 0
-      do inod = 1,nnod
-         ndofn = nndf(inod)
-
-         isol = isol + 1
-         pu   = pu + 1
-         sol(isol) = solf(pu)
-
-         isol = isol + 1
-         pv   = pv + 1
-         sol(isol) = solf(pv)
-
-         if (ndim.eq.3) then
-            isol = isol + 1
-            pw   = pw + 1
-            sol(isol) = solf(pw)
-         end if
-         if (ndofn .eq. ndim + 1) then
-            ! node with pressure
-            isol = isol + 1
-            pp   = pp + 1
-            sol(isol) = solf(pp)
-         end if
-      end do
-      deallocate(solf)
       goto 85
 
  81   call error('EXPTECPLOTSOLUTION','Unable to read file '//trim(name))
@@ -573,63 +559,80 @@ integer :: pp, pu, pv, pw, isol
             allocate(vz(lvz))
          end if
 
+         if (use_sol .or. use_sola) then
 ! Interpolate pressure to midsides
-         indinet = 0
-         do ie = 1,nelem
-            nne = nnet(ie)
-            if      (nne.eq.8) then
-               ncne = 4
-            else if (nne.eq.6) then
-               ncne = 3
-            else if (nne.eq.20) then
-               ncne = 8
-            end if
-            do ine = 1,nne
-               indn = inet(indinet + ine)
-               ndofn = nndf(indn)
-               vx(indn) = sol(kdof(indn)+1)
-               vy(indn) = sol(kdof(indn)+2)
-               if (ndim.eq.3) then
-                  vz(indn) = sol(kdof(indn)+3)
+            indinet = 0
+            do ie = 1,nelem
+               nne = nnet(ie)
+               if      (nne.eq.8) then
+                  ncne = 4
+               else if (nne.eq.6) then
+                  ncne = 3
+               else if (nne.eq.20) then
+                  ncne = 8
                end if
-               if (ndofn.eq.ndim+1) then
-                  p(indn) = sol(kdof(indn)+ndofn)
-               else
-                  if      (ndim.eq.2) then
-                     node1 = inet(indinet+ine-ncne)
-                     if (ine.ne.nne) then
-                        node2 = inet(indinet+ine-ncne+1)
-                     else
-                        node2 = inet(indinet+1)
-                     end if
-                     p(indn) = (p(node1) + p(node2))/2
-                  else if (ndim .eq. 3) then
-                     if (nne .eq. 20) then
-                        if (ine.le.16) then
-                           node1 = inet(indinet+ine-ncne)
-                           node2 = inet(indinet+ine-ncne+1)
-                        else if (ine.eq.17) then
-                           node1 = inet(indinet+1)
-                           node2 = inet(indinet+5)
-                        else if (ine.eq.18) then
-                           node1 = inet(indinet+2)
-                           node2 = inet(indinet+6)
-                        else if (ine.eq.19) then
-                           node1 = inet(indinet+3)
-                           node2 = inet(indinet+7)
-                        else if (ine.eq.20) then
-                           node1 = inet(indinet+4)
-                           node2 = inet(indinet+8)
-                        end if
-                     else
-                        write(*,*) 'EXPTECPLOTSOLUTION: Unsupported kind of elements in 3D'
-                        stop
-                     end if
+               do ine = 1,nne
+                  indn = inet(indinet + ine)
+                  ndofn = nndf(indn)
+                  vx(indn) = sol(kdof(indn)+1)
+                  vy(indn) = sol(kdof(indn)+2)
+                  if (ndim.eq.3) then
+                     vz(indn) = sol(kdof(indn)+3)
                   end if
-               end if
+                  if (ndofn.eq.ndim+1) then
+                     p(indn) = sol(kdof(indn)+ndofn)
+                  else
+                     ! set neighbouring corner nodes for linear interpolation of pressure
+                     if      (ndim.eq.2) then
+                        ! in 2D
+                        node1 = inet(indinet+ine-ncne)
+                        if (ine.ne.nne) then
+                           node2 = inet(indinet+ine-ncne+1)
+                        else
+                           node2 = inet(indinet+1)
+                        end if
+                     else if (ndim .eq. 3) then
+                        ! in 3D
+                        if (nne .eq. 20) then
+                           if (ine.le.16) then
+                              node1 = inet(indinet+ine-ncne)
+                              node2 = inet(indinet+ine-ncne+1)
+                           else if (ine.eq.17) then
+                              node1 = inet(indinet+1)
+                              node2 = inet(indinet+5)
+                           else if (ine.eq.18) then
+                              node1 = inet(indinet+2)
+                              node2 = inet(indinet+6)
+                           else if (ine.eq.19) then
+                              node1 = inet(indinet+3)
+                              node2 = inet(indinet+7)
+                           else if (ine.eq.20) then
+                              node1 = inet(indinet+4)
+                              node2 = inet(indinet+8)
+                           end if
+                        else
+                           write(*,*) 'EXPTECPLOTSOLUTION: Unsupported kind of elements in 3D'
+                           stop
+                        end if
+                     end if
+                     ! compute pressure
+                     p(indn) = (p(node1) + p(node2))/2
+                  end if
+               end do
+               indinet = indinet + nne
             end do
-            indinet = indinet + nne
-         end do
+         end if
+
+         ! Extract parts of solution from PMD file
+         if (use_solf) then
+            vx = solf(1:nnod)
+            vy = solf(nnod+1:2*nnod)
+            if (ndim.eq.3) then
+               vz = solf((nnod*2)+1:3*nnod)
+            end if
+            p = solf((nnod*ndim)+1:(ndim+1)*nnod)
+            deallocate(solf)
+         end if
 
          ! compute velocity magnitude
          if      (ndim .eq. 3) then
@@ -4064,7 +4067,13 @@ logical :: one_more_check_needed = .false.
       end if
 
       write(*,'(a,i6,a)') 'Calling METIS to divide into ',nsub,' subdomains...'
-      if (nsub.le.8) then
+      if (nsub.eq.0) then
+         write(*,'(a)') ' Illegal value of number of subdomains...'
+         stop
+      else if (nsub.eq.1) then
+         edgecut = 0
+         iets = 1
+      else if (nsub.gt.1 .and. nsub.le.8) then
          call METIS_PartGraphRecursive(nvertex,xadj,adjncy,vwgt,adjwgt,wgtflag,numflag,nsub,options,edgecut,iets)
       else
          call METIS_PartGraphKWay(nvertex,xadj,adjncy,vwgt,adjwgt,wgtflag,numflag,nsub,options,edgecut,iets)
