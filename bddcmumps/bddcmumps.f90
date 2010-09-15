@@ -28,7 +28,7 @@ integer,parameter:: kr = kind(1.D0)
 ! 2 - symmetric general           -> only upper triangle of element matrix
 !  for elasticity, use 1 - matrix is SPD - PCG
 !  for Stokes, use 2 - matrix is symmetric indefinite - MINRES
-integer,parameter:: matrixtype = 1
+integer,parameter:: matrixtype = 2
 
 ! Approach to enforce Gw = 0, ie. averages
 ! 0 - do not apply averages
@@ -273,7 +273,7 @@ character(100) :: filename, problemname
 
 ! GMISTS - basic mesh data for subdomain in W_tilde space
 !  * INETTS(LINETS) * NNETTS(NELEMS) * NNDFT(NNODT) * SLAVERY(NNODT) * IHNTN(NNOD)
-      call getfname(trim(name1),isub,'GMISTS',filename)
+      call getfname(name1(1:lname1),isub,'GMISTS',filename)
       open (unit=idgmist,file=filename,status='old',form='formatted')
       read(idgmist,*)  nnodt, ndoft
       read(idgmist,*)  nelems, linets, ndofs
@@ -410,7 +410,7 @@ character(100) :: filename, problemname
          !***************************************************************PARALLEL
       case(2,3)
          ! For projection and transformation, LOCAL glob description is used
-         call getfname(trim(name1),isub,'GLB',filename)
+         call getfname(name1(1:lname1),isub,'GLB',filename)
          open (unit=idglb,file=filename,status='old',form='formatted')
          read(idglb,*) nglb, linglb
          linglb = linglb
@@ -659,7 +659,7 @@ character(100) :: filename, problemname
 
 ! Open file for storing transformation matrices
       if (averages_approach.eq.3) then
-         call getfname(trim(name1),isub,'TR',filename)
+         call getfname(name1(1:lname1),isub,'TR',filename)
          open(unit=idtr,file=filename,status='replace',form='unformatted')
       end if
 

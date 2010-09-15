@@ -447,10 +447,7 @@ logical :: shells = .false.
 integer :: ntimes, itime
 integer :: lsolf
 
-! which filetype should be used for reading solution - set according to existence of files
-logical :: use_sol  = .false.
-logical :: use_sola = .false.
-logical :: use_solf = .false.
+integer :: isol, pu, pv, pw, pp
 
 ! Select problem
 20    write(*,'(a)') "Kind of problem ?"
@@ -496,7 +493,6 @@ logical :: use_solf = .false.
       write(*,*) 'Trying to read binary file '//trim(name)//' ...'
       open (unit=idsol,file=name,status='old',form='unformatted',err=79)
       read(idsol,err=79) sol
-      use_sol = .true.
       goto 85
 
  79   close (idsol)
@@ -505,7 +501,6 @@ logical :: use_solf = .false.
       ! Try with ASCII version
       open (unit=idsol,file=name,status='old',form='formatted',err=80)
       read(idsol,*,err=80) sol
-      use_sola = .true.
       goto 85
 
       ! Try with PMD solution file
@@ -514,7 +509,6 @@ logical :: use_solf = .false.
       write(*,*) 'Trying to read NAVIER file '//trim(name)//' ...'
       ! Try with ASCII version
       open (unit=idsol,file=name,status='old',form='unformatted',err=81)
-      use_solf = .true.
 
       write(*,'(a,a)') "Opened file ",trim(name)
       write(*,'(a,$)') "How many times are in it? "
@@ -531,6 +525,41 @@ logical :: use_solf = .false.
       if (all(solf.eq.0._kr)) then
          write(*,*) 'WARNING: All zero solution...'
       end if
+
+      ! remap the solution from u,v,w,p storage to storage per nodes
+      sol = 0.
+      ! set pointers
+      pu = 0
+      pv = nnod
+      pw = 2*nnod
+      pp = ndim*nnod
+      isol = 0
+      do inod = 1,nnod
+         ndofn = nndf(inod)
+   
+         isol = isol + 1
+         pu   = pu + 1
+         sol(isol) = solf(pu)
+   
+         isol = isol + 1
+         pv   = pv + 1
+         sol(isol) = solf(pv)
+   
+         if (ndim.eq.3) then
+            isol = isol + 1
+            pw   = pw + 1
+            sol(isol) = solf(pw)
+         end if
+
+         pp = pp + 1
+         if (ndofn .eq. ndim + 1) then
+            ! node with pressure
+            isol = isol + 1
+            sol(isol) = solf(pp)
+         end if
+      end do
+      deallocate(solf)
+
       goto 85
 
  81   call error('EXPTECPLOTSOLUTION','Unable to read file '//trim(name))
@@ -559,80 +588,77 @@ logical :: use_solf = .false.
             allocate(vz(lvz))
          end if
 
-         if (use_sol .or. use_sola) then
 ! Interpolate pressure to midsides
-            indinet = 0
-            do ie = 1,nelem
-               nne = nnet(ie)
-               if      (nne.eq.8) then
-                  ncne = 4
-               else if (nne.eq.6) then
-                  ncne = 3
-               else if (nne.eq.20) then
-                  ncne = 8
-               end if
-               do ine = 1,nne
-                  indn = inet(indinet + ine)
-                  ndofn = nndf(indn)
-                  vx(indn) = sol(kdof(indn)+1)
-                  vy(indn) = sol(kdof(indn)+2)
-                  if (ndim.eq.3) then
-                     vz(indn) = sol(kdof(indn)+3)
-                  end if
-                  if (ndofn.eq.ndim+1) then
-                     p(indn) = sol(kdof(indn)+ndofn)
-                  else
-                     ! set neighbouring corner nodes for linear interpolation of pressure
-                     if      (ndim.eq.2) then
-                        ! in 2D
-                        node1 = inet(indinet+ine-ncne)
-                        if (ine.ne.nne) then
-                           node2 = inet(indinet+ine-ncne+1)
-                        else
-                           node2 = inet(indinet+1)
-                        end if
-                     else if (ndim .eq. 3) then
-                        ! in 3D
-                        if (nne .eq. 20) then
-                           if (ine.le.16) then
-                              node1 = inet(indinet+ine-ncne)
-                              node2 = inet(indinet+ine-ncne+1)
-                           else if (ine.eq.17) then
-                              node1 = inet(indinet+1)
-                              node2 = inet(indinet+5)
-                           else if (ine.eq.18) then
-                              node1 = inet(indinet+2)
-                              node2 = inet(indinet+6)
-                           else if (ine.eq.19) then
-                              node1 = inet(indinet+3)
-                              node2 = inet(indinet+7)
-                           else if (ine.eq.20) then
-                              node1 = inet(indinet+4)
-                              node2 = inet(indinet+8)
-                           end if
-                        else
-                           write(*,*) 'EXPTECPLOTSOLUTION: Unsupported kind of elements in 3D'
-                           stop
-                        end if
-                     end if
-                     ! compute pressure
-                     p(indn) = (p(node1) + p(node2))/2
-                  end if
-               end do
-               indinet = indinet + nne
-            end do
-         end if
-
-         ! Extract parts of solution from PMD file
-         if (use_solf) then
-            vx = solf(1:nnod)
-            vy = solf(nnod+1:2*nnod)
-            if (ndim.eq.3) then
-               vz = solf((nnod*2)+1:3*nnod)
+         indinet = 0
+         do ie = 1,nelem
+            nne = nnet(ie)
+            if      (nne.eq.8) then
+               ncne = 4
+            else if (nne.eq.6) then
+               ncne = 3
+            else if (nne.eq.20) then
+               ncne = 8
             end if
-            p = solf((nnod*ndim)+1:(ndim+1)*nnod)
-            deallocate(solf)
-         end if
+            do ine = 1,nne
+               indn = inet(indinet + ine)
+               ndofn = nndf(indn)
+               vx(indn) = sol(kdof(indn)+1)
+               vy(indn) = sol(kdof(indn)+2)
+               if (ndim.eq.3) then
+                  vz(indn) = sol(kdof(indn)+3)
+               end if
+               if (ndofn.eq.ndim+1) then
+                  p(indn) = sol(kdof(indn)+ndofn)
+               else
+                  ! set neighbouring corner nodes for linear interpolation of pressure
+                  if      (ndim.eq.2) then
+                     ! in 2D
+                     node1 = inet(indinet+ine-ncne)
+                     if (ine.ne.nne) then
+                        node2 = inet(indinet+ine-ncne+1)
+                     else
+                        node2 = inet(indinet+1)
+                     end if
+                  else if (ndim .eq. 3) then
+                     ! in 3D
+                     if (nne .eq. 20) then
+                        if (ine.le.16) then
+                           node1 = inet(indinet+ine-ncne)
+                           node2 = inet(indinet+ine-ncne+1)
+                        else if (ine.eq.17) then
+                           node1 = inet(indinet+1)
+                           node2 = inet(indinet+5)
+                        else if (ine.eq.18) then
+                           node1 = inet(indinet+2)
+                           node2 = inet(indinet+6)
+                        else if (ine.eq.19) then
+                           node1 = inet(indinet+3)
+                           node2 = inet(indinet+7)
+                        else if (ine.eq.20) then
+                           node1 = inet(indinet+4)
+                           node2 = inet(indinet+8)
+                        end if
+                     else
+                        write(*,*) 'EXPTECPLOTSOLUTION: Unsupported kind of elements in 3D'
+                        stop
+                     end if
+                  end if
+                  ! compute pressure
+                  p(indn) = (p(node1) + p(node2))/2
+               end if
+            end do
+            indinet = indinet + nne
+         end do
+
+! Extract parts of solution from NAVIER SOLF file
+!         if (use_solf) then
+!            vx = solf(1:nnod)
+!            vy = solf(nnod+1:2*nnod)
+!            if (ndim.eq.3) then
+!               vz = solf((nnod*2)+1:3*nnod)
+!            end if
+!            p = solf((nnod*ndim)+1:(ndim+1)*nnod)
+!         end if
 
          ! compute velocity magnitude
          if      (ndim .eq. 3) then
@@ -1079,8 +1105,8 @@ integer:: nface, nedge, nvertex
 real(kr):: x1, y1, z1, x2, y2, z2, rnd, xish, yish, zish
 integer:: nnodcold, inc
 
-logical:: minimizecorners
-character(1) :: yn
+logical,parameter :: minimizecorners = .false.
+!character(1) :: yn
 
 type neighbouring_type
    integer ::             nnsub
@@ -1126,17 +1152,17 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       end do
 
 ! Minimize corners?
-  55  write(*,'(a,$)') 'Do you want to minimize amount of corners (y/n)? ("no" guarantee better distribution of corners) '
-      read(*,*) yn
-      select case (yn)
-         case ('Y','y')
-            minimizecorners = .true.
-         case ('N','n')
-            minimizecorners = .false.
-         case default
-            print *, 'Unknown answer, try again ...'
-            goto 55
-      end select
+!  55  write(*,'(a,$)') 'Do you want to minimize amount of corners (y/n)? ("no" guarantee better distribution of corners) '
+!      read(*,*) yn
+!      select case (yn)
+!         case ('Y','y')
+!            minimizecorners = .true.
+!         case ('N','n')
+!            minimizecorners = .false.
+!         case default
+!            print *, 'Unknown answer, try again ...'
+!            goto 55
+!      end select
 
 ! Recognize interface
       lkinodes  = nnod
@@ -1390,6 +1416,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                write(*,*) 'Error in construction of subdomain interface.'
                stop
             end if
+            ! here, there would be different size if the common interface is in fact multicomponent
             lplayground = nshared
             allocate(playground(lplayground))
             playground = 0
@@ -2008,13 +2035,14 @@ subroutine create_sub_files(problemname)
 !     Subroutine for creation of subdomain files
 !***********************************************************************
 use module_utils
+use module_graph
 implicit none
 
 ! name of problem
 character(*),intent(in) :: problemname
 
-integer ::            linets,   lnnets,   lnndfs,   lifixs,   lkdofs,   lisngns
-integer,allocatable :: inets(:), nnets(:), nndfs(:), ifixs(:), kdofs(:), isngns(:)
+integer ::            linets,   lnnets,   lnndfs,   lifixs,   lkdofs,   lisegns,   lisngns
+integer,allocatable :: inets(:), nnets(:), nndfs(:), ifixs(:), kdofs(:), isegns(:), isngns(:)
 integer ::            liins,   liivsvns,   liovsvns
 integer,allocatable :: iins(:), iivsvns(:), iovsvns(:)
 integer ::            lglobal_corner_numbers,   licnsins
@@ -2032,8 +2060,8 @@ integer,allocatable:: iadjs(:)
 integer::            ligvsivns1, ligvsivns2
 integer,allocatable:: igvsivns(:,:)
 integer ::            nelemsadj, nnodsadj
-integer ::            linetsadj,   lnnetsadj,   lisngnsadj
-integer,allocatable :: inetsadj(:), nnetsadj(:), isngnsadj(:)
+integer ::            linetsadj,   lnnetsadj,    lisegnsadj,    lisngnsadj
+integer,allocatable :: inetsadj(:), nnetsadj(:),  isegnsadj(:),  isngnsadj(:)
 integer ::            lishared
 integer,allocatable :: ishared(:)
 integer ::             nshared
@@ -2047,6 +2075,18 @@ real(kr),allocatable:: rhss(:), fixvs(:), xyzs(:,:)
 integer ::            lcxyz1, lcxyz2
 real(kr),allocatable:: cxyz(:,:)
 
+! data related to graph of mesh
+integer :: lnetn, lietn, lkietn
+integer,allocatable:: ietn(:), kietn(:), netn(:)
+integer ::           lxadj,   ladjncy,   ladjwgt
+integer,allocatable:: xadj(:), adjncy(:), adjwgt(:)
+! graphtype
+! 0 - graph without weights
+! 1 - produce weighted graph
+integer,parameter :: graphtype = 0
+! neigbouring - number of nodes to share to call two elements adjacent
+integer,parameter :: neighbouring = 1
+
 character(100) :: filename
 
 ! local variables
@@ -2056,10 +2096,15 @@ integer:: isub, ie, inc, ndofn, &
           inods, jsub, i, j, indn, idofis, idofos, inodis, &
           indns, indins, inodcs, iglbn, nglbn, iglb, iglobs, indn1,&
           nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs, indg, ncnod, &
-          ncnodes, pointcinet, indcxyz
+          ncnodes, pointcinet, indcxyz, isubneib
 integer:: nadjs, nnodcs, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs, nedge, nface
 integer:: idsmd
 
+! time related vars
+real(kr) :: time_import, time_graph_create
+
+      write (*,'(a,$)') 'Import basic data ... '
+      call time_start
 ! GMIS - basic mesh data - structure:
 !  * INET(LINET) * NNET(LNNET) * NNDF(LNNDF) * XYF(LXYF) *
       name = name1(1:lname1)//'.GMIS'
@@ -2154,6 +2199,50 @@ integer:: idsmd
       close(idglb)
 
 ! End of reading global data**********************
+      write (*,'(a)') 'done.'
+      call time_end(time_import)
+      write (*,'(a,f15.3,a)') 'Time of file import :',time_import,' s'
+
+      call time_start
+! Create graph of mesh
+      write (*,'(a,$)') 'Create list of elements at a node ... '
+! Allocate proper sizes of two-dimensional field for list of touching elements
+      lnetn  = nnod
+      lietn  = linet
+      lkietn = nnod
+      allocate(netn(lnetn),ietn(lietn),kietn(lkietn))
+
+! Create list of elements touching particular node
+      call graph_get_dual_mesh(nelem,nnod,inet,linet,nnet,lnnet, &
+                               netn,lnetn,ietn,lietn,kietn,lkietn)
+      write (*,'(a)') 'done.'
+
+      write (*,'(a,$)') 'Count list of neighbours of elements ... '
+! Count elements adjacent to element
+      lxadj = nelem + 1
+      allocate(xadj(lxadj))
+      
+      call graph_from_mesh_size(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
+                                xadj,lxadj, nedge, ladjncy, ladjwgt)
+      write (*,'(a)') 'done.'
+
+      write (*,'(a,$)') 'Create list of neighbours of elements ... '
+
+! Allocate proper field for graph
+      allocate(adjncy(ladjncy),adjwgt(ladjwgt))
+
+! Create graph
+      call graph_from_mesh(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
+                           xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+      write (*,'(a)') 'done.'
+
+      write (*,'(a,$)') 'Check graph ... '
+! Check the graph
+      call graph_check(nelem,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+      write (*,'(a)') 'done.'
+
+      call time_end(time_graph_create)
+      write (*,'(a,f15.3,a)') 'Time of creating graph :',time_graph_create,' s'
 
 ! Begin loop over subdomains
 ! prepare array for level 2
@@ -2173,11 +2262,13 @@ integer:: idsmd
             end if
          end do
          lnnets  = nelems
+         lisegns = nelems
          lisngns = linets
-         allocate(inets(linets),nnets(lnnets),isngns(lisngns))
+         allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
 
          call create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                             nnods,inets,linets,nnets,lnnets,isngns,lisngns)
+                             nnods,inets,linets,nnets,lnnets,&
+                             isegns,lisegns, isngns,lisngns)
 
          lnndfs = nnods
          lkdofs = nnods
@@ -2197,45 +2288,51 @@ integer:: idsmd
          end do
 
 ! find number of adjacent subdomains NADJS
-         nadjs = 0
          liadjs = nsub
          allocate(iadjs(liadjs))
+         ! create list of neighbouring subdomains
+         call get_sub_neighbours(isub, nelems, isegns,lisegns, xadj,lxadj,adjncy,ladjncy, iets,liets, &
+                                 iadjs,liadjs,nadjs)
+
          lkinodes = nnods
          allocate(kinodes(lkinodes))
          kinodes = 0
          lishared = nnods
          allocate(ishared(lishared))
          ! this could be improved using graphs of mesh
-         do jsub = 1,nsub
-            if (jsub.ne.isub) then
+         do isubneib = 1,nadjs
+            jsub = iadjs(isubneib)
+
 ! create subdomain description of MESH
-               nelemsadj = 0
-               linetsadj = 0
-               do ie = 1,nelem
-                  if (iets(ie).eq.jsub) then
-                     nelemsadj = nelemsadj + 1
-                     linetsadj = linetsadj + nnet(ie)
-                  end if
-               end do
-               lnnetsadj  = nelemsadj
-               lisngnsadj = linetsadj
-               allocate(inetsadj(linetsadj),nnetsadj(lnnetsadj),isngnsadj(lisngnsadj))
-      
-               call create_submesh(jsub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                                   nnodsadj,inetsadj,linetsadj,nnetsadj,lnnetsadj,isngnsadj,lisngnsadj)
-               call get_array_intersection(isngns,nnods,isngnsadj,nnodsadj,ishared,lishared,nshared)
-               if (nshared.gt.0) then
-                  nadjs = nadjs + 1
-                  iadjs(nadjs) = jsub
-                  ! mark interface nodes
-                  do i = 1,nshared
-                     indg = ishared(i)
-                     call get_index(indg,isngns,nnods,inods)
-                     kinodes(inods) = kinodes(inods) + 1
-                  end do
+            nelemsadj = 0
+            linetsadj = 0
+            do ie = 1,nelem
+               if (iets(ie).eq.jsub) then
+                  nelemsadj = nelemsadj + 1
+                  linetsadj = linetsadj + nnet(ie)
                end if
-               deallocate(inetsadj,nnetsadj,isngnsadj)
+            end do
+            lnnetsadj  = nelemsadj
+            lisegnsadj = nelemsadj
+            lisngnsadj = linetsadj
+            allocate(inetsadj(linetsadj),nnetsadj(lnnetsadj),isegnsadj(lisegnsadj),isngnsadj(lisngnsadj))
+   
+            call create_submesh(jsub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                                nnodsadj,inetsadj,linetsadj,nnetsadj,lnnetsadj,&
+                                isegnsadj,lisegnsadj,isngnsadj,lisngnsadj)
+
+            call get_array_intersection(isngns,nnods,isngnsadj,nnodsadj,ishared,lishared,nshared)
+            if (nshared.gt.0) then
+               nadjs = nadjs + 1
+               iadjs(nadjs) = jsub
+               ! mark interface nodes
+               do i = 1,nshared
+                  indg = ishared(i)
+                  call get_index(indg,isngns,nnods,inods)
+                  kinodes(inods) = kinodes(inods) + 1
+               end do
             end if
+            deallocate(inetsadj,nnetsadj,isegnsadj,isngnsadj)
          end do
          deallocate(ishared)
 
@@ -2553,6 +2650,7 @@ integer:: idsmd
          deallocate(ifixs,fixvs)
          deallocate(inets,nnets,nndfs,kdofs)
          deallocate(isngns)
+         deallocate(isegns)
 
          nnet2(isub) = nnodcs + nglobs
 
@@ -2598,11 +2696,13 @@ integer:: idsmd
             end if
          end do
          lnnets  = nelems
+         lisegns = nelems
          lisngns = linets
-         allocate(inets(linets),nnets(lnnets),isngns(lisngns))
+         allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
 
          call create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                             nnods,inets,linets,nnets,lnnets,isngns,lisngns)
+                             nnods,inets,linets,nnets,lnnets,&
+                             isegns,lisegns, isngns,lisngns)
 
          lnndfs = nnods
          lkdofs = nnods
@@ -2701,7 +2801,7 @@ integer:: idsmd
          deallocate(glob_type)
          deallocate(global_corner_numbers)
          deallocate(inets,nnets,nndfs,kdofs)
-         deallocate(isngns)
+         deallocate(isegns,isngns)
 
 ! Finish loop over subdomains
       end do
@@ -2766,6 +2866,10 @@ integer:: idsmd
       deallocate(xyz)
       deallocate(rhs)
 
+      deallocate(netn,ietn,kietn)
+      deallocate(xadj)
+      deallocate(adjncy,adjwgt)
+
       deallocate(cinet)
       deallocate(nnet2)
       deallocate(cxyz)
@@ -2780,7 +2884,8 @@ end subroutine create_sub_files
  
 !************************************************************************
 subroutine create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                          nnods,inets,linets,nnets,lnnets,isngns,lisngns)
+                          nnods,inets,linets,nnets,lnnets,&
+                          isegns,lisegns,isngns,lisngns)
 !************************************************************************
 !     Subroutine for creation of subdomain mesh description
 !************************************************************************
@@ -2800,22 +2905,26 @@ integer,intent(in) ::  iets(liets)
 ! number of elements and nodes
 integer,intent(out) :: nnods
 ! subdomain mesh description
-integer,intent(in)  :: linets,        lnnets,        lisngns
-integer,intent(out) ::  inets(linets), nnets(lnnets), isngns(lisngns)
+integer,intent(in)  :: linets,        lnnets,        lisegns,         lisngns
+integer,intent(out) ::  inets(linets), nnets(lnnets), isegns(lisegns), isngns(lisngns)
 
 ! local variables
-integer :: ie, indnnets, inod, inods, nne, pointinet, pointinets
+integer :: ie, inod, inods, nne, pointinet, pointinets, indlocel
 
 ! Creation of field inets(linets) - still with global pointers
       pointinet  = 0
       pointinets = 0
-      indnnets   = 0
+      indlocel   = 0
       do ie = 1,nelem
          nne = nnet(ie)
          if (iets(ie).eq.isub) then
             inets(pointinets+1:pointinets+nne) = -inet(pointinet+1:pointinet+nne)
-            indnnets = indnnets + 1
-            nnets(indnnets) = nne
+
+            indlocel = indlocel + 1
+
+            nnets(indlocel)  = nne
+            isegns(indlocel) = ie
+
             pointinets = pointinets + nne
          end if
          pointinet = pointinet + nne
@@ -2836,12 +2945,80 @@ integer :: ie, indnnets, inod, inods, nne, pointinet, pointinets
 
 end subroutine create_submesh
 
+!************************************************************************************************
+subroutine get_sub_neighbours(isub, nelems, isegn,lisegn, xadj,lxadj,adjncy,ladjncy, iets,liets,&
+                              iadjs,liadjs,nadjs)
+!************************************************************************************************
+!     Subroutine for getting the number and indices of neighbours of 
+!     subdomain isub based on element graph.
+!************************************************************************************************
+use module_utils
+implicit none
+
+! index of subdomain under 
+integer, intent(in) :: isub
+
+! index of elements in subdomain
+integer, intent(in) :: nelems
+
+! indices of local elements in global numbering
+integer, intent(in) :: lisegn
+integer, intent(in) ::  isegn(lisegn)
+
+! global graph of mesh
+integer, intent(in) :: lxadj
+integer, intent(in) ::  xadj(lxadj)
+integer, intent(in) :: ladjncy
+integer, intent(in) ::  adjncy(ladjncy)
+
+! indices of subdomains of elements
+integer, intent(in) :: liets
+integer, intent(in) ::  iets(liets)
+
+! indices of neigbouring subdomains
+integer, intent(in) :: liadjs
+integer, intent(out) :: iadjs(liadjs)
+integer, intent(out) :: nadjs
+
+! local vars
+integer :: ie_loc, indel, indneibe, isubneib, i, iadje
+
+
+! first, use iadjs just for marking present subdomains, at the end, transform it to list
+do ie_loc = 1,nelems
+   indel = isegn(ie_loc)
+
+   do iadje = xadj(indel),xadj(indel+1) - 1
+      
+      indneibe = adjncy(iadje)
+      isubneib = iets(indneibe)
+      if (isubneib.ne.isub) then
+         iadjs(isubneib) = 1
+      end if
+   end do
+end do
+nadjs = 0
+! change iadjs array to list
+do i = 1,liadjs
+   if (iadjs(i) .eq. 1 ) then
+      nadjs = nadjs + 1
+
+      iadjs(nadjs) = i
+   end if
+end do
+do i = nadjs+1,liadjs
+   iadjs(i) = 0
+end do
+
+end subroutine get_sub_neighbours
+
+
 !***********************************************************************
 subroutine createtilde
 !***********************************************************************
 !     Subroutine for creation of space W_tilde
 !***********************************************************************
-use module_utils
+use module_utils ! error handling, time measurements
 
 implicit none
 
@@ -2866,6 +3043,12 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
           nglb, nglb_loc, indinglb, indinglb_loc, indnnglb_loc, indnodet, &
           nglbn, ind, iglb, i, ie, ipoint, indng, inc, indsub, ine, ndofn, nne, &
           ndofs, inod
+! time measurements
+real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmists, time_glb 
+
+
+      ! measure time of initial file loading
+      call time_start
 
 ! Import of basic geometry
 ! GMIS - basic mesh data - structure:
@@ -2911,6 +3094,10 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
       read(idcn,*) inodc
       close(idcn)
       
+      call time_end(time_import)
+
+      call time_start
+
       lkmynodes = nnod
       lkinodes  = nnod
       allocate(kmynodes(lkmynodes),kinodes(lkinodes))
@@ -2943,6 +3130,9 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
          kinodes(indc) = 0
       end do
       
+      call time_end(time_int_recognition)
+
+      
 ! Determine size of the W_tilde in nodes
       nnodt = nnod + sum(kinodes) - count(kinodes.ne.0)
 !      write(*,*) 'nnodt =', nnodt
@@ -2966,6 +3156,7 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
       nndft = 0
 
 ! Generate W_tilde
+      call time_start
       inodt = 0
       do isub = 1,nsub
 ! Creation of field kmynodes(nnod) - local usage of global nodes
@@ -3047,7 +3238,10 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
 ! Determine lenght of solution in W_tilde
       lsolt = sum(nndft)
 
+      call time_end(time_wtilde)
+
 ! Generate file with description of W_tilde
+      call time_start
       ! GMIST 
       do isub = 1,nsub
          ! Find nelems
@@ -3093,8 +3287,11 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
       end do
       write(*,*) 'Generated files with description of W_tilde and W_hat spaces.'
 
+      call time_end(time_gmists)
+
 ! Localize globs to subdomains
 ! GLB - list of globs
+      call time_start
       name = name1(1:lname1)//'.GLB'
       open (unit=idglb,file=name,status='old',form='formatted')
       read(idglb,*) nglb, linglb
@@ -3179,6 +3376,8 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
 
          deallocate(inglb_loc,nnglb_loc)
       end do
+      call time_end(time_glb)
+
 
 ! Clear memory
       deallocate(ndofsa)
@@ -3192,8 +3391,413 @@ integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
       deallocate(ihntn,slavery)
       deallocate(inett,nndft)
 
+      time_total = time_import + time_int_recognition + time_wtilde + time_gmists + time_glb 
+      write(*,'(a,f15.3,a,f10.5,a)') 'Time of file import:      ',time_import,&
+                                     ' s, i.e. ',time_import/time_total*100,'%'
+      write(*,'(a,f15.3,a,f10.5,a)') 'Time of interface recogn.:',time_int_recognition,&
+                                     ' s, i.e. ',time_int_recognition/time_total*100,'%'
+      write(*,'(a,f15.3,a,f10.5,a)') 'Time Wtilde numbering :   ',time_wtilde,&
+                                     ' s, i.e. ',time_wtilde/time_total*100,'%'
+      write(*,'(a,f15.3,a,f10.5,a)') 'Time of GMISTS creation : ',time_gmists,&
+                                     ' s, i.e. ',time_gmists/time_total*100,'%'
+      write(*,'(a,f15.3,a,f10.5,a)') 'Time of GLB file creation:',time_glb,&
+                                     ' s, i.e. ',time_glb/time_total*100,'%'
+
       return
 end subroutine createtilde
+         
+!***********************************************************************
+subroutine createtilde1
+!***********************************************************************
+!     Subroutine for creation of space W_tilde
+!***********************************************************************
+use module_utils ! error handling, time measurements
+
+implicit none
+
+integer ::            lihntn,   lslavery,   linett,   lnndft
+integer,allocatable :: ihntn(:), slavery(:), inett(:), nndft(:)
+
+integer ::           linodc
+integer,allocatable:: inodc(:)
+
+integer:: linglb, lnnglb
+integer,allocatable:: inglb(:), nnglb(:)
+
+integer:: linglb_loc, lnnglb_loc
+integer,allocatable:: inglb_loc(:), nnglb_loc(:)
+integer:: lkmynodest
+integer,allocatable:: kmynodest(:)
+integer::            lndofsa
+integer,allocatable:: ndofsa(:)
+
+! local variables
+integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
+          nglb, nglb_loc, indinglb, indinglb_loc, indnnglb_loc, indnodet, &
+          nglbn, ind, iglb, i, ie, ipoint, indng, inc, indsub, ine, ndofn, nne, &
+          ndofs, inod
+! time measurements
+real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmists, time_glb 
+
+
+      ! measure time of initial file loading
+      call time_start
+
+! Import of basic geometry
+! GMIS - basic mesh data - structure:
+!  * INET(LINET) * NNET(LNNET) * NNDF(LNNDF) * XYF(LXYF) *
+      name = name1(1:lname1)//'.GMIS'
+      open (unit=idgmi,file=name,status='old',form='formatted')
+      rewind idgmi
+      linet = linet
+      lnnet = nelem
+      lnndf = nnod
+      allocate(inet(linet),nnet(lnnet),nndf(lnndf))
+! read fields INET, NNET, NNDF from file IDGMI
+      read(idgmi,*) inet
+      read(idgmi,*) nnet
+      read(idgmi,*) nndf
+
+! ES - list of global element numbers in subdomains - structure:
+      name = name1(1:lname1)//'.ES'
+      open (unit=ides,file=name,status='old',form='formatted')
+      liets = nelem
+      allocate(iets(liets))
+      read(ides,*) iets
+      close(ides)
+
+! Creation of field KINET(NELEM) with addresses before first global node of element IE in field inet
+      lkinet = nelem
+      allocate(kinet(lkinet))
+      kinet(1) = 0
+      do ie = 2,nelem
+         kinet(ie) = kinet(ie-1) + nnet(ie-1)
+      end do
+
+! Insert list of corner nodes
+      ! CN - list of corner nodes
+      name = name1(1:lname1)//'.CN'
+      open (unit=idcn,file=name,status='old',form='formatted')
+      ! read number of corners
+      read(idcn,*) nnodc
+      ! allocate array for indices of corners
+      linodc = nnodc
+      allocate(inodc(linodc))
+      ! read indices of corners in global node numbering in hat
+      read(idcn,*) inodc
+      close(idcn)
+      
+      call time_end(time_import)
+
+      call time_start
+
+      lkmynodes = nnod
+      lkinodes  = nnod
+      allocate(kmynodes(lkmynodes),kinodes(lkinodes))
+! Prepare field with interface nodes
+      kmynodes = 0
+      kinodes  = 0
+! Array of subdomain variables
+      lndofsa = nsub
+      allocate(ndofsa(lndofsa))
+      do isub = 1,nsub
+! Creation of field kmynodes(nnod) - local usage of global nodes
+! if global node is in my subdomain, assigned 1, else remains 0
+         call pp_mark_sub_nodes(isub,nelem,iets,liets,inet,linet,nnet,lnnet,&
+                                kinet,lkinet,kmynodes,lkmynodes)
+! Mark interface nodes
+         where(kmynodes.eq.1) kinodes = kinodes + 1
+
+         ! count subdomain degrees of freedom
+         ndofs = 0
+         do inod = 1,nnod
+            if (kmynodes(inod).eq.1) then
+               ndofs = ndofs + nndf(inod)
+            end if
+         end do
+         ndofsa(isub) = ndofs
+      end do
+! Mark corners in kinodes as zeros
+      do i = 1,nnodc
+         indc = inodc(i)
+         kinodes(indc) = 0
+      end do
+      
+      call time_end(time_int_recognition)
+
+      
+! Determine size of the W_tilde in nodes
+      nnodt = nnod + sum(kinodes) - count(kinodes.ne.0)
+!      write(*,*) 'nnodt =', nnodt
+
+! Prepare fields for W_hat to W_tilde embedding
+      ! ihntn(nnod)    - indices of hat nodes in tilde numbering
+      ! slavery(nnodt) - field of dependencies among nodes in W_tilde
+      !                - 0 if there is no dependece
+      !                - index of master node in tilde numbering otherwise
+      lihntn   = nnod
+      lslavery = nnodt
+      allocate(ihntn(lihntn),slavery(lslavery))
+      ihntn   = 0
+      slavery = 0
+! Create field INETT(LINET) - INET in tilde numbering
+!              NNDFT(NNODT) - NNDF in tilde dimension
+      linett = linet
+      lnndft = nnodt
+      allocate(inett(linett),nndft(lnndft))
+      inett = 0
+      nndft = 0
+
+! Generate W_tilde
+      call time_start
+      inodt = 0
+      do isub = 1,nsub
+! Creation of field kmynodes(nnod) - local usage of global nodes
+! if global node is in my subdomain, assigned 1, else remains 0
+         call pp_mark_sub_nodes(isub,nelem,iets,liets,inet,linet,nnet,lnnet,&
+                                kinet,lkinet,kmynodes,lkmynodes)
+! Generate the mapping for everything except corners
+         do in = 1,nnod
+            if (kmynodes(in).gt.0.and.count(inodc.eq.in).eq.0) then
+            ! node is in subdomain and is not a corner
+            ! it means it is a unique in W_tilde
+               inodt = inodt + 1
+               if (ihntn(in).eq.0) then
+                  ! it has not been assigned to mapping of hat into tilde yet, do it
+                  ihntn(in) = inodt
+               else
+                  ! the node has already been assigned in mapping - it is an
+                  ! interface node - create dependence in slavery field
+                  slavery(inodt)     = ihntn(in)
+                  slavery(ihntn(in)) = ihntn(in)
+               end if
+               ! make a note 
+               kmynodes(in) = -inodt
+            end if
+         end do
+! Generate INETT for nodes that are unique to subdomain
+         do ie = 1,nelem
+            indsub = iets(ie)
+            if (indsub.eq.isub) then
+               nne = nnet(ie)
+               ipoint = kinet(ie)
+               do ine = 1,nne
+                  indng = inet(ipoint + ine)
+                  inett(ipoint + ine) = kmynodes(indng)
+               end do
+            end if
+         end do
+      end do
+! Generate mapping of hat into tilde for corners - put them at the end of new list
+      do inc = 1,nnodc
+         inodt = inodt + 1
+         indc = inodc(inc)
+         ihntn(indc) = inodt
+         slavery(inodt) = inodt
+         ! Finish array INETT for corners
+         where (inet.eq.indc) inett = -inodt
+      end do
+! Array INETT now has negative entries, reverse it
+      inett = -inett
+! Check that the numbering reached the absolute value of nodes in tilde
+      if (inodt.ne.nnodt) then
+         write(*,*) 'Error in creation of W_tilde mapping: inodt =',inodt,'nnodt =',nnodt
+         stop
+      end if
+! Check that the all nodes in hat are associated with nodes in tilde
+      if (count(ihntn.eq.0).ne.0) then
+         write(*,*) 'Some nodes in W_hat not associated with W_tilde'
+         stop
+      end if
+! Check that whole INETT is nonzero
+      if (count(inett.eq.0).ne.0) then
+         write(*,*) 'Some nodes in INETT are zero'
+         stop
+      end if
+
+! Create field nndft
+      do i = 1,nnod
+         ndofn = nndf(i)
+         indtilde = ihntn(i)
+         nndft(indtilde) = ndofn
+         where (slavery.eq.indtilde) nndft = ndofn
+      end do
+!     Check that whole NNDFT is nonzero
+      if (count(nndft.eq.0).ne.0) then
+         write(*,*) 'Some nodes in NNDFT are zero'
+         stop
+      end if
+
+! Determine lenght of solution in W_tilde
+      lsolt = sum(nndft)
+
+      call time_end(time_wtilde)
+
+! Generate file with description of W_tilde
+      call time_start
+      ! GMIST 
+      do isub = 1,nsub
+         ! Find nelems
+         nelems = count(iets.eq.isub)
+         ! Find linets
+         linets = 0
+         do ie = 1,nelem
+            if (iets(ie).eq.isub) then
+               linets = linets + nnet(ie)
+            end if
+         end do
+
+         ! open GMISTS
+         call getfname(name1,isub,'GMISTS',fname)
+         open (unit=idgmist,file=fname,status='replace',form='formatted')
+
+         ! write header
+         write(idgmist,*)  nnodt, lsolt
+         write(idgmist,*)  nelems, linets, ndofsa(isub)
+
+         ! write inetst
+         pinet = 0
+         do ie = 1,nelem
+            nne = nnet(ie)
+            if (iets(ie).eq.isub) then
+               write(idgmist,*) inett(pinet+1:pinet+nne)
+            end if
+            pinet = pinet + nne
+         end do
+
+         ! write nnetst
+         do ie = 1,nelem
+            if (iets(ie).eq.isub) then
+               write(idgmist,*) nnet(ie)
+            end if
+         end do
+
+         write(idgmist,*) nndft
+
+         write(idgmist,*) slavery
+         write(idgmist,*) ihntn
+         close(idgmist)
+      end do
+      write(*,*) 'Generated files with description of W_tilde and W_hat spaces.'
+
+      call time_end(time_gmists)
+
+! Localize globs to subdomains
+! GLB - list of globs
+      call time_start
+      name = name1(1:lname1)//'.GLB'
+      open (unit=idglb,file=name,status='old',form='formatted')
+      read(idglb,*) nglb, linglb
+      linglb = linglb
+      lnnglb = nglb
+      allocate (inglb(linglb),nnglb(lnnglb))
+      read(idglb,*) inglb
+      read(idglb,*) nnglb
+      close(idglb)
+
+      lkmynodest = nnodt
+      allocate(kmynodest(lkmynodest))
+
+      do isub = 1,nsub
+         ! mark subdomain nodes
+         call pp_mark_sub_nodes(isub,nelem,iets,liets,inett,linet,nnet,lnnet,&
+                                kinet,lkinet,kmynodest,lkmynodest)
+         ! count subdomain globs
+         nglb_loc   = 0
+         linglb_loc = 0
+         indinglb   = 0
+         do iglb = 1,nglb
+            nglbn = nnglb(iglb)
+            indnodet = ihntn(inglb(indinglb+1))
+            if (any(kmynodest.eq.1.and.slavery.eq.indnodet)) then
+               ! subdomain contains this node
+               
+               nglb_loc   = nglb_loc + 1
+               linglb_loc = linglb_loc + nglbn
+            end if
+            indinglb = indinglb + nglbn
+         end do
+
+         ! prepare space for local arrays
+         linglb_loc = linglb_loc
+         lnnglb_loc = nglb_loc
+         allocate(inglb_loc(linglb_loc),nnglb_loc(lnnglb_loc))
+
+         ! generate local arrays INGLB_LOC and NNGLB_LOC
+         indinglb     = 0
+         indinglb_loc = 0
+         indnnglb_loc = 0
+         do iglb = 1,nglb
+            nglbn = nnglb(iglb)
+            indnodet = ihntn(inglb(indinglb+1))
+            if (any(kmynodest.eq.1.and.slavery.eq.indnodet)) then
+               ! subdomain contains this node
+               
+               indnnglb_loc = indnnglb_loc + 1
+               nnglb_loc(indnnglb_loc) = nglbn
+               do i = 1,nglbn
+                  indnodet = ihntn(inglb(indinglb + i))
+                  ind = 0
+                  do inodt = 1,nnodt
+                     if (slavery(inodt).eq.indnodet.and.kmynodest(inodt).eq.1) then
+                        ind = inodt
+                        exit
+                     end if
+                  end do
+                  if (ind.eq.0) then
+                     write(*,*) 'Error in glob localization.'
+                     stop
+                  end if
+                  indinglb_loc = indinglb_loc + 1
+                  inglb_loc(indinglb_loc) = ind
+               end do
+            end if
+            indinglb = indinglb + nglbn
+         end do
+
+         ! write globs into subdomain file
+         call getfname(name1,isub,'GLB',fname)
+         open (unit=idglb,file=fname,status='replace',form='formatted')
+
+         write(idglb,'(2i15)') nglb_loc, linglb_loc
+         write(idglb,'(4i15)') inglb_loc
+         write(idglb,'(4i15)') nnglb_loc
+
+         close(idglb)
+         write(*,'(a,a,a,i6,a,i6)') 'Generated file ',trim(fname), &
+                                    ' with local globs in W_tilde space. Subdomain ',isub,',nglb =',nglb_loc
+
+         deallocate(inglb_loc,nnglb_loc)
+      end do
+      call time_end(time_glb)
+
+
+! Clear memory
+      deallocate(ndofsa)
+      deallocate(kinet)
+      deallocate(kmynodes,kinodes)
+      deallocate(inet,nnet,nndf)
+      deallocate(iets)
+      deallocate(kmynodest)
+      deallocate(inglb,nnglb)
+      deallocate(inodc)
+      deallocate(ihntn,slavery)
+      deallocate(inett,nndft)
+
+      time_total = time_import + time_int_recognition + time_wtilde + time_gmists + time_glb 
+      write(*,'(a,f15.3,a,f10.5,a)') 'Time of file import:      ',time_import,&
+                                     ' s, i.e. ',time_import/time_total*100,'%'
+      write(*,'(a,f15.3,a,f10.5,a)') 'Time of interface recogn.:',time_int_recognition,&
+                                     ' s, i.e. ',time_int_recognition/time_total*100,'%'
+      write(*,'(a,f15.3,a,f10.5,a)') 'Time Wtilde numbering :   ',time_wtilde,&
+                                     ' s, i.e. ',time_wtilde/time_total*100,'%'
+      write(*,'(a,f15.3,a,f10.5,a)') 'Time of GMISTS creation : ',time_gmists,&
+                                     ' s, i.e. ',time_gmists/time_total*100,'%'
+      write(*,'(a,f15.3,a,f10.5,a)') 'Time of GLB file creation:',time_glb,&
+                                     ' s, i.e. ',time_glb/time_total*100,'%'
+
+      return
+end subroutine createtilde1
          
 !***********************************************************************
 subroutine getcorners
@@ -4017,14 +4621,14 @@ integer*4,allocatable:: adjncy(:), adjwgt(:), xadj(:), vwgt(:), options(:), iets
 integer*4::            ladjncys,   ladjwgts,   lxadjs
 integer*4,allocatable:: adjncys(:), adjwgts(:), xadjs(:)
 integer*4::             nelems, nnods
-integer*4::             linets,   lnnets,   lietns,   lnetns,   lkietns,   lisngns
-integer*4,allocatable::  inets(:), nnets(:), ietns(:), netns(:), kietns(:), isngns(:)
+integer*4::             linets,   lnnets,   lietns,   lnetns,   lkietns,   lisegns,   lisngns
+integer*4,allocatable::  inets(:), nnets(:), ietns(:), netns(:), kietns(:), isegns(:), isngns(:)
 integer ::             lsubcomponents
 integer,allocatable::   subcomponents(:)
 integer ::             lsubpool
 integer,allocatable::   subpool(:)
-integer ::             lnelemsa,   lisegn
-integer,allocatable::   nelemsa(:), isegn(:)
+integer ::             lnelemsa
+integer,allocatable::   nelemsa(:)
 
 ! glue free parts of subdomains to suitable subdomains?
 logical :: correct_division = .true.
@@ -4032,7 +4636,7 @@ logical :: correct_division = .true.
 
 ! local variables
 integer :: ie, isub, nedges, neighbouring, nsubcomponents, iadje, icomp, ies,&
-           indcompx, indel, indisegn, indneibe, indsubmin, isubneib, jsub,&
+           indcompx, indel, indneibe, indsubmin, isubneib, jsub,&
            necomp, necompx, nelemsadj, nesubmin, nneib
 integer :: nelemsmax, nelemsmin
 logical :: one_more_check_needed = .false.
@@ -4126,11 +4730,13 @@ logical :: one_more_check_needed = .false.
             end if
          end do
          lnnets  = nelems
+         lisegns = nelems
          lisngns = linets
-         allocate(inets(linets),nnets(lnnets),isngns(lisngns))
+         allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
 
          call create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                             nnods,inets,linets,nnets,lnnets,isngns,lisngns)
+                             nnods,inets,linets,nnets,lnnets,&
+                             isegns,lisegns,isngns,lisngns)
          lnetns  = nnods
          lietns  = linets
          lkietns = nnods
@@ -4163,22 +4769,12 @@ logical :: one_more_check_needed = .false.
          allocate(subcomponents(lsubcomponents))
          call graph_components(nelems, xadjs,lxadjs, adjncys,ladjncys, subcomponents,lsubcomponents, nsubcomponents)
          if (nsubcomponents.ne.1) then
-            one_more_check_needed = .true.
             write (*,'(a,i8,a,i3,a)') 'Subdomain ',isub,' discontinuous - it contains ',nsubcomponents,' components.'
 
-            ! create mapping of elements 
-            lisegn = nelems
-            allocate(isegn(lisegn))
-            lsubpool = nsub
-            allocate(subpool(lsubpool))
-            indisegn = 0
-            do ie = 1,nelem
-               if (iets(ie) .eq. isub) then
-                  indisegn = indisegn + 1
-                  isegn(indisegn) = ie
-               end if
-            end do
             if (correct_division) then
+               one_more_check_needed = .true.
+               lsubpool = nsub
+               allocate(subpool(lsubpool))
                ! glue discontinuous subdomains to neigbouring parts
                ! find largest subdomain - only this one will be assigned this number
                necompx  = 0
@@ -4200,7 +4796,7 @@ logical :: one_more_check_needed = .false.
                      do ies = 1,nelems
                         if (subcomponents(ies).eq.icomp) then
                            ! look into the graph to find neigbouring subdomains
-                           indel = isegn(ies)
+                           indel = isegns(ies)
                            nneib = xadj(indel+1) - xadj(indel) 
                            ! mark subdomains
                            do iadje = xadj(indel),xadj(indel+1) - 1
@@ -4230,7 +4826,7 @@ logical :: one_more_check_needed = .false.
                      ! join the component to the candidate subdomain
                      do ies = 1,nelems
                         if (subcomponents(ies).eq.icomp) then
-                           indel = isegn(ies)
+                           indel = isegns(ies)
 
                            iets(indel) = indsubmin
                            nelemsa(indsubmin) = nelemsa(indsubmin) + 1
@@ -4240,17 +4836,16 @@ logical :: one_more_check_needed = .false.
 
                   end if
                end do
-            end if
+               deallocate(subpool)
+            end if ! correct division
 
-            deallocate(isegn)
-            deallocate(subpool)
          end if
 
          deallocate(subcomponents)
          deallocate(adjncys,adjwgts)
          deallocate(xadjs)
          deallocate(netns,ietns,kietns)
-         deallocate(inets,nnets,isngns)
+         deallocate(inets,nnets,isegns,isngns)
       end do
 
       ! if some part of subdomains were glued to other subdomains, make one more check

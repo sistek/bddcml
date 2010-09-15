@@ -1,9 +1,9 @@
-// driver for running lobpcg code of Andrew Knyazev et al.
+/* driver for running lobpcg code of Andrew Knyazev et al. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
 
-// lobpcg includes
+/* lobpcg includes */
 #include "lobpcg.h"
 #include "matmultivec.h"
 #include "multivector.h"
@@ -25,7 +25,7 @@
 #  define F_SYMBOL(lower_case,upper_case) lower_case
 # endif
 
-// function prototypes
+/* function prototypes */
 #define dsygv_gen \
     F_SYMBOL(dsygv,DSYGV)
 int dsygv_gen (int *itype, char *jobz, char *uplo, int *
@@ -40,7 +40,7 @@ int dpotrf_gen (char *uplo, int *n, double *a, int *
 #define lobpcg_mvecmult_f \
     F_SYMBOL(lobpcg_mvecmult_f,LOBPCG_MVECMULT_F)
 void lobpcg_mvecmult_f(int *n, real *x, int *lx, real *y, int *ly, int *idmatrix);
-// end prototypes
+/* end prototypes */
 
 void mvecmult_c (void * data, void * x_p, void * y_p, int idmatrix)
 {
@@ -75,20 +75,20 @@ void mvecmult_c (void * data, void * x_p, void * y_p, int idmatrix)
       src = x_data + x_active_ind[i]*size;
       dest = y_data + y_active_ind[i]*size;
 
-      // call Fortran function
+      /* call Fortran function */
       lobpcg_mvecmult_f(&size,src,&lx,dest,&ly,&idmatrix);
    }
    
 }
 
 void mvecmultA (void * data, void * x_p, void * y_p)
-   // auxiliary routine to multiply by matrix A
+   /* auxiliary routine to multiply by matrix A */
 {
    mvecmult_c (data, x_p, y_p, 1);
 }
 
 void mvecmultB (void * data, void * x_p, void * y_p)
-   // auxiliary routine to multiply by matrix B
+   /* auxiliary routine to multiply by matrix B */
 {
    mvecmult_c (data, x_p, y_p, 2);
 }
@@ -121,7 +121,7 @@ void mv_extract_values (serial_Multi_Vector * x_p, double * eigvec, int nvec)
       src = x_data + x_active_ind[i]*size;
       dest = eigvec + idest*size;
 
-      // copy particular eigenvector
+      /* copy particular eigenvector */
       for(j=0; j<size; j++)
       {
 	 dest[j] = src[j];
@@ -142,7 +142,7 @@ void mv_load_values (double * eigvec, int nvec, int size, serial_Multi_Vector * 
    int j;
    int idest;
 
-   // Perform checks
+   /* Perform checks */
    assert(x->size = size);
    assert(x->num_active_vectors = nvec);
 
@@ -156,7 +156,7 @@ void mv_load_values (double * eigvec, int nvec, int size, serial_Multi_Vector * 
       src  = eigvec + idest*size;
       dest = x_data + x_active_ind[i]*size;
 
-      // copy particular eigenvector
+      /* copy particular eigenvector */
       for(j=0; j<size; j++)
       {
 	 dest[j] = src[j];
@@ -166,7 +166,7 @@ void mv_load_values (double * eigvec, int nvec, int size, serial_Multi_Vector * 
    
 }
 
-// Fortran callable subroutine arguments are passed by reference
+/* Fortran callable subroutine arguments are passed by reference */
 #define lobpcg_driver \
     F_SYMBOL(lobpcg_driver,LOBPCG_DRIVER)
 extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSITY_LEVEL, int *USE_X_VALUES, real *lambda, real *vec, int *ITERATIONS, int *IERR) 
@@ -178,7 +178,7 @@ extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSI
    int verbosity_level=*VERBOSITY_LEVEL; 
    int use_x_values=*USE_X_VALUES; 
 
- // lobpcg data
+ /* lobpcg data */
    serial_Multi_Vector * x;
    mv_MultiVectorPtr xx; 
    double * resid;
@@ -188,7 +188,7 @@ extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSI
    lobpcg_BLASLAPACKFunctions blap_fn;
    int ierr;
 
- // prepare data for LOBPCG
+ /* prepare data for LOBPCG */
   /* create multivector */
    x = serial_Multi_VectorCreate(n, nvec);
    serial_Multi_VectorInitialize(x);
@@ -209,7 +209,7 @@ extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSI
    }
 
 /* get memory for eigenvalues, eigenvalue history, residual norms, residual norms history */
-   // memory is already prepared for eigenvalues
+   /* memory is already prepared for eigenvalues */
 
    /* request memory for resid. norms */
    resid = (double *)malloc(sizeof(double)*nvec);
