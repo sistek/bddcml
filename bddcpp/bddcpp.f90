@@ -2322,16 +2322,18 @@ real(kr) :: time_import, time_graph_create
                                 isegnsadj,lisegnsadj,isngnsadj,lisngnsadj)
 
             call get_array_intersection(isngns,nnods,isngnsadj,nnodsadj,ishared,lishared,nshared)
-            if (nshared.gt.0) then
-               nadjs = nadjs + 1
-               iadjs(nadjs) = jsub
-               ! mark interface nodes
-               do i = 1,nshared
-                  indg = ishared(i)
-                  call get_index(indg,isngns,nnods,inods)
-                  kinodes(inods) = kinodes(inods) + 1
-               end do
+            ! check that some nodes are really shared
+            if (nshared.eq.0) then
+               write(*,*) 'Error in shared nodes -  seems as zero shared nodes with adjacent subdomain.'
+               stop
             end if
+
+            ! mark interface nodes
+            do i = 1,nshared
+               indg = ishared(i)
+               call get_index(indg,isngns,nnods,inods)
+               kinodes(inods) = kinodes(inods) + 1
+            end do
             deallocate(inetsadj,nnetsadj,isegnsadj,isngnsadj)
          end do
          deallocate(ishared)
@@ -2984,6 +2986,9 @@ integer, intent(out) :: nadjs
 integer :: ie_loc, indel, indneibe, isubneib, i, iadje
 
 
+! initialize iadjs array
+call zero(iadjs,liadjs)
+
 ! first, use iadjs just for marking present subdomains, at the end, transform it to list
 do ie_loc = 1,nelems
    indel = isegn(ie_loc)
@@ -3038,11 +3043,14 @@ integer,allocatable:: kmynodest(:)
 integer::            lndofsa
 integer,allocatable:: ndofsa(:)
 
+integer::             linets,   lnnets,   lisegns,   lisngns
+integer,allocatable::  inets(:), nnets(:), isegns(:), isngns(:)
+
 ! local variables
-integer:: isub, indc, nnodt, lsolt, inodt, in, indtilde, nelems, linets, pinet,&
+integer:: isub, indc, nnodt, lsolt, inodt, indtilde, nelems, pinet,&
           nglb, nglb_loc, indinglb, indinglb_loc, indnnglb_loc, indnodet, &
-          nglbn, ind, iglb, i, ie, ipoint, indng, inc, indsub, ine, ndofn, nne, &
-          ndofs, inod
+          nglbn, ind, iglb, i, ie, ipoint, indng, inc, ine, ndofn, nne, &
+          ndofs, inod, ie_loc, indnode, inods, nnods
 ! time measurements
 real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmists, time_glb 
 
@@ -3161,39 +3169,54 @@ real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmi
       do isub = 1,nsub
 ! Creation of field kmynodes(nnod) - local usage of global nodes
 ! if global node is in my subdomain, assigned 1, else remains 0
-         call pp_mark_sub_nodes(isub,nelem,iets,liets,inet,linet,nnet,lnnet,&
-                                kinet,lkinet,kmynodes,lkmynodes)
+         nelems = 0
+         linets = 0
+         do ie = 1,nelem
+            if (iets(ie).eq.isub) then
+               nelems = nelems + 1
+               linets = linets + nnet(ie)
+            end if
+         end do
+         lnnets  = nelems
+         lisegns = nelems
+         lisngns = linets
+         allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
+
+         call create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                             nnods,inets,linets,nnets,lnnets,&
+                             isegns,lisegns,isngns,lisngns)
+
 ! Generate the mapping for everything except corners
-         do in = 1,nnod
-            if (kmynodes(in).gt.0.and.count(inodc.eq.in).eq.0) then
-            ! node is in subdomain and is not a corner
-            ! it means it is a unique in W_tilde
+         do inods = 1,nnods
+            indnode = isngns(inods)
+            if (.not.any(inodc.eq.indnode)) then
+            ! node is indnode subdomain and is not a corner
+            ! it means it is unique in W_tilde
                inodt = inodt + 1
-               if (ihntn(in).eq.0) then
+               if (ihntn(indnode).eq.0) then
                   ! it has not been assigned to mapping of hat into tilde yet, do it
-                  ihntn(in) = inodt
+                  ihntn(indnode) = inodt
                else
                   ! the node has already been assigned in mapping - it is an
                   ! interface node - create dependence in slavery field
-                  slavery(inodt)     = ihntn(in)
-                  slavery(ihntn(in)) = ihntn(in)
+                  slavery(inodt)     = ihntn(indnode)
+                  slavery(ihntn(indnode)) = ihntn(indnode)
                end if
                ! make a note 
-               kmynodes(in) = -inodt
+               kmynodes(indnode) = -inodt
             end if
          end do
 ! Generate INETT for nodes that are unique to subdomain
-         do ie = 1,nelem
-            indsub = iets(ie)
-            if (indsub.eq.isub) then
-               nne = nnet(ie)
-               ipoint = kinet(ie)
-               do ine = 1,nne
-                  indng = inet(ipoint + ine)
-                  inett(ipoint + ine) = kmynodes(indng)
-               end do
-            end if
+         do ie_loc = 1,nelems
+            ie = isegns(ie_loc)
+            nne = nnet(ie)
+            ipoint = kinet(ie)
+            do ine = 1,nne
+               indng = inet(ipoint + ine)
+               inett(ipoint + ine) = -ihntn(indng)
+            end do
          end do
+         deallocate(inets,nnets,isegns,isngns)
       end do
 ! Generate mapping of hat into tilde for corners - put them at the end of new list
       do inc = 1,nnodc
