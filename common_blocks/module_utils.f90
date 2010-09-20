@@ -20,6 +20,9 @@ real(kr),private ::          times(level_time_max) = 0._kr
 integer,private  ::          level_time = 0
 integer,private  ::          time_verbose = 1
 
+! data for pseudo-random numbers
+logical :: initialized_random_numbers = .false.
+
 contains
 
 subroutine zero_int_1(ia,lia)
@@ -571,6 +574,7 @@ subroutine condtri(nw,nwx,w,lw, cond)
 !************************************
 ! Routine that estimates condition number of a real symmetric tridiagonal matrix 
 ! using LAPACK
+      implicit none
 
 ! used dimension of matrix
       integer,intent(in) :: nw
@@ -621,6 +625,7 @@ subroutine condsparse(nw,d,ld,e,le, cond)
 !****************************************
 ! Routine that estimates condition number of a real symmetric tridiagonal matrix 
 ! using LAPACK
+      implicit none
 
 ! used dimension of matrix
       integer,intent(in) :: nw
@@ -671,6 +676,55 @@ subroutine condsparse(nw,d,ld,e,le, cond)
          write(*,*) 'eigmax = ',eigmax
       end if
       cond = eigmax
+
+end subroutine
+
+!**********************************
+subroutine initialize_random_number
+!**********************************
+! subroutine for initialization of random number generation
+implicit none
+integer :: lseed
+integer,allocatable :: seed(:)
+integer :: i
+
+      ! find size of seed
+      call random_seed(size = lseed)
+
+      ! generate new seed
+      allocate(seed(lseed))
+      ! simply make a sequence 3,3,3,...
+      do i = 1,lseed
+         seed(i) = 3
+      end do
+
+      call random_seed(put = seed(1:lseed))
+      deallocate(seed)
+
+      initialized_random_numbers = .true.
+
+end subroutine
+
+!******************************
+subroutine get_random_number(x)
+!******************************
+! subroutine for random number generation
+implicit none
+real(kr), intent(out) :: x
+
+      ! in the first call of the routine, initialize the random number generator, then use the sequence
+      if (.not.initialized_random_numbers) then
+         if (debug) then
+            write (*,*) 'Initializing random number generator.'
+         end if
+         call initialize_random_number
+      else
+         if (debug) then
+            write (*,*) 'Using initialized random number generator.'
+         end if
+      end if
+
+      call random_number(x)
 
 end subroutine
 

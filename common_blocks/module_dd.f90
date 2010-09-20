@@ -96,13 +96,16 @@ module module_dd
          integer, allocatable :: global_corner_number(:) ! global numbers of these corners - length NNODC
          integer ::             licnsin                 ! length of array ICNSIN
          integer, allocatable :: icnsin(:)              ! ICNSIN array - indices of corner nodes in subdomain interface numbering
-         integer ::             lncdf                   ! length of array NCDF
-         integer, allocatable :: ncdf(:)                ! NCDF array - numbers of corner dof - length NNODC
 
          ! description of globs
          integer ::             nglob                  ! number of globs on subdomain
          integer ::             lglobal_glob_number    ! length of array GLOBAL_GLOB_NUMBER
          integer, allocatable :: global_glob_number(:) ! global numbers of these globs - lenght NGLOB
+         integer ::             lnglobnodes           ! length of array NGLOBNODES
+         integer, allocatable :: nglobnodes(:)        ! number of nodes in subdomain globs - lenght NGLOB
+         integer ::             lignsin1              ! number of rows of IGNSIN array
+         integer ::             lignsin2              ! number of cols of IGNSIN array
+         integer, allocatable :: ignsin(:,:)          ! IGNSIN array - indices of glob nodes in subdomain interface numbering
          integer ::             lnglobvar              ! length of array NGLOBVAR
          integer, allocatable :: nglobvar(:)           ! number of variables in subdomain globs - lenght NGLOB
          integer ::             ligvsivn1              ! number of rows of IGVSIVN array
@@ -110,9 +113,6 @@ module module_dd
          integer, allocatable :: igvsivn(:,:)          ! IGVSIVN array - indices of glob variables in subdomain interface numbering
          integer ::             lglob_type             ! length of array GLOB_TYPE
          integer, allocatable :: glob_type(:)          ! type of globs ( 1 - face, 2 - edge)
-                                                       ! data are stored by rows
-         integer ::             lngdf                  ! length of array NGDF
-         integer, allocatable :: ngdf(:)               ! number of degrees of freedom associated with a glob (e.g. number of averages on glob) - lenght NGLOB
 
          ! description of neighbouring of subdomain for data interchange
          integer ::             nadj                   ! number of adjacent subdomains
@@ -312,7 +312,7 @@ subroutine dd_read_mesh_from_file(myid,problemname)
       character(*),intent(in) :: problemname
 
 ! local variables
-      integer :: isub, idsmd, iglob, ivar
+      integer :: isub, idsmd, iglob, ivar, ignode
       character(100):: fname
 
       integer :: nelem, nnod, ndof, ndim, nnodc, nglob, nadj
@@ -339,6 +339,10 @@ subroutine dd_read_mesh_from_file(myid,problemname)
       integer, allocatable ::  global_glob_number(:)
       integer ::              lglob_type
       integer, allocatable ::  glob_type(:)
+      integer ::              lnglobnodes 
+      integer, allocatable ::  nglobnodes(:)
+      integer ::              lignsin1, lignsin2
+      integer, allocatable ::  ignsin(:,:)
       integer ::              lnglobvar 
       integer, allocatable ::  nglobvar(:)
       integer ::              ligvsivn1, ligvsivn2
@@ -423,8 +427,22 @@ subroutine dd_read_mesh_from_file(myid,problemname)
             read(idsmd,*) nglob
             lglobal_glob_number = nglob
             lnglobvar           = nglob
-            allocate(global_glob_number(lglobal_glob_number),nglobvar(lnglobvar))
+            lnglobnodes         = nglob
+            allocate(global_glob_number(lglobal_glob_number),nglobvar(lnglobvar),nglobnodes(lnglobnodes))
             read(idsmd,*) global_glob_number
+
+            read(idsmd,*) nglobnodes
+            lignsin1 = nglob
+            lignsin2 = maxval(nglobnodes)
+            allocate(ignsin(lignsin1,lignsin2))
+            do iglob = 1,nglob
+               ! read glob variables
+               read(idsmd,*) (ignsin(iglob,ignode),ignode = 1,nglobnodes(iglob))
+               ! pad the glob with zeros
+               do ignode = nglobnodes(iglob) + 1,lignsin2
+                  ignsin(iglob,ignode) = 0
+               end do
+            end do
             read(idsmd,*) nglobvar
             ligvsivn1 = nglob
             ligvsivn2 = maxval(nglobvar)
@@ -457,8 +475,8 @@ subroutine dd_read_mesh_from_file(myid,problemname)
                                 xyz,lxyz1,lxyz2, &
                                 iin,liin, iivsvn,liivsvn, iovsvn,liovsvn,&
                                 global_corner_number,lglobal_corner_number, icnsin,licnsin,&
-                                global_glob_number,lglobal_glob_number,nglobvar,lnglobvar,&
-                                igvsivn,ligvsivn1,ligvsivn2,glob_type,lglob_type, iadj,liadj)
+                                global_glob_number,lglobal_glob_number,nglobnodes,lnglobnodes, nglobvar,lnglobvar,&
+                                ignsin,lignsin1,lignsin2, igvsivn,ligvsivn1,ligvsivn2,glob_type,lglob_type, iadj,liadj)
             call dd_load_bc(myid,isub, ifix,lifix, fixv,lfixv)
             call dd_load_rhs(myid,isub, rhss,lrhss)
 
@@ -474,7 +492,8 @@ subroutine dd_read_mesh_from_file(myid,problemname)
             deallocate (iadj)
             deallocate (ifix,fixv)
             deallocate (glob_type)
-            deallocate (global_glob_number,nglobvar)
+            deallocate (global_glob_number,nglobvar,nglobnodes)
+            deallocate (ignsin)
             deallocate (igvsivn)
             deallocate (global_corner_number,icnsin)
             deallocate (rhss)
@@ -765,8 +784,8 @@ subroutine dd_upload_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndo
                           xyz,lxyz1,lxyz2, &
                           iin,liin, iivsvn,liivsvn, iovsvn,liovsvn, &
                           global_corner_number,lglobal_corner_number, icnsin,licnsin,&
-                          global_glob_number,lglobal_glob_number, nglobvar,lnglobvar,&
-                          igvsivn,ligvsivn1,ligvsivn2,glob_type,lglob_type, iadj,liadj)
+                          global_glob_number,lglobal_glob_number, nglobnodes,lnglobnodes, nglobvar,lnglobvar,&
+                          ignsin,lignsin1,lignsin2, igvsivn,ligvsivn1,ligvsivn2,glob_type,lglob_type, iadj,liadj)
 !*********************************************************************************
 ! Subroutine for loading mesh data into sub structure
       implicit none
@@ -782,8 +801,10 @@ subroutine dd_upload_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndo
       integer,intent(in) ::  iin(liin),  iivsvn(liivsvn), iovsvn(liovsvn)
       integer,intent(in) :: lglobal_corner_number,                       licnsin
       integer,intent(in) ::  global_corner_number(lglobal_corner_number), icnsin(licnsin)
-      integer,intent(in) :: lglobal_glob_number,                     lnglobvar
-      integer,intent(in) ::  global_glob_number(lglobal_glob_number), nglobvar(lnglobvar)
+      integer,intent(in) :: lglobal_glob_number,                     lnglobnodes,             lnglobvar
+      integer,intent(in) ::  global_glob_number(lglobal_glob_number), nglobnodes(lnglobnodes), nglobvar(lnglobvar)
+      integer,intent(in) :: lignsin1, lignsin2
+      integer,intent(in) ::  ignsin(lignsin1,lignsin2)
       integer,intent(in) :: ligvsivn1, ligvsivn2
       integer,intent(in) ::  igvsivn(ligvsivn1,ligvsivn2)
       integer,intent(in) :: lglob_type
@@ -888,10 +909,25 @@ subroutine dd_upload_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndo
          sub(isub)%global_glob_number(i) = global_glob_number(i)
       end do
 
+      sub(isub)%lnglobnodes = lnglobnodes
+      allocate(sub(isub)%nglobnodes(lnglobnodes))
+      do i = 1,lnglobnodes
+         sub(isub)%nglobnodes(i) = nglobnodes(i)
+      end do
+
       sub(isub)%lnglobvar = lnglobvar
       allocate(sub(isub)%nglobvar(lnglobvar))
       do i = 1,lnglobvar
          sub(isub)%nglobvar(i) = nglobvar(i)
+      end do
+
+      sub(isub)%lignsin1 = lignsin1
+      sub(isub)%lignsin2 = lignsin2
+      allocate(sub(isub)%ignsin(lignsin1,lignsin2))
+      do i = 1,lignsin1
+         do j = 1,lignsin2
+            sub(isub)%ignsin(i,j) = ignsin(i,j)
+         end do
       end do
 
       sub(isub)%ligvsivn1 = ligvsivn1
@@ -1816,16 +1852,18 @@ subroutine dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2,nval
       ! determine number of columns to use
       ! threshold of 1% of maximal norm
       nvalid = 0
-      normval = abs(avg(1,1))
-      if (normval.gt.numerical_zero) then
-         thresh_diag = 0.01_kr * normval
-         do i = 1,lavg2
-            if (abs(avg(i,i)) .lt. thresh_diag) then
-               exit
-            else
-               nvalid = i
-            end if
-         end do
+      if (lavg1.gt.0.and.lavg2.gt.0) then
+         normval = abs(avg(1,1))
+         if (normval.gt.numerical_zero) then
+            thresh_diag = 0.01_kr * normval
+            do i = 1,lavg2
+               if (abs(avg(i,i)) .lt. thresh_diag) then
+                  exit
+               else
+                  nvalid = i
+               end if
+            end do
+         end if
       end if
 
       !write (*,*) 'Number of constraints to really use nvalid',nvalid
@@ -1990,7 +2028,7 @@ subroutine dd_get_cnodes(myid,isub)
       integer ::             nglob
       integer ::             ncnodes, lcnodes
       integer ::             icnode, igcnode
-      integer ::             inodc, indnode, indinode, i, nvar, iglob, nnodgl
+      integer ::             inodc, indnode, indinode, i, nvar, iglob, nnodgl, indn, indin
       integer ::             lxyz
 
 
@@ -2023,6 +2061,9 @@ subroutine dd_get_cnodes(myid,isub)
       do inodc = 1,nnodc
          icnode = icnode + 1
 
+         indinode = sub(isub)%icnsin(inodc)
+         indnode  = sub(isub)%iin(indinode)
+
          ! type of coarse node - corner
          sub(isub)%cnodes(icnode)%itype = 3
          ! is coarse node used?
@@ -2032,8 +2073,9 @@ subroutine dd_get_cnodes(myid,isub)
          sub(isub)%cnodes(icnode)%global_cnode_number  = igcnode
          ! number of nodes where it maps from
          sub(isub)%cnodes(icnode)%nnod = 1
+
          ! number of variables it maps from 
-         nvar = sub(isub)%ndim
+         nvar = sub(isub)%nndf(indnode)
          sub(isub)%cnodes(icnode)%nvar = nvar
          ! number of nonzeros it creates in matrix C
          sub(isub)%cnodes(icnode)%nnz = nvar
@@ -2042,15 +2084,13 @@ subroutine dd_get_cnodes(myid,isub)
          lxyz = sub(isub)%ndim
          sub(isub)%cnodes(icnode)%lxyz = lxyz
          allocate(sub(isub)%cnodes(icnode)%xyz(lxyz))
-         indinode = sub(isub)%icnsin(inodc)
-         indnode  = sub(isub)%iin(indinode)
          sub(isub)%cnodes(icnode)%xyz = sub(isub)%xyz(indnode,:)
 
          ! fill coarse node nodes
          allocate(sub(isub)%cnodes(icnode)%insin(1))
          sub(isub)%cnodes(icnode)%insin(1) = indinode
 
-         ! fill coarse nodes variables
+         ! fill coarse node variables
          allocate(sub(isub)%cnodes(icnode)%ivsivn(nvar))
          do i = 1,nvar
             sub(isub)%cnodes(icnode)%ivsivn(i) = (indinode-1)*nvar + i
@@ -2064,25 +2104,13 @@ subroutine dd_get_cnodes(myid,isub)
 
          ! type of coarse node - edge or face
          sub(isub)%cnodes(icnode)%itype = sub(isub)%glob_type(iglob)
-         ! is coarse node used?
-         ! this is set by routines dd_load_arithmetic_constraints and
-         !                         dd_load_adaptive_constraints
-         ! default behaviour for globs 
-         !if      (sub(isub)%glob_type(iglob) .eq. 2 .and. use_edges) then
-         !   sub(isub)%cnodes(icnode)%used  = .true.
-         !else if (sub(isub)%glob_type(iglob) .eq. 1 .and. use_faces_arithmetic) then
-         !   sub(isub)%cnodes(icnode)%used  = .true.
-         !   sub(isub)%cnodes(icnode)%arithmetic = .true.
-         !else if (sub(isub)%glob_type(iglob) .eq. 1 .and. use_faces_adaptive) then
-         !   sub(isub)%cnodes(icnode)%used  = .true.
-         !   sub(isub)%cnodes(icnode)%adaptive = .true.
-         !end if
 
          ! global number
          igcnode = sub(isub)%global_glob_number(iglob)
          sub(isub)%cnodes(icnode)%global_cnode_number = igcnode
+
          ! number of nodes where it maps from
-         nnodgl = sub(isub)%nglobvar(iglob)/sub(isub)%ndim
+         nnodgl = sub(isub)%nglobnodes(iglob)
          sub(isub)%cnodes(icnode)%nnod = nnodgl
          ! number of variables it maps from 
          nvar = sub(isub)%nglobvar(iglob)
@@ -2092,13 +2120,22 @@ subroutine dd_get_cnodes(myid,isub)
          lxyz = sub(isub)%ndim
          sub(isub)%cnodes(icnode)%lxyz = lxyz
          allocate(sub(isub)%cnodes(icnode)%xyz(lxyz))
-         !TODO: create averaged coordinates
-         sub(isub)%cnodes(icnode)%xyz = 0.
+         sub(isub)%cnodes(icnode)%xyz(lxyz) = 0._kr
+         ! create averaged coordinates
+         do i = 1,nnodgl
+            indin = sub(isub)%ignsin(iglob,i)
+            indn  = sub(isub)%iin(indin)
+            sub(isub)%cnodes(icnode)%xyz(:) = sub(isub)%cnodes(icnode)%xyz(:) + sub(isub)%xyz(indn,:)
+         end do
+         sub(isub)%cnodes(icnode)%xyz(:) = sub(isub)%cnodes(icnode)%xyz(:) / nnodgl
 
          ! fill coarse node nodes
-         ! TODO: not for globs
+         allocate(sub(isub)%cnodes(icnode)%insin(nnodgl))
+         do i = 1,nnodgl
+            sub(isub)%cnodes(icnode)%insin(i) = sub(isub)%ignsin(iglob,i)
+         end do
 
-         ! fill coarse nodes variables
+         ! fill coarse node variables
          allocate(sub(isub)%cnodes(icnode)%ivsivn(nvar))
          do i = 1,nvar
             sub(isub)%cnodes(icnode)%ivsivn(i) = sub(isub)%igvsivn(iglob,i)
@@ -5036,11 +5073,14 @@ subroutine dd_clear_subdomain(isub)
       if (allocated(sub(isub)%icnsin)) then
          deallocate(sub(isub)%icnsin)
       end if
-      if (allocated(sub(isub)%ncdf)) then
-         deallocate(sub(isub)%ncdf)
-      end if
       if (allocated(sub(isub)%global_glob_number)) then
          deallocate(sub(isub)%global_glob_number)
+      end if
+      if (allocated(sub(isub)%nglobnodes)) then
+         deallocate(sub(isub)%nglobnodes)
+      end if
+      if (allocated(sub(isub)%ignsin)) then
+         deallocate(sub(isub)%ignsin)
       end if
       if (allocated(sub(isub)%nglobvar)) then
          deallocate(sub(isub)%nglobvar)
@@ -5071,9 +5111,6 @@ subroutine dd_clear_subdomain(isub)
       end if
       if (allocated(sub(isub)%wi)) then
          deallocate(sub(isub)%wi)
-      end if
-      if (allocated(sub(isub)%ngdf)) then
-         deallocate(sub(isub)%ngdf)
       end if
       if (allocated(sub(isub)%cnodes)) then
          do j = 1,sub(isub)%ncnodes

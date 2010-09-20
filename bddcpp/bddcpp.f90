@@ -2057,10 +2057,14 @@ integer::            lglobal_glob_numbers
 integer,allocatable:: global_glob_numbers(:)
 integer::            lglob_type
 integer,allocatable:: glob_type(:)
+integer::            lnglobnodes
+integer,allocatable:: nglobnodes(:)
 integer::            lnglobvars
 integer,allocatable:: nglobvars(:)
 integer::            liadjs
 integer,allocatable:: iadjs(:)
+integer::            lignsins1, lignsins2
+integer,allocatable:: ignsins(:,:)
 integer::            ligvsivns1, ligvsivns2
 integer,allocatable:: igvsivns(:,:)
 integer ::            nelemsadj, nnodsadj
@@ -2100,7 +2104,7 @@ integer:: isub, ie, inc, ndofn, &
           inods, jsub, i, j, indn, idofis, idofos, inodis, &
           indns, indins, inodcs, iglbn, nglbn, iglb, iglobs, indn1,&
           nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs, indg, ncnod, &
-          ncnodes, pointcinet, indcxyz, isubneib
+          ncnodes, pointcinet, indcxyz, isubneib, iinode
 integer:: nadjs, nnodcs, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs, nedge, nface
 integer:: n_graph_edge
 integer:: idsmd
@@ -2447,6 +2451,8 @@ real(kr) :: time_import, time_graph_create
          allocate(global_glob_numbers(lglobal_glob_numbers))
          lnglobvars = nglobs
          allocate(nglobvars(lnglobvars))
+         lnglobnodes = nglobs
+         allocate(nglobnodes(lnglobnodes))
          lglob_type = nglobs
          allocate(glob_type(lglob_type))
 
@@ -2469,7 +2475,8 @@ real(kr) :: time_import, time_graph_create
                   nglbv = nglbv + ndofn
                end do
 
-               nglobvars(iglobs) = nglbv
+               nglobvars(iglobs)  = nglbv
+               nglobnodes(iglobs) = nglbn
                global_glob_numbers(iglobs) = iglb
             end if
 
@@ -2486,6 +2493,9 @@ real(kr) :: time_import, time_graph_create
          ligvsivns1 = nglobs
          ligvsivns2 = maxval(nglobvars)
          allocate(igvsivns(ligvsivns1,ligvsivns2))
+         lignsins1 = nglobs
+         lignsins2 = maxval(nglobnodes)
+         allocate(ignsins(lignsins1,lignsins2))
          iglobs     = 0
          pointinglb = 0
          do iglb = 1,nglb
@@ -2509,6 +2519,12 @@ real(kr) :: time_import, time_graph_create
                      write(*,*) 'CREATE_SUB_FILES: Index of subdomain node not found.'
                      stop
                   end if
+                  call get_index(indns,iins,nnodis,indins)
+                  if (indins .eq. -1) then
+                     write(*,*) 'CREATE_SUB_FILES: Index of interface node not found.'
+                     stop
+                  end if
+                  ignsins(iglobs,iglbn) = indins
 
                   do idofn = 1,ndofn
                      iglbv = iglbv + 1
@@ -2529,7 +2545,6 @@ real(kr) :: time_import, time_graph_create
 
             pointinglb = pointinglb + nglbn
          end do
-
 
 
 ! coordinates of subdomain nodes
@@ -2629,6 +2644,11 @@ real(kr) :: time_import, time_graph_create
          ! --- globs
          write(idsmd,*) nglobs
          write(idsmd,*) global_glob_numbers
+         write(idsmd,*) nglobnodes
+         do iglobs = 1,nglobs
+            ! glob variables
+            write(idsmd,*) (ignsins(iglobs,iinode),iinode = 1,nglobnodes(iglobs))
+         end do
          write(idsmd,*) nglobvars
          do iglobs = 1,nglobs
             ! glob variables
@@ -2644,7 +2664,9 @@ real(kr) :: time_import, time_graph_create
          deallocate(iadjs)
          deallocate(kinodes)
          deallocate(igvsivns)
+         deallocate(ignsins)
          deallocate(nglobvars)
+         deallocate(nglobnodes)
          deallocate(global_glob_numbers)
          deallocate(glob_type)
          deallocate(icnsins)

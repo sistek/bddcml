@@ -22,7 +22,7 @@ program bddcml
       integer,parameter :: nlevels = 2
 
 ! use arithmetic constraints?
-      logical,parameter :: use_arithmetic = .false.
+      logical,parameter :: use_arithmetic = .true.
 
 ! use adaptive constraints?
       logical,parameter :: use_adaptive = .true.

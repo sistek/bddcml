@@ -20,6 +20,8 @@ program test_module_utils
       integer,parameter :: larray3 = 7
       integer           :: array3(larray3) = (/1,1,1,3,3,5,9/)
 
+      real(kr) :: rnd
+
       character(100) :: fname
       character(100) :: name1
 
@@ -67,5 +69,13 @@ program test_module_utils
       print *, 'array after'
       print *,  array3
       print *, 'nentries =', nentries
+
+      ! random numbers
+      call get_random_number(rnd)
+      write(*,*) 'rnd = ',rnd
+      call get_random_number(rnd)
+      write(*,*) 'rnd = ',rnd
+      call get_random_number(rnd)
+      write(*,*) 'rnd = ',rnd
 
 end program

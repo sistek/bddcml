@@ -12,8 +12,8 @@ real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! threshold on eigenvalues to define an adaptive constraint
 ! eigenvectors for eigenvalues above this value are used for creation of constraints 
-real(kr),parameter,private :: threshold_eigval_default = 2._kr
-logical,parameter,private  :: read_threshold_from_file = .true.
+real(kr),parameter,private :: threshold_eigval_default = 1.5_kr
+logical,parameter,private  :: read_threshold_from_file = .false.
 ! LOBPCG related variables
 ! maximal number of LOBPCG iterations
 integer,parameter,private ::  lobpcg_maxit = 100
@@ -29,9 +29,9 @@ integer,parameter,private ::  neigvecx     = 10
 ! 2 - maximal output
 integer,parameter,private ::  lobpcg_verbosity = 0
 ! loading old values of initial guess of eigenvectors
-! 0 - generate new random vectors
-! 1 - use given vectors
-integer,parameter,private ::  use_vec_values = 0
+! 0 - generate new random vectors in LOBCPCG - may have poor performance
+! 1 - generate new random vectors in Fortran and pass these to LOBPCG - better behaviour
+integer,parameter,private ::  use_vec_values = 1
 ! loading computed eigenvectors
 ! T - compute new vectors
 ! F - load eigenvectors from file
@@ -1144,12 +1144,20 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          if (my_pair.ge.0) then
             if (use_vec_values .eq. 1) then
               ! read initial guess of vectors
-               write(*,*) 'neigvec =',neigvec,'problemsize =',problemsize
-               open(unit = idmyunit,file='start_guess.txt')
-               do i = 1,problemsize
-                  read(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+              ! write(*,*) 'neigvec =',neigvec,'problemsize =',problemsize
+              ! open(unit = idmyunit,file='start_guess.txt')
+              ! do i = 1,problemsize
+              !    read(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+              ! end do
+              ! close(idmyunit)
+
+               ! Initialize the array with own random number generator
+               !   reinitialize the random number sequence for each pair for reproducibility 
+               !   (LOBPCG is sensitive for initial guess)
+               call initialize_random_number
+               do i = 1,neigvec*problemsize
+                  call get_random_number(eigvec(i))
                end do
-               close(idmyunit)
             end if
 
             ! set name of individual file for glob

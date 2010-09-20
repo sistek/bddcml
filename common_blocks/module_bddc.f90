@@ -2475,7 +2475,7 @@ subroutine bddc_T_inverse(avg,lavg1,lavg2,t,lt1,lt2)
       lipiv = lavg2
       allocate(ipiv(lipiv))
       ipiv = 0
-      ltau = lavg1
+      ltau = lavg2
       allocate(tau(ltau))
       lwork = 3*lavg2 + 1
       allocate(work(lwork))
