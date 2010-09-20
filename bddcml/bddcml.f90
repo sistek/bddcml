@@ -22,10 +22,22 @@ program bddcml
       integer,parameter :: nlevels = 2
 
 ! use arithmetic constraints?
-      logical,parameter :: use_arithmetic = .true.
+      logical,parameter :: use_arithmetic = .false.
 
 ! use adaptive constraints?
-      logical,parameter :: use_adaptive = .false.
+      logical,parameter :: use_adaptive = .true.
+
+! these options set following type of constraints
+!----------------------------------------------------- 
+!   \ use_arithmetic |      TRUE     |     FALSE     |
+! use_adaptive \     |               |               |
+!----------------------------------------------------|
+!    TRUE            | edges: arith. | edges: -      |
+!                    | faces: adapt. | faces: adapt. |
+!----------------------------------------------------|
+!    FALSE           | edges: arith. | edges: -      |
+!                    | faces: arith. | faces: -      |
+!----------------------------------------------------- 
 
 !######### END OF PARAMETERS TO SET
 
@@ -147,7 +159,7 @@ program bddcml
       allocate(pcg_data(lpcg_data))
       do isub = 1,nsub
 
-         ! deterine size of subdomain
+         ! determine size of subdomain
          call dd_get_size(myid,isub,ndofs,nnods,nelems)
          if (ndofs.ge.0) then
             pcg_data(isub)%is_mine = .true.

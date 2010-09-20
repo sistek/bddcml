@@ -332,6 +332,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
                  point_i, point_j, indiv, nadaptive, ioper, nadaptive_rcv, ind, &
                  nnzc_i, nnzc_j, inddrow, ic, indirow, indirow_loc, indjcol_loc, &
                  neigvecf, problemsizef
+      integer :: nvalid_i, nvalid_j, nvalid
       integer :: idmyunit
 
       integer :: ndofi
@@ -1230,9 +1231,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
             write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: I am going to add ',nadaptive,' constraints for pair ',my_pair
 
-            ! store the number to the pair
-            pair_subdomains(my_pair,5) = nadaptive
-
             ! find estimator of condition number
             if (nadaptive.lt.neigvec) then
                est_loc = eigval(nadaptive + 1)
@@ -1267,7 +1265,6 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          if (my_pair.ge.0) then
             deallocate(bufsend_i,bufsend_j)
          end if
-
 
          ! distribute adaptive constraints to slaves
          ! prepare space for these constraints
@@ -1363,6 +1360,17 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          end if
 
          ! processors now own data of adaptively found constraints on their subdomains, they have to filter globs and load them into the structure
+         ! gather back data about really loaded constraints
+         ireq = 0
+         if (my_pair.ge.0) then
+            ! receive mapping of interface nodes into global nodes
+
+            ireq = ireq + 1
+            call MPI_IRECV(nvalid_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+
+            ireq = ireq + 1
+            call MPI_IRECV(nvalid_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+         end if
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
@@ -1390,10 +1398,30 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             !end do
 
             ! load constraints into DD structure 
-            call dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2)
+            call dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2, nvalid)
+
+            ireq = ireq + 1
+            call MPI_ISEND(nvalid,1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
 
             deallocate(cadapt)
          end do
+         nreq = ireq
+         call MPI_WAITALL(nreq, request, statarray, ierr)
+         if (debug) then
+            write(*,*)  'I am ',myid,'All messages in pack 12 received, MPI is fun!.'
+         end if
+
+         if (my_pair.ge.0) then
+            ! check that number of loaded constraints left and write match
+            if (nvalid_i .ne. nvalid_j) then
+
+               write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: Number of valid constraints does not match for pair ',my_pair
+               call error_exit
+            end if
+
+            ! store the number to the pair
+            pair_subdomains(my_pair,5) = nvalid_i
+         end if
 
          deallocate(lbufa)
          deallocate(kbufsend) 
@@ -1903,7 +1931,7 @@ subroutine adaptivity_update_ndof(nndf_coarse,lnndf_coarse,nnodc,nedge,nface)
          indglb = pair_subdomains(i,2)
          nadaptive = pair_subdomains(i,5)
 
-         nndf_coarse(indglb) = nndf_coarse(indglb) + nadaptive
+         nndf_coarse(indglb) = nadaptive
       end do
 
 end subroutine

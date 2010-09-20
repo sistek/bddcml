@@ -1714,9 +1714,9 @@ subroutine dd_load_arithmetic_constraints(myid,isub,itype)
 
 end subroutine
 
-!***************************************************************************
-subroutine dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2)
-!***************************************************************************
+!**********************************************************************************
+subroutine dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2,nvalid)
+!**********************************************************************************
 ! Subroutine for assemblage of matrix
       use module_utils
       implicit none
@@ -1725,6 +1725,26 @@ subroutine dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2)
 
       integer,intent(in) :: lcadapt1, lcadapt2
       real(kr),intent(in) :: cadapt(lcadapt1,lcadapt2)
+
+      integer,intent(out) :: nvalid ! number of valid constraints after regularization
+
+! local variables
+
+! Variables for regularization of constraints
+      integer              :: lavg1, lavg2
+      real(kr),allocatable ::  avg(:,:)
+
+! LAPACK variables
+      integer             :: lipiv
+      integer,allocatable ::  ipiv(:)
+      integer              :: lwork
+      real(kr),allocatable ::  work(:)
+      integer              :: ltau
+      real(kr),allocatable ::  tau(:)
+      integer             :: lapack_info, ldavg
+
+      real(kr) :: normval, thresh_diag
+
 
       ! local vars
       integer :: ind_loc, lmatrix1, lmatrix2, nvarglb, ncdof
@@ -1753,30 +1773,106 @@ subroutine dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2)
       end if
 
       ! regularize the matrix of constraints by QR decomposition
-      ! TODO
+      ! copy part of constraints to array AVG
+      lavg1 = nvarglb
+      lavg2 = lcadapt2
+      allocate(avg(lavg1,lavg2))
+      
+      do i = 1,nvarglb
+         indiv = sub(isub)%cnodes(ind_loc)%ivsivn(i)
 
-      ! copy transposed selected variables to the global structure
-      ncdof = lcadapt2
+         do j = 1,lcadapt2
+            avg(i,j) = cadapt(indiv,j)
+         end do
+      end do
+
+      !write (*,*) 'AVG before QR'
+      !do i = 1,lavg1
+      !   write(*,*) (avg(i,j),j = 1,lavg2)
+      !end do
+
+      ! perform QR decomposition of AVG by LAPACK
+      ! Prepare array for permutations
+      lipiv = lavg2
+      allocate(ipiv(lipiv))
+      ipiv = 0
+      ! prepare other LAPACK arrays
+      ltau = lavg1
+      allocate(tau(ltau))
+      lwork = 3*lavg2 + 1
+      allocate(work(lwork))
+
+      ldavg = max(1,lavg1)
+      ! QR decomposition
+      call DGEQP3( lavg1, lavg2, avg, ldavg, ipiv, tau, work, lwork, lapack_info )
+
+      !write (*,*) 'AVG after QR factorization'
+      !do i = 1,lavg1
+      !   write(*,*) (avg(i,j),j = 1,lavg2)
+      !end do
+      !write (*,*) 'IPIV after QR factorization'
+      !write(*,*) (ipiv(j),j = 1,lavg2)
+
+      ! determine number of columns to use
+      ! threshold of 1% of maximal norm
+      nvalid = 0
+      normval = abs(avg(1,1))
+      if (normval.gt.numerical_zero) then
+         thresh_diag = 0.01_kr * normval
+         do i = 1,lavg2
+            if (abs(avg(i,i)) .lt. thresh_diag) then
+               exit
+            else
+               nvalid = i
+            end if
+         end do
+      end if
+
+      !write (*,*) 'Number of constraints to really use nvalid',nvalid
+
+      ! construct Q in AVG array
+      call DORGQR( lavg1, nvalid, nvalid, avg, ldavg, tau, work, lwork, lapack_info )
+
+      deallocate(work)
+      deallocate(tau)
+      deallocate(ipiv)
+
+      !write (*,*) 'AVG contains Q'
+      !do i = 1,lavg1
+      !   write(*,*) (avg(i,j),j = 1,nvalid)
+      !end do
+
+      if (debug) then
+         if (nvalid.lt.lcadapt2) then
+            write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: WARNING - almost linearly dependent constraints on glob ',gglob
+            write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS:           Number of constrains reduced from ',lcadapt2,' to ',nvalid
+         end if
+      end if
+
+      ! copy transposed selected regularized constraints to the global structure
+      ncdof = nvalid
       sub(isub)%cnodes(ind_loc)%ncdof = ncdof
 
-      lmatrix1 = lcadapt2
+      lmatrix1 = nvalid
       lmatrix2 = nvarglb
       sub(isub)%cnodes(ind_loc)%lmatrix1 = lmatrix1
       sub(isub)%cnodes(ind_loc)%lmatrix2 = lmatrix2
       allocate(sub(isub)%cnodes(ind_loc)%matrix(lmatrix1,lmatrix2))
       
-      do i = 1,lmatrix1
+      do i = 1,nvalid
          do j = 1,nvarglb
-            indiv = sub(isub)%cnodes(ind_loc)%ivsivn(j)
 
-            sub(isub)%cnodes(ind_loc)%matrix(i,j) = cadapt(indiv,i)
+            sub(isub)%cnodes(ind_loc)%matrix(i,j) = avg(j,i)
          end do
       end do
       sub(isub)%cnodes(ind_loc)%nnz = lmatrix1*lmatrix2
-      sub(isub)%cnodes(ind_loc)%adaptive = .true.
+      sub(isub)%cnodes(ind_loc)%adaptive   = .true.
+      sub(isub)%cnodes(ind_loc)%arithmetic = .false.
 
       ! mark the coarse node as used
       sub(isub)%cnodes(ind_loc)%used = .true.
+
+      deallocate(avg)
 
       if (debug) then
          write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Loading matrix of subdomain ',isub,' local glob #',ind_loc
@@ -2200,9 +2296,10 @@ subroutine dd_prepare_c(myid,isub)
 
                   indrowc(irowc) = sub(isub)%cnodes(icn)%igcdof(ivar)
                end do
-            else if (sub(isub)%cnodes(icn)%itype .eq. 2 .or. &
-                     (sub(isub)%cnodes(icn)%itype .eq. 1 .and.&
-                      sub(isub)%cnodes(icn)%arithmetic .eqv. .true.)) then
+            else if (((sub(isub)%cnodes(icn)%arithmetic .eqv. .true.) .and. (sub(isub)%cnodes(icn)%itype .eq. 2)) &
+                     .or. &
+                     ((sub(isub)%cnodes(icn)%arithmetic .eqv. .true.) .and. (sub(isub)%cnodes(icn)%adaptive .eqv. .false.) &
+                      .and. (sub(isub)%cnodes(icn)%itype .eq. 1))) then
                ! use arithmetic averages for edges and faces if desired
                nvar  = sub(isub)%cnodes(icn)%nvar
                ncdof = sub(isub)%cnodes(icn)%ncdof
@@ -2219,8 +2316,8 @@ subroutine dd_prepare_c(myid,isub)
 
                   indrowc(irowc) = sub(isub)%cnodes(icn)%igcdof(icdof)
                end do
-            else if ((sub(isub)%cnodes(icn)%itype .eq. 1 .and.&
-                      sub(isub)%cnodes(icn)%adaptive .eqv. .true.)) then
+            else if ((sub(isub)%cnodes(icn)%itype .eq. 1) .and. &
+                     (sub(isub)%cnodes(icn)%adaptive .eqv. .true.)) then
                ! use adaptive constraint on face
 
                ! copy the matrix of constraints on glob into sparse triplet of subdomain matrix C
@@ -2260,7 +2357,7 @@ subroutine dd_prepare_c(myid,isub)
 
       ! check matrix bounds
       if (inzc .ne. lc) then
-         write(*,*) 'DD_PREPARE_C: Dimension of matrix Cmismatch for subdomain', isub
+         write(*,*) 'DD_PREPARE_C: Dimension of matrix C mismatch for subdomain', isub,'inzc =',inzc,'lc =',lc
          call error_exit
       end if
       

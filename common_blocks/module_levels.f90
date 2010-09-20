@@ -305,10 +305,10 @@ subroutine levels_prepare_standard_level(ilevel,nsub,isubstart,isubfinish)
       implicit none
       include "mpif.h"
 
-      integer,intent(in) :: ilevel
-      integer,intent(in) :: nsub
-      integer,intent(in) :: isubstart
-      integer,intent(in) :: isubfinish
+      integer,intent(in) :: ilevel     ! index of level
+      integer,intent(in) :: nsub       ! number of subdomains
+      integer,intent(in) :: isubstart  ! index of first subdomain of this level
+      integer,intent(in) :: isubfinish ! index of last subdomain of this level
 
       ! local vars
       integer :: lindexsub, i, ind
@@ -409,7 +409,6 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
          ! on faces
          nndf(nnodc+nedge+1:nnodc+nedge+nface) = 0
       end if
-      ! TODO in case of adaptivity, add number of constraints on faces to nndf
 
       call dd_distribute_subdomains(nsub,nproc)
       call dd_read_mesh_from_file(myid,trim(problemname))
@@ -477,7 +476,7 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
          call adaptivity_update_ndof(nndf,lnndf,nnodc,nedge,nface)
    
          call adaptivity_finalize
-   
+
          ! prepare AGAIN matrix C, now for corners, arithmetic averages on edges and adaptive on faces
          do isub = 1,nsub
             call dd_embed_cnodes(myid,isub,nndf,lnndf)
@@ -506,7 +505,6 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       do i = 1,lnndf
          levels(ilevel)%nndf(i) = nndf(i)
       end do
-
 
 !      if (debug) then
 !         write(*,*) 'ilevel = ',ilevel

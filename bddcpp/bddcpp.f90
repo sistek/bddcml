@@ -71,6 +71,8 @@ integer :: nc, ios
 
 integer :: meshdim
 
+character(1) :: yn
+
 ! Initial screen
       write(*,'(a)') ' _____  _____  _____   ____  _____  _____  '
       write(*,'(a)') '|  _  \|  _  \|  _  \ / __ \|  _  \|  _  \ '
@@ -94,7 +96,7 @@ integer :: meshdim
 ! Open files
 ! PAR - basic properties of the problem    
       name = name1(1:lname1)//'.PAR'
-      open (unit=idpar,file=name,status='old',form='formatted')
+      open (unit=idpar,file=name,status='old',form='formatted',err=123)
 
 ! Read basic parameters for allocation
       read(idpar,*) ndim, nsub, nelem, ndof, nnod, nnodc, linet
@@ -170,6 +172,9 @@ integer :: meshdim
             goto 20
       end select
 
+123   write(*,'(a,a,a)') 'Unable to open file ',trim(name),'...exiting.'
+      stop
+
 contains
 
 !***********************************************************************
@@ -207,7 +212,6 @@ real(kr), allocatable :: subaux(:)
 integer :: nne, indnnets, indinet, indinets, i, imapping, inod, &
            ie, isub, inods
 integer :: nnods, nelems
-character(1) :: yn
 
 logical :: exportcorners, shells
 
@@ -2098,6 +2102,7 @@ integer:: isub, ie, inc, ndofn, &
           nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs, indg, ncnod, &
           ncnodes, pointcinet, indcxyz, isubneib
 integer:: nadjs, nnodcs, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs, nedge, nface
+integer:: n_graph_edge
 integer:: idsmd
 
 ! time related vars
@@ -2223,7 +2228,7 @@ real(kr) :: time_import, time_graph_create
       allocate(xadj(lxadj))
       
       call graph_from_mesh_size(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
-                                xadj,lxadj, nedge, ladjncy, ladjwgt)
+                                xadj,lxadj, n_graph_edge, ladjncy, ladjwgt)
       write (*,'(a)') 'done.'
 
       write (*,'(a,$)') 'Create list of neighbours of elements ... '
@@ -3213,7 +3218,7 @@ real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmi
             ipoint = kinet(ie)
             do ine = 1,nne
                indng = inet(ipoint + ine)
-               inett(ipoint + ine) = -ihntn(indng)
+               inett(ipoint + ine) = kmynodes(indng)
             end do
          end do
          deallocate(inets,nnets,isegns,isngns)

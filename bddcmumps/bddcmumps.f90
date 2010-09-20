@@ -28,7 +28,7 @@ integer,parameter:: kr = kind(1.D0)
 ! 2 - symmetric general           -> only upper triangle of element matrix
 !  for elasticity, use 1 - matrix is SPD - PCG
 !  for Stokes, use 2 - matrix is symmetric indefinite - MINRES
-integer,parameter:: matrixtype = 2
+integer,parameter:: matrixtype = 1
 
 ! Approach to enforce Gw = 0, ie. averages
 ! 0 - do not apply averages
