@@ -364,10 +364,13 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       integer,allocatable :: indrowc(:)
       integer ::            lc_sparse_i
       integer,allocatable :: i_c_sparse_i(:),j_c_sparse_i(:)
+      real(kr),allocatable ::  c_sparse_i(:)
       integer ::            lc_sparse_j
       integer,allocatable :: i_c_sparse_j(:),j_c_sparse_j(:)
+      real(kr),allocatable ::  c_sparse_j(:)
       integer ::            lc_sparse
       integer,allocatable :: i_c_sparse(:),j_c_sparse(:)
+      real(kr),allocatable ::  c_sparse(:)
       integer ::            lcommon_crows
       integer,allocatable :: common_crows(:)
       integer ::            lnndfi_i,   lnndfi_j
@@ -689,14 +692,16 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          !   write(*,*)  indrowc_j
          !end if
 
+    ! communicate matrix C
          if (my_pair.ge.0) then
             lc_sparse_i = nnzc_i
             lc_sparse_j = nnzc_j
             allocate(i_c_sparse_i(lc_sparse_i),i_c_sparse_j(lc_sparse_j))
             allocate(j_c_sparse_i(lc_sparse_i),j_c_sparse_j(lc_sparse_j))
+            allocate(  c_sparse_i(lc_sparse_i),  c_sparse_j(lc_sparse_j))
          end if
 
-         ! get data about coarse nodes
+         ! get data for rows of C
          ireq = 0
          if (my_pair.ge.0) then
             ireq = ireq + 1
@@ -705,27 +710,26 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             ireq = ireq + 1
             call MPI_IRECV(i_c_sparse_j,lc_sparse_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
          end if
-         ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
             call dd_get_number_of_cnnz(myid,isub,nnzc)
 
             lc_sparse = nnzc
-            allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse))
-            call dd_get_subdomain_cmap(myid,isub,i_c_sparse,j_c_sparse,lc_sparse)
+            allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse),c_sparse(lc_sparse))
+            call dd_get_subdomain_c(myid,isub,i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
 
             ireq = ireq + 1
             call MPI_ISEND(i_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
             call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
-            deallocate(i_c_sparse,j_c_sparse)
+            deallocate(i_c_sparse,j_c_sparse,c_sparse)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*) 'I am ',myid, 'All messages in pack 4.1 received, MPI is fun!.'
          end if
-         ! get data about coarse nodes
+         ! get data for columns of C
          ireq = 0
          if (my_pair.ge.0) then
             ireq = ireq + 1
@@ -734,25 +738,52 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             ireq = ireq + 1
             call MPI_IRECV(j_c_sparse_j,lc_sparse_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
          end if
-         ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
             call dd_get_number_of_cnnz(myid,isub,nnzc)
 
             lc_sparse = nnzc
-            allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse))
-            call dd_get_subdomain_cmap(myid,isub,i_c_sparse,j_c_sparse,lc_sparse)
+            allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse),c_sparse(lc_sparse))
+            call dd_get_subdomain_c(myid,isub,i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
 
             ireq = ireq + 1
             call MPI_ISEND(j_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
             call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
-            deallocate(i_c_sparse,j_c_sparse)
+            deallocate(i_c_sparse,j_c_sparse,c_sparse)
          end do
          nreq = ireq
          call MPI_WAITALL(nreq, request, statarray, ierr)
          if (debug) then
             write(*,*) 'I am ',myid, 'All messages in pack 4.2 received, MPI is fun!.'
+         end if
+         ! get values of C
+         ireq = 0
+         if (my_pair.ge.0) then
+            ireq = ireq + 1
+            call MPI_IRECV(c_sparse_i,lc_sparse_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+
+            ireq = ireq + 1
+            call MPI_IRECV(c_sparse_j,lc_sparse_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+         end if
+         do iinstr = 1,ninstructions
+            owner = instructions(iinstr,1)
+            isub  = instructions(iinstr,2)
+            call dd_get_number_of_cnnz(myid,isub,nnzc)
+
+            lc_sparse = nnzc
+            allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse),c_sparse(lc_sparse))
+            call dd_get_subdomain_c(myid,isub,i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
+
+            ireq = ireq + 1
+            call MPI_ISEND(c_sparse,lc_sparse,MPI_DOUBLE_PRECISION,owner,isub,comm,request(ireq),ierr)
+            call MPI_WAIT(request(ireq), statarray(1,ireq), ierr)
+            deallocate(i_c_sparse,j_c_sparse,c_sparse)
+         end do
+         nreq = ireq
+         call MPI_WAITALL(nreq, request, statarray, ierr)
+         if (debug) then
+            write(*,*) 'I am ',myid, 'All messages in pack 4.3 received, MPI is fun!.'
          end if
          !if (my_pair.ge.0) then
          !   write(*,*) 'i_c_sparse_i'
@@ -850,10 +881,10 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
                   call get_index(indirow,common_crows,lcommon_crows,inddrow) 
 
-                  dij(indjcol_loc,inddrow) = 1._kr
+                  dij(indjcol_loc,inddrow) = c_sparse_i(ic)
                end if
             end do
-            ! C_j
+            ! - C_j
             do ic = 1,nnzc_j
                indirow_loc = i_c_sparse_j(ic)
                indirow     = indrowc_j(indirow_loc)
@@ -864,45 +895,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 
                   call get_index(indirow,common_crows,lcommon_crows,inddrow) 
 
-                  dij(indjcol_loc,inddrow) = -1._kr
+                  dij(indjcol_loc,inddrow) = -c_sparse_j(ic)
                end if
             end do
-               
-!            iconstr = 0
-!            do icommon = 1,ncommon_crows
-!               indcrow = common_crows(icommon)
-               ! find index of this row
-!               call get_index(indcrow,indrowc_i,lindrowc_i,indc_i) 
-!               if (indc_i.gt.0) then
-!                  indi_i = icnsin_i(indc_i)
-!                  ndofn  = nndfi_i(indi_i)
-!               end if
-!               call get_index(indcnode,indrowc_j,lindrowc_j,indc_j) 
-!               if (indc_j.gt.0) then
-!                  indi_j = icnsin_j(indc_j)
-!                  ndofn  = nndfi_i(indi_i)
-!               end if
-
-!               shift = ndofi_i
-!               if (indc_i.gt.0) then
-!                  pointv_i = kdofi_i(indi_i)
-!               end if
-!               if (indc_j.gt.0) then
-!                  pointv_j = kdofi_j(indi_j)
-!               end if
-!               do i = 1,ndofn
-!                  iconstr = iconstr + 1
-!
-!                  ! contribution of subdomain i
-!                  if (indc_i.gt.0) then
-!                     dij(pointv_i+i,iconstr)       = 1._kr
-!                  end if
-!                  ! contribution of subdomain j
-!                  if (indc_j.gt.0) then
-!                     dij(shift+pointv_j+i,iconstr) = -1._kr
-!                  end if
-!               end do
-!            end do
          end if
 
          !if (my_pair.ge.0) then
@@ -1451,6 +1446,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             deallocate(nndfi_i,nndfi_j)
             deallocate(i_c_sparse_i,i_c_sparse_j)
             deallocate(j_c_sparse_i,j_c_sparse_j)
+            deallocate(c_sparse_i,c_sparse_j)
             deallocate(indrowc_i,indrowc_j)
          end if
 
@@ -1525,7 +1521,7 @@ real(kr),intent(in) ::  x(lx)
 integer,intent(in) ::  ly 
 real(kr),intent(out) :: y(ly)
 ! determine which matrix should be multiplied
-!  1 - A = P(I-RE)'S(I_RE)P
+!  1 - A = P(I-RE)'S(I-RE)P
 !  2 - B = PSP
 !  3 - not called from LOBPCG by from fake looper - just perform demanded multiplications by S
 !  -3 - set on exit if iterational process should be stopped now

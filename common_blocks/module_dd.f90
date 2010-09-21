@@ -3936,10 +3936,10 @@ subroutine dd_get_subdomain_corner_number(myid,isub,nnodc)
 
 end subroutine
 
-!**************************************************************************
-subroutine dd_get_subdomain_cmap(myid,isub,i_c_sparse,j_c_sparse,lc_sparse)
-!**************************************************************************
-! Subroutine for getting corner nodes embedding into interface
+!********************************************************************************
+subroutine dd_get_subdomain_c(myid,isub,i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
+!********************************************************************************
+! Subroutine for getting sparse matrix C
       implicit none
 ! processor ID
       integer,intent(in) :: myid
@@ -3948,40 +3948,41 @@ subroutine dd_get_subdomain_cmap(myid,isub,i_c_sparse,j_c_sparse,lc_sparse)
 ! Corners mapping
       integer,intent(in) ::  lc_sparse
       integer,intent(out) :: i_c_sparse(lc_sparse), j_c_sparse(lc_sparse)
+      real(kr),intent(out) ::  c_sparse(lc_sparse)
 
 ! local vars
       integer :: nnzc, i
 
       if (.not.allocated(sub).or.isub.gt.lsub) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Trying to localize nonexistent subdomain.'
+         write(*,*) 'DD_GET_SUBDOMAIN_C: Trying to localize nonexistent subdomain.'
          return
       end if
       if (.not.sub(isub)%is_sub_identified) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Subdomain is not identified.'
+         write(*,*) 'DD_GET_SUBDOMAIN_C: Subdomain is not identified.'
          return
       end if
       if (sub(isub)%isub .ne. isub) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Subdomain has strange number.'
+         write(*,*) 'DD_GET_SUBDOMAIN_C: Subdomain has strange number.'
          return
       end if
       if (.not.sub(isub)%is_proc_assigned) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Processor is not assigned.'
+         write(*,*) 'DD_GET_SUBDOMAIN_C: Processor is not assigned.'
          return
       end if
       if (sub(isub)%proc .ne. myid) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Subdomain ',isub,' is not mine, myid = ',myid
+         write(*,*) 'DD_GET_SUBDOMAIN_C: Subdomain ',isub,' is not mine, myid = ',myid
          return
       end if
       if (.not.sub(isub)%is_mesh_loaded) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Mesh is not loaded yet for subdomain ',isub
+         write(*,*) 'DD_GET_SUBDOMAIN_C: Mesh is not loaded yet for subdomain ',isub
          return
       end if
       if (.not.sub(isub)%is_c_loaded) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Matrix C is not loaded yet for subdomain ',isub
+         write(*,*) 'DD_GET_SUBDOMAIN_C: Matrix C is not loaded yet for subdomain ',isub
          return
       end if
       if (sub(isub)%lc .ne. lc_sparse) then
-         write(*,*) 'DD_GET_SUBDOMAIN_CMAP: Size of array for corners not consistent.'
+         write(*,*) 'DD_GET_SUBDOMAIN_C: Size of array for corners not consistent.'
          write(*,*) 'nnodc :', sub(isub)%lc, 'array size: ',lc_sparse 
          return
       end if
@@ -3993,6 +3994,9 @@ subroutine dd_get_subdomain_cmap(myid,isub,i_c_sparse,j_c_sparse,lc_sparse)
       end do
       do i = 1,nnzc
          j_c_sparse(i) = sub(isub)%j_c_sparse(i)
+      end do
+      do i = 1,nnzc
+         c_sparse(i) = sub(isub)%c_sparse(i)
       end do
 
 end subroutine
