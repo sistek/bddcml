@@ -1523,13 +1523,21 @@ real(kr),intent(out) :: y(ly)
 ! determine which matrix should be multiplied
 !  1 - A = P(I-RE)'S(I-RE)P
 !  2 - B = PSP
-!  3 - not called from LOBPCG by from fake looper - just perform demanded multiplications by S
+!  3 - not called from LOBPCG, called from fake looper - just perform demanded multiplications by S
+!  5 - preconditioning by local BDDC
 !  -3 - set on exit if iterational process should be stopped now
 integer,intent(inout) ::  idoper 
 
 ! local
 integer :: i
 integer :: iinstr, isub, owner, point1, point2, point, length, do_i_compute, is_active
+
+integer ::             laux2
+real(kr),allocatable :: aux2(:)
+integer ::             lrescs
+real(kr),allocatable :: rescs(:)
+integer ::             nrhs, nnods, nelems, ndofs, ndofaaugs, ndofcs, ncnodess
+logical :: transposed
 
 logical :: i_am_slave, all_slaves
 
@@ -1559,8 +1567,13 @@ do iinstr = 1,ninstructions
    call MPI_IRECV(instructions(iinstr,4),1,MPI_INTEGER,owner,isub,comm_comm,request(ireq),ierr)
 end do
 if (idoper.eq.3) then
+   ! called from outside of LOBPCG
    do_i_compute = 0
+else if (idoper.eq.5) then
+   ! use as preconditioner
+   do_i_compute = 2
 else
+   ! use as matrix multiply
    do_i_compute = 1
 end if
 ireq = ireq + 1
@@ -1572,7 +1585,7 @@ call MPI_WAITALL(nreq, request, statarray, ierr)
 
 ireq = 0
 ! common operations for A and B - checks and projection to null(D_ij)
-if (idoper.eq.1 .or. idoper.eq.2) then
+if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5 ) then
    ! check the dimensions
    if (n .ne. problemsize) then
        write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Vector size mismatch.'
@@ -1608,7 +1621,9 @@ if (idoper.eq.1 .or. idoper.eq.2) then
    end do
    
    ! xaux = P xaux
-   call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
+   if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.3) then
+      call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
+   end if
 
    if (idoper.eq.1) then
       ! make temporary copy
@@ -1626,6 +1641,12 @@ if (idoper.eq.1 .or. idoper.eq.2) then
       do i = 1,problemsize
          comm_xaux(i) = comm_xaux(i) - comm_xaux2(i)
       end do
+   end if
+   if (idoper.eq.5) then
+      ! preconditioning
+      ! D_P xaux
+      !  - apply weights
+      call adaptivity_apply_weights(weight,lweight,comm_xaux,comm_lxaux)
    end if
 
    ! distribute sizes of chunks of eigenvectors
@@ -1645,7 +1666,7 @@ do iinstr = 1,ninstructions
    isub      = instructions(iinstr,2)
    is_active = instructions(iinstr,4)
 
-   if (is_active .eq. 1) then
+   if (is_active .gt. 0) then
       ireq = ireq + 1
       call MPI_IRECV(bufrecv(kbufsend(iinstr)),lbufa(iinstr),MPI_DOUBLE_PRECISION,owner,isub,comm_comm,request(ireq),ierr)
    end if
@@ -1662,7 +1683,55 @@ do iinstr = 1,ninstructions
    if (is_active .eq. 1) then
       point  = kbufsend(iinstr)
       length = lbufa(iinstr)
+
+      ! Multiply by Schur complement
       call dd_multiply_by_schur(comm_myid,isub,bufrecv(point),length,bufsend(point),length)
+   end if
+   if (is_active .eq. 2) then
+      point  = kbufsend(iinstr)
+      length = lbufa(iinstr)
+
+      ! Apply BDDC preconditioner
+      ! SUBDOMAIN CORRECTION
+      ! prepare array of augmented size
+      call dd_get_aug_size(comm_myid,isub, ndofaaugs)
+      laux2 = ndofaaugs
+      allocate(aux2(laux2))
+      call zero(aux2,laux2)
+      call dd_get_size(comm_myid,isub, ndofs,nnods,nelems)
+      ! truncate the vector for embedding - zeros at the end
+      call dd_map_subi_to_sub(comm_myid,isub, bufrecv(point),length, aux2,ndofs)
+
+      nrhs = 1
+      call dd_solve_aug(comm_myid,isub, aux2,laux2, nrhs)
+
+      ! get interface part of the vector of preconditioned residual
+      call dd_get_coarse_size(comm_myid,isub,ndofcs,ncnodess)
+
+      lrescs = ndofcs
+      allocate(rescs(lrescs))
+      call zero(rescs,lrescs)
+
+      ! rc = phis' * x
+      transposed = .true.
+      call dd_phis_apply(comm_myid,isub, transposed, bufrecv(point),length, rescs,lrescs)
+
+      ! x_coarse = phis * phis' * x
+      transposed = .false.
+      call dd_phis_apply(comm_myid,isub, transposed, rescs,lrescs, bufsend(point),length)
+      deallocate(rescs)
+
+      !do i = 1,length
+      !   bufsend(point-1+i) = bufrecv(point-1+i)
+      !end do
+
+      call dd_map_sub_to_subi(comm_myid,isub, aux2,ndofs, bufsend(point),length)
+      deallocate(aux2)
+
+      ! debug copy
+      !do i = 1,length
+      !   bufsend(point-1+i) = bufrecv(point-1+i)
+      !end do
    end if
 end do
 
@@ -1673,14 +1742,14 @@ do iinstr = 1,ninstructions
    isub      = instructions(iinstr,2)
    is_active = instructions(iinstr,4)
 
-   if (is_active .eq. 1) then
+   if (is_active .gt. 0) then
       ireq = ireq + 1
       call MPI_ISEND(bufsend(kbufsend(iinstr)),lbufa(iinstr),MPI_DOUBLE_PRECISION,owner,isub,comm_comm,request(ireq),ierr)
    end if
 end do
 
 ! Continue only of I was called from LOBPCG
-if (idoper.eq.1 .or. idoper.eq.2) then
+if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
    ireq = ireq + 1
    point1 = 1
    call MPI_IRECV(comm_xaux(point1),ndofi_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
@@ -1695,7 +1764,7 @@ nreq = ireq
 call MPI_WAITALL(nreq, request, statarray, ierr)
 
 ! Continue only of I was called from LOBPCG
-if (idoper.eq.1 .or. idoper.eq.2) then
+if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
 
    ! reverse sign of vector if this is the A (required for LOBPCG)
    if (idoper.eq.1) then
@@ -1721,9 +1790,18 @@ if (idoper.eq.1 .or. idoper.eq.2) then
          comm_xaux(i) = comm_xaux(i) - comm_xaux2(i)
       end do
    end if
+   if (idoper.eq.5) then
+      ! preconditioning
+      ! D_P xaux
+      !  - apply weights
+      call adaptivity_apply_weights(weight,lweight,comm_xaux,comm_lxaux)
+   end if
+
 
    ! xaux = P xaux
-   call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
+   if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.3) then
+      call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
+   end if
 
    ! copy result to y
    do i = 1,lx

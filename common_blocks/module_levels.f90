@@ -367,7 +367,6 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       integer,allocatable :: nndf(:)
 
       integer :: mumpsinfo
-      logical :: parallel_analysis 
       logical :: remove_original 
 
       ! adaptivity variables
@@ -412,7 +411,7 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
 
       call dd_distribute_subdomains(nsub,nproc)
       call dd_read_mesh_from_file(myid,trim(problemname))
-      call dd_read_matrix_from_file(myid,trim(problemname),matrixtype)
+      call dd_read_matrix_from_file(myid,comm_all,trim(problemname),matrixtype)
       call dd_assembly_local_matrix(myid)
       remove_original = .false.
       call dd_matrix_tri2blocktri(myid,remove_original)
@@ -457,6 +456,16 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
          call dd_prepare_c(myid,isub)
       end do
 
+      ! prepare augmented matrix for BDDC
+      do isub = 1,nsub
+         call dd_prepare_aug(myid,comm_self,isub)
+      end do
+
+      ! prepare coarse space basis functions for BDDC
+      do isub = 1,nsub
+         call dd_prepare_coarse(myid,isub)
+      end do
+
       if (use_adaptive) then
 
          ! open file with description of pairs
@@ -482,17 +491,18 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
             call dd_embed_cnodes(myid,isub,nndf,lnndf)
             call dd_prepare_c(myid,isub)
          end do
+
+         ! prepare augmented matrix for BDDC
+         do isub = 1,nsub
+            call dd_prepare_aug(myid,comm_self,isub)
+         end do
+
+         ! prepare coarse space basis functions for BDDC
+         do isub = 1,nsub
+            call dd_prepare_coarse(myid,isub)
+         end do
+
       end if
-
-      ! prepare augmented matrix for BDDC
-      do isub = 1,nsub
-         call dd_prepare_aug(myid,comm_self,isub)
-      end do
-
-      ! prepare coarse space basis functions for BDDC
-      do isub = 1,nsub
-         call dd_prepare_coarse(myid,isub)
-      end do
 
       ! print the output
 !      call dd_print_sub(myid)
@@ -555,8 +565,7 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       call flush(6)
 
 ! Analyze matrix
-      parallel_analysis = .false.
-      call mumps_analyze(mumps_coarse,parallel_analysis)
+      call mumps_analyze(mumps_coarse)
       write(*,*)'myid =',myid,': Matrix analyzed'
       call flush(6)
 

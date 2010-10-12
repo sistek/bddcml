@@ -90,7 +90,7 @@ program test_module_dd2
       call dd_init(nsub)
       call dd_distribute_subdomains(nsub,nproc)
       call dd_read_mesh_from_file(myid,trim(problemname))
-      call dd_read_matrix_from_file(myid,trim(problemname),matrixtype)
+      call dd_read_matrix_from_file(myid,comm_all,trim(problemname),matrixtype)
       call dd_assembly_local_matrix(myid)
       remove_original = .false.
       call dd_matrix_tri2blocktri(myid,remove_original)

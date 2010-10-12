@@ -23,7 +23,13 @@ program bddcpp
 
 implicit none
       
-logical :: debug = .false.
+! ********************
+! SET THESE PARAMETERS:
+! debugging mode - a lot of output
+logical,parameter :: debug = .false.
+! limit on number of concurrently opened files on filesystem
+integer,parameter :: num_files_lim = 400
+! ********************
 
 integer,parameter:: kr = kind(1.D0)
 integer,parameter:: idpar = 1, idbase = 100, idgmi = 2, ides = 4, idfvs = 3, &
@@ -47,8 +53,8 @@ integer,allocatable:: inodc(:)
 integer ::           lifix
 integer,allocatable:: ifix(:)
 
-integer ::            lelm,   lx,   ly,   lz,   lrhs,   lfixv,   lsol   
-real(kr),allocatable:: elm(:), x(:), y(:), z(:), rhs(:), fixv(:), sol(:)
+integer ::             lx,   ly,   lz,   lrhs,   lfixv,   lsol   
+real(kr),allocatable::  x(:), y(:), z(:), rhs(:), fixv(:), sol(:)
 integer ::             lxyz1, lxyz2
 real(kr),allocatable::  xyz(:,:)
 
@@ -805,13 +811,15 @@ character(*),intent(in) :: problemname
 
 ! Local variables
 integer :: idelms
-integer :: i, inod, indn, idofn, ine, isub, nne, lelmx, nevab, ndofn, nevax, point, ie, &
-           indsub
+integer :: i, inod, idofn, isub, nne, lelmx, ndofn, nevax, point, ie
 integer :: linets, nelems, pinet
+integer ::             lelm
+real(kr),allocatable :: elm(:)
+real(kr) :: time_elm_create, time_gmiss_create
 
 character(100) :: filename
+integer :: sub_start, sub_finish
 
-      write(*,*) 'Generating subdomain ELM files with element matrices...'
 
 ! Import of basic geometry
 ! GMIS - basic mesh data - structure:
@@ -851,71 +859,60 @@ character(100) :: filename
          kinet(ie) = kinet(ie-1) + nnet(ie-1)
       end do
 
-! Find nevax
-      nevax = 0
-      do ie = 1, nelem
-         nevab = 0
-         nne = nnet(ie)
-         do ine = 1,nne
-            indn = inet(kinet(ie) + ine)
-            nevab = nevab + nndf(indn)
-         end do
-         if (nevab.gt.nevax) then
-            nevax = nevab
-         end if
-      end do
-      
+      call time_start
+! Find lelmx
+      call get_nevax(nelem,inet,linet,nnet,lnnet,nndf,lnndf,nevax)
+      ! for symmetric storage
       lelmx = (nevax+1)*nevax/2
-      
       allocate(elm(lelmx))
-
-! If number of subdomains is not extensive,
-      if (nsub.le.1000) then
+      write(*,*) 'Generating subdomain ELM files with element matrices...'
+! Prepare subdomain files by several loops through the ELM file
+      sub_start = 1
+      do
+         ! set proper limit for this loop
+         sub_finish = min(sub_start + num_files_lim - 1,nsub)
+         ! rewind the file
+         rewind idelm
+         write(*,*) '   writing files for subdomains ',sub_start,' to ',sub_finish
 ! open a file for each subdomain and distribute element like cards in one pass through element matrices.
-         do isub = 1,nsub
+         do isub = sub_start,sub_finish
             call getfname(problemname,isub,'ELM',filename)
-            idelms = idbase + isub
+            if (debug) then
+               write(*,*) 'Creating file ',trim(filename)
+            end if
+            idelms = idbase + isub - sub_start + 1
             open(unit=idelms, file=filename, status='replace', form='unformatted')
          end do
 !        Write the element matrix to a proper file
          do ie = 1,nelem
             isub = iets(ie)
-            read(idelm)   lelm,(elm(i), i = 1,lelm)
-            idelms = idbase + isub
-            write(idelms) lelm,(elm(i), i = 1,lelm)
+            if (isub.ge.sub_start .and. isub.le.sub_finish) then
+               ! if subdomain is in the working range, read matrix and write it
+               read(idelm)   lelm,(elm(i), i = 1,lelm)
+               idelms = idbase + isub - sub_start + 1
+               write(idelms) lelm,(elm(i), i = 1,lelm)
+            else
+               ! if subdomain is out of the working range, skip the record
+               read(idelm)
+            end if
          end do
 ! Close all element files
-         do isub = 1,nsub
-            idelms = idbase + isub
+         do isub = sub_start,sub_finish
+            idelms = idbase + isub - sub_start + 1
             close(idelms)
          end do
-      else
+         if (nsub.eq.sub_finish) then
+            exit
+         end if
+         ! shift the starting position for the next round
+         sub_start = sub_start + num_files_lim
+      end do
 !     Create element files one by one in NSUB passes through element matrices -
 !     it is slow but robust
-         do isub = 1,nsub
-            call getfname(problemname,isub,'ELM',filename)
-            idelms = idbase + 1
-            open(unit=idelms, file=filename, status='replace', form='unformatted')
-            rewind idelm
-            do ie = 1,nelem
-               indsub = iets(ie)
-               ! Is the element in current subdomain?
-               if (indsub.eq.isub) then
-                  read(idelm)   lelm,(elm(i), i = 1,lelm)
-                  write(idelms) lelm,(elm(i), i = 1,lelm)
-               else
-                  ! move one record
-                  read(idelm)  
-               end if
-            end do
-            close(idelms)
-         end do
-      end if
-
-      write(*,*) '...done'
-
       deallocate(elm)
       close(idelm)
+      write(*,*) '...done'
+      call time_end(time_elm_create)
 
 ! Creation of field KDOF(NNOD) with addresses before first global
 ! dof of node
@@ -1006,6 +1003,7 @@ character(100) :: filename
       write(*,*) '...done'
 
 ! Generate file with description of W_tilde
+      call time_start
       write(*,*) 'Generating subdomain GMISS files with mesh ...'
       ! GMIST 
       do isub = 1,nsub
@@ -1047,11 +1045,15 @@ character(100) :: filename
          close(idgmis)
       end do
       write(*,*) '...done'
+      call time_end(time_gmiss_create)
 
       deallocate(kinet)
       deallocate(kdof)
       deallocate(inet,nnet,nndf)
       deallocate(iets)
+
+      write (*,'(a,f15.3,a)') '  Time of creating ELM files:  ',time_elm_create,' s'
+      write (*,'(a,f15.3,a)') '  Time of creating GMISS files:',time_gmiss_create,' s'
 
 end subroutine createem
 
@@ -2104,7 +2106,7 @@ integer:: isub, ie, inc, ndofn, &
           inods, jsub, i, j, indn, idofis, idofos, inodis, &
           indns, indins, inodcs, iglbn, nglbn, iglb, iglobs, indn1,&
           nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs, indg, ncnod, &
-          ncnodes, pointcinet, indcxyz, isubneib, iinode
+          ncnodes, pointcinet, indcxyz, isubneib, iinode 
 integer:: nadjs, nnodcs, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs, nedge, nface
 integer:: n_graph_edge
 integer:: idsmd
@@ -2616,6 +2618,9 @@ real(kr) :: time_import, time_graph_create
 
          ! ---ISNGN array
          write(idsmd,*) isngns(1:nnods)
+
+         ! ---ISEGN array
+         write(idsmd,*) isegns
 
          ! --- coordinates
          write(idsmd,*) xyzs
@@ -5016,5 +5021,39 @@ integer,allocatable :: iaux(:)
 
       return
 end subroutine es0toes
+
+!*****************************************************************
+subroutine get_nevax(nelem,inet,linet,nnet,lnnet,nndf,lnndf,nevax)
+!*****************************************************************
+implicit none
+
+integer,intent(in) :: nelem
+integer,intent(in) :: linet
+integer,intent(in) ::  inet(linet)
+integer,intent(in) :: lnnet
+integer,intent(in) ::  nnet(lnnet)
+integer,intent(in) :: lnndf
+integer,intent(in) ::  nndf(lnndf)
+
+integer,intent(out) ::  nevax ! number of variables on element
+
+! Local variables
+integer :: ie, nevab, indinet, ine, nne, indn
+
+      nevax = 0
+      indinet = 0
+      do ie = 1, nelem
+         nevab = 0
+         nne = nnet(ie)
+         do ine = 1,nne
+            indinet = indinet + 1
+            indn = inet(indinet)
+            nevab = nevab + nndf(indn)
+         end do
+         if (nevab.gt.nevax) then
+            nevax = nevab
+         end if
+     end do
+end subroutine get_nevax
 
 end

@@ -55,7 +55,7 @@ program test_module_dd
       call dd_read_mesh_from_file(myid,problemname)
 
       ! load matrices into the structure
-      call dd_read_matrix_from_file(myid,problemname,matrixtype)
+      call dd_read_matrix_from_file(myid,comm_all,problemname,matrixtype)
 
       ! assembly matrices
       call dd_assembly_local_matrix(myid)

@@ -156,21 +156,27 @@ contains
       implicit none
       type(DMUMPS_STRUC),intent(inout) :: mumps
       ! should analysis be parallel?
-      logical, intent(in) :: parallel
+      logical, optional, intent(in) :: parallel 
 
-      ! Set type of analysis
-      ! 0 - automatic choice
-      ! 1 - sequential analysis
-      ! 2 - parallel analysis (Parmetis or PT_SCOTCH should be linked)
-      if (parallel) then
-         mumps%ICNTL(28) = 2
-         ! Parmetis or PT-SCOTCH?
+      ! analyze parameters
+      if (present(parallel)) then
+         ! Set type of analysis
          ! 0 - automatic choice
-         ! 1 - PT-SCOTCH
-         ! 2 - Parmetis
-         mumps%ICNTL(29) = 2
+         ! 1 - sequential analysis
+         ! 2 - parallel analysis (Parmetis or PT_SCOTCH should be linked)
+         if (parallel) then
+            mumps%ICNTL(28) = 2
+            ! Parmetis or PT-SCOTCH?
+            ! 0 - automatic choice
+            ! 1 - PT-SCOTCH
+            ! 2 - Parmetis
+            mumps%ICNTL(29) = 2
+         else
+            mumps%ICNTL(28) = 1
+         end if
       else
-         mumps%ICNTL(28) = 1
+         ! let MUMPS decide
+         mumps%ICNTL(28) = 0
       end if
 
 ! Job type = 1 for matrix analysis

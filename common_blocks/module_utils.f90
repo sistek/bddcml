@@ -802,11 +802,13 @@ subroutine wall_time(t)
 implicit none
 real(kr) :: t
 integer, dimension(8):: v
+integer(8) :: timems
 !integer count,rate,cmax
 !call system_clock(count,rate,cmax)
 !t=dble(count)/dble(rate)
 CALL DATE_AND_TIME(VALUES=v) 
-t=(v(8)+1000*(v(7)+60*(v(6)+12*v(5)))) / 1000._kr
+timems=(v(8)+1000*(v(7)+60*(v(6)+60*(v(5)+24*(v(3))))))
+t= timems / 1000._kr
 end subroutine wall_time
 
 end module module_utils

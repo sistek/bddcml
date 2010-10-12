@@ -64,6 +64,8 @@ module module_dd
          integer,allocatable ::  nndf(:) ! NNDF array - number of nodal degrees of freedom
          integer ::             lisngn   ! length of array ISNGN
          integer,allocatable ::  isngn(:)! ISNGN array - indices of subdomain nodes in global numbering
+         integer ::             lisegn   ! length of array ISEGN
+         integer,allocatable ::  isegn(:)! ISEGN array - indices of subdomain elements in global numbering
 
          integer ::             lxyz1    ! length of array of coordinates
          integer ::             lxyz2    ! number of x,y,z vectors
@@ -320,6 +322,8 @@ subroutine dd_read_mesh_from_file(myid,problemname)
       integer, allocatable :: nndf(:), nnet(:), inet(:)
       integer ::             lisngn
       integer, allocatable :: isngn(:)
+      integer ::             lisegn
+      integer, allocatable :: isegn(:)
       integer ::              lxyz1, lxyz2
       real(kr), allocatable :: xyz(:,:)
       integer :: nnodi, ndofi, ndofo
@@ -382,6 +386,11 @@ subroutine dd_read_mesh_from_file(myid,problemname)
             lisngn = nnod
             allocate (isngn(lisngn))
             read(idsmd,*) isngn
+
+            ! ---ISEGN array
+            lisegn = nelem
+            allocate (isegn(lisegn))
+            read(idsmd,*) isegn
 
             ! --- coordinates
             lxyz1 = nnod
@@ -471,7 +480,7 @@ subroutine dd_read_mesh_from_file(myid,problemname)
 
             ! load data to structure
             call dd_upload_mesh(myid,isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, nnodc, nglob, nadj,&
-                                nndf,lnndf, nnet,lnnet, inet,linet, isngn,lisngn,&
+                                nndf,lnndf, nnet,lnnet, inet,linet, isngn,lisngn, isegn,lisegn,&
                                 xyz,lxyz1,lxyz2, &
                                 iin,liin, iivsvn,liivsvn, iovsvn,liovsvn,&
                                 global_corner_number,lglobal_corner_number, icnsin,licnsin,&
@@ -487,6 +496,7 @@ subroutine dd_read_mesh_from_file(myid,problemname)
             deallocate (nndf,nnet)
             deallocate (inet)
             deallocate (isngn)
+            deallocate (isegn)
             deallocate (xyz)
             deallocate (iin, iivsvn, iovsvn)
             deallocate (iadj)
@@ -502,16 +512,19 @@ subroutine dd_read_mesh_from_file(myid,problemname)
 
 end subroutine
 
-!***************************************************************
-subroutine dd_read_matrix_from_file(myid,problemname,matrixtype)
-!***************************************************************
+!************************************************************************
+subroutine dd_read_matrix_from_file(myid,comm_all,problemname,matrixtype)
+!************************************************************************
 ! Subroutine for initialization of subdomain data
       use module_utils
       use module_sm
       implicit none
+      include "mpif.h"
 
 ! number of processor
       integer,intent(in) :: myid
+! communicator
+      integer,intent(in) :: comm_all
 ! name of problem
       character(*),intent(in) :: problemname
 ! type of matrix
@@ -537,8 +550,17 @@ subroutine dd_read_matrix_from_file(myid,problemname,matrixtype)
       integer::              lbc
       real(kr),allocatable :: bc(:)
 
-      integer :: inod, isub
+      ! time variables
+      real(kr) :: t_matrix_import
 
+      integer :: inod, isub, ierr
+      integer :: ios
+
+! Measure time for this routine
+      call MPI_BARRIER(comm_all,ierr)
+      call time_start
+
+! main loop over subdomains
       do isub = 1,lsub
          if (sub(isub)%proc .eq. myid) then
 
@@ -556,17 +578,11 @@ subroutine dd_read_matrix_from_file(myid,problemname,matrixtype)
             call sm_pmd_get_length(matrixtype,nelem,sub(isub)%inet,sub(isub)%linet,&
                                    sub(isub)%nnet,sub(isub)%lnnet,sub(isub)%nndf,sub(isub)%lnndf,&
                                    la)
+            ! allocate memory for triplet
+            allocate(i_sparse(la), j_sparse(la), a_sparse(la))
 
-            ! open subdomain ELM file with mesh description
-            call getfname(problemname,isub,'ELM',fname)
-            if (debug) then
-               write(*,*) 'DD_READ_MATRIX_FROM_FILE: Opening file fname: ', trim(fname)
-            end if
-            call allocate_unit(idelm)
-            open (unit=idelm,file=trim(fname),status='old',form='unformatted')
 
-            ! Creation of field KDOF(NNOD) with addresses before first global
-            ! dof of node
+            ! Creation of field KDOF(NNOD) with addresses before first global dof of node
             lkdof = nnod
             allocate(kdof(lkdof))
             kdof(1) = 0
@@ -574,14 +590,30 @@ subroutine dd_read_matrix_from_file(myid,problemname,matrixtype)
                kdof(inod) = kdof(inod-1) + sub(isub)%nndf(inod-1)
             end do
 
-            ! allocate memory for triplet
-            allocate(i_sparse(la), j_sparse(la), a_sparse(la))
+            ! try with subdomain ELM file with element matrices
+            call allocate_unit(idelm)
+            call getfname(problemname,isub,'ELM',fname)
+            open (unit=idelm,file=trim(fname),status='old',form='unformatted',iostat=ios)
+            if (ios.eq.0) then
+               ! the subdomain file should exist, try reading it
+               call sm_pmd_load(idelm,nelem,sub(isub)%inet,sub(isub)%linet,&
+                                sub(isub)%nnet,sub(isub)%lnnet,sub(isub)%nndf,sub(isub)%lnndf,&
+                                kdof,lkdof,&
+                                i_sparse, j_sparse, a_sparse, la)
+               close (idelm)
+            else
+               write(*,*) 'WARNING: File ',trim(fname), ' does not open. Trying with global ELM file...'
+               ! (this could have a negative impact on performance)
 
-            call sm_pmd_load(idelm,nelem,sub(isub)%inet,sub(isub)%linet,&
-                             sub(isub)%nnet,sub(isub)%lnnet,sub(isub)%nndf,sub(isub)%lnndf,&
-                             kdof,lkdof,&
-                             i_sparse, j_sparse, a_sparse, la)
-            close (idelm)
+               ! use global filename
+               fname = trim(problemname)//'.ELM'
+               open (unit=idelm,file=trim(fname),status='old',form='unformatted')
+               call sm_pmd_load_masked(idelm,nelem,sub(isub)%inet,sub(isub)%linet,&
+                                       sub(isub)%nnet,sub(isub)%lnnet,sub(isub)%nndf,sub(isub)%lnndf,&
+                                       kdof,lkdof,sub(isub)%isegn,sub(isub)%lisegn,&
+                                       i_sparse, j_sparse, a_sparse, la)
+               close (idelm)
+            end if
             if (debug) then
                write(*,*) 'DD_READ_MATRIX_FROM_FILE: File with element matrices read.'
             end if
@@ -623,6 +655,13 @@ subroutine dd_read_matrix_from_file(myid,problemname,matrixtype)
             end if
          end if
       end do
+
+      call MPI_BARRIER(comm_all,ierr)
+      call time_end(t_matrix_import)
+      ! debug
+      if (myid.eq.0) then
+         write(*,*) 'Time of importing subdomain matrices is: ',t_matrix_import,' s.'
+      end if
 
 end subroutine
 
@@ -780,7 +819,7 @@ end subroutine
 
 !*********************************************************************************
 subroutine dd_upload_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, nnodc, nglob, nadj,&
-                          nndf,lnndf, nnet,lnnet, inet,linet, isngn,lisngn,&
+                          nndf,lnndf, nnet,lnnet, inet,linet, isngn,lisngn, isegn,lisegn,&
                           xyz,lxyz1,lxyz2, &
                           iin,liin, iivsvn,liivsvn, iovsvn,liovsvn, &
                           global_corner_number,lglobal_corner_number, icnsin,licnsin,&
@@ -795,6 +834,8 @@ subroutine dd_upload_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndo
       integer,intent(in) ::  nndf(lnndf), nnet(lnnet), inet(linet)
       integer,intent(in) :: lisngn
       integer,intent(in) ::  isngn(lisngn)
+      integer,intent(in) :: lisegn
+      integer,intent(in) ::  isegn(lisegn)
       integer,intent(in) :: lxyz1, lxyz2
       real(kr),intent(in)::  xyz(lxyz1,lxyz2)
       integer,intent(in) :: liin,       liivsvn,         liovsvn
@@ -851,6 +892,12 @@ subroutine dd_upload_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndo
       allocate(sub(isub)%isngn(lisngn))
       do i = 1,lisngn
          sub(isub)%isngn(i) = isngn(i)
+      end do
+
+      sub(isub)%lisegn   = lisegn
+      allocate(sub(isub)%isegn(lisegn))
+      do i = 1,lisegn
+         sub(isub)%isegn(i) = isegn(i)
       end do
 
       sub(isub)%lxyz1   = lxyz1
@@ -2521,6 +2568,18 @@ subroutine dd_prepare_aug(myid,comm,isub)
          call error_exit
       end if
 
+      ! if augmented system is already allocated, clear it - this can happen for adaptivity
+      if (sub(isub)%is_aug_factorized) then
+
+         deallocate(sub(isub)%i_aaug_sparse,sub(isub)%j_aaug_sparse,sub(isub)%aaug_sparse)
+         sub(isub)%nnzaaug = 0
+         sub(isub)%laaug   = 0
+
+         call mumps_finalize(sub(isub)%mumps_aug) 
+         sub(isub)%is_mumps_aug_active = .false.
+         sub(isub)%is_aug_factorized = .false.
+      end if
+
       ! join the new matrix directly to the structure as
       ! in the unsymmetric case:
       ! A C^T
@@ -2670,6 +2729,21 @@ subroutine dd_prepare_coarse(myid,isub)
       if (.not.sub(isub)%is_mumps_aug_active) then
          write(*,*) 'DD_PREPARE_COARSE: Augmented matrix solver in not ready for subdomain:', isub
          call error_exit
+      end if
+
+      ! if coarse problem is ready, clear it and prepare it again - this can happen for adaptivity
+      if (sub(isub)%is_coarse_prepared) then
+         write(*,*) 'Reinitializing coarse problem for subdomain ', isub
+
+         deallocate(sub(isub)%phisi)
+         sub(isub)%lphisi1 = 0
+         sub(isub)%lphisi2 = 0
+         sub(isub)%is_phisi_prepared   = .false.
+
+         deallocate(sub(isub)%coarsem)
+         sub(isub)%lcoarsem = 0
+         sub(isub)%ndofc = 0
+         sub(isub)%is_coarse_prepared = .false.
       end if
 
       ndof     = sub(isub)%ndof
@@ -5048,6 +5122,9 @@ subroutine dd_clear_subdomain(isub)
       end if
       if (allocated(sub(isub)%isngn)) then
          deallocate(sub(isub)%isngn)
+      end if
+      if (allocated(sub(isub)%isegn)) then
+         deallocate(sub(isub)%isegn)
       end if
       if (allocated(sub(isub)%xyz)) then
          deallocate(sub(isub)%xyz)

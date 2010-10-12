@@ -565,6 +565,7 @@ character(100) :: filename, problemname
 
       if (iterate_on_reduced) then
          if (is_this_the_first_run) then
+            call bddc_time_start(comm)
             ! Initialize MUMPS
             call mumps_init(schur_mumps,comm,matrixtype)
             ! Level of information from MUMPS
@@ -586,6 +587,14 @@ character(100) :: filename, problemname
             solintt = rhst
    
             is_this_the_first_run = .false.
+             
+            call bddc_time_end(comm,time)
+            if (myid.eq.0.and.timeinfo.ge.1) then
+               write(*,*) '=========================='
+               write(*,*) 'Time of interior elimination = ',time
+               write(*,*) '=========================='
+               call flush(6)
+            end if
             goto 20
    
          else

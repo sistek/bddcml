@@ -93,6 +93,12 @@ void mvecmultB (void * data, void * x_p, void * y_p)
    mvecmult_c (data, x_p, y_p, 2);
 }
 
+void mvecmultM (void * data, void * x_p, void * y_p)
+   /* auxiliary routine to multiply by matrix B */
+{
+   mvecmult_c (data, x_p, y_p, 5);
+}
+
 void mv_extract_values (serial_Multi_Vector * x_p, double * eigvec, int nvec)
 {
    serial_Multi_Vector *x = (serial_Multi_Vector *) x_p;
@@ -234,7 +240,7 @@ extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSI
           NULL,
           mvecmultB,
           NULL,
-          NULL,
+	  mvecmultM,
           NULL,
           blap_fn,
           lobpcg_tol,

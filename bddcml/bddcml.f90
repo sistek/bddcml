@@ -25,7 +25,7 @@ program bddcml
       logical,parameter :: use_arithmetic = .true.
 
 ! use adaptive constraints?
-      logical,parameter :: use_adaptive = .true.
+      logical,parameter :: use_adaptive = .false.
 
 ! these options set following type of constraints
 !----------------------------------------------------- 

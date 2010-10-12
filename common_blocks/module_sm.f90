@@ -170,9 +170,96 @@ subroutine sm_pmd_load(idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
       real(kr),intent(out) :: a_sparse(la)
 
 ! Local variables
+      integer:: ie, i, inda, lelm
+
+      ! Read element matrices
+      inda  = 0
+      do ie = 1,nelem
+         read(idelm) lelm,(a_sparse(inda + i), i = 1,lelm)
+         inda = inda + lelm
+      end do
+
+      ! Prepare numbering of element matrices
+      call sm_pmd_make_element_numbering(nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
+                                         i_sparse, j_sparse, la)
+
+      return
+end subroutine
+
+!**************************************************************************************
+subroutine sm_pmd_load_masked(idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
+                              isegn,lisegn, i_sparse, j_sparse, a_sparse, la)
+!**************************************************************************************
+! Subroutine for reading element matrices in PMD format and storing them in IJA
+! sparse format with repeated entries (without assembly), stores element by element
+! selects elements from global file according to ISEGN array
+
+      implicit none
+
+! unit associated with file with element matrices, number of elements
+      integer,intent(in) :: idelm, nelem
+
+! description of mesh
+      integer,intent(in) :: linet, lnnet, lnndf, lkdof
+      integer,intent(in) :: inet(linet), nnet(lnnet), nndf(lnndf), kdof(lkdof)
+      integer,intent(in) :: lisegn
+      integer,intent(in) ::  isegn(lisegn)
+
+! Matrix in IJA sparse format
+      integer,intent(in)  :: la
+      integer,intent(out)  :: i_sparse(la), j_sparse(la)
+      real(kr),intent(out) :: a_sparse(la)
+
+! Local variables
+      integer:: ie, i, inda, lelm, indposition, inde
+
+      ! Read element matrices from a global file
+      inda  = 0
+      indposition = 1
+      do ie = 1,nelem
+         inde = isegn(ie)
+         ! move in file to the proper element position
+         do i = 1,inde-indposition
+            read(idelm) 
+         end do
+         indposition = inde
+         read(idelm) lelm,(a_sparse(inda + i), i = 1,lelm)
+         indposition = indposition + 1
+
+         inda = inda + lelm
+      end do
+
+      ! Prepare numbering of element matrices
+      call sm_pmd_make_element_numbering(nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
+                                         i_sparse, j_sparse, la)
+
+      return
+end subroutine
+
+!*******************************************************************************************
+subroutine sm_pmd_make_element_numbering(nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
+                                         i_sparse, j_sparse, la)
+!*******************************************************************************************
+! Subroutine for reading element matrices in PMD format and storing them in IJA
+! sparse format with repeated entries (without assembly), stores element by element
+
+      implicit none
+
+! number of elements
+      integer,intent(in) :: nelem
+
+! description of mesh
+      integer,intent(in) :: linet, lnnet, lnndf, lkdof
+      integer,intent(in) :: inet(linet), nnet(lnnet), nndf(lnndf), kdof(lkdof)
+
+! Matrix in IJA sparse format - only rows and columns
+      integer,intent(in)  :: la
+      integer,intent(out)  :: i_sparse(la), j_sparse(la)
+
+! Local variables
       integer,allocatable :: kdofe(:)
-      integer:: inddof, idofn, ndofn, ive, jve, i, inda, nevab, nevax, ie, iinet, &
-                inod, inodg, lelm, nve, nne
+      integer:: inddof, idofn, ndofn, ive, jve, inda, nevab, nevax, ie, iinet, &
+                inod, inodg, nve, nne
 
 ! Find the maximum dimension of element matrix NEVAX
       iinet = 0
@@ -214,9 +301,6 @@ subroutine sm_pmd_load(idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
          nve = ive
 
 !         write(*,*) ie, kdofe
-
-         ! Read element matrix
-         read(idelm) lelm,(a_sparse(inda + i), i = 1,lelm)
 
          ! Distribute the indices of entries
          do jve = 1,nve
