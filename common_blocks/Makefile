@@ -2,7 +2,7 @@
 include ../make.inc
 
 # include files needed
-INC = $(INCMUMPS) 
+INC = $(INCMUMPS) $(INCPARMETIS)
 # libraries needed
 LIBS = $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
        $(LIBLAPACK) $(LIBBLAS) $(LIBPORD) 
@@ -36,6 +36,7 @@ OBJ = \
    module_levels.o \
    module_mumps.o \
    module_graph.o \
+   pget_sub_neighbours.o\
    module_parsing.o \
    module_sm.o \
    module_tecplot.o \
@@ -57,7 +58,7 @@ tests: $(TESTS)
 	$(MPFC) $(MPFFLAGS) $(INC) -c $<
 
 %.o : %.c
-	$(MPCC) $(MPCFLAGS) $(INC) -c $<
+	$(MPCC) $(MPCFLAGS) $(CDEFS) $(INC) -c $<
 
 # module dependencies
 module_bddc.o: \
@@ -79,6 +80,7 @@ module_sm.o: \
    module_utils.o 
 
 module_graph.o: \
+   pget_sub_neighbours.o \
    module_parsing.o \
    module_utils.o 
 
@@ -116,7 +118,8 @@ test_module_dd2.o: \
    module_dd.o
 
 test_module_graph.o: \
-   module_graph.o
+   module_graph.o \
+   pget_sub_neighbours.o 
 
 test_module_utils.o: \
    module_utils.o
@@ -200,6 +203,7 @@ test_module_levels: \
 test_module_graph: \
    test_module_graph.o \
    module_graph.o \
+   pget_sub_neighbours.o \
    module_parsing.o \
    module_utils.o 
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)

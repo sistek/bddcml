@@ -1,11 +1,11 @@
 # general setting on system (compiler, flags, libraries)
 include ../make.inc
 
+# include files needed
+ INC = -I../common_blocks/
 # libraries needed
-LIBS = $(LIBPARMETIS) $(LIBLAPACK) $(LIBBLAS) 
-
-# includes
-INC = -I../common_blocks
+LIBS = $(LIBPARMETIS) $(LIBLAPACK) $(LIBBLAS)
+#$(LIBMPI) $(LIBPTHREAD)
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -13,27 +13,27 @@ INC = -I../common_blocks
 # $< - first prerequisity
 
 # rules
-
-all: bddcpp
+all: \
+   ppbddcml
 
 # general rule s for compiling objects
 %.o : %.f90
-	$(MPFC) $(FFLAGS) $(INC) -c $<
+	$(MPFC) $(MPFFLAGS) $(INC) -c $<
 
 # module dependencies
-bddcpp.o: \
+ppbddcml.o: \
    ../common_blocks/module_graph.o \
-   ../common_blocks/module_tecplot.o \
+   ../common_blocks/module_parsing.o \
    ../common_blocks/module_utils.o
 
 # building binaries
-bddcpp: \
-   bddcpp.o \
+ppbddcml: \
+   ppbddcml.o \
    ../common_blocks/module_graph.o \
+   ../common_blocks/pget_sub_neighbours.o\
    ../common_blocks/module_parsing.o \
-   ../common_blocks/module_tecplot.o \
-   ../common_blocks/module_utils.o 
-	$(MPFC) $(FFLAGS) -o $@ $^ $(LIBS)
+   ../common_blocks/module_utils.o
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) 
 
 clean:
-	rm -f *~ *.o *.mod bddcpp
+	-rm -f *.o *.mod ppbddcml

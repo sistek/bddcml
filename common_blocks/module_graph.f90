@@ -1,6 +1,7 @@
 module module_graph
 ! module for operations on graphs
 ! Jakub Sistek, Praha, 2009
+implicit none 
 
 contains 
 
@@ -441,6 +442,367 @@ integer :: io, indel
 
 end subroutine graph_parse_onerow2
 
+subroutine graph_divide(graphtype,nvertex,xadj,lxadj,adjncy,ladjncy,vwgt,lvwgt,adjwgt,ladjwgt,nsub,edgecut,part,lpart)
+! Divide graph by METIS
+use module_utils
+implicit none
+! type of output graph
+integer, intent(in) :: graphtype
+integer, intent(in) :: nvertex
+integer, intent(in) ::   lxadj
+integer*4, intent(in) ::  xadj(lxadj)
+integer, intent(in) ::   ladjncy
+integer*4, intent(in) ::  adjncy(ladjncy)
+integer, intent(in) ::   lvwgt
+integer*4, intent(in) ::  vwgt(lvwgt)
+integer, intent(in) ::   ladjwgt
+integer*4, intent(in) ::  adjwgt(ladjwgt)
+integer, intent(in) ::   nsub
+integer, intent(out) ::  edgecut
+integer, intent(in) ::    lpart
+integer*4, intent(out) ::  part(lpart)
+
+! local vars
+integer*4 :: wgtflag 
+integer*4 :: npart 
+integer*4,parameter :: numflag = 1 !( 1 - Fortran-like arrays (0 - C-like arrays) 
+integer*4 :: ec 
+integer*4::               loptions
+integer*4,allocatable::    options(:)
+
+      ! weights
+      if (graphtype.eq.1) then 
+         ! use weights
+         wgtflag = 1
+      else
+         ! no weights
+         wgtflag = 0
+      end if
+
+      npart = nsub
+
+      ! OPTIONS - use default options
+      loptions = 5
+      allocate(options(loptions))
+      options = 0
+
+      write(*,'(a,i6,a)') 'Calling METIS to divide into ',nsub,' subdomains...'
+      if (nsub.eq.0) then
+         write(*,'(a)') ' Illegal value of number of subdomains...'
+         stop
+      else if (nsub.eq.1) then
+         edgecut = 0
+         part = 1
+      else if (nsub.gt.1 .and. nsub.le.8) then
+         call METIS_PartGraphRecursive(nvertex,xadj,adjncy,vwgt,adjwgt,wgtflag,numflag,npart,options,ec,part)
+      else
+         call METIS_PartGraphKWay(nvertex,xadj,adjncy,vwgt,adjwgt,wgtflag,numflag,npart,options,ec,part)
+      end if
+      edgecut = ec
+
+      deallocate(options)
+
+end subroutine graph_divide
+
+subroutine graph_pdivide_mesh(myid,nproc,comm,graphtype,neighbouring,nelem,nelem_loc,profile,&
+                              inet_loc,linet_loc,nnet_loc,lnnet_loc,nsub,&
+                              edgecut,part_loc,lpart_loc)
+! parallel division of mesh using ParMETIS
+use module_utils
+implicit none
+include "mpif.h"
+
+! INPUT:
+! parallel variables
+integer, intent(in) :: myid, nproc, comm
+! type of output graph
+integer, intent(in) :: graphtype
+! number of nodes to consider elements adjacent 
+integer, intent(in) :: neighbouring
+! number of all elements
+integer, intent(in) :: nelem
+! number of local elements assigned to my proc
+integer, intent(in) :: nelem_loc
+! info on times
+logical, intent(in) :: profile 
+! local INET array
+integer, intent(in)   :: linet_loc
+integer*4, intent(in) ::  inet_loc(linet_loc)
+! local NNET array
+integer, intent(in)   :: lnnet_loc
+integer*4, intent(in) ::  nnet_loc(lnnet_loc)
+! number of subdomains
+integer, intent(in)   :: nsub
+! OUTPUT:
+integer,intent(out):: edgecut ! number of cut edges
+integer, intent(in)    :: lpart_loc
+integer*4, intent(out) ::  part_loc(lpart_loc) ! distribution
+
+! local vars
+integer :: i
+integer ::             lnelempa
+integer,allocatable ::  nelempa(:)
+
+! ParMETIS vars
+integer*4,parameter:: numflag = 1 ! (1 - Fortran-like arrays, 0 - C-like arrays)
+integer*4::           wgtflag
+integer::              lelmdist   
+integer*4,allocatable:: elmdist(:)
+integer ::             loptions
+integer*4,allocatable::  options(:)
+integer::            lwgt
+real*4,allocatable :: wgt(:)
+integer::              leptr   
+integer*4,allocatable:: eptr(:)
+integer*4:: ncon, ncommonnodes, nparts, ec
+integer::            ltpwgts   
+real*4,allocatable :: tpwgts(:)
+integer::            lubvec   
+real*4,allocatable :: ubvec(:)
+
+! MPI vars 
+integer :: ierr
+
+      ! work according to number of subdomains
+      if (nsub.eq.0) then
+         ! zero subdomains is errorneous
+         if (myid.eq.0) then
+            write(*,'(a)') ' Illegal value of number of subdomains...'
+         end if
+         stop
+      else if (nsub.eq.1) then
+         ! one subdomain is trivial - no use of ParMETIS
+         part_loc = 1
+         edgecut = 0
+      else
+         ! use ParMETIS for more
+         ! prepare arrays for ParMETIS
+         ! get number of elements each processor works on
+         lnelempa = nproc
+         allocate(nelempa(lnelempa))
+         call MPI_ALLGATHER(nelem_loc,1,MPI_INTEGER,nelempa,1,MPI_INTEGER,comm,ierr)
+         ! check number of elements
+         if (sum(nelempa).ne.nelem) then
+            if (myid.eq.0) then
+               write(*,'(a)') 'Error in number of elements for processors.'
+               call flush(6)
+               call error_exit
+            end if
+         end if
+
+         ! ELMDIST
+         lelmdist = nproc + 1
+         allocate(elmdist(lelmdist))
+         elmdist(1) = 1
+         do i = 2,lelmdist
+            elmdist(i) = elmdist(i-1) + nelempa(i-1)
+         end do
+         ! debug
+         !write(*,*) 'elmdist',elmdist
+         ! EPTR
+         leptr = nelem_loc + 1
+         allocate(eptr(leptr))
+         eptr(1) = 1 ! In Fortran, start from 1
+         do i = 2,leptr
+            eptr(i) = eptr(i-1) + nnet_loc(i-1)
+         end do
+         ! EIND is the same as INET_LOC
+         ! use weights (0 - no, 1 - yes)
+         if (graphtype.eq.1) then 
+            ! use weights
+            wgtflag = 1
+         else
+            ! no weights
+            wgtflag = 0
+         end if
+         ! WGT
+         lwgt   = nelem_loc
+         allocate(wgt(lwgt))
+         wgt = 1.0
+         ! NCON - number of constraints or weights for each vertex - influences TPWGTS
+         ncon = 1
+         ! NCOMMONNODES - number of nodes to call elements adjacent
+         ncommonnodes = neighbouring
+         ! NPARTS
+         nparts = nsub
+         ! TPWGTS
+         ltpwgts = ncon*nparts
+         allocate(tpwgts(ltpwgts))
+         tpwgts = float(1)/nparts
+         ! UBVEC - unbalance - refer to ParMETIS manual for proper behaviour
+         lubvec = ncon
+         allocate(ubvec(lubvec))
+         ubvec = 1.05_4
+         loptions = 3
+         allocate(options(loptions))
+         options(1) = 1
+         if (profile) then
+            options(2) = 1  ! timing info printed
+         else
+            options(2) = 0  ! timing info suppressed
+         end if
+         options(3) = 15 ! seed for random number generator
+
+         if (myid.eq.0) then
+            write(*,'(a,i6,a)') 'Calling ParMETIS to divide into ',nsub,' subdomains...'
+            call flush(6)
+         end if
+         nparts = nsub
+         call ParMETIS_V3_PartMeshKway(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, tpwgts, ubvec, options,&
+                                       ec, part_loc, comm)
+         edgecut = ec
+         if (myid.eq.0) then
+            write(*,'(a)') ' ..done.'
+            call flush(6)
+         end if
+
+         deallocate(options)
+         deallocate(ubvec)
+         deallocate(tpwgts)
+         deallocate(wgt)
+         deallocate(eptr)
+         deallocate(elmdist)
+         deallocate(nelempa)
+      end if
+
+
+end subroutine graph_pdivide_mesh
+
+subroutine graph_pget_sub_neighbours(myid,nproc,comm,neighbouring,nelem,nelem_loc,nsub,nsub_loc,sub_start,&
+                                     inet_loc,linet_loc,nnet_loc,lnnet_loc, iets,liets, debug, kadjsub,lkadjsub)
+! parallel construction of graph of mesh and devising list of neigbouring subdomains
+use module_utils
+implicit none
+include "mpif.h"
+
+! INPUT:
+! parallel variables
+integer, intent(in) :: myid, nproc, comm
+! number of nodes to consider elements adjacent 
+integer, intent(in) :: neighbouring
+! number of all elements
+integer, intent(in) :: nelem
+! number of local elements assigned to my proc
+integer, intent(in) :: nelem_loc
+! number of subdomains
+integer, intent(in)   :: nsub
+! number of subdomains on processor
+integer, intent(in)   :: nsub_loc
+! number of first subdomain on processor
+integer, intent(in)   :: sub_start
+! local INET array
+integer, intent(in)   :: linet_loc
+integer*4, intent(in) ::  inet_loc(linet_loc)
+! local NNET array
+integer, intent(in)   :: lnnet_loc
+integer*4, intent(in) ::  nnet_loc(lnnet_loc)
+! local IETS array
+integer, intent(in)   :: liets
+integer*4, intent(in) ::  iets(liets)
+! debugging mode
+logical,intent(in)    :: debug
+
+! OUTPUT:
+integer, intent(in)    :: lkadjsub ! nsub * nsub_loc
+integer*4, intent(out) ::  kadjsub(lkadjsub) ! marked subdomains that share nodes
+
+! local vars
+integer :: i
+integer ::             lnelempa
+integer,allocatable ::  nelempa(:)
+
+! ParMETIS vars
+integer*4,parameter:: numflag = 1 ! (1 - Fortran-like arrays, 0 - C-like arrays)
+integer::              lelmdist   
+integer*4,allocatable:: elmdist(:)
+integer::              leptr   
+integer*4,allocatable:: eptr(:)
+integer*4::     ncommonnodes
+integer*4::     numdebug
+
+! MPI vars 
+integer :: ierr
+
+      ! work according to number of subdomains
+      if (nsub.eq.0) then
+         ! zero subdomains is errorneous
+         if (myid.eq.0) then
+            write(*,'(a)') ' Illegal value of number of subdomains...'
+         end if
+         stop
+      else if (nsub.eq.1) then
+         ! one subdomain is trivial - no use of ParMETIS
+         kadjsub = 0
+      else
+         ! use ParMETIS for more
+         ! prepare arrays for ParMETIS
+         ! get number of elements each processor works on
+         lnelempa = nproc
+         allocate(nelempa(lnelempa))
+         call MPI_ALLGATHER(nelem_loc,1,MPI_INTEGER,nelempa,1,MPI_INTEGER,comm,ierr)
+         ! check number of elements
+         if (sum(nelempa).ne.nelem) then
+            if (myid.eq.0) then
+               write(*,'(a)') 'Error in number of elements for processors.'
+               call flush(6)
+               call error_exit
+            end if
+         end if
+
+         ! ELMDIST
+         lelmdist = nproc + 1
+         allocate(elmdist(lelmdist))
+         elmdist(1) = 1
+         do i = 2,lelmdist
+            elmdist(i) = elmdist(i-1) + nelempa(i-1)
+         end do
+         ! debug
+         !write(*,*) 'elmdist',elmdist
+         ! EPTR
+         leptr = nelem_loc + 1
+         ! debug
+         !write(*,*) 'nelem_loc',nelem_loc
+         !write(*,*) 'nnet_loc',nnet_loc
+         allocate(eptr(leptr))
+         eptr(1) = 1 ! In Fortran, start from 1
+         do i = 2,leptr
+            eptr(i) = eptr(i-1) + nnet_loc(i-1)
+         end do
+         ! EIND is the same as INET_LOC
+         ! set debugging
+         if (debug) then 
+            numdebug = 1
+         else
+            numdebug = 0
+         end if
+         ! NCOMMONNODES - number of nodes to call elements adjacent
+         ncommonnodes = neighbouring
+
+         if (myid.eq.0) then
+            write(*,'(a,i6,a)') 'Calling PGET_SUB_NEIGBOURS_C routine to find neigbours for ',nsub,' subdomains...'
+            call flush(6)
+         end if
+         ! debug
+         !write(*,*) 'elmdist',elmdist
+         !write(*,*) 'eptr',eptr
+         !write(*,*) 'inet_loc',inet_loc
+         !write(*,*) 'numflag',numflag
+         !write(*,*) 'ncommonnodes',ncommonnodes
+         !call flush(6)
+         call pget_sub_neighbours_c(elmdist,eptr,inet_loc,numflag,ncommonnodes,iets,liets, nsub, nsub_loc, sub_start,&
+                                    kadjsub,lkadjsub, numdebug, comm)
+         if (myid.eq.0) then
+            write(*,'(a)') ' ..done.'
+            call flush(6)
+         end if
+
+         deallocate(eptr)
+         deallocate(elmdist)
+         deallocate(nelempa)
+      end if
+
+
+end subroutine graph_pget_sub_neighbours
 
 recursive subroutine graph_components(nvertex,xadj,lxadj,adjncy,ladjncy,components,lcomponents,ncomponents)
 

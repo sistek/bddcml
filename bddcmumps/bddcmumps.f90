@@ -565,7 +565,6 @@ character(100) :: filename, problemname
 
       if (iterate_on_reduced) then
          if (is_this_the_first_run) then
-            call bddc_time_start(comm)
             ! Initialize MUMPS
             call mumps_init(schur_mumps,comm,matrixtype)
             ! Level of information from MUMPS
@@ -573,12 +572,36 @@ character(100) :: filename, problemname
             ! Load matrix to MUMPS
             call mumps_load_triplet(schur_mumps,ndoft,nnz,i_sparse,j_sparse,a_sparse,la)
             ! Analyze matrix
+            call bddc_time_start(comm)
             parallel_analysis = .true.
             call mumps_analyze(schur_mumps,parallel_analysis) 
+            call bddc_time_end(comm,time)
+            if (myid.eq.0.and.timeinfo.ge.1) then
+               write(*,*) '=========================='
+               write(*,*) 'Time of interior analysis = ',time
+               write(*,*) '=========================='
+               call flush(6)
+            end if
             ! Factorize matrix 
+            call bddc_time_start(comm)
             call mumps_factorize(schur_mumps)
+            call bddc_time_end(comm,time)
+            if (myid.eq.0.and.timeinfo.ge.1) then
+               write(*,*) '=========================='
+               write(*,*) 'Time of interior elimination = ',time
+               write(*,*) '=========================='
+               call flush(6)
+            end if
             ! Solve the system for given rhs
+            call bddc_time_start(comm)
             call mumps_resolve(schur_mumps,rhst,lrhst)
+            call bddc_time_end(comm,time)
+            if (myid.eq.0.and.timeinfo.ge.1) then
+               write(*,*) '=========================='
+               write(*,*) 'Time of interior resolution = ',time
+               write(*,*) '=========================='
+               call flush(6)
+            end if
 !*****************************************************************MPI
             call MPI_BCAST(rhst,lrhst, MPI_DOUBLE_PRECISION, 0, comm, ierr)
 !*****************************************************************MPI
@@ -588,13 +611,6 @@ character(100) :: filename, problemname
    
             is_this_the_first_run = .false.
              
-            call bddc_time_end(comm,time)
-            if (myid.eq.0.and.timeinfo.ge.1) then
-               write(*,*) '=========================='
-               write(*,*) 'Time of interior elimination = ',time
-               write(*,*) '=========================='
-               call flush(6)
-            end if
             goto 20
    
          else

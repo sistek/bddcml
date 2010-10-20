@@ -4670,9 +4670,9 @@ use module_graph
 use module_utils
 implicit none
 
-integer*4:: wgtflag , numflag = 1, edgecut, nedge, nvertex, graphtype
-integer*4::            ladjncy,   ladjwgt,   lxadj,   lvwgt,   loptions,   liets
-integer*4,allocatable:: adjncy(:), adjwgt(:), xadj(:), vwgt(:), options(:), iets(:)
+integer*4::   edgecut, nedge, nvertex, graphtype
+integer*4::            ladjncy,   ladjwgt,   lxadj,   lvwgt,   liets
+integer*4,allocatable:: adjncy(:), adjwgt(:), xadj(:), vwgt(:), iets(:)
 integer*4::            ladjncys,   ladjwgts,   lxadjs
 integer*4,allocatable:: adjncys(:), adjwgts(:), xadjs(:)
 integer*4::             nelems, nnods
@@ -4709,33 +4709,27 @@ logical :: one_more_check_needed = .false.
       call graph_read(idgraph,nvertex,nedge,graphtype,xadj,lxadj,adjncy,ladjncy,adjwgt,ladjwgt)
       close(idgraph)
 
-      loptions = 5
-      allocate(options(loptions))
-      options = 0
-      lvwgt   = 1
-      allocate(vwgt(lvwgt))
       liets = nelem
       allocate(iets(liets))
 
       if (graphtype.eq.1) then 
          ! use weights
-         wgtflag = 1
+         lvwgt = nvertex
       else
          ! no weights
-         wgtflag = 0
+         lvwgt   = 1
       end if
+      allocate(vwgt(lvwgt))
+      vwgt = 1
 
-      write(*,'(a,i6,a)') 'Calling METIS to divide into ',nsub,' subdomains...'
       if (nsub.eq.0) then
          write(*,'(a)') ' Illegal value of number of subdomains...'
          stop
       else if (nsub.eq.1) then
          edgecut = 0
          iets = 1
-      else if (nsub.gt.1 .and. nsub.le.8) then
-         call METIS_PartGraphRecursive(nvertex,xadj,adjncy,vwgt,adjwgt,wgtflag,numflag,nsub,options,edgecut,iets)
       else
-         call METIS_PartGraphKWay(nvertex,xadj,adjncy,vwgt,adjwgt,wgtflag,numflag,nsub,options,edgecut,iets)
+         call graph_divide(graphtype,nvertex,xadj,lxadj,adjncy,ladjncy,vwgt,lvwgt,adjwgt,ladjwgt,nsub,edgecut,iets,liets)
       end if
       write(*,'(a,i9)') 'resulting number of cut edges:',edgecut
 
@@ -4922,7 +4916,6 @@ logical :: one_more_check_needed = .false.
       deallocate(inet,nnet)
       deallocate(vwgt)
       deallocate(iets)
-      deallocate(options)
       deallocate(adjncy)
       deallocate(adjwgt)
       deallocate(xadj)

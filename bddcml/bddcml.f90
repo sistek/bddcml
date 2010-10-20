@@ -85,11 +85,18 @@ program bddcml
 
 ! Initial screen
       if (myid.eq.0) then
-         write(*,'(a)') 'MULTILEVEL BDDC solver'
-         write(*,'(a)') '======================'
+         write(*,'(a)') ' _____  ____   ____    ____  __   __ _      '
+         write(*,'(a)') '|  _  \|  _  \|  _  \ / __ \|  \ /  | |     '
+         write(*,'(a)') '| |_|  | | \  | | \  | /  \_|   V   | |     '
+         write(*,'(a)') '|  ___/| |  | | |  | | |    | |\ /| | |     '
+         write(*,'(a)') '|  _  \| |  | | |  | | |   _| | V | | |     '
+         write(*,'(a)') '| |_|  | |_/  | |_/  | \__/ | |   | | |____ '
+         write(*,'(a)') '|_____/|_____/|_____/ \____/|_|   |_|______|'
+         write(*,'(a)') '===========multilevel BDDC solver==========='
 
 ! Name of the problem
    10    write(*,'(a,$)') 'Name of the problem: '
+         call flush(6)
          read(*,*) problemname
          if(problemname.eq.' ') goto 10
 

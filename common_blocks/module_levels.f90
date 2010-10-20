@@ -8,13 +8,16 @@ module module_levels
 
       implicit none
 
+! adjustable parameters ############################
 ! type of real variables
       integer,parameter,private :: kr = kind(1.D0)
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
-
 ! debugging 
       logical,parameter,private :: debug = .true.
+! profiling 
+      logical,parameter,private :: profile = .true.
+! adjustable parameters ############################
 
 ! type for data about levels
       type levels_type
@@ -374,6 +377,12 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       character(100) :: filename
       integer :: npair, npair_locx
 
+      ! MPI variables
+      integer :: ierr
+
+      ! time info
+      real(kr) :: t_mumps_analysis, t_mumps_factorization
+
       ! last level has index of number of levels
       ilevel = nlevels
 
@@ -565,14 +574,52 @@ subroutine levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,nd
       call flush(6)
 
 ! Analyze matrix
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
       call mumps_analyze(mumps_coarse)
-      write(*,*)'myid =',myid,': Matrix analyzed'
-      call flush(6)
+      if (myid.eq.0) then
+         write(*,*)' Coarse matrix analyzed.'
+         call flush(6)
+      end if
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_mumps_analysis)
+         if (myid.eq.0) then
+            write(*,*) '***********************************PROFILING'
+            write(*,*) 'Time of analysis of the coarse problem is: ',t_mumps_analysis,' s.'
+            write(*,*) '***********************************PROFILING'
+            call flush(6)
+         end if
+      end if
+!-----profile
 
 ! Factorize matrix
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
       call mumps_factorize(mumps_coarse)
-      write(*,*)'myid =',myid,': Matrix factorized'
-      call flush(6)
+      if (myid.eq.0) then
+         write(*,*)' Coarse matrix factorized.'
+         call flush(6)
+      end if
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_mumps_factorization)
+         if (myid.eq.0) then
+            write(*,*) '***********************************PROFILING'
+            write(*,*) 'Time of factorization of the coarse problem is: ',t_mumps_factorization,' s.'
+            call flush(6)
+            write(*,*) '***********************************PROFILING'
+         end if
+      end if
 
       is_mumps_coarse_ready = .true.
 
