@@ -19,6 +19,7 @@
 * uses ParMETIS just to obtain the parallel graph
 * Jakub Sistek 2010
 ******************************************/
+
 #define pget_sub_neighbours_c \
     F_SYMBOL(pget_sub_neighbours_c,PGET_SUB_NEIGHBOURS_C)
 void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind, 
@@ -55,7 +56,7 @@ void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind,
   if (debug) {
      if (myid == 0) {
         printf(" done. \n");
-	fflush;
+	fflush(stdout);
      }
   }
 
@@ -74,7 +75,7 @@ void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind,
 
      if (isub < *sub_start || isub > *sub_start + *nsub_loc - 1) {
         printf("ERROR: Subdomain %d out of range for processor %d \n",isub,myid);
-	fflush;
+	fflush(stdout);
         abort();
      }
      

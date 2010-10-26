@@ -18,6 +18,7 @@ LIBS = $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
 TESTS = \
    test_module_utils \
    test_module_graph \
+   test_module_pp \
    test_module_adaptivity \
    test_module_dd \
    test_module_dd2 \
@@ -36,6 +37,7 @@ OBJ = \
    module_levels.o \
    module_mumps.o \
    module_graph.o \
+   module_pp.o \
    pget_sub_neighbours.o\
    module_parsing.o \
    module_sm.o \
@@ -71,6 +73,13 @@ module_adaptivity.o: \
    module_dd.o \
    module_utils.o 
 
+module_levels.o: \
+   module_dd.o \
+   module_pp.o \
+   module_graph.o \
+   module_parsing.o \
+   module_utils.o 
+
 module_dd.o: \
    module_mumps.o \
    module_sm.o \
@@ -80,7 +89,12 @@ module_sm.o: \
    module_utils.o 
 
 module_graph.o: \
+   module_parsing.o \
+   module_utils.o 
+
+module_pp.o: \
    pget_sub_neighbours.o \
+   module_graph.o \
    module_parsing.o \
    module_utils.o 
 
@@ -100,12 +114,16 @@ test_module_bddc2.o: \
    module_bddc.o
 
 test_module_adaptivity.o: \
+   module_pp.o \
    module_adaptivity.o \
    module_dd.o
 
 test_module_levels.o: \
    module_levels.o \
    module_adaptivity.o \
+   module_pp.o \
+   module_graph.o \
+   module_parsing.o \
    module_dd.o \
    module_mumps.o \
    module_sm.o \
@@ -118,8 +136,10 @@ test_module_dd2.o: \
    module_dd.o
 
 test_module_graph.o: \
-   module_graph.o \
-   pget_sub_neighbours.o 
+   module_graph.o
+
+test_module_pp.o: \
+   module_pp.o
 
 test_module_utils.o: \
    module_utils.o
@@ -164,6 +184,10 @@ test_module_bddc2: \
 test_module_adaptivity: \
    test_module_adaptivity.o \
    module_adaptivity.o \
+   module_pp.o \
+   pget_sub_neighbours.o \
+   module_graph.o \
+   module_parsing.o \
    module_dd.o \
    module_mumps.o \
    module_sm.o \
@@ -174,6 +198,10 @@ test_module_adaptivity: \
 
 test_module_dd: \
    test_module_dd.o \
+   module_pp.o \
+   pget_sub_neighbours.o \
+   module_graph.o \
+   module_parsing.o \
    module_dd.o \
    module_mumps.o \
    module_sm.o \
@@ -182,6 +210,10 @@ test_module_dd: \
 
 test_module_dd2: \
    test_module_dd2.o \
+   module_pp.o \
+   pget_sub_neighbours.o \
+   module_graph.o \
+   module_parsing.o \
    module_dd.o \
    module_mumps.o \
    module_sm.o \
@@ -192,6 +224,10 @@ test_module_levels: \
    test_module_levels.o \
    module_levels.o \
    module_adaptivity.o \
+   module_pp.o \
+   pget_sub_neighbours.o \
+   module_graph.o \
+   module_parsing.o \
    module_dd.o \
    module_mumps.o \
    module_sm.o \
@@ -203,7 +239,15 @@ test_module_levels: \
 test_module_graph: \
    test_module_graph.o \
    module_graph.o \
+   module_parsing.o \
+   module_utils.o 
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
+
+test_module_pp: \
+   test_module_pp.o \
+   module_pp.o \
    pget_sub_neighbours.o \
+   module_graph.o \
    module_parsing.o \
    module_utils.o 
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)

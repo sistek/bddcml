@@ -43,7 +43,7 @@ real(kr),parameter :: numerical_zero = 1e-16_kr
 integer,parameter:: lname1x = 100, lnamex = 130, lfnamex = 130
 
 integer:: lname1
-integer:: ndim, nsub, nelem, ndof, nnod, nnodc
+integer:: ndim, nsub, nelem, ndof, nnod, ncorners
 
 integer ::           linet,   lnnet,   lnndf,   lkinet,   liets,   lkmynodes,   lkinodes,   lkneibnodes,   lkdof
 integer,allocatable:: inet(:), nnet(:), nndf(:), kinet(:), iets(:), kmynodes(:), kinodes(:), kneibnodes(:), kdof(:)
@@ -105,7 +105,7 @@ character(1) :: yn
       open (unit=idpar,file=name,status='old',form='formatted',err=123)
 
 ! Read basic parameters for allocation
-      read(idpar,*) ndim, nsub, nelem, ndof, nnod, nnodc, linet
+      read(idpar,*) ndim, nsub, nelem, ndof, nnod, ncorners, linet
       ! read dimension of the mesh - 2 for shells, 3 for volume mesh (default if this is not in the file)
       read(idpar,*,err=18) meshdim
       ! check that the value makes sense 
@@ -189,6 +189,7 @@ subroutine exptecplotonesubzones
 !     Subroutine for export to TECPLOT file of 3D data, 
 !     one zone per subdomain
 !***********************************************************************
+use module_pp
 use module_tecplot
 use module_utils
 implicit none
@@ -280,9 +281,9 @@ logical :: exportcorners, shells
             call error('EXPTECPLOTONESUBZONES','File '//trim(name)//' does not exist, corners will not be exported.')
          else
             ! read number of corners
-            read(idcn,*) nnodc
+            read(idcn,*) ncorners
             ! allocate array for indices of corners
-            linodc = nnodc
+            linodc = ncorners
             allocate(inodc(linodc))
             ! read indices of corners in global node numbering in hat
             read(idcn,*) inodc
@@ -388,16 +389,16 @@ logical :: exportcorners, shells
       if (exportcorners) then
          datapacking  = 0
          cellcentered = .false.
-         call tecplot_start_fe_zone(iddat,ndim,nnodc,0,nvar,cellcentered,datapacking)
-         call tecplot_export_block_variable(iddat,x(inodc),nnodc)
-         call tecplot_export_block_variable(iddat,y(inodc),nnodc)
+         call tecplot_start_fe_zone(iddat,ndim,ncorners,0,nvar,cellcentered,datapacking)
+         call tecplot_export_block_variable(iddat,x(inodc),ncorners)
+         call tecplot_export_block_variable(iddat,y(inodc),ncorners)
          if (ndim.eq.3) then
-            call tecplot_export_block_variable(iddat,z(inodc),nnodc)
+            call tecplot_export_block_variable(iddat,z(inodc),ncorners)
          end if
-         lsubaux = nnodc
+         lsubaux = ncorners
          allocate(subaux(lsubaux))
          subaux = nsub + 1
-         call tecplot_export_block_variable(iddat,subaux,nnodc)
+         call tecplot_export_block_variable(iddat,subaux,ncorners)
          deallocate(subaux)
       end if
 
@@ -804,6 +805,7 @@ subroutine createem(problemname)
 !***********************************************************************
 !     Subroutine for creation files with element matrices for subdomains
 !***********************************************************************
+use module_pp 
 use module_utils
 implicit none
 
@@ -1064,6 +1066,7 @@ subroutine getglobs
 !     Also creates set of corners such that each pair of subdomains 
 !     sharing a face is joint by at least three corners.
 !***********************************************************************
+use module_pp 
 use module_utils
 implicit none
 
@@ -1101,15 +1104,15 @@ integer,allocatable::  subneib(:)
 integer:: kselection
 integer:: inod, jnodi, jnod, isub, jsub, inodi, iglob, iglb, ing, iinglb, iglobnode,&
           i, nnodi, nmax, nng, nglb, nglob, nplaces, ie,&
-          indsub, nnewvertex, nnodcs, nnodis, indisn, inodis, inodcs, inodcs1, &
+          indsub, nnewvertex, ncornerss, nnodis, indisn, inodis, inodcs, inodcs1, &
           inodcs2, inodcs3, indi, inewnodes, indinode, ncorrections, &
-          indn, nglobn, nnodcpair, nshared, inodsh, ish, nnsub, iisub, &
+          indn, nglobn, ncornerspair, nshared, inodsh, ish, nnsub, iisub, &
           indjsub, inddof, ndofn, point, indnod, nremoved_corners_bc,&
           ipair, npair
 integer:: indaux(1)
 integer:: nface, nedge, nvertex
 real(kr):: x1, y1, z1, x2, y2, z2, rnd, xish, yish, zish
-integer:: nnodcold, inc
+integer:: ncornersold, inc
 
 logical,parameter :: minimizecorners = .false.
 !character(1) :: yn
@@ -1396,14 +1399,14 @@ type(neighbouring_type), allocatable :: neighbourings(:)
             where( kmynodes.eq.1 .and. kneibnodes.eq.1 ) kinodes = 1
             nshared = count(kinodes.eq.1)
 ! number of corners already shared by the two subdomains
-            nnodcpair = 0
+            ncornerspair = 0
             do inodi = 1,nnodi
                if (newvertex(inodi).gt.0 .and. kinodes(igingn(inodi)).eq.1) then
-                  nnodcpair = nnodcpair + 1
+                  ncornerspair = ncornerspair + 1
                end if
             end do
             if (debug) then
-               write (*,*) 'Subdomains',isub,' and ',indjsub,'already share ',nnodcpair,' corners.'
+               write (*,*) 'Subdomains',isub,' and ',indjsub,'already share ',ncornerspair,' corners.'
             end if
             ! generate at least 3 corners on the common face
             ! prepare field of local interface nodes
@@ -1435,7 +1438,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 
             ! mark already known corners in playground
             where (newvertex(isingin) .eq. 1) playground = 1
-            if ((nnodcpair.eq.0.or..not.minimizecorners).and.nshared.gt.0) then
+            if ((ncornerspair.eq.0.or..not.minimizecorners).and.nshared.gt.0) then
                ! no corner on subdomain yet
                ! make it the most remote node to the first interface node
                inodsh = 1
@@ -1453,11 +1456,11 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                inodcs1 = indaux(1)
 
                playground(inodcs1) = 1
-               nnodcpair = 1
+               ncornerspair = 1
 
                deallocate(dist)
             end if
-            if ((nnodcpair.eq.1.or..not.minimizecorners).and.nshared.gt.1) then
+            if ((ncornerspair.eq.1.or..not.minimizecorners).and.nshared.gt.1) then
                ! one corner is already set in playground, select the second
                inodcs = 0
                do inodis = 1,nshared
@@ -1492,13 +1495,13 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                end if
 
                playground(inodcs2) = 1
-               nnodcpair = 2
+               ncornerspair = 2
 
                deallocate(dist)
             end if
             ! it can not happen that there are only two nodes shared by two subdomains for quadratic elements
-            !if (ndim.gt.2.and.(nnodcpair.eq.2.or..not.minimizecorners).and.meshdim.gt.2 .and. nshared.gt.2) then
-            if (ndim.gt.2.and.(nnodcpair.eq.2.or..not.minimizecorners).and. nshared.gt.2) then
+            !if (ndim.gt.2.and.(ncornerspair.eq.2.or..not.minimizecorners).and.meshdim.gt.2 .and. nshared.gt.2) then
+            if (ndim.gt.2.and.(ncornerspair.eq.2.or..not.minimizecorners).and. nshared.gt.2) then
                ! two corners are already set in playground, select the third
                inodcs1 = 0
                do inodis = 1,nshared
@@ -1554,7 +1557,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                   !stop
                else
                   playground(inodcs3) = 1
-                  nnodcpair = 3
+                  ncornerspair = 3
                end if
 
                deallocate(area)
@@ -1575,20 +1578,20 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 ! if global node is in my subdomain, assigned 1, else remains 0
          call pp_mark_sub_nodes(isub,nelem,iets,liets,inet,linet,nnet,lnnet,&
                                 kinet,lkinet,kmynodes,lkmynodes)
-         nnodcs = 0
+         ncornerss = 0
          do inodi = 1,nnodi
             inod = igingn(inodi)
             if (kmynodes(inod).eq.1.and.newvertex(inodi).eq.1) then
-               nnodcs = nnodcs + 1
+               ncornerss = ncornerss + 1
             end if
          end do
          if (debug) then
-            write(*,*) 'Number of corners on subdomain',isub,' is ',nnodcs
+            write(*,*) 'Number of corners on subdomain',isub,' is ',ncornerss
          end if
          ! if number of corners is lower than ndim, add some corners
-         if (nnodcs.lt.ndim) then
+         if (ncornerss.lt.ndim) then
             call warning('getglobs','Number of corners on subdomain lower than dimension.')
-            write(*,*) 'Number of corners on subdomain',isub,' is ',nnodcs
+            write(*,*) 'Number of corners on subdomain',isub,' is ',ncornerss
             nnodis = count(kmynodes.eq.1.and.kinodes.gt.1)
             write(*,*) 'Number of interface nodes on subdomain',isub,' is ',nnodis
             if (nnodis.eq.0) then
@@ -1778,22 +1781,22 @@ type(neighbouring_type), allocatable :: neighbourings(:)
          goto 3
       case(7)
 ! Random selection if desired ! Check number of corners
-         nnodcold = count(newvertex.eq.1)
+         ncornersold = count(newvertex.eq.1)
  2       write (*, '(a,$)') 'Get target number of corners: '
-         read *, nnodc
-         if (nnodc.gt.nnodi) then
+         read *, ncorners
+         if (ncorners.gt.nnodi) then
             write(*,*) 'Chosen number of corners higher than number of interface nodes!(',nnodi,')'
             write(*,*) 'Unable to proceed, try again...'
             goto 2
-         else if (nnodc.lt.nnodcold) then
-            write(*,*) 'Chosen number is lower than number of already selected corners!(',nnodcold,')'
+         else if (ncorners.lt.ncornersold) then
+            write(*,*) 'Chosen number is lower than number of already selected corners!(',ncornersold,')'
             write(*,*) 'Unable to proceed, try again...'
             goto 2
          end if
 
 ! Set random corners form interface
          print *, 'Selecting random corners...'
-         do inc = nnodcold+1,nnodc
+         do inc = ncornersold+1,ncorners
   50        call RANDOM_NUMBER(rnd)
             indi = int(rnd*nnodi) + 1
             if (newvertex(indi).eq.1) goto 50
@@ -1812,9 +1815,9 @@ type(neighbouring_type), allocatable :: neighbourings(:)
             goto 3
          else
             ! read number of corners
-            read(idcn,*) nnodc
+            read(idcn,*) ncorners
             ! allocate array for indices of corners
-            linodc = nnodc
+            linodc = ncorners
             allocate(inodc(linodc))
             ! read indices of corners in global node numbering in hat
             read(idcn,*) inodc
@@ -1822,7 +1825,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 
             ! Mark these corners
             newvertex = 0
-            do inc = 1,nnodc
+            do inc = 1,ncorners
                indn = inodc(inc)
                where(igingn.eq.indn) newvertex = 1
             end do
@@ -2040,8 +2043,9 @@ subroutine create_sub_files(problemname)
 !***********************************************************************
 !     Subroutine for creation of subdomain files
 !***********************************************************************
-use module_utils
+use module_pp
 use module_graph
+use module_utils
 implicit none
 
 ! name of problem
@@ -2075,15 +2079,15 @@ integer,allocatable :: inetsadj(:), nnetsadj(:),  isegnsadj(:),  isngnsadj(:)
 integer ::            lishared
 integer,allocatable :: ishared(:)
 integer ::             nshared
-integer ::            lnnet2
-integer,allocatable :: nnet2(:)
-integer ::            lcinet
-integer,allocatable :: cinet(:)
+integer ::            lnnetc
+integer,allocatable :: nnetc(:)
+integer ::            linetc
+integer,allocatable :: inetc(:)
 
 integer ::            lrhss,   lfixvs,   lxyzs1, lxyzs2
 real(kr),allocatable:: rhss(:), fixvs(:), xyzs(:,:)
-integer ::            lcxyz1, lcxyz2
-real(kr),allocatable:: cxyz(:,:)
+integer ::            lxyzc1, lxyzc2
+real(kr),allocatable:: xyzc(:,:)
 
 ! data related to graph of mesh
 integer :: lnetn, lietn, lkietn
@@ -2105,9 +2109,9 @@ integer:: isub, ie, inc, ndofn, &
           inod, idofn, indifixs, indifix, indnc, indrhs, indrhss, &
           inods, jsub, i, j, indn, idofis, idofos, inodis, &
           indns, indins, inodcs, iglbn, nglbn, iglb, iglobs, indn1,&
-          nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs, indg, ncnod, &
-          ncnodes, pointcinet, indcxyz, isubneib, iinode 
-integer:: nadjs, nnodcs, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs, nedge, nface
+          nglbv, pointinglb, indivs, iglbv, ivar, indng, indvs, indg, nnodc, &
+          nnodcs, pointinetc, indxyzc, isubneib, iinode 
+integer:: nadjs, ncornerss, nnods, nelems, ndofs, nnodis, ndofis, ndofos, nglobs, nedge, nface
 integer:: n_graph_edge
 integer:: idsmd
 
@@ -2191,8 +2195,8 @@ real(kr) :: time_import, time_graph_create
 
 ! Corners
 ! read file CN
-      read(idcn,*) nnodc
-      linodc = nnodc
+      read(idcn,*) ncorners
+      linodc = ncorners
       allocate(inodc(linodc))
       read(idcn,*) inodc
 
@@ -2257,9 +2261,9 @@ real(kr) :: time_import, time_graph_create
 
 ! Begin loop over subdomains
 ! prepare array for level 2
-      lnnet2 = nsub
-      allocate(nnet2(lnnet2))
-      nnet2 = 0
+      lnnetc = nsub
+      allocate(nnetc(lnnetc))
+      nnetc = 0
       do isub = 1,nsub
 
 ! find local number of elements on subdomain NELEMS
@@ -2277,9 +2281,9 @@ real(kr) :: time_import, time_graph_create
          lisngns = linets
          allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
 
-         call create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                             nnods,inets,linets,nnets,lnnets,&
-                             isegns,lisegns, isngns,lisngns)
+         call pp_create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                                nnods,inets,linets,nnets,lnnets,&
+                                isegns,lisegns, isngns,lisngns)
 
          lnndfs = nnods
          lkdofs = nnods
@@ -2328,9 +2332,9 @@ real(kr) :: time_import, time_graph_create
             lisngnsadj = linetsadj
             allocate(inetsadj(linetsadj),nnetsadj(lnnetsadj),isegnsadj(lisegnsadj),isngnsadj(lisngnsadj))
    
-            call create_submesh(jsub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                                nnodsadj,inetsadj,linetsadj,nnetsadj,lnnetsadj,&
-                                isegnsadj,lisegnsadj,isngnsadj,lisngnsadj)
+            call pp_create_submesh(jsub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                                   nnodsadj,inetsadj,linetsadj,nnetsadj,lnnetsadj,&
+                                   isegnsadj,lisegnsadj,isngnsadj,lisngnsadj)
 
             call get_array_intersection(isngns,nnods,isngnsadj,nnodsadj,ishared,lishared,nshared)
             ! check that some nodes are really shared
@@ -2394,23 +2398,23 @@ real(kr) :: time_import, time_graph_create
             end if
          end do
 
-! find number of coarse nodes on subdomain NNODCS
-         nnodcs = 0
-         do inc = 1,nnodc
+! find number of coarse nodes on subdomain NCORNERSS
+         ncornerss = 0
+         do inc = 1,ncorners
             indnc = inodc(inc)
             if (any(isngns(1:nnods).eq.indnc)) then
-               nnodcs = nnodcs + 1
+               ncornerss = ncornerss + 1
             end if
          end do
 
 ! find mapping of corners
-         lglobal_corner_numbers = nnodcs
+         lglobal_corner_numbers = ncornerss
          allocate(global_corner_numbers(lglobal_corner_numbers))
-         licnsins = nnodcs
+         licnsins = ncornerss
          allocate(icnsins(licnsins))
 
          inodcs = 0
-         do inc = 1,nnodc
+         do inc = 1,ncorners
             indnc = inodc(inc)
             if (any(isngns(1:nnods).eq.indnc)) then
                inodcs = inodcs + 1
@@ -2490,7 +2494,7 @@ real(kr) :: time_import, time_graph_create
          where (global_glob_numbers .le. nedge) glob_type = 2
 
          ! shift numbering behind corners
-         global_glob_numbers = global_glob_numbers + nnodc
+         global_glob_numbers = global_glob_numbers + ncorners
 
          ligvsivns1 = nglobs
          ligvsivns2 = maxval(nglobvars)
@@ -2642,7 +2646,7 @@ real(kr) :: time_import, time_graph_create
          write(idsmd,*) (iadjs(i),i = 1,nadjs)
 
          ! --- corners 
-         write(idsmd,*) nnodcs
+         write(idsmd,*) ncornerss
          write(idsmd,*) global_corner_numbers
          write(idsmd,*) icnsins
 
@@ -2686,36 +2690,23 @@ real(kr) :: time_import, time_graph_create
          deallocate(isngns)
          deallocate(isegns)
 
-         nnet2(isub) = nnodcs + nglobs
+         nnetc(isub) = ncornerss + nglobs
 
 ! Finish loop over subdomains
       end do
 
-! Generate levels
-      write (*,*) 'Write files for levels:'
-! File for first level
-      name = trim(problemname)//'.L1'
-      open(unit=idlevel,file=name,status='replace',form='formatted')
-      rewind idlevel
-
-      write(idlevel,*) 1, nelem, nnod, linet
-      write(idlevel,*) nnod, 0, 0
-
-      close (idlevel)
-      write (*,*) 'File ',trim(name), ' created.'
-
 ! Prepare file for second level
      ! nnet  = number of coarse nodes that touch each subdomain
 
-      ncnod = nnodc + nglb
-      lcinet = sum(nnet2)
+      nnodc = ncorners + nglb
+      linetc = sum(nnetc)
 
 ! Begin loop over subdomains
 ! prepare array for level 2
-      allocate(cinet(lcinet))
-      cinet = 0
+      allocate(inetc(linetc))
+      inetc = 0
 
-      pointcinet = 0
+      pointinetc = 0
       do isub = 1,nsub
 
 
@@ -2734,9 +2725,9 @@ real(kr) :: time_import, time_graph_create
          lisngns = linets
          allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
 
-         call create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                             nnods,inets,linets,nnets,lnnets,&
-                             isegns,lisegns, isngns,lisngns)
+         call pp_create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                                nnods,inets,linets,nnets,lnnets,&
+                                isegns,lisegns, isngns,lisngns)
 
          lnndfs = nnods
          lkdofs = nnods
@@ -2755,21 +2746,21 @@ real(kr) :: time_import, time_graph_create
             kdofs(inods) = kdofs(inods-1) + nndfs(inods-1)
          end do
 
-! find number of coarse nodes on subdomain NNODCS
-         nnodcs = 0
-         do inc = 1,nnodc
+! find number of coarse nodes on subdomain NCORNERSS
+         ncornerss = 0
+         do inc = 1,ncorners
             indnc = inodc(inc)
             if (any(isngns(1:nnods).eq.indnc)) then
-               nnodcs = nnodcs + 1
+               ncornerss = ncornerss + 1
             end if
          end do
 
 ! find mapping of corners
-         lglobal_corner_numbers = nnodcs
+         lglobal_corner_numbers = ncornerss
          allocate(global_corner_numbers(lglobal_corner_numbers))
 
          inodcs = 0
-         do inc = 1,nnodc
+         do inc = 1,ncorners
             indnc = inodc(inc)
             if (any(isngns(1:nnods).eq.indnc)) then
                inodcs = inodcs + 1
@@ -2823,13 +2814,13 @@ real(kr) :: time_import, time_graph_create
          where (global_glob_numbers .le. nedge) glob_type = 2
 
          ! shift numbering behind corners
-         global_glob_numbers = global_glob_numbers + nnodc
+         global_glob_numbers = global_glob_numbers + ncorners
 
-         ncnodes = nnodcs + nglobs
-         cinet(pointcinet+1:pointcinet+nnodcs)               = global_corner_numbers
-         cinet(pointcinet+nnodcs+1:pointcinet+nnodcs+nglobs) = global_glob_numbers
+         nnodcs = ncornerss + nglobs
+         inetc(pointinetc+1:pointinetc+ncornerss)               = global_corner_numbers
+         inetc(pointinetc+ncornerss+1:pointinetc+ncornerss+nglobs) = global_glob_numbers
 
-         pointcinet = pointcinet + ncnodes
+         pointinetc = pointinetc + nnodcs
 
          deallocate(global_glob_numbers)
          deallocate(glob_type)
@@ -2839,55 +2830,56 @@ real(kr) :: time_import, time_graph_create
 
 ! Finish loop over subdomains
       end do
-      ! check the cinet array
-      if (any(cinet.eq.0)) then
-         write(*,*) 'Zeros in CINET array.'
+      ! check the inetc array
+      if (any(inetc.eq.0)) then
+         write(*,*) 'Zeros in inetc array.'
          call error_exit
       end if
 
 ! prepare array of nodes for coarse mesh
-      lcxyz1 = ncnod
-      lcxyz2 = ndim
-      allocate(cxyz(lcxyz1,lcxyz2))
+      lxyzc1 = nnodc
+      lxyzc2 = ndim
+      allocate(xyzc(lxyzc1,lxyzc2))
 
 ! copy coordinates of corners
-      indcxyz = 0
-      do inc = 1,nnodc
-         indcxyz = indcxyz + 1
+      indxyzc = 0
+      do inc = 1,ncorners
+         indxyzc = indxyzc + 1
 
          indnc = inodc(inc)
-         cxyz(indcxyz,:) = xyz(indnc,:)
+         xyzc(indxyzc,:) = xyz(indnc,:)
       end do
 ! create coordinates of globs as mean values
       pointinglb = 0
       do iglb = 1,nglb
-         indcxyz = indcxyz + 1
+         indxyzc = indxyzc + 1
 
          nglbn = nnglb(iglb)
 
          ! touch first node in glob
-         cxyz(indcxyz,:) = sum(xyz(inglb(pointinglb + 1:pointinglb + nglbn),:),dim=1)/nglbn
+         xyzc(indxyzc,:) = sum(xyz(inglb(pointinglb + 1:pointinglb + nglbn),:),dim=1)/nglbn
 
          pointinglb = pointinglb + nglbn
       end do
       
 
-! Write file for second level
-      name = trim(problemname)//'.L2'
+! Generate levels
+      write (*,*) 'Write files for levels:'
+! File for first level
+      name = trim(problemname)//'.L1'
       open(unit=idlevel,file=name,status='replace',form='formatted')
       rewind idlevel
 
-      write(idlevel,*) 2, nsub, ncnod, lcinet
-      write(idlevel,*) nnodc, nedge, nface
-      write(idlevel,*) cinet
-      write(idlevel,*) nnet2
-      do i = 1,lcxyz1
-         write(idlevel,*) (cxyz(i,j),j = 1,lcxyz2)
+      write(idlevel,*) 1, nelem, nnod, linet
+      write(idlevel,*) ncorners, nedge, nface, linetc
+      write(idlevel,*) inetc
+      write(idlevel,*) nnetc
+      do i = 1,nnodc
+         write(idlevel,*) (xyzc(i,j),j = 1,ndim)
       end do
 
       close (idlevel)
       write (*,*) 'File ',trim(name), ' created.'
-
 
 ! Clear memory
       deallocate(inglb,nnglb)
@@ -2904,9 +2896,9 @@ real(kr) :: time_import, time_graph_create
       deallocate(xadj)
       deallocate(adjncy,adjwgt)
 
-      deallocate(cinet)
-      deallocate(nnet2)
-      deallocate(cxyz)
+      deallocate(inetc)
+      deallocate(nnetc)
+      deallocate(xyzc)
 
       close(ides)
       close(idfvs)
@@ -2915,146 +2907,13 @@ real(kr) :: time_import, time_graph_create
 
       return
 end subroutine create_sub_files
- 
-!************************************************************************
-subroutine create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                          nnods,inets,linets,nnets,lnnets,&
-                          isegns,lisegns,isngns,lisngns)
-!************************************************************************
-!     Subroutine for creation of subdomain mesh description
-!************************************************************************
-use module_utils
-implicit none
-
-! number of elements and nodes
-integer,intent(in) :: nelem
-! subdomain number
-integer,intent(in) :: isub
-! global mesh description ala PMD
-integer,intent(in) :: linet,       lnnet
-integer,intent(in) ::  inet(linet), nnet(lnnet)
-! division into subdomains
-integer,intent(in) :: liets
-integer,intent(in) ::  iets(liets)
-! number of elements and nodes
-integer,intent(out) :: nnods
-! subdomain mesh description
-integer,intent(in)  :: linets,        lnnets,        lisegns,         lisngns
-integer,intent(out) ::  inets(linets), nnets(lnnets), isegns(lisegns), isngns(lisngns)
-
-! local variables
-integer :: ie, inod, inods, nne, pointinet, pointinets, indlocel
-
-! Creation of field inets(linets) - still with global pointers
-      pointinet  = 0
-      pointinets = 0
-      indlocel   = 0
-      do ie = 1,nelem
-         nne = nnet(ie)
-         if (iets(ie).eq.isub) then
-            inets(pointinets+1:pointinets+nne) = -inet(pointinet+1:pointinet+nne)
-
-            indlocel = indlocel + 1
-
-            nnets(indlocel)  = nne
-            isegns(indlocel) = ie
-
-            pointinets = pointinets + nne
-         end if
-         pointinet = pointinet + nne
-      end do
-
-! get imbedding of subdomain nodes into global nodes
-      ! copy array
-      isngns = -inets
-      call iquick_sort(isngns,lisngns)
-      call get_array_norepeat(isngns,lisngns,nnods)
-
-      do inods = 1,nnods
-         inod = isngns(inods)
-         isngns(inods) = inod
-         ! fix inet
-         where (inets.eq.-inod) inets = inods
-      end do
-
-end subroutine create_submesh
-
-!************************************************************************************************
-subroutine get_sub_neighbours(isub, nelems, isegn,lisegn, xadj,lxadj,adjncy,ladjncy, iets,liets,&
-                              iadjs,liadjs,nadjs)
-!************************************************************************************************
-!     Subroutine for getting the number and indices of neighbours of 
-!     subdomain isub based on element graph.
-!************************************************************************************************
-use module_utils
-implicit none
-
-! index of subdomain under 
-integer, intent(in) :: isub
-
-! index of elements in subdomain
-integer, intent(in) :: nelems
-
-! indices of local elements in global numbering
-integer, intent(in) :: lisegn
-integer, intent(in) ::  isegn(lisegn)
-
-! global graph of mesh
-integer, intent(in) :: lxadj
-integer, intent(in) ::  xadj(lxadj)
-integer, intent(in) :: ladjncy
-integer, intent(in) ::  adjncy(ladjncy)
-
-! indices of subdomains of elements
-integer, intent(in) :: liets
-integer, intent(in) ::  iets(liets)
-
-! indices of neigbouring subdomains
-integer, intent(in) :: liadjs
-integer, intent(out) :: iadjs(liadjs)
-integer, intent(out) :: nadjs
-
-! local vars
-integer :: ie_loc, indel, indneibe, isubneib, i, iadje
-
-
-! initialize iadjs array
-call zero(iadjs,liadjs)
-
-! first, use iadjs just for marking present subdomains, at the end, transform it to list
-do ie_loc = 1,nelems
-   indel = isegn(ie_loc)
-
-   do iadje = xadj(indel),xadj(indel+1) - 1
-      
-      indneibe = adjncy(iadje)
-      isubneib = iets(indneibe)
-      if (isubneib.ne.isub) then
-         iadjs(isubneib) = 1
-      end if
-   end do
-end do
-nadjs = 0
-! change iadjs array to list
-do i = 1,liadjs
-   if (iadjs(i) .eq. 1 ) then
-      nadjs = nadjs + 1
-
-      iadjs(nadjs) = i
-   end if
-end do
-do i = nadjs+1,liadjs
-   iadjs(i) = 0
-end do
-
-end subroutine get_sub_neighbours
-
 
 !***********************************************************************
 subroutine createtilde
 !***********************************************************************
 !     Subroutine for creation of space W_tilde
 !***********************************************************************
+use module_pp 
 use module_utils ! error handling, time measurements
 
 implicit none
@@ -3126,9 +2985,9 @@ real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmi
       name = name1(1:lname1)//'.CN'
       open (unit=idcn,file=name,status='old',form='formatted')
       ! read number of corners
-      read(idcn,*) nnodc
+      read(idcn,*) ncorners
       ! allocate array for indices of corners
-      linodc = nnodc
+      linodc = ncorners
       allocate(inodc(linodc))
       ! read indices of corners in global node numbering in hat
       read(idcn,*) inodc
@@ -3165,7 +3024,7 @@ real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmi
          ndofsa(isub) = ndofs
       end do
 ! Mark corners in kinodes as zeros
-      do i = 1,nnodc
+      do i = 1,ncorners
          indc = inodc(i)
          kinodes(indc) = 0
       end do
@@ -3214,9 +3073,9 @@ real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmi
          lisngns = linets
          allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
 
-         call create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                             nnods,inets,linets,nnets,lnnets,&
-                             isegns,lisegns,isngns,lisngns)
+         call pp_create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                                nnods,inets,linets,nnets,lnnets,&
+                                isegns,lisegns,isngns,lisngns)
 
 ! Generate the mapping for everything except corners
          do inods = 1,nnods
@@ -3251,7 +3110,7 @@ real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmi
          deallocate(inets,nnets,isegns,isngns)
       end do
 ! Generate mapping of hat into tilde for corners - put them at the end of new list
-      do inc = 1,nnodc
+      do inc = 1,ncorners
          inodt = inodt + 1
          indc = inodc(inc)
          ihntn(indc) = inodt
@@ -3466,6 +3325,7 @@ subroutine createtilde1
 !***********************************************************************
 !     Subroutine for creation of space W_tilde
 !***********************************************************************
+use module_pp 
 use module_utils ! error handling, time measurements
 
 implicit none
@@ -3534,9 +3394,9 @@ real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmi
       name = name1(1:lname1)//'.CN'
       open (unit=idcn,file=name,status='old',form='formatted')
       ! read number of corners
-      read(idcn,*) nnodc
+      read(idcn,*) ncorners
       ! allocate array for indices of corners
-      linodc = nnodc
+      linodc = ncorners
       allocate(inodc(linodc))
       ! read indices of corners in global node numbering in hat
       read(idcn,*) inodc
@@ -3573,7 +3433,7 @@ real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmi
          ndofsa(isub) = ndofs
       end do
 ! Mark corners in kinodes as zeros
-      do i = 1,nnodc
+      do i = 1,ncorners
          indc = inodc(i)
          kinodes(indc) = 0
       end do
@@ -3644,7 +3504,7 @@ real(kr) :: time_total, time_import, time_int_recognition, time_wtilde, time_gmi
          end do
       end do
 ! Generate mapping of hat into tilde for corners - put them at the end of new list
-      do inc = 1,nnodc
+      do inc = 1,ncorners
          inodt = inodt + 1
          indc = inodc(inc)
          ihntn(indc) = inodt
@@ -3859,6 +3719,7 @@ subroutine getcorners
 !***********************************************************************
 !     Subroutine for corner nodes selection
 !***********************************************************************
+use module_pp
 implicit none
 
 integer:: indmax(1), indmin(1), indni, indnc, kselection, &
@@ -3946,8 +3807,8 @@ logical:: badangle
 
 ! Check number of corners
  2    write (*, '(a,$)') 'Get number of corners: '
-      read *, nnodc
-      if (nnodc.gt.nnodi) then
+      read *, ncorners
+      if (ncorners.gt.nnodi) then
          write(*,*) 'Chosen number of corners higher than number of interface nodes!'
          write(*,*) 'Unable to proceed, try again...'
          goto 2
@@ -3961,15 +3822,15 @@ logical:: badangle
       write (*, '(a,$)') 'Your choice: '
       read *, kselection
 
-      linodc  = nnodc
-      licngin = nnodc
+      linodc  = ncorners
+      licngin = ncorners
       allocate(inodc(linodc),icngin(licngin))
 
       select case(kselection)
       case(1)
 ! Set random corners form interface
          print *, 'Selecting random corners...'
-         do inc = 1,nnodc
+         do inc = 1,ncorners
   50        call RANDOM_NUMBER(rnd)
             indi = int(rnd*nnodi) + 1
             indg = igingn(indi)
@@ -4010,7 +3871,7 @@ logical:: badangle
          icngin(2) = indmax(1)
       
 ! Set the rest of corners
-         do inc = 3,nnodc
+         do inc = 3,ncorners
 ! Measure triangles
             measure = 0._kr
             do i = 1,nnodi
@@ -4077,7 +3938,7 @@ logical:: badangle
          icngin(2) = indmax(1)
       
 ! Set the rest of corners
-         do inc = 3,nnodc
+         do inc = 3,ncorners
 ! Measure triangles
             measure = 0._kr
             do i = 1,nnodi
@@ -4113,7 +3974,7 @@ logical:: badangle
       end select
 
 ! Sort vector inodc
-      do inc = nnodc,2,-1
+      do inc = ncorners,2,-1
          indmax = maxloc(inodc(1:inc))
          if (inc.ne.indmax(1)) then
             buffer = inodc(inc)
@@ -4123,7 +3984,7 @@ logical:: badangle
       end do
 
 ! Check that all corner nodes are interface nodes
-      do inc = 1,nnodc
+      do inc = 1,ncorners
          indnc = inodc(inc)
          if (count(igingn.eq.indnc).eq.0) then
             write(*,*) 'Warning: Node ',indnc,' selected as a corner is not on interface.'
@@ -4133,7 +3994,7 @@ logical:: badangle
 ! CN - list of corner nodes
       name = name1(1:lname1)//'.CN'
       open (unit=idcn,file=name,status='replace',form='formatted')
-      write(idcn,*) nnodc
+      write(idcn,*) ncorners
       write(idcn,'(8i15)') inodc
       close(idcn)
 
@@ -4154,6 +4015,7 @@ subroutine solassembly
 !***********************************************************************
 !     Subroutine for global solution assembly
 !***********************************************************************
+use module_pp
 use module_utils
 implicit none
 
@@ -4660,12 +4522,78 @@ integer :: io, indel
 
 end subroutine
       
-
 !***********************************************************************
 subroutine meshdivide
 !***********************************************************************
 !     Divide the mesh into subdomains using METIS
 !***********************************************************************
+use module_pp
+use module_utils
+implicit none
+
+! graphtype
+! 0 - graph without weights
+! 1 - produce weighted graph
+integer,parameter :: graphtype = 0
+! correct division?
+! TRUE  - disconnected subdomains are split and glued to other subdomains - may spoil load balance
+! FALSE - disconnected subdomains acceptable
+logical,parameter :: correct_division = .true. 
+
+integer :: neighbouring 
+integer :: edgecut 
+
+
+      write (*,'(a,$)') 'Minimal number of shared nodes to call elements adjacent: '
+      read (*,*) neighbouring
+
+      write (*,'(a,$)') 'Input PMD mesh data ... '
+! prepare arrays for mesh data
+      lnnet = nelem
+      allocate(inet(linet),nnet(lnnet))
+
+! GMIF - basic mesh data - structure:
+!  * INETF(LINETF) * NNETF(LNNETF) * NNDFF(LNNDFF) * XYF(LXYF) *
+      name = name1(1:lname1)//'.GMIS'
+      open (unit=idgmi,file=name,status='old',form='formatted')
+! Import of basic fields
+! read fields INET, NNET, NNDF from file IDGMI
+      rewind idgmi
+      read(idgmi,*) inet
+      read(idgmi,*) nnet
+
+      write (*,'(a)') 'done.'
+
+      ! prepare memory for division
+      liets = nelem
+      allocate(iets(liets))
+      iets = 1
+
+      write (*,'(a)') 'Calling PP_DIVIDE_MESH for mesh division: '
+      call pp_divide_mesh(graphtype,correct_division,neighbouring,nelem,nnod,&
+                          inet,linet,nnet,lnnet,nsub,&
+                          edgecut,iets,liets)
+                          write (*,'(a)') ' PP_DIVIDE_MESH done.'
+
+! ES - list of global element numbers in subdomains - structure:
+      name = name1(1:lname1)//'.ES'
+      open (unit=ides,file=name,status='replace',form='formatted')
+      write(ides,'(1i5)') iets
+      close(ides)
+
+      write(*,'(a,a)') 'Division exported into file ',trim(name)
+
+      deallocate(inet,nnet)
+      deallocate(iets)
+
+end subroutine meshdivide
+
+!***********************************************************************
+subroutine meshdivide1
+!***********************************************************************
+!     Divide the mesh into subdomains using METIS
+!***********************************************************************
+use module_pp
 use module_graph
 use module_utils
 implicit none
@@ -4783,9 +4711,9 @@ logical :: one_more_check_needed = .false.
          lisngns = linets
          allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
 
-         call create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                             nnods,inets,linets,nnets,lnnets,&
-                             isegns,lisegns,isngns,lisngns)
+         call pp_create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                                nnods,inets,linets,nnets,lnnets,&
+                                isegns,lisegns,isngns,lisngns)
          lnetns  = nnods
          lietns  = linets
          lkietns = nnods
@@ -4922,59 +4850,7 @@ logical :: one_more_check_needed = .false.
 
       return
 
-end subroutine meshdivide
-
-!***********************************************************************
-subroutine pp_mark_sub_nodes(isub,nelem,iets,liets,inet,linet,nnet,lnnet,&
-                             kinet,lkinet,knodes,lknodes)
-!***********************************************************************
-!     Marks nodes of subdomain ISUB in array KNODES
-!***********************************************************************
-implicit none
-      
-! subdomain index
-integer,intent(in):: isub 
-
-! global number of elements
-integer,intent(in):: nelem 
-
-! indices of elements in subdomains
-integer,intent(in):: liets 
-integer,intent(in)::  iets(liets) 
-
-! indices of nodes on elements
-integer,intent(in):: linet 
-integer,intent(in)::  inet(linet) 
-
-! number of nodes on elements
-integer,intent(in):: lnnet 
-integer,intent(in)::  nnet(lnnet) 
-
-! key to INET - pointers before element nodes
-integer,intent(in):: lkinet 
-integer,intent(in)::  kinet(lkinet) 
-
-! key nodes - marked nodes for subdomain ISUB
-integer,intent(in)::  lknodes 
-integer,intent(out)::  knodes(lknodes) 
-
-! local variables
-integer:: ie, indsub, ine, nne, ipoint, indng
-
-      knodes = 0
-      do ie = 1,nelem
-         indsub = iets(ie)
-         if (indsub.eq.isub) then
-            nne = nnet(ie)
-            ipoint = kinet(ie)
-            do ine = 1,nne
-               indng = inet(ipoint + ine)
-               knodes(indng) = 1
-            end do
-         end if
-      end do
-
-end subroutine pp_mark_sub_nodes
+end subroutine meshdivide1
 
 !*****************
 subroutine es0toes
@@ -5014,6 +4890,76 @@ integer,allocatable :: iaux(:)
 
       return
 end subroutine es0toes
+
+!************************************************************************************************
+subroutine get_sub_neighbours(isub, nelems, isegn,lisegn, xadj,lxadj,adjncy,ladjncy, iets,liets,&
+                              iadjs,liadjs,nadjs)
+!************************************************************************************************
+!     Subroutine for getting the number and indices of neighbours of 
+!     subdomain isub based on element graph.
+!************************************************************************************************
+use module_utils
+implicit none
+
+! index of subdomain under 
+integer, intent(in) :: isub
+
+! index of elements in subdomain
+integer, intent(in) :: nelems
+
+! indices of local elements in global numbering
+integer, intent(in) :: lisegn
+integer, intent(in) ::  isegn(lisegn)
+
+! global graph of mesh
+integer, intent(in) :: lxadj
+integer, intent(in) ::  xadj(lxadj)
+integer, intent(in) :: ladjncy
+integer, intent(in) ::  adjncy(ladjncy)
+
+! indices of subdomains of elements
+integer, intent(in) :: liets
+integer, intent(in) ::  iets(liets)
+
+! indices of neigbouring subdomains
+integer, intent(in) :: liadjs
+integer, intent(out) :: iadjs(liadjs)
+integer, intent(out) :: nadjs
+
+! local vars
+integer :: ie_loc, indel, indneibe, isubneib, i, iadje
+
+
+! initialize iadjs array
+call zero(iadjs,liadjs)
+
+! first, use iadjs just for marking present subdomains, at the end, transform it to list
+do ie_loc = 1,nelems
+   indel = isegn(ie_loc)
+
+   do iadje = xadj(indel),xadj(indel+1) - 1
+      
+      indneibe = adjncy(iadje)
+      isubneib = iets(indneibe)
+      if (isubneib.ne.isub) then
+         iadjs(isubneib) = 1
+      end if
+   end do
+end do
+nadjs = 0
+! change iadjs array to list
+do i = 1,liadjs
+   if (iadjs(i) .eq. 1 ) then
+      nadjs = nadjs + 1
+
+      iadjs(nadjs) = i
+   end if
+end do
+do i = nadjs+1,liadjs
+   iadjs(i) = 0
+end do
+
+end subroutine get_sub_neighbours
 
 !*****************************************************************
 subroutine get_nevax(nelem,inet,linet,nnet,lnnet,nndf,lnndf,nevax)

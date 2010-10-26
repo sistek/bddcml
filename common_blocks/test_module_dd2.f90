@@ -1,5 +1,6 @@
 program test_module_dd2
 ! Tester of module_dd
+      use module_pp
       use module_dd
       use module_utils
 
@@ -24,6 +25,8 @@ program test_module_dd2
       integer,allocatable ::  nndf_coarse(:)
       integer :: iaux, ncnodes, nedge, nface
 
+      integer ::             lsub2proc
+      integer,allocatable ::  sub2proc(:)
 
       integer :: glob_type
 
@@ -88,13 +91,17 @@ program test_module_dd2
       timeaux1 = MPI_WTIME()
 !*******************************************AUX
       call dd_init(nsub)
-      call dd_distribute_subdomains(nsub,nproc)
-      call dd_read_mesh_from_file(myid,trim(problemname))
-      call dd_read_matrix_from_file(myid,comm_all,trim(problemname),matrixtype)
-      call dd_assembly_local_matrix(myid)
-      remove_original = .false.
-      call dd_matrix_tri2blocktri(myid,remove_original)
+      lsub2proc = nproc + 1
+      allocate(sub2proc(lsub2proc))
+      call pp_distribute_subdomains(nsub,nproc,sub2proc,lsub2proc)
+      call dd_distribute_subdomains(1,nsub,sub2proc,lsub2proc,nproc)
+      deallocate(sub2proc)
       do isub = 1,nsub
+         call dd_read_mesh_from_file(myid,isub,trim(problemname))
+         call dd_read_matrix_from_file(myid,isub,trim(problemname),matrixtype)
+         call dd_assembly_local_matrix(myid,isub)
+         remove_original = .false.
+         call dd_matrix_tri2blocktri(myid,isub,remove_original)
          call dd_prepare_schur(myid,comm_self,isub)
       end do
 

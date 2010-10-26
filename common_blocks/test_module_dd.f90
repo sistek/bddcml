@@ -1,5 +1,6 @@
 program test_module_dd
 ! Tester of module_dd
+      use module_pp
       use module_dd
       use module_utils
       implicit none
@@ -11,6 +12,9 @@ program test_module_dd
 
       !  parallel variables
       integer :: myid, comm_all, comm_self, nproc, ierr
+
+      integer ::             lsub2proc
+      integer,allocatable ::  sub2proc(:)
 
       integer :: nsub, isub
 
@@ -49,23 +53,28 @@ program test_module_dd
       call dd_init(nsub)
 
       print *, 'I am processor ',myid,': nproc = ',nproc, 'nsub = ',nsub
-      call dd_distribute_subdomains(nsub,nproc)
+      lsub2proc = nproc + 1
+      allocate(sub2proc(lsub2proc))
+      call pp_distribute_subdomains(nsub,nproc,sub2proc,lsub2proc)
+      call dd_distribute_subdomains(1,nsub,sub2proc,lsub2proc,nproc)
+      deallocate(sub2proc)
 
-      ! load mesh
-      call dd_read_mesh_from_file(myid,problemname)
 
-      ! load matrices into the structure
-      call dd_read_matrix_from_file(myid,comm_all,problemname,matrixtype)
-
-      ! assembly matrices
-      call dd_assembly_local_matrix(myid)
-
-      ! convert matrix to blocks
-      remove_original = .false.
-      call dd_matrix_tri2blocktri(myid,remove_original)
-
-      ! prepare Schur complements
       do isub = 1,nsub
+         ! load mesh
+         call dd_read_mesh_from_file(myid,isub,problemname)
+
+         ! load matrices into the structure
+         call dd_read_matrix_from_file(myid,isub,problemname,matrixtype)
+
+         ! assembly matrices
+         call dd_assembly_local_matrix(myid,isub)
+
+         ! convert matrix to blocks
+         remove_original = .false.
+         call dd_matrix_tri2blocktri(myid,isub,remove_original)
+
+         ! prepare Schur complements
          call dd_prepare_schur(myid,comm_self,isub)
       end do
 

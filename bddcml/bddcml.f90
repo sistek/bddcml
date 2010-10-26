@@ -3,6 +3,8 @@ program bddcml
 !***********************************************************************
 ! module for distributed Krylov data storage
       use module_krylov_types_def
+! module for preprocessing
+      use module_pp
 ! module for preconditioner
       use module_levels
 ! module for domain decomposition data
@@ -17,9 +19,6 @@ program bddcml
 !######### PARAMETERS TO SET
 ! precision of floats
       integer,parameter :: kr = kind(1.D0)
-
-! number of levels
-      integer,parameter :: nlevels = 2
 
 ! use arithmetic constraints?
       logical,parameter :: use_arithmetic = .true.
@@ -39,30 +38,60 @@ program bddcml
 !                    | faces: arith. | faces: -      |
 !----------------------------------------------------- 
 
+! was preprocessor run before the solver to create subdomain files?
+      logical,parameter :: use_preprocessor = .true.
+! correct disconnected subdomains to make them continuous - not allowed for parallel divisions
+      logical,parameter :: correct_division = .false.
+! maximal length of problemname
+      integer,parameter:: lproblemnamex = 100
+! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
+      integer,parameter:: lfilenamex = 130
+
 !######### END OF PARAMETERS TO SET
 
       !  parallel variables
       integer :: myid, comm_all, comm_self, nproc, ierr
-      integer :: idpar
+      integer :: idpar, idml, idgmi, idfvs, idrhs
 
-      integer :: ndim, nsub, nelem, ndof, nnod, nnodc, linet
+      integer :: ndim, nsub, nelem, ndof, nnod, linet
       integer :: maxit, ndecrmax
       real(kr) :: tol
 
+! number of levels
+      integer :: nlevels
+! subdomains in levels
+      integer ::            lnsublev
+      integer,allocatable :: nsublev(:)
+
       integer :: isub
+
+      integer ::                    lnnet,   lnndf
+      integer,allocatable:: inet(:), nnet(:), nndf(:)
+      integer ::           lxyz1,   lxyz2
+      real(kr),allocatable:: xyz(:,:)
+      integer ::            lifix
+      integer,allocatable::  ifix(:)
+      integer ::            lfixv
+      real(kr),allocatable:: fixv(:)
+      integer ::            lrhs
+      real(kr),allocatable:: rhs(:)
+
 
       integer :: matrixtype
 
+      integer :: lproblemname
+      integer :: meshdim
       integer :: nnods, nelems, ndofs, ndofis, nnodis
       integer :: lsolis, lresis
       integer :: lps, laps, lzs
+      integer :: neighbouring
 
       integer ::             lsols
       real(kr),allocatable :: sols(:)
 
 
-      character(90)  :: problemname 
-      character(100) :: filename
+      character(lproblemnamex) :: problemname 
+      character(lfilenamex)    :: filename
 
       integer ::                          lpcg_data
       type (pcg_data_type), allocatable :: pcg_data(:)
@@ -93,78 +122,163 @@ program bddcml
          write(*,'(a)') '| |_|  | |_/  | |_/  | \__/ | |   | | |____ '
          write(*,'(a)') '|_____/|_____/|_____/ \____/|_|   |_|______|'
          write(*,'(a)') '===========multilevel BDDC solver==========='
+      end if
 
 ! Name of the problem
-   10    write(*,'(a,$)') 'Name of the problem: '
-         call flush(6)
-         read(*,*) problemname
-         if(problemname.eq.' ') goto 10
-
-      end if
-! Broadcast of name of the problem      
-!***************************************************************PARALLEL
-      call MPI_BCAST(problemname, 90, MPI_CHARACTER, 0, comm_all, ierr)
-!***************************************************************PARALLEL
+      call pp_pget_problem_name(comm_all,problemname,lproblemnamex,lproblemname)
 
 ! measuring time
       call MPI_BARRIER(comm_all,ierr)
       call time_start
 
       if (myid.eq.0) then
-         filename = trim(problemname)//'.PAR'
+         filename = problemname(1:lproblemname)//'.PAR'
          call allocate_unit(idpar)
          open (unit=idpar,file=filename,status='old',form='formatted')
+      end if
+      call pp_pread_par_file(comm_all,idpar, ndim, nsub, nelem, ndof, nnod, linet, tol, maxit, ndecrmax, meshdim)
+      if (myid.eq.0) then
+         close (idpar)
       end if
 
 ! Reading basic properties 
       if (myid.eq.0) then
-         read(idpar,*) ndim, nsub, nelem, ndof, nnod, nnodc, linet,     &
-                       tol, maxit, ndecrmax
-         write(*,*)'Characteristics of the problem ',trim(problemname), ':'
+         write(*,*)'Characteristics of the problem ',problemname(1:lproblemname), ':'
          write(*,*)'  number of processors            nproc =',nproc
          write(*,*)'  number of dimensions             ndim =',ndim
-         write(*,*)'  number of subdomains             nsub =',nsub
          write(*,*)'  number of elements global       nelem =',nelem
          write(*,*)'  number of DOF                    ndof =',ndof
          write(*,*)'  number of nodes global           nnod =',nnod
-         write(*,*)'  number of constrained nodes     nnodc =',nnodc
          write(*,*)'  lenght of field INET            linet =',linet
+         write(*,*)'  mesh dimension                meshdim =',meshdim
          write(*,*)'Characteristics of iterational process:'
          write(*,*)'  tolerance of error                tol =',tol
          write(*,*)'  maximum number of iterations    maxit =',maxit
          write(*,*)'  number of incresing residual ndecrmax =',ndecrmax
          call flush(6)
       end if
+
+      if (myid.eq.0) then
+         filename = problemname(1:lproblemname)//'.ML'
+         call allocate_unit(idml)
+         open (unit=idml,file=filename,status='old',form='formatted')
+         rewind idml
+         read(idml,*) nlevels
+      end if
+!***************************************************************PARALLEL
+      call MPI_BCAST(nlevels,1,MPI_INTEGER, 0, comm_all, ierr)
+!***************************************************************PARALLEL
+      lnsublev = nlevels
+      allocate(nsublev(lnsublev))
+      if (myid.eq.0) then
+         read(idml,*) nsublev
+      end if
+!***************************************************************PARALLEL
+      call MPI_BCAST(nsublev,lnsublev,MPI_INTEGER, 0, comm_all, ierr)
+!***************************************************************PARALLEL
+      if (myid.eq.0) then
+         close (idml)
+      end if
+      if (myid.eq.0) then
+         write(*,*)'  number of levels              nlevels =',nlevels
+         write(*,*)'  number of subdomains in levels        =',nsublev
+         call flush(6)
+      end if
+      if (nsub.ne.nsublev(1)) then
+         call error('BDDCML','number of subdomains at first level mismatch')
+      end if
+
+      ! read PMD mesh and input it as zero level coarse problem
+      lnnet = nelem
+      lnndf = nnod
+      lxyz1 = nnod
+      lxyz2 = ndim
+      allocate(inet(linet),nnet(lnnet),nndf(lnndf),xyz(lxyz1,lxyz2))
+      if (myid.eq.0) then
+         filename = problemname(1:lproblemname)//'.GMIS'
+         call allocate_unit(idgmi)
+         open (unit=idgmi,file=filename,status='old',form='formatted')
+      end if
+      call pp_pread_pmd_mesh(comm_all,idgmi,inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2)
+      if (myid.eq.0) then
+         close(idgmi)
+      end if
+
+      ! read PMD boundary conditions 
+      lifix = ndof
+      lfixv = ndof
+      allocate(ifix(lifix),fixv(lfixv))
+      if (myid.eq.0) then
+         filename = problemname(1:lproblemname)//'.FVS'
+         call allocate_unit(idfvs)
+         open (unit=idfvs,file=filename,status='old',form='formatted')
+      end if
+      call pp_pread_pmd_bc(comm_all,idfvs,ifix,lifix,fixv,lfixv)
+      if (myid.eq.0) then
+         close(idfvs)
+      end if
+
+      ! read PMD right-hand side
+      lrhs = ndof
+      allocate(rhs(lrhs))
+      if (myid.eq.0) then
+         filename = problemname(1:lproblemname)//'.RHS'
+         call allocate_unit(idrhs)
+         open (unit=idrhs,file=filename,status='old',form='unformatted')
+      end if
+      call pp_pread_pmd_rhs(comm_all,idrhs,rhs,lrhs)
+      if (myid.eq.0) then
+         close(idrhs)
+      end if
+
+      if (myid.eq.0) then
+         write (*,'(a)') 'Initializing LEVELS ...'
+         call flush(6)
+      end if
+      !call levels_init(nlevels,nsub)
+      call levels_init_with_zero_level(nlevels,nsublev,lnsublev,nelem,nnod,ndof,&
+                                       inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                       ifix,lifix,fixv,lfixv,rhs,lrhs)
+      deallocate(inet,nnet,nndf,xyz)
+      if (myid.eq.0) then
+         write (*,'(a)') 'Initializing LEVELS done.'
+         call flush(6)
+      end if
+
+      if (myid.eq.0) then
+         write (*,'(a)') 'Minimal number of shared nodes to call elements adjacent: '
+         call flush(6)
+         read (*,*) neighbouring
+      end if
 ! Broadcast basic properties of the problem
 !***************************************************************PARALLEL
-      call MPI_BCAST(ndim,     1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(nsub,     1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(nelem,    1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(ndof,     1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(nnod,     1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(nnodc,    1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(linet,    1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(tol,      1,MPI_DOUBLE_PRECISION,0, comm_all, ierr)
-      call MPI_BCAST(maxit,    1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(ndecrmax, 1,MPI_INTEGER,         0, comm_all, ierr)
+      call MPI_BCAST(neighbouring,1,MPI_INTEGER,      0, comm_all, ierr)
 !***************************************************************PARALLEL
 
-      write (*,*) 'myid = ',myid,': Initializing LEVELS.'
-      call levels_init(nlevels,nsub)
-
+      if (myid.eq.0) then
+         write (*,'(a)') 'Preconditioner SETUP ...'
+         call flush(6)
+      end if
 ! PRECONDITIONER SETUP
       call MPI_BARRIER(comm_all,ierr)
       call time_start
       matrixtype = 1 ! SPD matrix
-      call levels_pc_setup(problemname,myid,nproc,comm_all,comm_self,matrixtype,ndim,nsub,&
-                           use_arithmetic,use_adaptive)
+      call levels_pc_setup(problemname(1:lproblemname),nsublev,lnsublev,use_preprocessor,&
+                           correct_division,neighbouring,&
+                           matrixtype,ndim,meshdim,use_arithmetic,use_adaptive)
+
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pc_setup)
 
+      if (myid.eq.0) then
+         write (*,'(a)') 'Preconditioner SETUP done.'
+         call flush(6)
+      end if
+
 ! Input zeros as initial vector of solution
-      lpcg_data = nsub
+      lpcg_data = nsublev(1)
       allocate(pcg_data(lpcg_data))
-      do isub = 1,nsub
+      do isub = 1,nsublev(1)
 
          ! determine size of subdomain
          call dd_get_size(myid,isub,ndofs,nnods,nelems)
@@ -207,7 +321,7 @@ program bddcml
       end do
 
       ! Prepare memory for PCG
-      do isub = 1,nsub
+      do isub = 1,nsublev(1)
          if (pcg_data(isub)%is_mine) then
 
             call dd_get_interface_size(myid,isub,ndofis,nnodis)
@@ -236,12 +350,12 @@ program bddcml
       ! call PCG method
       call MPI_BARRIER(comm_all,ierr)
       call time_start
-      call bddcpcg(pcg_data,lpcg_data, nsub, myid,comm_all,tol,maxit,ndecrmax)
+      call bddcpcg(pcg_data,lpcg_data, nsublev(1), myid,comm_all,tol,maxit,ndecrmax)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pcg)
 
       ! Clear memory of PCG
-      do isub = 1,nsub
+      do isub = 1,nsublev(1)
          if (pcg_data(isub)%is_mine) then
             deallocate(pcg_data(isub)%ap)
             deallocate(pcg_data(isub)%apadj)
@@ -254,7 +368,7 @@ program bddcml
       end do
 
       ! Postprocessing of solution - computing interior values
-      do isub = 1,nsub
+      do isub = 1,nsublev(1)
          if (pcg_data(isub)%is_mine) then
 
             ! determine size of subdomain
@@ -274,14 +388,14 @@ program bddcml
 
             ! write subdomain solution to disk file
             print_solution = .false.
-            call dd_write_solution_to_file(myid,problemname,isub,sols,lsols,print_solution)
+            call dd_write_solution_to_file(myid,problemname(1:lproblemname),isub,sols,lsols,print_solution)
 
             deallocate(sols)
          end if
       end do
 
       ! Clear memory
-      do isub = 1,nsub
+      do isub = 1,nsublev(1)
          if (pcg_data(isub)%is_mine) then
             deallocate(pcg_data(isub)%soli)
             deallocate(pcg_data(isub)%resi)
@@ -289,8 +403,17 @@ program bddcml
       end do
       deallocate(pcg_data)
 
-      write (*,*) 'myid = ',myid,': Finalize LEVELS.'
+      deallocate(nsublev)
+
+      if (myid.eq.0) then
+         write (*,'(a)') 'Finalizing LEVELS ...'
+         call flush(6)
+      end if
       call levels_finalize
+      if (myid.eq.0) then
+         write (*,'(a)') 'Finalizing LEVELS done.'
+         call flush(6)
+      end if
 
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_total)

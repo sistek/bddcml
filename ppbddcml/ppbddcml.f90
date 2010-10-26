@@ -19,7 +19,7 @@ program ppbddcml
 ! programmed by Jakub Sistek            Bologna               14.10.2010 
 !***********************************************************************
 
-use module_graph
+use module_pp
 use module_utils
 
 implicit none
@@ -39,6 +39,10 @@ integer,parameter :: num_files_lim = 400
 real(kr),parameter :: numerical_zero = 1e-15_kr
 ! maximal number of entries in element matrix
 integer,parameter :: lelmx = 7921
+! maximal length of problemname
+integer,parameter:: lproblemnamex = 100
+! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
+integer,parameter:: lfilenamex = 130
 !######### END OF PARAMETERS TO SET
 
 
@@ -49,7 +53,8 @@ integer,parameter:: idpar = 1, idgmi = 2, ides = 4, &
 integer :: myid, comm_all, comm_self, nproc, ierr 
 integer :: stat(MPI_STATUS_SIZE)
 
-integer:: ndim, nsub, nelem, ndof, nnod, nnodc, meshdim
+integer:: ndim, nsub, nelem, ndof, nnod, nnodc, maxit, ndecrmax, meshdim
+real(kr) :: tol
 
 integer ::           linet,   lnnet
 integer,allocatable:: inet(:), nnet(:)
@@ -67,7 +72,6 @@ integer*4,allocatable:: inet_loc(:)
 integer ::           lpart_loc
 integer,allocatable:: part_loc(:)
 
-integer,parameter:: lproblemnamex = 100, lfilenamex = 130
 character(lproblemnamex):: problemname
 character(lfilenamex)   :: filename
 
@@ -97,6 +101,7 @@ integer :: point_kadjsub, indadj, nadjs
 
 integer :: indinet_loc, indnnet_loc
 integer :: ine, nne, indiets
+integer :: lproblemname
 
 ! time variables
 real(kr) :: t_part, t_element_files, t_neighbourings, t_total
@@ -122,19 +127,8 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
          write(*,'(a)') '|_|    |_|    |_____/|_____/|_____/ \____/|_|   |_|______|'
          write(*,'(a)') 'PPBDDCML - Parallel Pre/Post-processor for BDDC multilevel'
          write(*,'(a)') '=========================================================='
-
-
-         ! Name of the problem
-   10    write(*,'(a)') 'Name of the problem: '
-         call flush(6)
-         read(*,*) problemname
-         if(problemname.eq.' ') goto 10
-
       end if
-! Broadcast of name of the problem      
-!***************************************************************PARALLEL
-      call MPI_BCAST(problemname, lproblemnamex, MPI_CHARACTER, 0, comm_all, ierr)
-!***************************************************************PARALLEL
+      call pp_pget_problem_name(comm_all,problemname,lproblemnamex,lproblemname)
 
       if (myid.eq.0) then
          write (*,'(a)') 'Minimal number of shared nodes to call elements adjacent: '
@@ -157,15 +151,9 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
          filename = trim(problemname)//'.PAR'
          open (unit=idpar,file=filename,status='old',form='formatted')
       end if
-
 ! Reading basic properties 
+      call pp_pread_par_file(comm_all,idpar, ndim, nsub, nelem, ndof, nnod, linet, tol, maxit, ndecrmax, meshdim)
       if (myid.eq.0) then
-         read(idpar,*) ndim, nsub, nelem, ndof, nnod, nnodc, linet
-         read(idpar,*,err=18) meshdim
-         goto 19
- 18      meshdim = ndim
-         write (*,*) 'Default dimension of the mesh: ',meshdim
- 19      continue
          write(*,*)'Characteristics of the problem ',trim(problemname), ':'
          write(*,*)'  number of processors            nproc =',nproc
          write(*,*)'  number of dimensions             ndim =',ndim
@@ -182,17 +170,6 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
          end if
          call flush(6)
       end if
-! Broadcast basic properties of the problem
-!***************************************************************PARALLEL
-      call MPI_BCAST(ndim,     1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(nsub,     1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(nelem,    1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(ndof,     1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(nnod,     1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(nnodc,    1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(linet,    1,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(meshdim,  1,MPI_INTEGER,         0, comm_all, ierr)
-!***************************************************************PARALLEL
 
 !*****************PROFILING
       if (profile) then
@@ -205,13 +182,11 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
       if (myid.eq.0) then
          filename = trim(problemname)//'.GMIS'
          open (unit=idgmi,file=filename,status='old',form='formatted')
-         rewind idgmi
          linet = linet
          lnnet = nelem
          allocate(inet(linet),nnet(lnnet))
 ! read fields INET and NNET from GMIS file
-         read(idgmi,*) inet
-         read(idgmi,*) nnet
+         call pp_read_pmd_mesh_basic(idgmi,inet,linet,nnet,lnnet)
          close(idgmi)
       end if
 
@@ -298,7 +273,7 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
 
 ! divide mesh into subdomains by ParMetis
       graphtype = 0 ! no weights
-      call graph_pdivide_mesh(myid,nproc,comm_all,graphtype,neighbouring,nelem,nelem_loc,profile,&
+      call pp_pdivide_mesh(myid,nproc,comm_all,graphtype,neighbouring,nelem,nelem_loc,&
                               inet_loc,linet_loc,nnet_loc,lnnet_loc,nsub,&
                               edgecut,part_loc,lpart_loc)
       if (myid.eq.0) then
@@ -347,6 +322,7 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
       end if
 !*****************PROFILING
 
+
 ! CREATE SUBDOMAIN FILES WITH ELEMENT MATRICES
 !*****************PROFILING
       if (profile) then
@@ -354,7 +330,6 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
          call time_start
       end if
 !*****************PROFILING
-
 
       ! prepare memory for one element matrix
       allocate(elm(lelmx))
@@ -373,7 +348,6 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
          call error_exit
       end if
 
-
       ! open ELM file on root processor
       if (myid.eq.0) then
          ! ELM - element stiffness matrices - structure:
@@ -385,7 +359,7 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
       ! open subdomain files at each processor
       do isub = sub_start,sub_finish
          idelms = idbase + isub - sub_start + 1
-         call getfname(problemname,isub,'ELM',filename)
+         call getfname(problemname(1:lproblemname),isub,'ELM',filename)
          if (debug) then
             write(*,*) 'myid =',myid,': Creating file ',trim(filename)
          end if
@@ -441,6 +415,7 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
       end if
 !*****************PROFILING
 
+
 ! FIND NEIGBHBOURINGS
 !*****************PROFILING
       if (profile) then
@@ -453,21 +428,15 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
       if (myid.eq.0) then
          filename = trim(problemname)//'.GMIS'
          open (unit=idgmi,file=filename,status='old',form='formatted')
-         rewind idgmi
       end if
       linet = linet
       lnnet = nelem
       allocate(inet(linet),nnet(lnnet))
+      call pp_pread_pmd_mesh_basic(comm_all,idgmi,inet,linet,nnet,lnnet)
 ! read fields INET and NNET from GMIS file
       if (myid.eq.0) then
-         read(idgmi,*) inet
-         read(idgmi,*) nnet
          close(idgmi)
       end if
-!***************************************************************PARALLEL
-      call MPI_BCAST(inet,  linet,MPI_INTEGER,         0, comm_all, ierr)
-      call MPI_BCAST(nnet,  lnnet,MPI_INTEGER,         0, comm_all, ierr)
-!***************************************************************PARALLEL
 
       lnelemsa = nsub ! number of elements in subdomains
       allocate(nelemsaaux(lnelemsa),nelemsa(lnelemsa))
@@ -523,6 +492,7 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
             indinet = indinet + nne
          end do
       end do
+      deallocate(inet,nnet)
       ! create new IETS with elements ordered subdomain by subdomain
       indiets = 0
       do isub = 1,nsub
@@ -531,7 +501,6 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
             iets(indiets) = isub
          end do
       end do
-      deallocate(inet,nnet)
 
       ! debug
       !write(*,*) 'nnet_loc',nnet_loc
@@ -541,7 +510,7 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
       lkadjsub = nsub * nsub_loc
       allocate(kadjsub(lkadjsub))
       kadjsub = 0
-      call graph_pget_sub_neighbours(myid,nproc,comm_all,1,nelem,nelem_loc,nsub,nsub_loc,sub_start,&
+      call pp_pget_sub_neighbours(myid,nproc,comm_all,1,nelem,nelem_loc,nsub,nsub_loc,sub_start,&
                                      inet_loc,linet_loc,nnet_loc,lnnet_loc, iets,liets,debug, kadjsub,lkadjsub)
 
       ! decode kadjsub
@@ -583,6 +552,8 @@ real(kr) :: t_part, t_element_files, t_neighbourings, t_total
       ! debug
       write(*,*) 'nadj',nadj
       write(*,*) 'adj',adj
+
+
 
 
       deallocate(adj)

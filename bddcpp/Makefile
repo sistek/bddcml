@@ -18,10 +18,12 @@ all: bddcpp
 
 # general rule s for compiling objects
 %.o : %.f90
-	$(MPFC) $(FFLAGS) $(INC) -c $<
+	$(FC) $(FFLAGS) $(INC) -c $<
 
 # module dependencies
 bddcpp.o: \
+   ../common_blocks/module_pp.o \
+   ../common_blocks/pget_sub_neighbours.o \
    ../common_blocks/module_graph.o \
    ../common_blocks/module_tecplot.o \
    ../common_blocks/module_utils.o
@@ -29,6 +31,8 @@ bddcpp.o: \
 # building binaries
 bddcpp: \
    bddcpp.o \
+   ../common_blocks/module_pp.o \
+   ../common_blocks/pget_sub_neighbours.o \
    ../common_blocks/module_graph.o \
    ../common_blocks/module_parsing.o \
    ../common_blocks/module_tecplot.o \

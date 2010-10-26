@@ -26,6 +26,9 @@ bddcml.o: \
    ../common_blocks/module_krylov_types_def.o \
    ../common_blocks/module_levels.o \
    ../common_blocks/module_adaptivity.o \
+   ../common_blocks/module_pp.o \
+   ../common_blocks/module_graph.o \
+   ../common_blocks/module_parsing.o \
    ../common_blocks/module_dd.o \
    ../common_blocks/module_mumps.o \
    ../common_blocks/module_sm.o \
@@ -37,6 +40,10 @@ bddcml: \
    ../common_blocks/module_krylov_types_def.o \
    ../common_blocks/module_levels.o \
    ../common_blocks/module_adaptivity.o \
+   ../common_blocks/module_pp.o \
+   ../common_blocks/pget_sub_neighbours.o \
+   ../common_blocks/module_graph.o \
+   ../common_blocks/module_parsing.o \
    ../common_blocks/module_dd.o \
    ../common_blocks/module_mumps.o \
    ../common_blocks/module_sm.o \

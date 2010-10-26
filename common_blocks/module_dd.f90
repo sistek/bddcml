@@ -93,9 +93,9 @@ module module_dd
          real(kr),allocatable :: bc(:)        ! BC array - eliminated entries of stiffness matrix multiplied by values of fixed variables 
 
          ! description of corners
-         integer ::             nnodc                  ! number of corners on subdomain
+         integer ::             ncorner                  ! number of corners on subdomain
          integer ::             lglobal_corner_number  ! length of array GLOBAL_CORNER_NUMBER
-         integer, allocatable :: global_corner_number(:) ! global numbers of these corners - length NNODC
+         integer, allocatable :: global_corner_number(:) ! global numbers of these corners - length NCORNER
          integer ::             licnsin                 ! length of array ICNSIN
          integer, allocatable :: icnsin(:)              ! ICNSIN array - indices of corner nodes in subdomain interface numbering
 
@@ -275,24 +275,37 @@ subroutine dd_init(nsub)
 
 end subroutine
 
-!**********************************************
-subroutine dd_distribute_subdomains(nsub,nproc)
-!**********************************************
-! Subroutine for distribution of load to processors
+!**********************************************************************************
+subroutine dd_distribute_subdomains(isubstart,isubfinish,sub2proc,lsub2proc, nproc)
+!**********************************************************************************
+! Subroutine for loading distribution of subdomains to processors
+      use module_utils
       implicit none
-! Global number of subdomains
-      integer,intent(in) :: nsub
+! starting index of subdomain
+      integer,intent(in) :: isubstart
+! final index of subdomain
+      integer,intent(in) :: isubfinish
+! sub2proc array
+      integer,intent(in) :: lsub2proc
+      integer,intent(in) ::  sub2proc(lsub2proc)
 ! Number of processors
       integer,intent(in) :: nproc
 
-! local variables
-      integer :: iproc, isub_loc, isub, nsub_locx
+      ! local vars
+      integer :: iproc, isub, nsub
 
-      nsub_locx = (nsub + nproc - 1)/nproc
-      isub = 0
+
+      ! check data
+      nsub = isubfinish - isubstart + 1
+      if (nproc+1.ne.lsub2proc) then
+         call error('DD_DISTRIBUTE_SUBDOMAINS','data length mismatch')
+      end if
+      if (nsub.ne.maxval(sub2proc)-1) then
+         call error('DD_DISTRIBUTE_SUBDOMAINS','number of subdomains mismatch')
+      end if
+      
       do iproc = 0,nproc-1
-         do isub_loc = 1,nsub_locx
-            isub = isub + 1
+         do isub = sub2proc(iproc+1),sub2proc(iproc+2) - 1
             if (isub.le.nsub) then
                sub(isub)%proc = iproc
                sub(isub)%is_proc_assigned = .true.
@@ -301,23 +314,25 @@ subroutine dd_distribute_subdomains(nsub,nproc)
       end do
 end subroutine
 
-!**************************************************
-subroutine dd_read_mesh_from_file(myid,problemname)
-!**************************************************
+!*******************************************************
+subroutine dd_read_mesh_from_file(myid,isub,problemname)
+!*******************************************************
 ! Subroutine for initialization of subdomain data
       use module_utils
       implicit none
 
 ! number of processor
       integer,intent(in) :: myid
+! number of subdomain
+      integer,intent(in) :: isub
 ! name of problem
       character(*),intent(in) :: problemname
 
 ! local variables
-      integer :: isub, idsmd, iglob, ivar, ignode
+      integer :: idsmd, iglob, ivar, ignode
       character(100):: fname
 
-      integer :: nelem, nnod, ndof, ndim, nnodc, nglob, nadj
+      integer :: nelem, nnod, ndof, ndim, ncorner, nglob, nadj
       integer ::             lnndf,   lnnet,   linet 
       integer, allocatable :: nndf(:), nnet(:), inet(:)
       integer ::             lisngn
@@ -354,167 +369,169 @@ subroutine dd_read_mesh_from_file(myid,problemname)
       integer ::              lrhss
       real(kr), allocatable :: rhss(:)
 
-      do isub = 1,lsub
-         if (sub(isub)%proc .eq. myid) then
+      if (.not.sub(isub)%is_proc_assigned) then
+         call error('DD_READ_MESH_FROM_FILE','subdomain not assigned to a processor')
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         return
+      end if
 
-            ! open subdomain SMD file with mesh description
-            call getfname(problemname,isub,'SMD',fname)
-            if (debug) then
-               write(*,*) 'DD_READ_MESH_FROM_FILE: Opening file fname: ', trim(fname)
-            end if
-            call allocate_unit(idsmd)
-            open (unit=idsmd,file=trim(fname),status='old',form='formatted')
+      ! open subdomain SMD file with mesh description
+      call getfname(problemname,isub,'SMD',fname)
+      if (debug) then
+         write(*,*) 'DD_READ_MESH_FROM_FILE: Opening file fname: ', trim(fname)
+      end if
+      call allocate_unit(idsmd)
+      open (unit=idsmd,file=trim(fname),status='old',form='formatted')
 
-            ! read data from file
-            ! ---header
-            read(idsmd,*) nelem, nnod, ndof, ndim
+      ! read data from file
+      ! ---header
+      read(idsmd,*) nelem, nnod, ndof, ndim
 
-            ! ---NNDF array
-            ! ---NNET array
-            lnndf = nnod
-            lnnet = nelem
-            allocate (nndf(lnndf),nnet(lnnet))
-            read(idsmd,*) nndf
-            read(idsmd,*) nnet
+      ! ---NNDF array
+      ! ---NNET array
+      lnndf = nnod
+      lnnet = nelem
+      allocate (nndf(lnndf),nnet(lnnet))
+      read(idsmd,*) nndf
+      read(idsmd,*) nnet
 
-            ! ---INET array
-            linet = sum(nnet)
-            allocate (inet(linet))
-            read(idsmd,*) inet
+      ! ---INET array
+      linet = sum(nnet)
+      allocate (inet(linet))
+      read(idsmd,*) inet
 
-            ! ---ISNGN array
-            lisngn = nnod
-            allocate (isngn(lisngn))
-            read(idsmd,*) isngn
+      ! ---ISNGN array
+      lisngn = nnod
+      allocate (isngn(lisngn))
+      read(idsmd,*) isngn
 
-            ! ---ISEGN array
-            lisegn = nelem
-            allocate (isegn(lisegn))
-            read(idsmd,*) isegn
+      ! ---ISEGN array
+      lisegn = nelem
+      allocate (isegn(lisegn))
+      read(idsmd,*) isegn
 
-            ! --- coordinates
-            lxyz1 = nnod
-            lxyz2 = ndim
-            allocate(xyz(lxyz1,lxyz2))
-            read(idsmd,*) xyz
+      ! --- coordinates
+      lxyz1 = nnod
+      lxyz2 = ndim
+      allocate(xyz(lxyz1,lxyz2))
+      read(idsmd,*) xyz
 
-            ! ---interface data
-            read(idsmd,*) nnodi
-            read(idsmd,*) ndofi
-            read(idsmd,*) ndofo
+      ! ---interface data
+      read(idsmd,*) nnodi
+      read(idsmd,*) ndofi
+      read(idsmd,*) ndofo
 
-            liin    = nnodi
-            liivsvn = ndofi
-            liovsvn = ndofo
-            allocate (iin(liin), iivsvn(liivsvn), iovsvn(liovsvn))
-            read(idsmd,*) iin
-            read(idsmd,*) iivsvn
-            read(idsmd,*) iovsvn
+      liin    = nnodi
+      liivsvn = ndofi
+      liovsvn = ndofo
+      allocate (iin(liin), iivsvn(liivsvn), iovsvn(liovsvn))
+      read(idsmd,*) iin
+      read(idsmd,*) iivsvn
+      read(idsmd,*) iovsvn
 
-            ! --- boundary conditions
-            lifix = ndof
-            lfixv = ndof
-            allocate(ifix(lifix),fixv(lfixv))
-            read(idsmd,*) ifix
-            read(idsmd,*) fixv
+      ! --- boundary conditions
+      lifix = ndof
+      lfixv = ndof
+      allocate(ifix(lifix),fixv(lfixv))
+      read(idsmd,*) ifix
+      read(idsmd,*) fixv
 
-            ! --- neighbouring
-            read(idsmd,*) nadj
-            liadj = nadj
-            allocate(iadj(liadj))
-            read(idsmd,*) iadj
+      ! --- neighbouring
+      read(idsmd,*) nadj
+      liadj = nadj
+      allocate(iadj(liadj))
+      read(idsmd,*) iadj
 
-            ! --- corners 
-            read(idsmd,*) nnodc
-            lglobal_corner_number = nnodc
-            licnsin               = nnodc
-            allocate(global_corner_number(lglobal_corner_number),icnsin(licnsin))
-            read(idsmd,*) global_corner_number
-            read(idsmd,*) icnsin
+      ! --- corners 
+      read(idsmd,*) ncorner
+      lglobal_corner_number = ncorner
+      licnsin               = ncorner
+      allocate(global_corner_number(lglobal_corner_number),icnsin(licnsin))
+      read(idsmd,*) global_corner_number
+      read(idsmd,*) icnsin
 
-            ! --- globs
-            read(idsmd,*) nglob
-            lglobal_glob_number = nglob
-            lnglobvar           = nglob
-            lnglobnodes         = nglob
-            allocate(global_glob_number(lglobal_glob_number),nglobvar(lnglobvar),nglobnodes(lnglobnodes))
-            read(idsmd,*) global_glob_number
+      ! --- globs
+      read(idsmd,*) nglob
+      lglobal_glob_number = nglob
+      lnglobvar           = nglob
+      lnglobnodes         = nglob
+      allocate(global_glob_number(lglobal_glob_number),nglobvar(lnglobvar),nglobnodes(lnglobnodes))
+      read(idsmd,*) global_glob_number
 
-            read(idsmd,*) nglobnodes
-            lignsin1 = nglob
-            lignsin2 = maxval(nglobnodes)
-            allocate(ignsin(lignsin1,lignsin2))
-            do iglob = 1,nglob
-               ! read glob variables
-               read(idsmd,*) (ignsin(iglob,ignode),ignode = 1,nglobnodes(iglob))
-               ! pad the glob with zeros
-               do ignode = nglobnodes(iglob) + 1,lignsin2
-                  ignsin(iglob,ignode) = 0
-               end do
-            end do
-            read(idsmd,*) nglobvar
-            ligvsivn1 = nglob
-            ligvsivn2 = maxval(nglobvar)
-            allocate(igvsivn(ligvsivn1,ligvsivn2))
-            do iglob = 1,nglob
-               ! read glob variables
-               read(idsmd,*) (igvsivn(iglob,ivar),ivar = 1,nglobvar(iglob))
-               ! pad the glob with zeros
-               do ivar = nglobvar(iglob) + 1,ligvsivn2
-                  igvsivn(iglob,ivar) = 0
-               end do
-            end do
-            lglob_type = nglob
-            allocate(glob_type(lglob_type))
-            read(idsmd,*) glob_type
-
-            ! --- right hand side
-            lrhss = ndof
-            allocate(rhss(lrhss))
-            read(idsmd,*) rhss
-
-            close(idsmd)
-            if (debug) then
-               write(*,*) 'DD_READ_MESH_FROM_FILE: Data read successfully.'
-            end if
-
-            ! load data to structure
-            call dd_upload_mesh(myid,isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, nnodc, nglob, nadj,&
-                                nndf,lnndf, nnet,lnnet, inet,linet, isngn,lisngn, isegn,lisegn,&
-                                xyz,lxyz1,lxyz2, &
-                                iin,liin, iivsvn,liivsvn, iovsvn,liovsvn,&
-                                global_corner_number,lglobal_corner_number, icnsin,licnsin,&
-                                global_glob_number,lglobal_glob_number,nglobnodes,lnglobnodes, nglobvar,lnglobvar,&
-                                ignsin,lignsin1,lignsin2, igvsivn,ligvsivn1,ligvsivn2,glob_type,lglob_type, iadj,liadj)
-            call dd_load_bc(myid,isub, ifix,lifix, fixv,lfixv)
-            call dd_load_rhs(myid,isub, rhss,lrhss)
-
-            if (debug) then
-               write(*,*) 'DD_READ_MESH_FROM_FILE: Data loaded successfully.'
-            end if
-
-            deallocate (nndf,nnet)
-            deallocate (inet)
-            deallocate (isngn)
-            deallocate (isegn)
-            deallocate (xyz)
-            deallocate (iin, iivsvn, iovsvn)
-            deallocate (iadj)
-            deallocate (ifix,fixv)
-            deallocate (glob_type)
-            deallocate (global_glob_number,nglobvar,nglobnodes)
-            deallocate (ignsin)
-            deallocate (igvsivn)
-            deallocate (global_corner_number,icnsin)
-            deallocate (rhss)
-         end if
+      read(idsmd,*) nglobnodes
+      lignsin1 = nglob
+      lignsin2 = maxval(nglobnodes)
+      allocate(ignsin(lignsin1,lignsin2))
+      do iglob = 1,nglob
+         ! read glob variables
+         read(idsmd,*) (ignsin(iglob,ignode),ignode = 1,nglobnodes(iglob))
+         ! pad the glob with zeros
+         do ignode = nglobnodes(iglob) + 1,lignsin2
+            ignsin(iglob,ignode) = 0
+         end do
       end do
+      read(idsmd,*) nglobvar
+      ligvsivn1 = nglob
+      ligvsivn2 = maxval(nglobvar)
+      allocate(igvsivn(ligvsivn1,ligvsivn2))
+      do iglob = 1,nglob
+         ! read glob variables
+         read(idsmd,*) (igvsivn(iglob,ivar),ivar = 1,nglobvar(iglob))
+         ! pad the glob with zeros
+         do ivar = nglobvar(iglob) + 1,ligvsivn2
+            igvsivn(iglob,ivar) = 0
+         end do
+      end do
+      lglob_type = nglob
+      allocate(glob_type(lglob_type))
+      read(idsmd,*) glob_type
+
+      ! --- right hand side
+      lrhss = ndof
+      allocate(rhss(lrhss))
+      read(idsmd,*) rhss
+
+      close(idsmd)
+      if (debug) then
+         write(*,*) 'DD_READ_MESH_FROM_FILE: Data read successfully.'
+      end if
+
+      ! load data to structure
+      call dd_upload_mesh(myid,isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, ncorner, nglob, nadj,&
+                          nndf,lnndf, nnet,lnnet, inet,linet, isngn,lisngn, isegn,lisegn,&
+                          xyz,lxyz1,lxyz2, &
+                          iin,liin, iivsvn,liivsvn, iovsvn,liovsvn,&
+                          global_corner_number,lglobal_corner_number, icnsin,licnsin,&
+                          global_glob_number,lglobal_glob_number,nglobnodes,lnglobnodes, nglobvar,lnglobvar,&
+                          ignsin,lignsin1,lignsin2, igvsivn,ligvsivn1,ligvsivn2,glob_type,lglob_type, iadj,liadj)
+      call dd_load_bc(myid,isub, ifix,lifix, fixv,lfixv)
+      call dd_load_rhs(myid,isub, rhss,lrhss)
+
+      if (debug) then
+         write(*,*) 'DD_READ_MESH_FROM_FILE: Data loaded successfully.'
+      end if
+
+      deallocate (nndf,nnet)
+      deallocate (inet)
+      deallocate (isngn)
+      deallocate (isegn)
+      deallocate (xyz)
+      deallocate (iin, iivsvn, iovsvn)
+      deallocate (iadj)
+      deallocate (ifix,fixv)
+      deallocate (glob_type)
+      deallocate (global_glob_number,nglobvar,nglobnodes)
+      deallocate (ignsin)
+      deallocate (igvsivn)
+      deallocate (global_corner_number,icnsin)
+      deallocate (rhss)
 
 end subroutine
 
-!************************************************************************
-subroutine dd_read_matrix_from_file(myid,comm_all,problemname,matrixtype)
-!************************************************************************
+!********************************************************************
+subroutine dd_read_matrix_from_file(myid,isub,problemname,matrixtype)
+!********************************************************************
 ! Subroutine for initialization of subdomain data
       use module_utils
       use module_sm
@@ -523,8 +540,8 @@ subroutine dd_read_matrix_from_file(myid,comm_all,problemname,matrixtype)
 
 ! number of processor
       integer,intent(in) :: myid
-! communicator
-      integer,intent(in) :: comm_all
+! index of subdomain
+      integer,intent(in) :: isub
 ! name of problem
       character(*),intent(in) :: problemname
 ! type of matrix
@@ -550,117 +567,108 @@ subroutine dd_read_matrix_from_file(myid,comm_all,problemname,matrixtype)
       integer::              lbc
       real(kr),allocatable :: bc(:)
 
-      ! time variables
-      real(kr) :: t_matrix_import
-
-      integer :: inod, isub, ierr
+      integer :: inod
       integer :: ios
 
-! Measure time for this routine
-      call MPI_BARRIER(comm_all,ierr)
-      call time_start
+! check prerequisites
+      if (.not.sub(isub)%is_proc_assigned) then
+         call error('DD_READ_MATRIX_FROM_FILE','subdomain not assigned to a processor')
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         return
+      end if
+      if (.not.sub(isub)%is_mesh_loaded) then
+         call error('DD_READ_MATRIX_FROM_FILE','mesh not loaded for subdomain')
+      end if
 
-! main loop over subdomains
-      do isub = 1,lsub
-         if (sub(isub)%proc .eq. myid) then
+      ! read data from file
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_READ_MATRIX_FROM_FILE: Mesh is not loaded for subdomain:', isub
+         call error_exit
+      end if
 
-            ! read data from file
-            if (.not.sub(isub)%is_mesh_loaded) then
-               write(*,*) 'DD_READ_MATRIX_FROM_FILE: Mesh is not loaded for subdomain:', isub
-               call error_exit
-            end if
+      ! get data from subdomain
+      nelem = sub(isub)%nelem
+      nnod  = sub(isub)%nnod
 
-            ! get data from subdomain
-            nelem = sub(isub)%nelem
-            nnod  = sub(isub)%nnod
-
-            ! import PMD file to memory
-            call sm_pmd_get_length(matrixtype,nelem,sub(isub)%inet,sub(isub)%linet,&
-                                   sub(isub)%nnet,sub(isub)%lnnet,sub(isub)%nndf,sub(isub)%lnndf,&
-                                   la)
-            ! allocate memory for triplet
-            allocate(i_sparse(la), j_sparse(la), a_sparse(la))
-
-
-            ! Creation of field KDOF(NNOD) with addresses before first global dof of node
-            lkdof = nnod
-            allocate(kdof(lkdof))
-            kdof(1) = 0
-            do inod = 2,nnod
-               kdof(inod) = kdof(inod-1) + sub(isub)%nndf(inod-1)
-            end do
-
-            ! try with subdomain ELM file with element matrices
-            call allocate_unit(idelm)
-            call getfname(problemname,isub,'ELM',fname)
-            open (unit=idelm,file=trim(fname),status='old',form='unformatted',iostat=ios)
-            if (ios.eq.0) then
-               ! the subdomain file should exist, try reading it
-               call sm_pmd_load(idelm,nelem,sub(isub)%inet,sub(isub)%linet,&
-                                sub(isub)%nnet,sub(isub)%lnnet,sub(isub)%nndf,sub(isub)%lnndf,&
-                                kdof,lkdof,&
-                                i_sparse, j_sparse, a_sparse, la)
-               close (idelm)
-            else
-               write(*,*) 'WARNING: File ',trim(fname), ' does not open. Trying with global ELM file...'
-               ! (this could have a negative impact on performance)
-
-               ! use global filename
-               fname = trim(problemname)//'.ELM'
-               open (unit=idelm,file=trim(fname),status='old',form='unformatted')
-               call sm_pmd_load_masked(idelm,nelem,sub(isub)%inet,sub(isub)%linet,&
-                                       sub(isub)%nnet,sub(isub)%lnnet,sub(isub)%nndf,sub(isub)%lnndf,&
-                                       kdof,lkdof,sub(isub)%isegn,sub(isub)%lisegn,&
-                                       i_sparse, j_sparse, a_sparse, la)
-               close (idelm)
-            end if
-            if (debug) then
-               write(*,*) 'DD_READ_MATRIX_FROM_FILE: File with element matrices read.'
-            end if
-
-            ! eliminate boundary conditions
-            if (sub(isub)%is_bc_present) then
-               ndof =  sub(isub)%ndof
-               if (sub(isub)%is_bc_nonzero) then
-                  lbc = ndof
-                  allocate(bc(lbc))
-               else
-                  lbc = 0
-
-               end if
-
-               ! eliminate natural BC
-               call sm_apply_bc(sub(isub)%ifix,sub(isub)%lifix,sub(isub)%fixv,sub(isub)%lfixv,&
-                                i_sparse,j_sparse,a_sparse,la, bc,lbc)
-               if (sub(isub)%is_bc_nonzero) then
-                  call dd_load_eliminated_bc(myid, isub, bc,lbc)
-               end if
-            end if
-
-            ! load matrix to our structure
-            nnza = la
-            is_assembled = .false.
-            call dd_load_matrix_triplet(myid, isub, matrixtype, &
-                                        i_sparse,j_sparse,a_sparse,la,nnza,is_assembled)
+      ! import PMD file to memory
+      call sm_pmd_get_length(matrixtype,nelem,sub(isub)%inet,sub(isub)%linet,&
+                             sub(isub)%nnet,sub(isub)%lnnet,sub(isub)%nndf,sub(isub)%lnndf,&
+                             la)
+      ! allocate memory for triplet
+      allocate(i_sparse(la), j_sparse(la), a_sparse(la))
 
 
-            if (debug) then
-               write(*,*) 'DD_READ_MATRIX_FROM_FILE: isub =',isub,' matrix loaded.'
-            end if
-
-            deallocate(kdof)
-            deallocate(i_sparse, j_sparse, a_sparse)
-            if (allocated(bc)) then
-               deallocate(bc)
-            end if
-         end if
+      ! Creation of field KDOF(NNOD) with addresses before first global dof of node
+      lkdof = nnod
+      allocate(kdof(lkdof))
+      kdof(1) = 0
+      do inod = 2,nnod
+         kdof(inod) = kdof(inod-1) + sub(isub)%nndf(inod-1)
       end do
 
-      call MPI_BARRIER(comm_all,ierr)
-      call time_end(t_matrix_import)
-      ! debug
-      if (myid.eq.0) then
-         write(*,*) 'Time of importing subdomain matrices is: ',t_matrix_import,' s.'
+      ! try with subdomain ELM file with element matrices
+      call allocate_unit(idelm)
+      call getfname(problemname,isub,'ELM',fname)
+      open (unit=idelm,file=trim(fname),status='old',form='unformatted',iostat=ios)
+      if (ios.eq.0) then
+         ! the subdomain file should exist, try reading it
+         call sm_pmd_load(idelm,nelem,sub(isub)%inet,sub(isub)%linet,&
+                          sub(isub)%nnet,sub(isub)%lnnet,sub(isub)%nndf,sub(isub)%lnndf,&
+                          kdof,lkdof,&
+                          i_sparse, j_sparse, a_sparse, la)
+         close (idelm)
+      else
+         write(*,*) 'WARNING: File ',trim(fname), ' does not open. Trying with global ELM file...'
+         ! (this could have a negative impact on performance)
+
+         ! use global filename
+         fname = trim(problemname)//'.ELM'
+         open (unit=idelm,file=trim(fname),status='old',form='unformatted')
+         call sm_pmd_load_masked(idelm,nelem,sub(isub)%inet,sub(isub)%linet,&
+                                 sub(isub)%nnet,sub(isub)%lnnet,sub(isub)%nndf,sub(isub)%lnndf,&
+                                 kdof,lkdof,sub(isub)%isegn,sub(isub)%lisegn,&
+                                 i_sparse, j_sparse, a_sparse, la)
+         close (idelm)
+      end if
+      if (debug) then
+         write(*,*) 'DD_READ_MATRIX_FROM_FILE: File with element matrices read.'
+      end if
+
+      ! eliminate boundary conditions
+      if (sub(isub)%is_bc_present) then
+         ndof =  sub(isub)%ndof
+         if (sub(isub)%is_bc_nonzero) then
+            lbc = ndof
+            allocate(bc(lbc))
+         else
+            lbc = 0
+
+         end if
+
+         ! eliminate natural BC
+         call sm_apply_bc(sub(isub)%ifix,sub(isub)%lifix,sub(isub)%fixv,sub(isub)%lfixv,&
+                          i_sparse,j_sparse,a_sparse,la, bc,lbc)
+         if (sub(isub)%is_bc_nonzero) then
+            call dd_load_eliminated_bc(myid, isub, bc,lbc)
+         end if
+      end if
+
+      ! load matrix to our structure
+      nnza = la
+      is_assembled = .false.
+      call dd_load_matrix_triplet(myid, isub, matrixtype, &
+                                  i_sparse,j_sparse,a_sparse,la,nnza,is_assembled)
+
+
+      if (debug) then
+         write(*,*) 'DD_READ_MATRIX_FROM_FILE: isub =',isub,' matrix loaded.'
+      end if
+
+      deallocate(kdof)
+      deallocate(i_sparse, j_sparse, a_sparse)
+      if (allocated(bc)) then
+         deallocate(bc)
       end if
 
 end subroutine
@@ -818,7 +826,7 @@ subroutine dd_load_eliminated_bc(myid, isub, bc,lbc)
 end subroutine
 
 !*********************************************************************************
-subroutine dd_upload_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, nnodc, nglob, nadj,&
+subroutine dd_upload_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, ncorner, nglob, nadj,&
                           nndf,lnndf, nnet,lnnet, inet,linet, isngn,lisngn, isegn,lisegn,&
                           xyz,lxyz1,lxyz2, &
                           iin,liin, iivsvn,liivsvn, iovsvn,liovsvn, &
@@ -829,7 +837,7 @@ subroutine dd_upload_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndo
 ! Subroutine for loading mesh data into sub structure
       implicit none
 
-      integer,intent(in) :: myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, nnodc, nglob, nadj
+      integer,intent(in) :: myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndofo, ncorner, nglob, nadj
       integer,intent(in) :: lnndf,       lnnet,       linet
       integer,intent(in) ::  nndf(lnndf), nnet(lnnet), inet(linet)
       integer,intent(in) :: lisngn
@@ -933,7 +941,7 @@ subroutine dd_upload_mesh(myid, isub, nelem, nnod, ndof, ndim, nnodi, ndofi, ndo
       end do
 
       ! corner data
-      sub(isub)%nnodc = nnodc
+      sub(isub)%ncorner = ncorner
 
       sub(isub)%lglobal_corner_number = lglobal_corner_number
       allocate(sub(isub)%global_corner_number(lglobal_corner_number))
@@ -1422,62 +1430,59 @@ subroutine dd_map_globc_to_subc(myid,isub, vecgc,lvecgc, vecsc,lvecsc)
 end subroutine
 
 
-!****************************************
-subroutine dd_assembly_local_matrix(myid)
-!****************************************
+!*********************************************
+subroutine dd_assembly_local_matrix(myid,isub)
+!*********************************************
 ! Subroutine for assemblage of matrix
       use module_utils
       use module_sm
       implicit none
 
       integer,intent(in) :: myid
-
-      ! local vars
       integer :: isub
 
-      do isub = 1,lsub
-         if (sub(isub)%proc .eq. myid) then
+      if (sub(isub)%proc .ne. myid) then
+         return
+      end if
 
-            ! check the prerequisities
-            if (.not.sub(isub)%is_matrix_loaded) then
-               write(*,*) 'DD_ASSEMBLY_LOCAL_MATRIX: Matrix is not loaded for subdomain:', isub
-               call error_exit
-            end if
+      ! check the prerequisities
+      if (.not.sub(isub)%is_matrix_loaded) then
+         write(*,*) 'DD_ASSEMBLY_LOCAL_MATRIX: Matrix is not loaded for subdomain:', isub
+         call error_exit
+      end if
 
-            if (debug) then
-               write(*,*) 'DD_ASSEMBLY_LOCAL_MATRIX: Starting assembly of sparse matrix for subdomain:',isub
-            end if
+      if (debug) then
+         write(*,*) 'DD_ASSEMBLY_LOCAL_MATRIX: Starting assembly of sparse matrix for subdomain:',isub
+      end if
 
-            ! call matrix assemblage
-            if (sub(isub)%istorage.eq.1 .or. sub(isub)%istorage.eq.2) then
-               ! assembly triplet
-               call sm_assembly(sub(isub)%i_a_sparse, sub(isub)%j_a_sparse, sub(isub)%a_sparse, sub(isub)%la, sub(isub)%nnza)
-            else
-               write(*,*) 'DD_ASSEMBLY_LOCAL_MATRIX: Matrix in unknown format type:',sub(isub)%istorage
-               call error_exit
-            end if
+      ! call matrix assemblage
+      if (sub(isub)%istorage.eq.1 .or. sub(isub)%istorage.eq.2) then
+         ! assembly triplet
+         call sm_assembly(sub(isub)%i_a_sparse, sub(isub)%j_a_sparse, sub(isub)%a_sparse, sub(isub)%la, sub(isub)%nnza)
+      else
+         write(*,*) 'DD_ASSEMBLY_LOCAL_MATRIX: Matrix in unknown format type:',sub(isub)%istorage
+         call error_exit
+      end if
 
-            if (debug) then
-               write(*,*) 'DD_ASSEMBLY_LOCAL_MATRIX: ... done.'
-            end if
-
-         end if
-      end do
+      if (debug) then
+         write(*,*) 'DD_ASSEMBLY_LOCAL_MATRIX: ... done.'
+      end if
 end subroutine
 
-!******************************************************
-subroutine dd_matrix_tri2blocktri(myid,remove_original)
-!******************************************************
+!***********************************************************
+subroutine dd_matrix_tri2blocktri(myid,isub,remove_original)
+!***********************************************************
 ! Subroutine for conversion of sparse triplet into block format A11, A12, A21, A22
       use module_utils
       implicit none
 
       integer,intent(in) :: myid
+      integer,intent(in) :: isub
       ! deallocate original matrix?
       logical,intent(in) :: remove_original
 
       ! local vars
-      integer :: isub, la, nnza, ndof, ndofi, ndofo
+      integer :: la, nnza, ndof, ndofi, ndofo
       logical :: is_symmetric_storage
       integer :: ia, inddofi, inddofo, idofi, idofo, irow, jcol
       integer :: la11, la12, la21, la22 
@@ -1488,178 +1493,175 @@ subroutine dd_matrix_tri2blocktri(myid,remove_original)
       integer ::            lmaski,   lmasko
       integer,allocatable :: maski(:), masko(:)
 
-      do isub = 1,lsub
-         if (sub(isub)%proc .eq. myid) then
+      if (sub(isub)%proc .ne. myid) then
+         return
+      end if
 
-            ! check the prerequisities
-            if (.not.sub(isub)%is_mesh_loaded) then
-               write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Mesh is not loaded for subdomain:', isub
-               call error_exit
-            end if
-            if (.not.sub(isub)%is_matrix_loaded) then
-               write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Matrix is not loaded for subdomain:', isub
-               call error_exit
-            end if
-            if (sub(isub)%istorage.eq.3 .or. sub(isub)%istorage.eq.4) then
-               write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Matrix already in block triple format, subdomain.'
-               cycle
-            end if
-            if (.not.(sub(isub)%istorage.eq.1 .or. sub(isub)%istorage.eq.2)) then
-               write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Matrix not in single block triple format, subdomain:', isub,&
-                          'type:',sub(isub)%istorage
-               call error_exit
-            end if
+      ! check the prerequisities
+      if (.not.sub(isub)%is_mesh_loaded) then
+         write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Mesh is not loaded for subdomain:', isub
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_matrix_loaded) then
+         write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Matrix is not loaded for subdomain:', isub
+         call error_exit
+      end if
+      if (sub(isub)%istorage.eq.3 .or. sub(isub)%istorage.eq.4) then
+         write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Matrix already in block triple format, subdomain.'
+         return
+      end if
+      if (.not.(sub(isub)%istorage.eq.1 .or. sub(isub)%istorage.eq.2)) then
+         write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Matrix not in single block triple format, subdomain:', isub,&
+                    'type:',sub(isub)%istorage
+         call error_exit
+      end if
 
-            if (sub(isub)%istorage .eq. 1) then
-               is_symmetric_storage = .false.
-            else
-               is_symmetric_storage = .true.
-            end if
+      if (sub(isub)%istorage .eq. 1) then
+         is_symmetric_storage = .false.
+      else
+         is_symmetric_storage = .true.
+      end if
 
-            ! prepare mask of interface and interior nodes
-            ndof   = sub(isub)%ndof
-            lmaski = ndof
-            lmasko = ndof
-            allocate(maski(lmaski),masko(lmasko))
-            call zero(maski,lmaski)
-            call zero(masko,lmasko)
+      ! prepare mask of interface and interior nodes
+      ndof   = sub(isub)%ndof
+      lmaski = ndof
+      lmasko = ndof
+      allocate(maski(lmaski),masko(lmasko))
+      call zero(maski,lmaski)
+      call zero(masko,lmasko)
 
-            ndofi  = sub(isub)%ndofi
-            do idofi = 1,ndofi
-               inddofi = sub(isub)%iivsvn(idofi)
-               maski(inddofi) = idofi
-            end do
-            ndofo  = sub(isub)%ndofo
-            do idofo = 1,ndofo
-               inddofo = sub(isub)%iovsvn(idofo)
-               masko(inddofo) = idofo 
-            end do
+      ndofi  = sub(isub)%ndofi
+      do idofi = 1,ndofi
+         inddofi = sub(isub)%iivsvn(idofi)
+         maski(inddofi) = idofi
+      end do
+      ndofo  = sub(isub)%ndofo
+      do idofo = 1,ndofo
+         inddofo = sub(isub)%iovsvn(idofo)
+         masko(inddofo) = idofo 
+      end do
 
-            if (debug) then
-               ! check consistency of masks
-               if (any(maski.ne.0 .and. masko.ne.0)) then
-                  write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Check of mask consistency failed for subdomain:',isub
-                  call error_exit
-               end if
-               if (any(maski.eq.0 .and. masko.eq.0)) then
-                  write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Check of mask coverage failed for subdomain:',isub
-                  call error_exit
-               end if
-            end if
+      if (debug) then
+         ! check consistency of masks
+         if (any(maski.ne.0 .and. masko.ne.0)) then
+            write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Check of mask consistency failed for subdomain:',isub
+            call error_exit
+         end if
+         if (any(maski.eq.0 .and. masko.eq.0)) then
+            write(*,*) 'DD_MATRIX_TRI2BLOCKTRI: Check of mask coverage failed for subdomain:',isub
+            call error_exit
+         end if
+      end if
 
-            ! count sizes of matrix blocks in question
-            la   = sub(isub)%la
-            nnza = sub(isub)%nnza
-            la11 = 0
-            la12 = 0
-            la21 = 0
-            la22 = 0
-            do ia = 1,nnza
-               irow = sub(isub)%i_a_sparse(ia)
-               jcol = sub(isub)%j_a_sparse(ia)
+      ! count sizes of matrix blocks in question
+      la   = sub(isub)%la
+      nnza = sub(isub)%nnza
+      la11 = 0
+      la12 = 0
+      la21 = 0
+      la22 = 0
+      do ia = 1,nnza
+         irow = sub(isub)%i_a_sparse(ia)
+         jcol = sub(isub)%j_a_sparse(ia)
 
-               ! diagonal blocks
-               if      (maski(irow).eq.0 .and. maski(jcol).eq.0) then
-                  la11 = la11 + 1
-               else if (maski(irow).ne.0 .and. maski(jcol).ne.0) then
-                  la22 = la22 + 1
-               ! offdiagonal blocks
-               else if (maski(irow).eq.0 .and. maski(jcol).ne.0) then
-                  la12 = la12 + 1
-               else if (maski(irow).ne.0 .and. maski(jcol).eq.0) then
-                  la21 = la21 + 1
-               end if
-            end do
-
-            ! prepare space for blocks of matrix
-            sub(isub)%la11   = la11
-            sub(isub)%nnza11 = la11
-            sub(isub)%la22   = la22
-            sub(isub)%nnza22 = la22
-            if (is_symmetric_storage) then
-               la12 = la12 + la21
-               sub(isub)%la12   = la12
-               sub(isub)%nnza12 = la12
-               sub(isub)%la21   = 0
-               sub(isub)%nnza21 = 0
-            else
-               sub(isub)%la12   = la12
-               sub(isub)%nnza12 = la12
-               sub(isub)%la21   = la21
-               sub(isub)%nnza21 = la21
-            end if
-            allocate(sub(isub)%i_a11_sparse(la11),sub(isub)%j_a11_sparse(la11),sub(isub)%a11_sparse(la11))
-            allocate(sub(isub)%i_a22_sparse(la22),sub(isub)%j_a22_sparse(la22),sub(isub)%a22_sparse(la22))
-
-            if (is_symmetric_storage) then
-               allocate(sub(isub)%i_a12_sparse(la12),sub(isub)%j_a12_sparse(la12),sub(isub)%a12_sparse(la12))
-            else
-               allocate(sub(isub)%i_a12_sparse(la12),sub(isub)%j_a12_sparse(la12),sub(isub)%a12_sparse(la12))
-               allocate(sub(isub)%i_a21_sparse(la21),sub(isub)%j_a21_sparse(la21),sub(isub)%a21_sparse(la21))
-            end if
-
-            ! convert matrix to blocks according to interface - denoted by 1 in MASKI array
-            ia11 = 0
-            ia12 = 0
-            ia21 = 0
-            ia22 = 0
-            do ia = 1,nnza
-               irow = sub(isub)%i_a_sparse(ia)
-               jcol = sub(isub)%j_a_sparse(ia)
-               aval = sub(isub)%a_sparse(ia)
-
-               ! diagonal blocks
-               if      (maski(irow).eq.0 .and. maski(jcol).eq.0) then
-                  ia11 = ia11 + 1
-                  sub(isub)%i_a11_sparse(ia11) = masko(irow)
-                  sub(isub)%j_a11_sparse(ia11) = masko(jcol)
-                  sub(isub)%a11_sparse(ia11)   = aval
-               else if (maski(irow).ne.0 .and. maski(jcol).ne.0) then
-                  ia22 = ia22 + 1
-                  sub(isub)%i_a22_sparse(ia22) = maski(irow)
-                  sub(isub)%j_a22_sparse(ia22) = maski(jcol)
-                  sub(isub)%a22_sparse(ia22)   = aval
-               ! offdiagonal blocks
-               else if (maski(irow).eq.0 .and. maski(jcol).ne.0) then
-                  ia12 = ia12 + 1
-                  sub(isub)%i_a12_sparse(ia12) = masko(irow)
-                  sub(isub)%j_a12_sparse(ia12) = maski(jcol)
-                  sub(isub)%a12_sparse(ia12)   = aval
-               else if (maski(irow).ne.0 .and. maski(jcol).eq.0) then
-                  if (is_symmetric_storage) then
-                     ia12 = ia12 + 1
-                     sub(isub)%i_a12_sparse(ia12) = masko(jcol)
-                     sub(isub)%j_a12_sparse(ia12) = maski(irow)
-                     sub(isub)%a12_sparse(ia12)   = aval
-                  else
-                     ia21 = ia21 + 1
-                     sub(isub)%i_a21_sparse(ia21) = maski(irow)
-                     sub(isub)%j_a21_sparse(ia21) = masko(jcol)
-                     sub(isub)%a21_sparse(ia21)   = aval
-                  end if
-               end if
-            end do
-
-            if (is_symmetric_storage) then
-               sub(isub)%istorage = 4
-            else
-               sub(isub)%istorage = 3
-            end if
-
-            sub(isub)%is_blocked = .true.
-
-            deallocate(maski,masko)
-
-            if (remove_original) then
-               deallocate(sub(isub)%i_a_sparse, sub(isub)%j_a_sparse, sub(isub)%a_sparse)
-               sub(isub)%la   = 0
-               sub(isub)%nnza = 0
-               sub(isub)%is_triplet = .false.
-            end if
-
+         ! diagonal blocks
+         if      (maski(irow).eq.0 .and. maski(jcol).eq.0) then
+            la11 = la11 + 1
+         else if (maski(irow).ne.0 .and. maski(jcol).ne.0) then
+            la22 = la22 + 1
+         ! offdiagonal blocks
+         else if (maski(irow).eq.0 .and. maski(jcol).ne.0) then
+            la12 = la12 + 1
+         else if (maski(irow).ne.0 .and. maski(jcol).eq.0) then
+            la21 = la21 + 1
          end if
       end do
 
+      ! prepare space for blocks of matrix
+      sub(isub)%la11   = la11
+      sub(isub)%nnza11 = la11
+      sub(isub)%la22   = la22
+      sub(isub)%nnza22 = la22
+      if (is_symmetric_storage) then
+         la12 = la12 + la21
+         sub(isub)%la12   = la12
+         sub(isub)%nnza12 = la12
+         sub(isub)%la21   = 0
+         sub(isub)%nnza21 = 0
+      else
+         sub(isub)%la12   = la12
+         sub(isub)%nnza12 = la12
+         sub(isub)%la21   = la21
+         sub(isub)%nnza21 = la21
+      end if
+      allocate(sub(isub)%i_a11_sparse(la11),sub(isub)%j_a11_sparse(la11),sub(isub)%a11_sparse(la11))
+      allocate(sub(isub)%i_a22_sparse(la22),sub(isub)%j_a22_sparse(la22),sub(isub)%a22_sparse(la22))
+
+      if (is_symmetric_storage) then
+         allocate(sub(isub)%i_a12_sparse(la12),sub(isub)%j_a12_sparse(la12),sub(isub)%a12_sparse(la12))
+      else
+         allocate(sub(isub)%i_a12_sparse(la12),sub(isub)%j_a12_sparse(la12),sub(isub)%a12_sparse(la12))
+         allocate(sub(isub)%i_a21_sparse(la21),sub(isub)%j_a21_sparse(la21),sub(isub)%a21_sparse(la21))
+      end if
+
+      ! convert matrix to blocks according to interface - denoted by 1 in MASKI array
+      ia11 = 0
+      ia12 = 0
+      ia21 = 0
+      ia22 = 0
+      do ia = 1,nnza
+         irow = sub(isub)%i_a_sparse(ia)
+         jcol = sub(isub)%j_a_sparse(ia)
+         aval = sub(isub)%a_sparse(ia)
+
+         ! diagonal blocks
+         if      (maski(irow).eq.0 .and. maski(jcol).eq.0) then
+            ia11 = ia11 + 1
+            sub(isub)%i_a11_sparse(ia11) = masko(irow)
+            sub(isub)%j_a11_sparse(ia11) = masko(jcol)
+            sub(isub)%a11_sparse(ia11)   = aval
+         else if (maski(irow).ne.0 .and. maski(jcol).ne.0) then
+            ia22 = ia22 + 1
+            sub(isub)%i_a22_sparse(ia22) = maski(irow)
+            sub(isub)%j_a22_sparse(ia22) = maski(jcol)
+            sub(isub)%a22_sparse(ia22)   = aval
+         ! offdiagonal blocks
+         else if (maski(irow).eq.0 .and. maski(jcol).ne.0) then
+            ia12 = ia12 + 1
+            sub(isub)%i_a12_sparse(ia12) = masko(irow)
+            sub(isub)%j_a12_sparse(ia12) = maski(jcol)
+            sub(isub)%a12_sparse(ia12)   = aval
+         else if (maski(irow).ne.0 .and. maski(jcol).eq.0) then
+            if (is_symmetric_storage) then
+               ia12 = ia12 + 1
+               sub(isub)%i_a12_sparse(ia12) = masko(jcol)
+               sub(isub)%j_a12_sparse(ia12) = maski(irow)
+               sub(isub)%a12_sparse(ia12)   = aval
+            else
+               ia21 = ia21 + 1
+               sub(isub)%i_a21_sparse(ia21) = maski(irow)
+               sub(isub)%j_a21_sparse(ia21) = masko(jcol)
+               sub(isub)%a21_sparse(ia21)   = aval
+            end if
+         end if
+      end do
+
+      if (is_symmetric_storage) then
+         sub(isub)%istorage = 4
+      else
+         sub(isub)%istorage = 3
+      end if
+
+      sub(isub)%is_blocked = .true.
+
+      deallocate(maski,masko)
+
+      if (remove_original) then
+         deallocate(sub(isub)%i_a_sparse, sub(isub)%j_a_sparse, sub(isub)%a_sparse)
+         sub(isub)%la   = 0
+         sub(isub)%nnza = 0
+         sub(isub)%is_triplet = .false.
+      end if
 end subroutine
 
 !******************************************
@@ -2071,7 +2073,7 @@ subroutine dd_get_cnodes(myid,isub)
       integer,intent(in) :: isub
 
       ! local vars
-      integer ::             nnodc
+      integer ::             ncorner
       integer ::             nglob
       integer ::             ncnodes, lcnodes
       integer ::             icnode, igcnode
@@ -2093,9 +2095,9 @@ subroutine dd_get_cnodes(myid,isub)
 
 
       ! determine number of coarse nodes
-      nnodc = sub(isub)%nnodc
+      ncorner = sub(isub)%ncorner
       nglob = sub(isub)%nglob
-      ncnodes = nnodc + nglob
+      ncnodes = ncorner + nglob
       sub(isub)%ncnodes = ncnodes
 
       lcnodes = ncnodes
@@ -2105,7 +2107,7 @@ subroutine dd_get_cnodes(myid,isub)
       icnode = 0
 
       ! copy corners
-      do inodc = 1,nnodc
+      do inodc = 1,ncorner
          icnode = icnode + 1
 
          indinode = sub(isub)%icnsin(inodc)
@@ -2213,7 +2215,7 @@ subroutine dd_embed_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
       integer,intent(in) ::  nndf_coarse(lnndf_coarse)
 
       ! local vars
-      integer ::             nnodc
+      integer ::             ncorner
       integer ::             nglob
       integer ::             ncnodes
       integer ::             icnode, igcnode
@@ -2240,12 +2242,12 @@ subroutine dd_embed_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
       end if
 
       ! determine number of coarse nodes
-      nnodc = sub(isub)%nnodc
+      ncorner = sub(isub)%ncorner
       nglob = sub(isub)%nglob
-      ncnodes = nnodc + nglob
+      ncnodes = ncorner + nglob
       sub(isub)%ncnodes = ncnodes
 
-      ! create array of global coarse dof KDOFC(NNODC) with addresses before first global dof
+      ! create array of global coarse dof KDOFC(ncorner) with addresses before first global dof
       lkdof_coarse = lnndf_coarse
       allocate(kdof_coarse(lkdof_coarse))
       kdof_coarse(1) = 0
@@ -3795,19 +3797,74 @@ subroutine dd_get_coarse_size(myid,isub,ndofc,ncnodes)
          ndofc = -5
          return
       end if
-      if (.not.sub(isub)%is_coarse_prepared) then
-         write(*,*) 'DD_GET_COARSE_SIZE: Coarse matrix not ready, ',isub
-         call error_exit
-      end if
       if (.not.sub(isub)%is_cnodes_loaded) then
          write(*,*) 'DD_GET_COARSE_SIZE: Coarse nodes not loaded, proc, sub',myid, isub
          call error_exit
       end if
 
       ! if all checks are OK, return subdomain coarse size
-      ndofc = sub(isub)%ndofc
+      ndofc   = sub(isub)%ndofc
       ncnodes = sub(isub)%ncnodes
 
+end subroutine
+
+!**********************************************************
+subroutine dd_get_coarse_cnodes(myid,isub,icnodes,licnodes)
+!**********************************************************
+! Subroutine for finding local size of subdomain coarse vector
+      use module_utils
+      implicit none
+! processor ID
+      integer,intent(in) :: myid
+! Index of subdomain whose data I want to get
+      integer,intent(in) :: isub
+! Global indices of coarse pseudo nodes
+      integer,intent(in)  :: licnodes
+      integer,intent(out) ::  icnodes(licnodes)
+
+      ! local vars
+      integer :: ncnodes, icn
+
+      ! check prerequisites
+      if (.not.allocated(sub).or.isub.gt.lsub) then
+         write(*,*) 'DD_GET_COARSE_CNODES: Trying to localize nonexistent subdomain.'
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_sub_identified) then
+         write(*,*) 'DD_GET_COARSE_CNODES: Subdomain is not identified.'
+         call error_exit
+      end if
+      if (sub(isub)%isub .ne. isub) then
+         write(*,*) 'DD_GET_COARSE_CNODES: Subdomain has strange number.'
+         call error_exit
+      end if
+      if (.not.sub(isub)%is_proc_assigned) then
+         write(*,*) 'DD_GET_COARSE_CNODES: Processor is not assigned.'
+         call error_exit
+      end if
+      if (sub(isub)%proc .ne. myid) then
+         if (debug) then
+            write(*,*) 'DD_GET_COARSE_CNODES: Subdomain ',isub,' is not mine, myid = ',myid
+         end if
+         return
+      end if
+      if (.not.sub(isub)%is_cnodes_loaded) then
+         write(*,*) 'DD_GET_COARSE_CNODES: Coarse nodes not loaded, proc, sub',myid, isub
+         call error_exit
+      end if
+
+      ncnodes = sub(isub)%ncnodes
+
+      ! check length of output array
+      if (ncnodes .ne. licnodes) then
+         write(*,*) 'DD_GET_COARSE_CNODES: requested array has wrong dimension'
+         call error_exit
+      end if
+
+      ! if all checks are OK, return subdomain coarse nodes indices
+      do icn = 1,ncnodes
+         icnodes(icn) = sub(isub)%cnodes(icn)%global_cnode_number
+      end do
 end subroutine
 
 !****************************************************
@@ -3968,9 +4025,9 @@ subroutine dd_get_subdomain_crows(myid,isub,indrowc,lindrowc)
 
 end subroutine
 
-!*********************************************************
-subroutine dd_get_subdomain_corner_number(myid,isub,nnodc)
-!*********************************************************
+!***********************************************************
+subroutine dd_get_subdomain_corner_number(myid,isub,ncorner)
+!***********************************************************
 ! Subroutine for getting corner nodes
       implicit none
 ! processor ID
@@ -3978,7 +4035,7 @@ subroutine dd_get_subdomain_corner_number(myid,isub,nnodc)
 ! Index of subdomain whose data I want to get
       integer,intent(in) :: isub
 ! Corners
-      integer,intent(out) :: nnodc
+      integer,intent(out) :: ncorner
 
       if (.not.allocated(sub).or.isub.gt.lsub) then
          write(*,*) 'DD_GET_SUBDOMAIN_CONRER_NUMBER: Trying to localize nonexistent subdomain.'
@@ -4006,7 +4063,7 @@ subroutine dd_get_subdomain_corner_number(myid,isub,nnodc)
       end if
 
       ! if all checks are OK, return number of corners on subdomain
-      nnodc = sub(isub)%nnodc
+      ncorner = sub(isub)%ncorner
 
 end subroutine
 
@@ -4057,7 +4114,7 @@ subroutine dd_get_subdomain_c(myid,isub,i_c_sparse,j_c_sparse,c_sparse,lc_sparse
       end if
       if (sub(isub)%lc .ne. lc_sparse) then
          write(*,*) 'DD_GET_SUBDOMAIN_C: Size of array for corners not consistent.'
-         write(*,*) 'nnodc :', sub(isub)%lc, 'array size: ',lc_sparse 
+         write(*,*) 'lc :', sub(isub)%lc, 'array size: ',lc_sparse 
          return
       end if
 
@@ -4120,7 +4177,7 @@ subroutine dd_get_subdomain_interface_nndf(myid,isub,nndfi,lnndfi)
       end if
       if (sub(isub)%nnodi .ne. lnndfi) then
          write(*,*) 'DD_GET_SUBDOMAIN_INTERFACE_NNDF: Size of array for interface not consistent.'
-         write(*,*) 'nnodc :', sub(isub)%nnodi, 'array size: ',lnndfi 
+         write(*,*) 'nnodi :', sub(isub)%nnodi, 'array size: ',lnndfi 
          return
       end if
 
@@ -5361,7 +5418,7 @@ subroutine dd_print_sub(myid)
          write(*,*) '     is bc present:           ', sub(isub)%is_bc_present
          write(*,*) '     is bc nonzero:           ', sub(isub)%is_bc_nonzero
          write(*,*) '*** CORNER INFO :             '
-         write(*,*) '     number of corners:       ', sub(isub)%nnodc
+         write(*,*) '     number of corners:       ', sub(isub)%ncorner
          write(*,*) '*** GLOB INFO :               '
          write(*,*) '     number of globs:         ', sub(isub)%nglob
          write(*,*) '*** NEIGHBOURING INFO :       '

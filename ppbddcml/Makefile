@@ -22,6 +22,7 @@ all: \
 
 # module dependencies
 ppbddcml.o: \
+   ../common_blocks/module_pp.o \
    ../common_blocks/module_graph.o \
    ../common_blocks/module_parsing.o \
    ../common_blocks/module_utils.o
@@ -29,8 +30,9 @@ ppbddcml.o: \
 # building binaries
 ppbddcml: \
    ppbddcml.o \
-   ../common_blocks/module_graph.o \
+   ../common_blocks/module_pp.o \
    ../common_blocks/pget_sub_neighbours.o\
+   ../common_blocks/module_graph.o \
    ../common_blocks/module_parsing.o \
    ../common_blocks/module_utils.o
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) 
