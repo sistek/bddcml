@@ -9,7 +9,7 @@ implicit none
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! debugging 
-      logical,parameter,private :: debug = .true.
+      logical,parameter,private :: debug = .false.
 ! profiling 
       logical,parameter,private :: profile = .true.
 ! adjustable parameters ############################
@@ -1534,7 +1534,9 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 !      end do
 
 ! Identify topology of globs
-      write(*,'(a)') 'Identify globs by equivalence classes...'
+      if (debug) then
+         write(*,'(a)') '   identify globs by equivalence classes...'
+      end if
       lnodeglob = nnodi
       allocate(nodeglob(lnodeglob))
       nodeglob = -1
@@ -1557,7 +1559,9 @@ type(neighbouring_type), allocatable :: neighbourings(:)
          end if
       end do
       nglobs = iglob
-      write(*,'(a,i8)') 'Total number of globs is',nglobs
+      if (debug) then
+         write(*,'(a,i8)') 'Total number of globs is',nglobs
+      end if
       if (count(nodeglob.eq.-1).gt.0) then
          call error('GETGLOBS','in nodeglob - unassociated node of interface with glob')
       end if
@@ -1608,12 +1612,14 @@ type(neighbouring_type), allocatable :: neighbourings(:)
          call error('GETGLOBS','Total number of globs does not match.')
       end if
 
-      write(*,*) 'Situation in globs after equivalence class algorithm:'
-      write(*,'(a,i8)') 'nfaces   = ',nfaces
-      write(*,'(a,i8)') 'nedges   = ',nedges
-      write(*,'(a,i8)') 'nvertex  = ',nvertex
-      write(*,'(a)')    '--------------------'
-      write(*,'(a,i8)') 'total    = ',nfaces + nedges + nvertex
+      if (debug) then
+         write(*,*) 'Situation in globs after equivalence class algorithm:'
+         write(*,'(a,i8)') 'nfaces   = ',nfaces
+         write(*,'(a,i8)') 'nedges   = ',nedges
+         write(*,'(a,i8)') 'nvertex  = ',nvertex
+         write(*,'(a)')    '--------------------'
+         write(*,'(a,i8)') 'total    = ',nfaces + nedges + nvertex
+      end if
 
       if (debug) then
          do iglob = 1,nglobs
@@ -1681,7 +1687,9 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       lxyzbase = ndim
       allocate (xyzbase(lxyzbase))
 
-      write(*,*) 'Correction of sufficient number of corners on each subdomain...'
+      if (debug) then
+         write(*,*) '   correction of sufficient number of corners on each subdomain...'
+      end if
       do isub = 1,nsub
 ! Creation of field kmynodes(nnod) - local usage of global nodes
 ! if global node is in my subdomain, assigned 1, else remains 0
@@ -1768,8 +1776,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                   end if
                end do
                if (inodcs.eq.0) then
-                  write(*,*) 'Problem finding already known corners in playground.'
-                  stop
+                  call error('PP_GETGLOBS','Problem finding already known corners in playground.')
                end if
                xyzbase = xyzsh(inodcs,:)
                
@@ -1809,8 +1816,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                   end if
                end do
                if (inodcs1.eq.0) then
-                  write(*,*) 'Problem finding already known corners in playground.'
-                  stop
+                  call error('GETGLOBS','Problem finding already known corners in playground.')
                end if
                inodcs2 = 0
                do inodis = inodcs1+1,nshared
@@ -1820,8 +1826,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                   end if
                end do
                if (inodcs2.eq.0) then
-                  write(*,*) 'Problem finding already known corners in playground.'
-                  stop
+                  call error('GETGLOBS','Problem finding already known corners in playground.')
                end if
                x1 = xyzsh(inodcs1,1)
                y1 = xyzsh(inodcs1,2)
@@ -1872,14 +1877,14 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       ncorners = count(newvertex.eq.1)
       if (ncorners .lt. ncornersmin) then
 ! Set random corners form interface
-         write(*,'(a,$)') '  Selecting random corners...'
+      write(*,'(a,$)') '  Larger number of corners demanded than already selected - adding random corners...'
          do inc = ncorners+1,ncornersmin
   50        call get_random_number(rnd)
             indi = int(rnd*nnodi) + 1
             if (newvertex(indi).eq.1) goto 50
             newvertex(indi) = 1
          end do
-         write(*,'(a)'), '...done.'
+         write(*,'(a)') '...done.'
       end if
       ncorners = count(newvertex.eq.1)
 
@@ -1951,7 +1956,10 @@ type(neighbouring_type), allocatable :: neighbourings(:)
    !            end if
             end if
          end do
-         write(*,*) 'Number of removals of corners for Dirichlet BC:', nremoved_corners_bc
+
+         if (debug) then
+            write(*,*) 'Number of removals of corners for Dirichlet BC:', nremoved_corners_bc
+         end if
       end if
 
 ! remove zeros from list of globs
@@ -1971,13 +1979,17 @@ type(neighbouring_type), allocatable :: neighbourings(:)
          globs(iglob)%nodes(inewnodes+1:) = 0
          globs(iglob)%nnod = inewnodes
       end do
-      write(*,*) 'Number of removals of nodes from nodes of globs:',ncorrections
+      if (debug) then
+         write(*,*) 'Number of removals of nodes from nodes of globs:',ncorrections
+      end if
 
 ! Mark degenerated globs with negative integer in the field glob_type
-      write(*,*) 'I am going to remove ', count(globs%nnod.eq.0.and.globs%itype.ne.-2), &
-                 ' degenerated globs (including all vertices).'
+      if (debug) then
+         write(*,*) 'I am going to remove ', count(globs%nnod.eq.0.and.globs%itype.ne.-2), &
+                    ' degenerated globs (including all vertices).'
+      end if
       where (globs%nnod.eq.0) globs%itype = -2
-         where (globs%nnod.eq.0) globs%selected = .false.
+      where (globs%nnod.eq.0) globs%selected = .false.
 
 ! All vertices should be removed by now - check that
       do iglob = 1,nglobs
@@ -1994,14 +2006,14 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       nfaces   = count(globs%itype.eq.1)
       nedges   = count(globs%itype.eq.2)
       nvertex  = count(globs%itype.eq.3)
-      write(*,*) 'Situation in globs after corrections:'
-      write(*,'(a,i8)') 'nfaces  = ',nfaces
-      write(*,'(a,i8)') 'nedges  = ',nedges
-      write(*,'(a,i8)') 'nvertex = ',nvertex
-      write(*,'(a)')    '--------------------'
-      write(*,'(a,i8)') 'total   = ',nfaces + nedges + nvertex
-      write(*,'(a)')    '--------------------'
-      write(*,'(a,i8)') 'corners = ',count(newvertex.eq.1)
+      write(*,*) '   Situation in globs after corrections:'
+      write(*,'(a,i8)') '    nfaces  = ',nfaces
+      write(*,'(a,i8)') '    nedges  = ',nedges
+      write(*,'(a,i8)') '    nvertex = ',nvertex
+      write(*,'(a)')    '    --------------------'
+      write(*,'(a,i8)') '    total   = ',nfaces + nedges + nvertex
+      write(*,'(a)')    '    --------------------'
+      write(*,'(a,i8)') '    corners = ',count(newvertex.eq.1)
 
 ! Perform check of interface coverage - union of faces, edges, corners and Dirichlet BC should form the whole interface 
 ! moreover, faces, edges and corners should be disjoint
@@ -2040,7 +2052,9 @@ type(neighbouring_type), allocatable :: neighbourings(:)
          stop
       end if
       deallocate(icheck)
-      write(*,*) 'Coverage of interface by globs successfully checked.'
+      if (debug) then
+         write(*,*) '     coverage of interface by globs successfully checked.'
+      end if
       deallocate(kdof)
 
 ! Produce outputs
@@ -2050,7 +2064,11 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       end if
       call zero(kglobs,lkglobs)
       call zero(typeglobs,ltypeglobs)
+
+! order globs as corners, edges, faces
       inodc = 0 ! pseudo coarse nodes (includes corners, edges and faces)
+
+      ! export corners
       do i = 1,nnodi
          if (newvertex(i).eq.1) then
             inodc = inodc + 1
@@ -2059,12 +2077,25 @@ type(neighbouring_type), allocatable :: neighbourings(:)
             typeglobs(indnodeg) = 3
          end if
       end do
-
-      nedges = count(globs%itype.eq.2.and.globs%selected)
-      nfaces = count(globs%itype.eq.1.and.globs%selected)
-! determine length of array inglb
+      ! export edges
+      nedges = 0
       do iglob = 1,nglobs
-         if (globs(iglob)%selected) then
+         if (globs(iglob)%selected.and.globs(iglob)%itype.eq.2) then
+            nedges = nedges + 1
+            inodc = inodc + 1
+            nng  = globs(iglob)%nnod
+            do ing = 1,nng
+               indnodeg = igingn(globs(iglob)%nodes(ing))
+               kglobs(indnodeg)    = inodc
+               typeglobs(indnodeg) = globs(iglob)%itype
+            end do
+         end if
+      end do
+      ! export faces
+      nfaces = 0
+      do iglob = 1,nglobs
+         if (globs(iglob)%selected.and.globs(iglob)%itype.eq.1) then
+            nfaces = nfaces + 1
             inodc = inodc + 1
             nng  = globs(iglob)%nnod
             do ing = 1,nng
@@ -2223,5 +2254,39 @@ end do
 call error('PP_GET_PROC_FOR_SUB','processor not found for subdomain')
 
 end subroutine pp_get_proc_for_sub
+
+!********************************************************************
+subroutine pp_get_nevax(nelem,inet,linet,nnet,lnnet,nndf,lnndf,nevax)
+!********************************************************************
+implicit none
+
+integer,intent(in) :: nelem
+integer,intent(in) :: linet
+integer,intent(in) ::  inet(linet)
+integer,intent(in) :: lnnet
+integer,intent(in) ::  nnet(lnnet)
+integer,intent(in) :: lnndf
+integer,intent(in) ::  nndf(lnndf)
+
+integer,intent(out) ::  nevax ! number of variables on element
+
+! Local variables
+integer :: ie, nevab, indinet, ine, nne, indn
+
+      nevax = 0
+      indinet = 0
+      do ie = 1, nelem
+         nevab = 0
+         nne = nnet(ie)
+         do ine = 1,nne
+            indinet = indinet + 1
+            indn = inet(indinet)
+            nevab = nevab + nndf(indn)
+         end do
+         if (nevab.gt.nevax) then
+            nevax = nevab
+         end if
+     end do
+end subroutine pp_get_nevax
 
 end module module_pp

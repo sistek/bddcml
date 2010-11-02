@@ -74,13 +74,16 @@ module_adaptivity.o: \
    module_utils.o 
 
 module_levels.o: \
+   module_adaptivity.o \
    module_dd.o \
    module_pp.o \
    module_graph.o \
    module_parsing.o \
+   module_krylov_types_def.o \
    module_utils.o 
 
 module_dd.o: \
+   module_pp.o \
    module_mumps.o \
    module_sm.o \
    module_utils.o 
@@ -144,7 +147,7 @@ test_module_pp.o: \
 test_module_utils.o: \
    module_utils.o
 
-lobpcg_mvecmult_f.o: module_adaptivity.o
+lobpcg_mvecmult_f.o: module_levels.o
 
 # building binaries
 test_module_mumps: \
@@ -167,6 +170,10 @@ test_module_bddc: \
    test_module_bddc.o \
    module_bddc.o \
    module_dd.o \
+   module_pp.o \
+   pget_sub_neighbours.o \
+   module_graph.o \
+   module_parsing.o \
    module_mumps.o \
    module_sm.o \
    module_utils.o
@@ -176,6 +183,10 @@ test_module_bddc2: \
    test_module_bddc2.o \
    module_bddc.o \
    module_dd.o \
+   module_pp.o \
+   pget_sub_neighbours.o \
+   module_graph.o \
+   module_parsing.o \
    module_mumps.o \
    module_sm.o \
    module_utils.o
@@ -183,6 +194,7 @@ test_module_bddc2: \
 
 test_module_adaptivity: \
    test_module_adaptivity.o \
+   module_levels.o \
    module_adaptivity.o \
    module_pp.o \
    pget_sub_neighbours.o \

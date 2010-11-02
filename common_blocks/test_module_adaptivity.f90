@@ -13,23 +13,26 @@ program test_module_adaptivity
       ! parallel variables
       integer :: myid, comm_self, comm_all, nproc, ierr
 
-      integer :: idpar, idpair 
+      integer :: idpar, idpair, idcn, idglb
       integer :: npair
 
       integer :: matrixtype
       ! how many pairs are assigned to a processor
       integer :: npair_locx
       integer :: ndim, nsub, nelem, ndof, nnod, nnodc, linet
+      integer :: nsub_loc
 
-      integer :: idlevel
       integer ::             lnndf_coarse
       integer,allocatable ::  nndf_coarse(:)
-      integer :: iaux, ncnodes, nedge, nface
+      integer :: ncnodes, nedge, nface, nglb
 
-      integer ::             lsub2proc
-      integer,allocatable ::  sub2proc(:)
+      integer ::             lnnglb
+      integer,allocatable ::  nnglb(:)
+      integer ::             linglb
+      integer,allocatable ::  inglb(:)
 
-      integer :: isub, glob_type
+
+      integer :: isub, isub_loc, glob_type
       logical :: remove_original 
 
       character(90)  :: problemname 
@@ -37,6 +40,14 @@ program test_module_adaptivity
       character(100) :: filename
 
       real(kr) :: timeaux, timeaux1, timeaux2
+
+      integer ::                         lsubdomains
+      type(subdomain_type),allocatable :: subdomains(:)
+      integer ::             lsub2proc
+      integer,allocatable ::  sub2proc(:)
+      integer ::             lindexsub
+      integer,allocatable ::  indexsub(:)
+
 
       ! MPI initialization
 !***************************************************************PARALLEL
@@ -85,8 +96,6 @@ program test_module_adaptivity
       call MPI_BCAST(linet,    1, MPI_INTEGER,         0, comm_all, ierr)
 !***************************************************************PARALLEL
 
-
-
       ! open file with description of pairs
       if (myid.eq.0) then
          filename = trim(problemname)//'.PAIR'
@@ -102,32 +111,52 @@ program test_module_adaptivity
       call MPI_BARRIER(comm_all,ierr)
       timeaux1 = MPI_WTIME()
 !*******************************************AUX
-      call dd_init(nsub)
+
       lsub2proc = nproc + 1
       allocate(sub2proc(lsub2proc))
       call pp_distribute_subdomains(nsub,nproc,sub2proc,lsub2proc)
+      nsub_loc = sub2proc(myid+2) - sub2proc(myid+1)
+      lsubdomains = nsub_loc
+      lindexsub   = nsub_loc
+      allocate(subdomains(nsub_loc),indexsub(lindexsub))
+      do isub_loc = 1,nsub_loc
+         indexsub(isub_loc) = sub2proc(myid+1) + isub_loc - 1
+      end do
+      do isub_loc = 1,nsub_loc
+         isub = indexsub(isub_loc)
 
-      call dd_distribute_subdomains(1,nsub,sub2proc,lsub2proc,nproc)
-      deallocate(sub2proc)
-      do isub = 1,nsub
-         call dd_read_mesh_from_file(myid,isub,trim(problemname))
-         call dd_read_matrix_from_file(myid,isub,trim(problemname),matrixtype)
-         call dd_assembly_local_matrix(myid,isub)
+         call dd_init(subdomains(isub_loc),isub,nsub,comm_all)
+         call dd_read_mesh_from_file(subdomains(isub_loc),trim(problemname))
+         ! SPD matrix
+         matrixtype = 1
+         call dd_read_matrix_from_file(subdomains(isub_loc),matrixtype,trim(problemname))
+         call dd_assembly_local_matrix(subdomains(isub_loc))
          remove_original = .false.
-         call dd_matrix_tri2blocktri(myid,isub,remove_original)
-         call dd_prepare_schur(myid,comm_self,isub)
+         call dd_matrix_tri2blocktri(subdomains(isub_loc),remove_original)
+         call dd_prepare_schur(subdomains(isub_loc),comm_self)
       end do
 
 ! create coarse mesh 
 ! read second level
       if (myid.eq.0) then
-         filename = trim(problemname)//'.L2'
-         write(*,*) 'Reading data from file ',trim(filename)
-         call allocate_unit(idlevel)
-         open (unit=idlevel,file=filename,status='old',form='formatted')
-
-         read(idlevel,*) iaux, iaux, iaux, iaux
-         read(idlevel,*) nnodc, nedge, nface
+         name = trim(problemname)//'.CN'
+         write(*,*) 'Reading data from file ',trim(name)
+         call allocate_unit(idcn)
+         open (unit=idcn,file=name,status='old',form='formatted')
+         read(idcn,*) nnodc
+         close (idcn)
+         name = trim(problemname)//'.GLB'
+         write(*,*) 'Reading data from file ',trim(name)
+         call allocate_unit(idglb)
+         open (unit=idglb,file=name,status='old',form='formatted')
+         read(idcn,*) nglb,linglb
+         lnnglb = nglb
+         allocate(nnglb(lnnglb),inglb(linglb))
+         read(idglb,*) inglb
+         read(idglb,*) nnglb
+         read(idglb,*) nedge, nface
+         close(idglb)
+         deallocate(nnglb,inglb)
       end if
 !*****************************************************************MPI
       call MPI_BCAST(nnodc,1, MPI_INTEGER, 0, comm_all, ierr)
@@ -147,19 +176,22 @@ program test_module_adaptivity
       ! edges contain ndim coarse dof
       nndf_coarse(nnodc+1:nnodc+nedge) = ndim
 
-      ! start preparing cnodes
-      do isub = 1,nsub
-         call dd_get_cnodes(myid,isub)
+
+      ! auxiliary routine, until reading directly the globs
+      do isub_loc = 1,nsub_loc
+         call dd_construct_cnodes(subdomains(isub_loc))
       end do
+
       ! load arithmetic averages on edges
       glob_type = 2
-      do isub = 1,nsub
-         call dd_load_arithmetic_constraints(myid,isub,glob_type)
+      do isub_loc = 1,nsub_loc
+         call dd_load_arithmetic_constraints(subdomains(isub_loc),glob_type)
       end do
-      ! prepare matrix C for corners and arithmetic averages on edges
-      do isub = 1,nsub
-         call dd_embed_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
-         call dd_prepare_c(myid,isub)
+
+      ! prepare matrix C
+      do isub_loc = 1,nsub_loc
+         call dd_embed_cnodes(subdomains(isub_loc),nndf_coarse,lnndf_coarse)
+         call dd_prepare_c(subdomains(isub_loc))
       end do
 
 !*******************************************AUX
@@ -194,7 +226,8 @@ program test_module_adaptivity
       print *, 'I am processor ',myid,': nproc = ',nproc, 'nsub = ',nsub
       call adaptivity_assign_pairs(npair,nproc,npair_locx)
 
-      call adaptivity_solve_eigenvectors(myid,comm_all,npair_locx,npair,nproc)
+      call adaptivity_solve_eigenvectors(subdomains,lsubdomains,sub2proc,lsub2proc,&
+                                         indexsub,lindexsub,comm_all,npair_locx,npair)
 
       !print *,'nndf_coarse before update:'
       !print *,nndf_coarse
@@ -217,10 +250,9 @@ program test_module_adaptivity
 !*******************************************AUX
 
       ! prepare matrix C for corners, arithmetic averages on edges and adaptive on faces
-      do isub = 1,nsub
-         ! update glob data
-         call dd_embed_cnodes(myid,isub,nndf_coarse,lnndf_coarse)
-         call dd_prepare_c(myid,isub)
+      do isub_loc = 1,nsub_loc
+         call dd_embed_cnodes(subdomains(isub_loc),nndf_coarse,lnndf_coarse)
+         call dd_prepare_c(subdomains(isub_loc))
       end do
 !
 !      ! prepare augmented matrix for BDDC
@@ -234,9 +266,18 @@ program test_module_adaptivity
 !      end do
 
       ! print the output
-      call dd_print_sub(myid)
+      do isub_loc = 1,nsub_loc
+         call dd_print_sub(subdomains(isub_loc))
+      end do
+
    
-      call dd_finalize
+      do isub_loc = 1,nsub_loc
+         call dd_finalize(subdomains(isub_loc))
+      end do
+      deallocate(subdomains)
+      deallocate(indexsub)
+      deallocate(sub2proc)
+      deallocate(nndf_coarse)
 
       ! close file with description of pairs
       if (myid.eq.0) then
@@ -247,7 +288,5 @@ program test_module_adaptivity
 !***************************************************************PARALLEL
       call MPI_FINALIZE(ierr)
 !***************************************************************PARALLEL
-
-      deallocate(nndf_coarse)
 
 end program

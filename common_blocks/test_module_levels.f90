@@ -13,8 +13,10 @@ program test_module_levels
       integer,parameter:: lproblemnamex = 100
       ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
       integer,parameter:: lfilenamex = 130
-      ! was preprocessor run before the solver to create subdomain files?
-      logical,parameter :: use_preprocessor = .false.
+      ! use prepared division into subdomains in file *.ES?
+      logical,parameter :: load_division = .true.
+      ! use prepared selection of corners in file *.CN and description of globs in file *.GLB?
+      logical,parameter :: load_globs = .false.
       ! type of matrix (0 - general, 1 - SPD, 2 - general symmetric)
       integer,parameter :: matrixtype = 1 ! SPD matrix
       ! should arithmetic averages be used?
@@ -55,6 +57,8 @@ program test_module_levels
       real(kr),allocatable:: fixv(:)
       integer ::            lrhs
       real(kr),allocatable:: rhs(:)
+      integer ::            lsol
+      real(kr),allocatable:: sol(:)
 
       character(lproblemnamex) :: problemname 
       character(lfilenamex) :: name
@@ -163,14 +167,19 @@ program test_module_levels
          call flush(6)
       end if
 
+      ! prepare initial solution
+      lsol = ndof
+      allocate(sol(lsol))
+      sol = 0._kr
+
       write (*,*) 'myid = ',myid,': Initializing LEVELS.'
-      !call levels_init(nlevels,nsub)
-      call levels_init_with_zero_level(nlevels,nsublev,lnsublev,nelem,nnod,ndof,&
-                                       inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                       ifix,lifix,fixv,lfixv,rhs,lrhs)
+      call levels_init(nlevels,nsublev,lnsublev,nelem,nnod,ndof,&
+                       inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                       ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
       deallocate(inet,nnet,nndf,xyz)
       deallocate(ifix,fixv)
       deallocate(rhs)
+      deallocate(sol)
 
 !      call levels_init(nlevels,nsub)
 
@@ -187,8 +196,8 @@ program test_module_levels
 !      call levels_prepare_standard_level(ilevel,nsub,1,nsub)
 !
 !      call levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,ndim,problemname)
-      call levels_pc_setup(problemname(1:lproblemname),nsublev,lnsublev,use_preprocessor,correct_division,neighbouring,&
-                           matrixtype,ndim,meshdim,use_arithmetic, use_adaptive)
+      call levels_pc_setup(problemname(1:lproblemname),nsublev,lnsublev,load_division,load_globs,correct_division,&
+                           neighbouring, matrixtype,ndim,meshdim,use_arithmetic, use_adaptive)
       deallocate(nsublev)
 
    !   lvec = 15

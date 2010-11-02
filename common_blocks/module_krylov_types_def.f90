@@ -10,7 +10,6 @@ module module_krylov_types_def
 
 ! type for storing PCG data in distributed manner
       type pcg_data_type
-         logical ::           is_mine = .false.
          integer ::             lsoli
          real(kr),allocatable :: soli(:)     ! array of solution at interface
          integer ::             lresi

@@ -15,8 +15,10 @@ program test_module_dd
 
       integer ::             lsub2proc
       integer,allocatable ::  sub2proc(:)
+      integer ::             lindexsub
+      integer,allocatable ::  indexsub(:)
 
-      integer :: nsub, isub
+      integer :: nsub, isub, nsub_loc, isub_loc
 
       ! only works for this problem
       character(7) :: problemname = 'TESTLAP'
@@ -28,11 +30,14 @@ program test_module_dd
       integer,parameter :: lz = 4
       real(kr) :: z(lz)
 
-      integer idproc
+      integer ::                         lsubdomains
+      type(subdomain_type),allocatable :: subdomains(:)
+
+
+      integer iproc
 
       integer :: i
 
-      logical :: debug = .true.
       logical :: remove_original 
 
       ! MPI initialization
@@ -50,116 +55,113 @@ program test_module_dd
       matrixtype = 1
 
       nsub = 2
-      call dd_init(nsub)
 
       print *, 'I am processor ',myid,': nproc = ',nproc, 'nsub = ',nsub
       lsub2proc = nproc + 1
       allocate(sub2proc(lsub2proc))
       call pp_distribute_subdomains(nsub,nproc,sub2proc,lsub2proc)
-      call dd_distribute_subdomains(1,nsub,sub2proc,lsub2proc,nproc)
-      deallocate(sub2proc)
 
+      nsub_loc = sub2proc(myid+2) - sub2proc(myid+1)
+      lsubdomains = nsub_loc
+      lindexsub   = nsub_loc
+      allocate(subdomains(nsub_loc))
+      allocate(indexsub(lindexsub))
+      do isub_loc = 1,nsub_loc
+         indexsub(isub_loc) = sub2proc(myid+1) + isub_loc - 1
+      end do
+      do isub_loc = 1,nsub_loc
+         isub = indexsub(isub_loc)
 
-      do isub = 1,nsub
+         ! initialize subdomain
+         call dd_init(subdomains(isub_loc),isub,nsub,comm_all)
+
          ! load mesh
-         call dd_read_mesh_from_file(myid,isub,problemname)
+         call dd_read_mesh_from_file(subdomains(isub_loc),trim(problemname))
 
          ! load matrices into the structure
-         call dd_read_matrix_from_file(myid,isub,problemname,matrixtype)
+         call dd_read_matrix_from_file(subdomains(isub_loc),matrixtype,trim(problemname))
 
          ! assembly matrices
-         call dd_assembly_local_matrix(myid,isub)
-
-         ! convert matrix to blocks
-         remove_original = .false.
-         call dd_matrix_tri2blocktri(myid,isub,remove_original)
-
-         ! prepare Schur complements
-         call dd_prepare_schur(myid,comm_self,isub)
+         call dd_assembly_local_matrix(subdomains(isub_loc))
       end do
 
       print *, 'I am here 1'
       call flush(6)
 
       ! create neigbouring 
-      call dd_create_neighbouring(myid,nsub,comm_all)
+      call dd_create_neighbouring(subdomains,lsubdomains, sub2proc,lsub2proc, indexsub,lindexsub, comm_all)
 
       ! prepare weights
-      call dd_weights_prepare(myid, nsub, comm_all)
+      call dd_weights_prepare(subdomains,lsubdomains, sub2proc,lsub2proc, indexsub,lindexsub, comm_all)
+
+      do isub_loc = 1,nsub_loc
+         isub = indexsub(isub_loc)
+
+         ! convert matrix to blocks
+         remove_original = .false.
+         call dd_matrix_tri2blocktri(subdomains(isub_loc),remove_original)
+
+         ! prepare Schur complements
+         call dd_prepare_schur(subdomains(isub_loc),comm_self)
+      end do
 
       ! prepare reduced RHS
-      call dd_prepare_reduced_rhs(myid,nsub,comm_all)
-
-      ! test who owns data for subdomain
-      isub = 1
-      call dd_where_is_subdomain(isub,idproc)
-      write(*,*) 'Subdomain ',isub,' is held on processor ', idproc
-      isub = 2
-      call dd_where_is_subdomain(isub,idproc)
-      write(*,*) 'Subdomain ',isub,' is held on processor ', idproc
+      call dd_prepare_reduced_rhs(subdomains,lsubdomains, sub2proc,lsub2proc, indexsub,lindexsub, comm_all)
 
       ! multiply vector of ones by subdomain # 1
       x = 1.
       y = 0.
-      isub = 1
-      call dd_multiply_by_schur(myid,isub,x,lx,y,ly)
-      write(*,*) 'I am ',myid,'y =',y
-      x = 1.
-      y = 0.
-      isub = 2
-      call dd_multiply_by_schur(myid,isub,x,lx,y,ly)
-      write(*,*) 'I am ',myid,'y =',y
+      do isub = 1,nsub
+         call pp_get_proc_for_sub(isub,comm_all,sub2proc,lsub2proc,iproc)
+         if (myid.eq.iproc) then
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+            call dd_multiply_by_schur(subdomains(isub_loc),x,lx,y,ly)
+            write(*,*) 'I am ',myid,'y =',y
+         end if
+      end do
 
-!      ! auxiliary routine, until reading directly the globs
-!      isub = 1
-!      call dd_get_cnodes(myid,isub)
-!      isub = 2
-!      call dd_get_cnodes(myid,isub)
-!
-!      isub = 1
-!      call dd_prepare_c(myid,isub)
-!      isub = 2
-!      call dd_prepare_c(myid,isub)
-!
-!      ! prepare augmented matrix for BDDC
-!      do isub = 1,nsub
-!         call dd_prepare_aug(myid,comm_self,isub)
-!      end do
-!
-!      ! prepare coarse space basis functions for BDDC
-!      do isub = 1,nsub
-!         call dd_prepare_coarse(myid,isub)
-!      end do
-!
+      ! auxiliary routine, until reading directly the globs
+      !do isub_loc = 1,nsub_loc
+      !   ! construct coarse pseudo nodes
+      !   call dd_construct_cnodes(subdomains(isub_loc))
+      !   ! prepare matrix of constraints C
+      !   call dd_prepare_c(subdomains(isub_loc))
+      !   ! prepare augmented matrix for BDDC
+      !   call dd_prepare_aug(subdomains(isub_loc),comm_self)
+      !   ! prepare coarse space basis functions for BDDC
+      !   call dd_prepare_coarse(subdomains(isub_loc),.false.)
+      !end do
 
       print *, 'I am here 2'
       call flush(6)
 
-!      ! test selection to interface
+      ! test selection to interface
       write(*,*) 'I am ',myid,'Mapping subdomain variables to subdomain interface vars.'
-      do i = 1,4
-         z(i) = float(i)
+      do isub = 1,nsub
+         do i = 1,4
+            z(i) = float(i)
+         end do
+         x = -1._kr
+         call pp_get_proc_for_sub(isub,comm_all,sub2proc,lsub2proc,iproc)
+         if (myid.eq.iproc) then
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_map_sub_to_subi(subdomains(isub_loc), z,lz, x,lx)
+            write(*,*) 'I am ',myid,'z =',z
+            write(*,*) 'I am ',myid,'x =',x
+         end if
       end do
-      isub = 1
-      x = -1._kr
-      call dd_map_sub_to_subi(myid,isub, z,lz, x,lx)
-      write(*,*) 'I am ',myid,'z =',z
-      write(*,*) 'I am ',myid,'x =',x
-      do i = 1,4
-         z(i) = float(i)
+
+      do isub_loc = 1,nsub_loc
+         call dd_print_sub(subdomains(isub_loc))
       end do
-      isub = 2
-      x = -1._kr
-      call dd_map_sub_to_subi(myid,isub, z,lz, x,lx)
-      write(*,*) 'I am ',myid,'z =',z
-      write(*,*) 'I am ',myid,'x =',x
 
-
-      if (debug) then
-         call dd_print_sub(myid)
-      end if
-
-      call dd_finalize
+      do isub_loc = 1,nsub_loc
+         call dd_finalize(subdomains(isub_loc))
+      end do
+      deallocate(subdomains)
+      deallocate(sub2proc)
+      deallocate(indexsub)
    
       print *, 'I am processor ',myid,': Hello 2'
 

@@ -29,8 +29,8 @@ logical,private :: use_dual_problem = .false.
 logical,private :: use_projection   = .false.
 ! Setting if change of variables should be used to apply averages
 logical,private :: use_transform    = .true.
-logical,private :: use_adaptive_averages   = .true.
-logical,private :: use_arithmetic_averages = .false.
+logical,private :: use_adaptive_averages   = .false.
+logical,private :: use_arithmetic_averages = .true.
 
 ! Data for DUAL PROBLEM approach
 ! matrix G with constraints
@@ -1939,7 +1939,7 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
                  ibuf, ia, &
                  point, space_left, store_type, &
                  nglbtr, navgn, indi, indin, &
-                 indj, indjn, jdofn, pointi, pointj, isub, nnodc, icnode
+                 indj, indjn, jdofn, pointi, pointj
       integer :: nnz_right, nnz_left, nnz_new, nnz_add, nnz_transform_as, &
                  nnz_t_est, nnz_t_est_loc, point_t, space_t_left, nnz_t_add
       logical :: correct_sol = .false.
@@ -2067,106 +2067,39 @@ subroutine bddc_T_init(myid,comm,ndim,nglb,inglb,linglb,nnglb,lnnglb,slavery,lsl
 
 
          else if (use_adaptive_averages) then
-            ! number of averages on glob
-            ! same number of subdomains and processors is enforced
-            isub = myid + 1
-            call dd_get_subdomain_corner_number(myid,isub,nnodc)
-
-            icnode = nnodc + iglb
-            call dd_get_adaptive_constraints_size(myid,isub,icnode,lavg1,lavg2)
-
-            ! number of constraints on this glob
-            nconstrgl(iglb) = lavg1
-            if (lavg1.gt.0) then
-
-               !if (lavg1.eq.0) then
-               !   print *,'I am here: lavg1 =',lavg1,'lavg2 =',lavg2
-               !   cycle
-               !end if
-   
-               ! debug - with aritmetic averages
-               !lavg1 = 3
-               ! prepare matrix AVG - local for glob, only averages => rectangular
-               allocate(avg(lavg1,lavg2))
-               ! case of single aritmetic average
-               call dd_get_adaptive_constraints(myid,isub,icnode,avg,lavg1,lavg2)
-               !write(*,*) 'subdomain ',isub,' glob ',iglb
-               !do i = 1,lavg1
-               !   write(*,'(100f12.2)') (avg(i,j),j = 1,lavg2)
-               !end do
-               !debug
-               !write(substring ,'(i1)') myid+1
-               !write(avgstring ,'(i1)') iglb
-               !!avgfile = 'sub_'//substring//'_avg_'//avgstring//'_arithmetic.txt'
-               !avgfile = 'sub_'//substring//'_avg_'//avgstring//'.txt'
-   
-               !print *,'myid =',myid,'opening file',trim(avgfile)
-   
-               !call allocate_unit(iunit)
-               !open(iunit,file=trim(avgfile),status='old',form='formatted')
-               !do i = 1,lavg1
-               !   read(iunit,*) (avg(i,j),j = 1,lavg2)
-               !end do
-               !close(iunit)
-               
-               !print *,'Averages:'
-               !do i = 1,lavg1
-               !   print '(100f14.6)',(avg(i,j),j = 1,lavg2)
-               !end do
-   
-   ! Load matrix to MUMPS
-   !      ltestm1 = ndoft
-   !      ltestm2 = ndoft
-   !      allocate(testm(ltestm1,ltestm2))
-   !      call sm_to_dm(matrixtype,i_sparse, j_sparse, a_sparse,nnz, testm,ltestm1,ltestm2)
-   !      write(98,'(i8)') ndoft
-   !      do i = 1,ltestm1
-   !         write(98,'(1000f10.4)') (testm(i,j),j = 1,ltestm2)
-   !      end do
-   !      deallocate(testm)
-   
-   
-      !         write(*,*) 'Matrix Tinv'
-      !         do i = 1,lt1
-      !            write(*,'(30f10.5)') t(i,:)
-      !         end do
-      
-               ! correct solution if desired
-               ! u^hat = T u
-   !            if (iterate_on_transformed.and.correct_sol) then
-   !               do iglbn = 1,navgn
-   !                  indin = inglb(indinglb + iglbn)
-   !                  pointi = kdoft(indin)
-   !                  do idofn = 1,ndofn
-   !                     indi = pointi + idofn
-   !   
-   !                     valnew = 0._kr
-   !                     do jglbn = 1,nglbn
-   !                        indjn = inglb(indinglb + jglbn)
-   !                        pointj = kdoft(indjn)
-   !   
-   !                        val = avg(iglbn,jglbn)
-   !                        do jdofn = 1,ndofn
-   !                           indj = pointj + jdofn
-   !   
-   !                           if (solt(indj).ne.0._kr.and.val.ne.0._kr) then
-   !                              valnew = valnew + val*solt(indj)
-   !                           end if
-   !                        end do
-   !                     end do
-   !                     solt(indi) = valnew
-   !                  end do
-   !               end do
-   !            end if
-      
-      ! Find inverse of the matrix T
-               nglbv  = lavg2
-               ltdof1 = nglbv
-               ltdof2 = nglbv
-               allocate(tdof(ltdof1,ltdof2))
-               call bddc_T_inverse(avg,lavg1,lavg2,tdof,ltdof1,ltdof2)
-               deallocate(avg)
-            end if ! do only if lavg1 > 0 - number of constraints on glob is nonzero
+            call error('BDDC_T_INIT','Adaptive constraints currently not supported.')
+!            ! number of averages on glob
+!            ! same number of subdomains and processors is enforced
+!            isub = myid + 1
+!            call dd_get_subdomain_corner_number(levels(1)%subdomains(1),nnodc)
+!
+!            icnode = nnodc + iglb
+!            call dd_get_adaptive_constraints_size(levels(1)%subdomains(1),icnode,lavg1,lavg2)
+!
+!            ! number of constraints on this glob
+!            nconstrgl(iglb) = lavg1
+!            if (lavg1.gt.0) then
+!
+!               !if (lavg1.eq.0) then
+!               !   print *,'I am here: lavg1 =',lavg1,'lavg2 =',lavg2
+!               !   cycle
+!               !end if
+!   
+!               ! debug - with aritmetic averages
+!               !lavg1 = 3
+!               ! prepare matrix AVG - local for glob, only averages => rectangular
+!               allocate(avg(lavg1,lavg2))
+!               ! case of single aritmetic average
+!               call dd_get_adaptive_constraints(levels(1)%subdomains(1),icnode,avg,lavg1,lavg2)
+!      
+!      ! Find inverse of the matrix T
+!               nglbv  = lavg2
+!               ltdof1 = nglbv
+!               ltdof2 = nglbv
+!               allocate(tdof(ltdof1,ltdof2))
+!               call bddc_T_inverse(avg,lavg1,lavg2,tdof,ltdof1,ltdof2)
+!               deallocate(avg)
+            !end if ! do only if lavg1 > 0 - number of constraints on glob is nonzero
    
          else 
             write(*,*) 'BDDC_T_INIT: No averages implied.'

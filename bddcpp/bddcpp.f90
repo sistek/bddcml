@@ -863,7 +863,7 @@ integer :: sub_start, sub_finish
 
       call time_start
 ! Find lelmx
-      call get_nevax(nelem,inet,linet,nnet,lnnet,nndf,lnndf,nevax)
+      call pp_get_nevax(nelem,inet,linet,nnet,lnnet,nndf,lnndf,nevax)
       ! for symmetric storage
       lelmx = (nevax+1)*nevax/2
       allocate(elm(lelmx))
@@ -4960,39 +4960,5 @@ do i = nadjs+1,liadjs
 end do
 
 end subroutine get_sub_neighbours
-
-!*****************************************************************
-subroutine get_nevax(nelem,inet,linet,nnet,lnnet,nndf,lnndf,nevax)
-!*****************************************************************
-implicit none
-
-integer,intent(in) :: nelem
-integer,intent(in) :: linet
-integer,intent(in) ::  inet(linet)
-integer,intent(in) :: lnnet
-integer,intent(in) ::  nnet(lnnet)
-integer,intent(in) :: lnndf
-integer,intent(in) ::  nndf(lnndf)
-
-integer,intent(out) ::  nevax ! number of variables on element
-
-! Local variables
-integer :: ie, nevab, indinet, ine, nne, indn
-
-      nevax = 0
-      indinet = 0
-      do ie = 1, nelem
-         nevab = 0
-         nne = nnet(ie)
-         do ine = 1,nne
-            indinet = indinet + 1
-            indn = inet(indinet)
-            nevab = nevab + nndf(indn)
-         end do
-         if (nevab.gt.nevax) then
-            nevax = nevab
-         end if
-     end do
-end subroutine get_nevax
 
 end

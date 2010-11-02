@@ -1,7 +1,7 @@
 module module_adaptivity
 !***********************
 ! Module for adaptive search of constraints for BDDC preconditioner
-! Jakub Sistek, Denver, 3/2009
+! Jakub Sistek, Bologna, 11/2010
 
 !=================================================
 ! basic parameters related to adaptivity
@@ -299,17 +299,27 @@ subroutine adaptivity_get_my_pair(iround,myid,npair_locx,npair,my_pair)
       end if
 end subroutine
 
-!*************************************************************************
-subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
-!*************************************************************************
+!***************************************************************************************************************
+subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexsub,comm,npair_locx,npair)
+!***************************************************************************************************************
 ! Subroutine for parallel solution of distributed eigenproblems
       use module_dd
+      use module_pp
       use module_utils
       implicit none
       include "mpif.h"
 
-! number of processor
-      integer,intent(in) :: myid
+! array of sub structure
+      integer,intent(in) ::                lsuba
+      type(subdomain_type),intent(inout) :: suba(lsuba)
+
+! division of subdomains to processors
+      integer,intent(in) :: lsub2proc
+      integer,intent(in) ::  sub2proc(lsub2proc)
+! global indices of local subdomains
+      integer,intent(in) :: lindexsub
+      integer,intent(in) ::  indexsub(lindexsub)
+
 ! communicator
       integer,intent(in) :: comm
 
@@ -319,11 +329,8 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
 ! Global number of pairs to compute eigenproblems
       integer,intent(in) :: npair
 
-! Number of processors
-      integer,intent(in) :: nproc
-
 ! local variables
-      integer :: isub, jsub, ipair, iactive_pair, iround
+      integer :: isub, jsub, ipair, iactive_pair, iround, isub_loc
       integer :: gglob, my_pair, &
                  nactive_pairs, owner,&
                  place1, place2, pointbuf, i, j, iinstr, icommon,&
@@ -412,7 +419,11 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
       real(kr)::   est = 0, est_round, est_loc
 
       ! MPI related variables
-      integer :: ierr, ireq, nreq
+      integer :: myid, nproc, ierr, ireq, nreq
+
+      ! orient in the communicator
+      call MPI_COMM_RANK(comm,myid,ierr)
+      call MPI_COMM_SIZE(comm,nproc,ierr)
       
       ! allocate table for work instructions - the worst case is that in each
       ! round, I have to compute all the subdomains, i.e. 2 for each pair
@@ -458,8 +469,8 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             comm_myjsub  = pair_data(4)
 
             ! where are these subdomains ?
-            call dd_where_is_subdomain(comm_myisub,comm_myplace1)
-            call dd_where_is_subdomain(comm_myjsub,comm_myplace2)
+            call pp_get_proc_for_sub(comm_myisub,comm,sub2proc,lsub2proc,comm_myplace1)
+            call pp_get_proc_for_sub(comm_myjsub,comm,sub2proc,lsub2proc,comm_myplace2)
          end if
          !write(90+myid,*) 'myid =',myid, 'pair_data:'
          !write(90+myid,*) pair_data
@@ -480,8 +491,8 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             jsub   = pair_data(4)
 
             ! where are these subdomains ?
-            call dd_where_is_subdomain(isub,place1)
-            call dd_where_is_subdomain(jsub,place2)
+            call pp_get_proc_for_sub(isub,comm,sub2proc,lsub2proc,place1)
+            call pp_get_proc_for_sub(jsub,comm,sub2proc,lsub2proc,place2)
             !write(90+myid,*) 'myid =',myid, 'place1:',place1,'place2:',place2
 
 
@@ -532,7 +543,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_interface_size(myid,isub,ndofi,nnodi)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
 
             ireq = ireq + 1
             call MPI_ISEND(ndofi,1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
@@ -566,7 +579,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_number_of_crows(myid,isub,lindrowc)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_number_of_crows(suba(isub_loc),lindrowc)
 
             ireq = ireq + 1
             call MPI_ISEND(lindrowc,1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
@@ -596,7 +611,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_number_of_cnnz(myid,isub,nnzc)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_number_of_cnnz(suba(isub_loc),nnzc)
 
             ireq = ireq + 1
             call MPI_ISEND(nnzc,1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
@@ -626,7 +643,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_interface_size(myid,isub,ndofi,nnodi)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
 
             ireq = ireq + 1
             call MPI_ISEND(nnodi,1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
@@ -670,10 +689,12 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_number_of_crows(myid,isub,lindrowc)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_number_of_crows(suba(isub_loc),lindrowc)
 
             allocate(indrowc(lindrowc))
-            call dd_get_subdomain_crows(myid,isub,indrowc,lindrowc)
+            call dd_get_subdomain_crows(suba(isub_loc),indrowc,lindrowc)
 
             ireq = ireq + 1
             call MPI_ISEND(indrowc,lindrowc,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
@@ -713,11 +734,13 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_number_of_cnnz(myid,isub,nnzc)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_number_of_cnnz(suba(isub_loc),nnzc)
 
             lc_sparse = nnzc
             allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse),c_sparse(lc_sparse))
-            call dd_get_subdomain_c(myid,isub,i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
+            call dd_get_subdomain_c(suba(isub_loc),i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
 
             ireq = ireq + 1
             call MPI_ISEND(i_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
@@ -741,11 +764,13 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_number_of_cnnz(myid,isub,nnzc)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_number_of_cnnz(suba(isub_loc),nnzc)
 
             lc_sparse = nnzc
             allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse),c_sparse(lc_sparse))
-            call dd_get_subdomain_c(myid,isub,i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
+            call dd_get_subdomain_c(suba(isub_loc),i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
 
             ireq = ireq + 1
             call MPI_ISEND(j_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
@@ -769,11 +794,13 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_number_of_cnnz(myid,isub,nnzc)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_number_of_cnnz(suba(isub_loc),nnzc)
 
             lc_sparse = nnzc
             allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse),c_sparse(lc_sparse))
-            call dd_get_subdomain_c(myid,isub,i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
+            call dd_get_subdomain_c(suba(isub_loc),i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
 
             ireq = ireq + 1
             call MPI_ISEND(c_sparse,lc_sparse,MPI_DOUBLE_PRECISION,owner,isub,comm,request(ireq),ierr)
@@ -811,11 +838,13 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_interface_size(myid,isub,ndofi,nnodi)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
 
             lnndfi = nnodi
             allocate(nndfi(lnndfi))
-            call dd_get_subdomain_interface_nndf(myid,isub,nndfi,lnndfi)
+            call dd_get_subdomain_interface_nndf(suba(isub_loc),nndfi,lnndfi)
 
             ireq = ireq + 1
             call MPI_ISEND(nndfi,nnodi,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
@@ -939,11 +968,13 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_interface_size(myid,isub,ndofi,nnodi)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
 
             lrhoi = ndofi
             allocate(rhoi(lrhoi))
-            call dd_get_interface_diagonal(myid,isub, rhoi,lrhoi)
+            call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
 
             ireq = ireq + 1
             call MPI_ISEND(rhoi,ndofi,MPI_DOUBLE_PRECISION,owner,isub,comm,request(ireq),ierr)
@@ -977,11 +1008,13 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
-            call dd_get_interface_size(myid,isub,ndofi,nnodi)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
 
             liingn = nnodi
             allocate(iingn(liingn))
-            call dd_get_interface_global_numbers(myid,isub,iingn,liingn)
+            call dd_get_interface_global_numbers(suba(isub_loc),iingn,liingn)
 
             ireq = ireq + 1
             call MPI_ISEND(iingn,nnodi,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
@@ -1247,8 +1280,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             ! construct constraints out of these eigenvectors
             ioper = 1 ! multiply by A
             do j = 1,nadaptive
-               call adaptivity_mvecmult(problemsize,eigvec((j-1)*problemsize + 1),&
-                    problemsize,constraints(1,j),problemsize,ioper)
+               call adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub,&
+                                        problemsize,eigvec((j-1)*problemsize + 1),&
+                                        problemsize,constraints(1,j),problemsize,ioper)
             end do
             ! clean auxiliary arrays
             deallocate(comm_xaux,comm_xaux2)
@@ -1349,7 +1383,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
             gglob = instructions(iinstr,3)
-            call dd_get_interface_size(myid,isub,ndofi,nnodi)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
 
             if (lbufa(iinstr) .gt. 0) then
                ireq = ireq + 1
@@ -1378,7 +1414,9 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
             gglob = instructions(iinstr,3)
-            call dd_get_interface_size(myid,isub,ndofi,nnodi)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
 
             nadaptive_rcv = lbufa(iinstr)/ndofi
             lcadapt1 = ndofi
@@ -1401,7 +1439,7 @@ subroutine adaptivity_solve_eigenvectors(myid,comm,npair_locx,npair,nproc)
             !end do
 
             ! load constraints into DD structure 
-            call dd_load_adaptive_constraints(isub,gglob,cadapt,lcadapt1,lcadapt2, nvalid)
+            call dd_load_adaptive_constraints(suba(isub_loc),gglob,cadapt,lcadapt1,lcadapt2, nvalid)
 
             ireq = ireq + 1
             call MPI_ISEND(nvalid,1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
@@ -1502,9 +1540,9 @@ subroutine adaptivity_fake_lobpcg_driver
 
 end subroutine
 
-!*************************************************
-subroutine adaptivity_mvecmult(n,x,lx,y,ly,idoper)
-!*************************************************
+!*******************************************************************************
+subroutine adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub,n,x,lx,y,ly,idoper)
+!*******************************************************************************
 ! realizes the multiplications with the strange matrices in the local eigenvalue problems for adaptive BDDC
 
 use module_dd
@@ -1513,6 +1551,13 @@ implicit none
 include "mpif.h"
 
 real(kr),external :: ddot
+
+! array of sub structure
+      integer,intent(in) ::                lsuba
+      type(subdomain_type),intent(inout) :: suba(lsuba)
+! global indices of local subdomains
+      integer,intent(in) :: lindexsub
+      integer,intent(in) ::  indexsub(lindexsub)
 
 ! length of vector
 integer,intent(in) ::   n 
@@ -1530,7 +1575,7 @@ integer,intent(inout) ::  idoper
 
 ! local
 integer :: i
-integer :: iinstr, isub, owner, point1, point2, point, length, do_i_compute, is_active
+integer :: iinstr, isub, isub_loc, owner, point1, point2, point, length, do_i_compute, is_active
 
 integer ::             laux2
 real(kr),allocatable :: aux2(:)
@@ -1685,7 +1730,8 @@ do iinstr = 1,ninstructions
       length = lbufa(iinstr)
 
       ! Multiply by Schur complement
-      call dd_multiply_by_schur(comm_myid,isub,bufrecv(point),length,bufsend(point),length)
+      call get_index(isub,indexsub,lindexsub,isub_loc)
+      call dd_multiply_by_schur(suba(isub_loc),bufrecv(point),length,bufsend(point),length)
    end if
    if (is_active .eq. 2) then
       point  = kbufsend(iinstr)
@@ -1694,19 +1740,20 @@ do iinstr = 1,ninstructions
       ! Apply BDDC preconditioner
       ! SUBDOMAIN CORRECTION
       ! prepare array of augmented size
-      call dd_get_aug_size(comm_myid,isub, ndofaaugs)
+      call get_index(isub,indexsub,lindexsub,isub_loc)
+      call dd_get_aug_size(suba(isub_loc), ndofaaugs)
       laux2 = ndofaaugs
       allocate(aux2(laux2))
       call zero(aux2,laux2)
-      call dd_get_size(comm_myid,isub, ndofs,nnods,nelems)
+      call dd_get_size(suba(isub_loc), ndofs,nnods,nelems)
       ! truncate the vector for embedding - zeros at the end
-      call dd_map_subi_to_sub(comm_myid,isub, bufrecv(point),length, aux2,ndofs)
+      call dd_map_subi_to_sub(suba(isub_loc), bufrecv(point),length, aux2,ndofs)
 
       nrhs = 1
-      call dd_solve_aug(comm_myid,isub, aux2,laux2, nrhs)
+      call dd_solve_aug(suba(isub_loc), aux2,laux2, nrhs)
 
       ! get interface part of the vector of preconditioned residual
-      call dd_get_coarse_size(comm_myid,isub,ndofcs,ncnodess)
+      call dd_get_coarse_size(suba(isub_loc),ndofcs,ncnodess)
 
       lrescs = ndofcs
       allocate(rescs(lrescs))
@@ -1714,18 +1761,18 @@ do iinstr = 1,ninstructions
 
       ! rc = phis' * x
       transposed = .true.
-      call dd_phis_apply(comm_myid,isub, transposed, bufrecv(point),length, rescs,lrescs)
+      call dd_phisi_apply(suba(isub_loc), transposed, bufrecv(point),length, rescs,lrescs)
 
       ! x_coarse = phis * phis' * x
       transposed = .false.
-      call dd_phis_apply(comm_myid,isub, transposed, rescs,lrescs, bufsend(point),length)
+      call dd_phisi_apply(suba(isub_loc), transposed, rescs,lrescs, bufsend(point),length)
       deallocate(rescs)
 
       !do i = 1,length
       !   bufsend(point-1+i) = bufrecv(point-1+i)
       !end do
 
-      call dd_map_sub_to_subi(comm_myid,isub, aux2,ndofs, bufsend(point),length)
+      call dd_map_sub_to_subi(suba(isub_loc), aux2,ndofs, bufsend(point),length)
       deallocate(aux2)
 
       ! debug copy

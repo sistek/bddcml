@@ -7,8 +7,6 @@ program bddcml
       use module_pp
 ! module for preconditioner
       use module_levels
-! module for domain decomposition data
-      use module_dd
 ! Program name
       use module_utils
 
@@ -38,10 +36,12 @@ program bddcml
 !                    | faces: arith. | faces: -      |
 !----------------------------------------------------- 
 
-! was preprocessor run before the solver to create subdomain files?
-      logical,parameter :: use_preprocessor = .true.
+! use prepared division into subdomains in file *.ES?
+      logical,parameter :: load_division = .false.
+! use prepared selection of corners in file *.CN and description of globs in file *.GLB?
+      logical,parameter :: load_globs = .false.
 ! correct disconnected subdomains to make them continuous - not allowed for parallel divisions
-      logical,parameter :: correct_division = .false.
+      logical,parameter :: correct_division = .true.
 ! maximal length of problemname
       integer,parameter:: lproblemnamex = 100
 ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
@@ -62,8 +62,9 @@ program bddcml
 ! subdomains in levels
       integer ::            lnsublev
       integer,allocatable :: nsublev(:)
-
-      integer :: isub
+      integer :: nsub_loc ! number of locally stored subdomains
+      integer :: ilevel
+      integer :: iaux
 
       integer ::                    lnnet,   lnndf
       integer,allocatable:: inet(:), nnet(:), nndf(:)
@@ -75,20 +76,14 @@ program bddcml
       real(kr),allocatable:: fixv(:)
       integer ::            lrhs
       real(kr),allocatable:: rhs(:)
-
+      integer ::            lsol
+      real(kr),allocatable:: sol(:)
 
       integer :: matrixtype
 
       integer :: lproblemname
       integer :: meshdim
-      integer :: nnods, nelems, ndofs, ndofis, nnodis
-      integer :: lsolis, lresis
-      integer :: lps, laps, lzs
       integer :: neighbouring
-
-      integer ::             lsols
-      real(kr),allocatable :: sols(:)
-
 
       character(lproblemnamex) :: problemname 
       character(lfilenamex)    :: filename
@@ -100,6 +95,7 @@ program bddcml
 
       ! time variables
       real(kr) :: t_total, t_pc_setup, t_pcg
+
 
 
       ! MPI initialization
@@ -231,15 +227,23 @@ program bddcml
          close(idrhs)
       end if
 
+      ! prepare initial solution
+      lsol = ndof
+      allocate(sol(lsol))
+      sol = 0._kr
+
       if (myid.eq.0) then
          write (*,'(a)') 'Initializing LEVELS ...'
          call flush(6)
       end if
-      !call levels_init(nlevels,nsub)
-      call levels_init_with_zero_level(nlevels,nsublev,lnsublev,nelem,nnod,ndof,&
-                                       inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                       ifix,lifix,fixv,lfixv,rhs,lrhs)
+
+      call levels_init(nlevels,nsublev,lnsublev,nelem,nnod,ndof,&
+                       inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                       ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
       deallocate(inet,nnet,nndf,xyz)
+      deallocate(ifix,fixv)
+      deallocate(rhs)
+      deallocate(sol)
       if (myid.eq.0) then
          write (*,'(a)') 'Initializing LEVELS done.'
          call flush(6)
@@ -263,7 +267,7 @@ program bddcml
       call MPI_BARRIER(comm_all,ierr)
       call time_start
       matrixtype = 1 ! SPD matrix
-      call levels_pc_setup(problemname(1:lproblemname),nsublev,lnsublev,use_preprocessor,&
+      call levels_pc_setup(problemname(1:lproblemname),nsublev,lnsublev,load_division,load_globs,&
                            correct_division,neighbouring,&
                            matrixtype,ndim,meshdim,use_arithmetic,use_adaptive)
 
@@ -275,132 +279,26 @@ program bddcml
          call flush(6)
       end if
 
-! Input zeros as initial vector of solution
-      lpcg_data = nsublev(1)
+      ilevel = 1
+      call levels_get_number_of_subdomains(ilevel,iaux,nsub_loc)
+      lpcg_data = nsub_loc
       allocate(pcg_data(lpcg_data))
-      do isub = 1,nsublev(1)
-
-         ! determine size of subdomain
-         call dd_get_size(myid,isub,ndofs,nnods,nelems)
-         if (ndofs.ge.0) then
-            pcg_data(isub)%is_mine = .true.
-         else
-            pcg_data(isub)%is_mine = .false.
-            cycle
-         end if
-         call dd_get_interface_size(myid,isub,ndofis,nnodis)
-
-         ! allocate local subdomain solution
-         lsols  = ndofs
-         allocate(sols(lsols))
-
-         ! set zero initial guess
-         ! u_0 = 0
-         call zero(sols,lsols)
-
-         ! set initial guess to satisfy Dirichlet boundary conditions
-         call dd_fix_bc(myid,isub, sols,lsols)
-
-         ! allocate vectors for Krylov method 
-         lsolis = ndofis
-         lresis = ndofis
-         pcg_data(isub)%lsoli = lsolis
-         allocate(pcg_data(isub)%soli(lsolis))
-         call zero(pcg_data(isub)%soli,lsolis)
-         pcg_data(isub)%lresi = lresis
-         allocate(pcg_data(isub)%resi(lresis))
-         call zero(pcg_data(isub)%resi,lresis)
-
-         ! restrict solution to interface
-         call dd_map_sub_to_subi(myid,isub, sols,lsols, pcg_data(isub)%soli,lsolis)
-         deallocate(sols)
-
-         ! set initial residual to RHS
-         ! res = g
-         call dd_get_reduced_rhs(myid,isub, pcg_data(isub)%resi,lresis)
-      end do
-
-      ! Prepare memory for PCG
-      do isub = 1,nsublev(1)
-         if (pcg_data(isub)%is_mine) then
-
-            call dd_get_interface_size(myid,isub,ndofis,nnodis)
-
-            laps = ndofis
-            pcg_data(isub)%lap = laps
-            allocate(pcg_data(isub)%ap(laps))
-            allocate(pcg_data(isub)%apadj(laps))
-
-            lps = ndofis
-            pcg_data(isub)%lp = lps
-            allocate(pcg_data(isub)%p(lps))
-            allocate(pcg_data(isub)%padj(lps))
-
-            lresis = pcg_data(isub)%lresi
-            allocate(pcg_data(isub)%resiadj(lresis))
-
-            lzs = ndofis
-            pcg_data(isub)%lz = lzs
-            allocate(pcg_data(isub)%z(lzs))
-            allocate(pcg_data(isub)%zadj(lzs))
-
-         end if
-      end do
+      ! prepare data and memory for PCG
+      call levels_prepare_krylov_data(pcg_data,lpcg_data)
 
       ! call PCG method
       call MPI_BARRIER(comm_all,ierr)
       call time_start
-      call bddcpcg(pcg_data,lpcg_data, nsublev(1), myid,comm_all,tol,maxit,ndecrmax)
+      call bddcpcg(pcg_data,lpcg_data, nsub_loc, myid,comm_all,tol,maxit,ndecrmax)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pcg)
 
-      ! Clear memory of PCG
-      do isub = 1,nsublev(1)
-         if (pcg_data(isub)%is_mine) then
-            deallocate(pcg_data(isub)%ap)
-            deallocate(pcg_data(isub)%apadj)
-            deallocate(pcg_data(isub)%p)
-            deallocate(pcg_data(isub)%padj)
-            deallocate(pcg_data(isub)%resiadj)
-            deallocate(pcg_data(isub)%z)
-            deallocate(pcg_data(isub)%zadj)
-         end if
-      end do
-
       ! Postprocessing of solution - computing interior values
-      do isub = 1,nsublev(1)
-         if (pcg_data(isub)%is_mine) then
+      print_solution = .false.
+      call levels_postprocess_solution(pcg_data,lpcg_data,problemname(1:lproblemname),print_solution)
 
-            ! determine size of subdomain
-            call dd_get_size(myid,isub,ndofs,nnods,nelems)
-            call dd_get_interface_size(myid,isub,ndofis,nnodis)
-            lsolis = ndofis
-
-            ! allocate local subdomain solution
-            lsols  = ndofs
-            allocate(sols(lsols))
-
-            ! set zero solution
-            call zero(sols,lsols)
-
-            ! resolve interior values
-            call dd_resolve_interior(myid,isub, pcg_data(isub)%soli,lsolis, sols,lsols)
-
-            ! write subdomain solution to disk file
-            print_solution = .false.
-            call dd_write_solution_to_file(myid,problemname(1:lproblemname),isub,sols,lsols,print_solution)
-
-            deallocate(sols)
-         end if
-      end do
-
-      ! Clear memory
-      do isub = 1,nsublev(1)
-         if (pcg_data(isub)%is_mine) then
-            deallocate(pcg_data(isub)%soli)
-            deallocate(pcg_data(isub)%resi)
-         end if
-      end do
+      ! Clear memory of PCG
+      call levels_destroy_krylov_data(pcg_data,lpcg_data)
       deallocate(pcg_data)
 
       deallocate(nsublev)
@@ -433,17 +331,15 @@ program bddcml
 !***************************************************************PARALLEL
       end program
 
-!***********************************************************************************
-      subroutine bddcpcg(pcg_data,lpcg_data, nsub, myid,comm_all,tol,maxit,ndecrmax)
-!***********************************************************************************
+!*****************************************************************************
+      subroutine bddcpcg(pcg_data,lpcg_data, nsub_loc, myid,comm_all,tol,maxit,ndecrmax)
+!*****************************************************************************
 ! subroutine realizing PCG algorithm with vectors distributed by subdomains
 
 ! module for distributed Krylov data storage
       use module_krylov_types_def
 ! module for preconditioner
       use module_levels
-! module for domain decomposition data
-      use module_dd
 ! Program name
       use module_utils
 
@@ -456,8 +352,8 @@ program bddcml
       integer,intent(in) ::                 lpcg_data
       type (pcg_data_type), intent(inout) :: pcg_data(lpcg_data)
 
-      ! number of subdomains
-      integer,intent(in) :: nsub
+      ! number of locally stored subdomains on first level
+      integer,intent(in) :: nsub_loc
 
       ! parallel variables
       integer,intent(in) :: myid, comm_all 
@@ -472,7 +368,8 @@ program bddcml
       real(kr),intent(in) :: tol
 
       ! local vars
-      integer :: isub, i
+      integer,parameter :: ilevel = 1
+      integer :: isub_loc, i
       integer :: iter, ndecr
       integer :: lz, lsoli, lp
 
@@ -509,41 +406,32 @@ program bddcml
       ! ap = A*u_0
       ! first copy solution to p
       ! p = soli
-      do isub = 1,nsub
-         if (pcg_data(isub)%is_mine) then
-            lsoli = pcg_data(isub)%lsoli
-            do i = 1,lsoli
-               pcg_data(isub)%p(i) = pcg_data(isub)%soli(i)
-            end do  
-         end if
+      do isub_loc = 1,nsub_loc
+         lsoli = pcg_data(isub_loc)%lsoli
+         do i = 1,lsoli
+            pcg_data(isub_loc)%p(i) = pcg_data(isub_loc)%soli(i)
+         end do
       end do
 
       ! ap = A*u_0
-      call bddc_sm_apply(pcg_data,lpcg_data, nsub, myid, comm_all)
+      call levels_sm_apply(pcg_data,lpcg_data)
 
       ! update residual
       ! r_0 = g - A*u_0
-      do isub = 1,nsub
-         if (pcg_data(isub)%is_mine) then
-
-            do i = 1,pcg_data(isub)%lresi
-               pcg_data(isub)%resi(i) = pcg_data(isub)%resi(i) - pcg_data(isub)%ap(i)
-            end do
-            call dd_fix_bc_interface_dual(myid,isub, pcg_data(isub)%resi,pcg_data(isub)%lresi)
-         end if
+      do isub_loc = 1,nsub_loc
+         do i = 1,pcg_data(isub_loc)%lresi
+            pcg_data(isub_loc)%resi(i) = pcg_data(isub_loc)%resi(i) - pcg_data(isub_loc)%ap(i)
+         end do
       end do
+      call levels_fix_bc_interface_dual(pcg_data,lpcg_data)
 
       ! compute norm of right hand side
       normres2_loc = 0._kr
-      do isub = 1,nsub
-         if (pcg_data(isub)%is_mine) then
-
-            call dd_dotprod_local(myid,isub,pcg_data(isub)%resi,pcg_data(isub)%lresi, &
-                                            pcg_data(isub)%resi,pcg_data(isub)%lresi, &
-                                            normres2_sub)
-
-            normres2_loc = normres2_loc + normres2_sub
-         end if
+      do isub_loc = 1,nsub_loc
+         call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                      pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                      normres2_sub)
+         normres2_loc = normres2_loc + normres2_sub
       end do
 !***************************************************************PARALLEL
       call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
@@ -570,28 +458,23 @@ program bddcml
       if (myid.eq.0) then
          write(*,*) ' Initial action of preconditioner'
       end if
-      call levels_pc_apply(myid,comm_all, pcg_data,lpcg_data)
+      call levels_pc_apply(pcg_data,lpcg_data)
       ! produced new z
 
       ! write z
-      !do isub = 1,nsub
-      !   if (pcg_data(isub)%is_mine) then
-      !      write(*,*) 'myid',myid,'z', pcg_data(isub)%z(1:pcg_data(isub)%lz) 
-      !   end if
+      !do isub_loc = 1,nsub_loc
+      !   write(*,*) 'myid',myid,'z', pcg_data(isub_loc)%z(1:pcg_data(isub_loc)%lz) 
       !end do
 
       ! compute rmp = res'*M*res
       ! ||f||
       rmp_loc = 0._kr
-      do isub = 1,nsub
-         if (pcg_data(isub)%is_mine) then
-
-            call dd_dotprod_local(myid,isub,pcg_data(isub)%resi,pcg_data(isub)%lresi, &
-                                            pcg_data(isub)%z,pcg_data(isub)%lz, &
-                                            rmp_sub)
-
-            rmp_loc = rmp_loc + rmp_sub
-         end if
+      do isub_loc = 1,nsub_loc
+         call levels_dd_dotprod_local(ilevel,isub_loc, &
+                                      pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                      pcg_data(isub_loc)%z,pcg_data(isub_loc)%lz, &
+                                      rmp_sub)
+         rmp_loc = rmp_loc + rmp_sub
       end do
 !***************************************************************PARALLEL
       call MPI_ALLREDUCE(rmp_loc,rmp, 1, MPI_DOUBLE_PRECISION,          &
@@ -614,13 +497,11 @@ program bddcml
 
 ! copy z to p
       ! p = z
-      do isub = 1,nsub
-         if (pcg_data(isub)%is_mine) then
-            lz = pcg_data(isub)%lz
-            do i = 1,lz
-               pcg_data(isub)%p(i) = pcg_data(isub)%z(i)
-            end do
-         end if
+      do isub_loc = 1,nsub_loc
+         lz = pcg_data(isub_loc)%lz
+         do i = 1,lz
+            pcg_data(isub_loc)%p(i) = pcg_data(isub_loc)%z(i)
+         end do
       end do
 
 
@@ -635,26 +516,21 @@ program bddcml
 
          ! multiply by system matrix
          ! ap = A * p
-         call bddc_sm_apply(pcg_data,lpcg_data, nsub, myid, comm_all)
+         call levels_sm_apply(pcg_data,lpcg_data)
 
          ! write ap
-         !do isub = 1,nsub
-         !   if (pcg_data(isub)%is_mine) then
-         !      write(*,*) 'myid',myid,'ap', pcg_data(isub)%ap(1:pcg_data(isub)%lap) 
-         !   end if
+         !do isub_loc = 1,nsub_loc
+         !   write(*,*) 'myid',myid,'ap', pcg_data(isub_loc)%ap(1:pcg_data(isub_loc)%lap) 
          !end do
 
          ! Scalar product of vectors of old search direction and ap - p*ap => pap
          pap_loc = 0._kr
-         do isub = 1,nsub
-            if (pcg_data(isub)%is_mine) then
-
-               call dd_dotprod_local(myid,isub,pcg_data(isub)%p,pcg_data(isub)%lp, &
-                                               pcg_data(isub)%ap,pcg_data(isub)%lap, &
-                                               pap_sub)
-
-               pap_loc = pap_loc + pap_sub
-            end if
+         do isub_loc = 1,nsub_loc
+            call levels_dd_dotprod_local(ilevel,isub_loc, &
+                                         pcg_data(isub_loc)%p,pcg_data(isub_loc)%lp, &
+                                         pcg_data(isub_loc)%ap,pcg_data(isub_loc)%lap, &
+                                         pap_sub)
+            pap_loc = pap_loc + pap_sub
          end do
 !***************************************************************PARALLEL
          call MPI_ALLREDUCE(pap_loc,pap, 1, MPI_DOUBLE_PRECISION,          &
@@ -681,28 +557,23 @@ program bddcml
          ! Correction of solution vector SOLI and residual vector RES
          ! u   = u   + alpha*p
          ! res = res - alpha*ap
-         do isub = 1,nsub
-            if (pcg_data(isub)%is_mine) then
-               lsoli = pcg_data(isub)%lsoli
-               do i = 1,lsoli
-                  pcg_data(isub)%soli(i) = pcg_data(isub)%soli(i) + alpha * pcg_data(isub)%p(i)
-                  pcg_data(isub)%resi(i) = pcg_data(isub)%resi(i) - alpha * pcg_data(isub)%ap(i)
-               end do
-            end if
+         do isub_loc = 1,nsub_loc
+            lsoli = pcg_data(isub_loc)%lsoli
+            do i = 1,lsoli
+               pcg_data(isub_loc)%soli(i) = pcg_data(isub_loc)%soli(i) + alpha * pcg_data(isub_loc)%p(i)
+               pcg_data(isub_loc)%resi(i) = pcg_data(isub_loc)%resi(i) - alpha * pcg_data(isub_loc)%ap(i)
+            end do
          end do
 
          ! determine norm of residual 
          ! normres = ||resi||
          normres2_loc = 0._kr
-         do isub = 1,nsub
-            if (pcg_data(isub)%is_mine) then
-
-               call dd_dotprod_local(myid,isub,pcg_data(isub)%resi,pcg_data(isub)%lresi, &
-                                               pcg_data(isub)%resi,pcg_data(isub)%lresi, &
-                                               normres2_sub)
-
-               normres2_loc = normres2_loc + normres2_sub
-            end if
+         do isub_loc = 1,nsub_loc
+            call levels_dd_dotprod_local(ilevel,isub_loc, &
+                                         pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                         pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                         normres2_sub)
+            normres2_loc = normres2_loc + normres2_sub
          end do
 !***************************************************************PARALLEL
          call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION, &
@@ -751,7 +622,7 @@ program bddcml
             write(*,*) ' Action of preconditioner'
          end if
 
-         call levels_pc_apply(myid,comm_all, pcg_data,lpcg_data)
+         call levels_pc_apply(pcg_data,lpcg_data)
          ! produced new z
 
          ! write z
@@ -767,15 +638,12 @@ program bddcml
          ! compute rmp = res'*M*res
          ! ||f||
          rmp_loc = 0._kr
-         do isub = 1,nsub
-            if (pcg_data(isub)%is_mine) then
-
-               call dd_dotprod_local(myid,isub,pcg_data(isub)%resi,pcg_data(isub)%lresi, &
-                                               pcg_data(isub)%z,pcg_data(isub)%lz, &
-                                               rmp_sub)
-
-               rmp_loc = rmp_loc + rmp_sub
-            end if
+         do isub_loc = 1,nsub_loc
+            call levels_dd_dotprod_local(ilevel,isub_loc, &
+                                         pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                         pcg_data(isub_loc)%z,pcg_data(isub_loc)%lz, &
+                                         rmp_sub)
+            rmp_loc = rmp_loc + rmp_sub
          end do
 !***************************************************************PARALLEL
          call MPI_ALLREDUCE(rmp_loc,rmp, 1, MPI_DOUBLE_PRECISION,          &
@@ -801,13 +669,11 @@ program bddcml
 
          ! Determination of new step direction P
          ! p = z + beta*p
-         do isub = 1,nsub
-            if (pcg_data(isub)%is_mine) then
-               lp = pcg_data(isub)%lp
-               do i = 1,lp
-                  pcg_data(isub)%p(i) = pcg_data(isub)%z(i) + beta * pcg_data(isub)%p(i)
-               end do
-            end if
+         do isub_loc = 1,nsub_loc
+            lp = pcg_data(isub_loc)%lp
+            do i = 1,lp
+               pcg_data(isub_loc)%p(i) = pcg_data(isub_loc)%z(i) + beta * pcg_data(isub_loc)%p(i)
+            end do
          end do
 
          ! Filling matrix for the Lanczos method
@@ -828,70 +694,6 @@ program bddcml
       end if
       deallocate(diag)
       deallocate(subdiag)
-
-      end subroutine
-
-!*****************************************************************************
-      subroutine bddc_sm_apply(krylov_data,lkrylov_data, nsub, myid, comm_all)
-!*****************************************************************************
-! subroutine for multiplication of vector krylov_data(isub)%p by system
-! matrix S to produce vector krylov_data(isub)%ap
-! ap = S*p
-
-! module for distributed Krylov data storage
-      use module_krylov_types_def
-! module for domain decomposition data
-      use module_dd
-! Program name
-      use module_utils
-
-      implicit none
-      
-      include "mpif.h"
-
-      integer,parameter :: kr = kind(1.D0)
-
-      integer,intent(in) ::                 lkrylov_data
-      type (pcg_data_type), intent(inout) :: krylov_data(lkrylov_data)
-
-      ! number of subdomains
-      integer,intent(in) :: nsub
-
-      ! parallel variables
-      integer,intent(in) :: myid, comm_all 
-
-      ! local vars
-      integer :: isub, i
-
-      ! ap = A*p
-      ! Upload data
-      do isub = 1,nsub
-         if (krylov_data(isub)%is_mine) then
-
-            call zero(krylov_data(isub)%ap,krylov_data(isub)%lap)
-
-            call dd_multiply_by_schur(myid,isub,&
-                                      krylov_data(isub)%p,krylov_data(isub)%lp, &
-                                      krylov_data(isub)%ap,krylov_data(isub)%lap)
-
-            call dd_comm_upload(myid, isub,  krylov_data(isub)%ap,krylov_data(isub)%lap)
-         end if
-      end do
-      ! Interchange data
-      call dd_comm_swapdata(myid, nsub, comm_all)
-      ! Download data
-      do isub = 1,nsub
-         if (krylov_data(isub)%is_mine) then
-
-            call zero(krylov_data(isub)%apadj,krylov_data(isub)%lap)
-            ! get contibution from neigbours
-            call dd_comm_download(myid, isub,  krylov_data(isub)%apadj,krylov_data(isub)%lap)
-            ! join data
-            do i = 1,krylov_data(isub)%lap
-               krylov_data(isub)%ap(i) = krylov_data(isub)%ap(i) + krylov_data(isub)%apadj(i)
-            end do
-         end if
-      end do
 
       end subroutine
 
