@@ -257,6 +257,9 @@ module module_dd
          logical :: is_reduced_rhs_loaded = .false.
          integer ::             lg           ! length of G array
          real(kr),allocatable :: g(:)        ! condensed right hand side on subdomain 
+         logical :: is_interior_solution_loaded = .false.
+         integer ::             lsolo
+         real(kr),allocatable :: solo(:)     ! array of solution at interior of subdomain
 
          integer ::             lsol         
          real(kr),allocatable :: sol(:)      ! array of solution restricted to subdomain
@@ -634,7 +637,6 @@ subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
             allocate(bc(lbc))
          else
             lbc = 0
-
          end if
 
          ! eliminate natural BC
@@ -642,6 +644,8 @@ subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
                           i_sparse,j_sparse,a_sparse,la, bc,lbc)
          if (sub%is_bc_nonzero) then
             call dd_load_eliminated_bc(sub, bc,lbc)
+         else
+            sub%lbc = 0
          end if
       end if
 
@@ -1145,6 +1149,7 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
 !*****************************************************************MPI
       call MPI_ALLREDUCE(nevax_loc,nevax,1, MPI_INTEGER, MPI_MAX, comm_all, ierr) 
 !*****************************************************************MPI
+      
 
       ! prepare memory for one element matrix
       ! determine length by nevax
@@ -1167,7 +1172,7 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
 
          if (myid.eq.iprocelm) then
             indel_loc = locelmnumber(ie) 
-            if (myid.ne.iprocelm) then
+            if (myid.ne.iprocsub) then
             ! send messages
                call MPI_SEND(elma(indel_loc)%lcoarsem,1,                      &
                              MPI_INTEGER,     iprocsub,ie,comm_all,ierr)
@@ -2178,6 +2183,7 @@ end subroutine
 subroutine dd_upload_rhs(sub, rhs,lrhs)
 !**************************************
 ! Subroutine for initialization of subdomain right hand side
+      use module_utils
       implicit none
 
 ! Subdomain structure
@@ -2186,17 +2192,110 @@ subroutine dd_upload_rhs(sub, rhs,lrhs)
       real(kr),intent(in)::  rhs(lrhs)
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_UPLOAD_RHS'
       integer :: i
 
-      ! boundary conditions
-      sub%lrhs = lrhs
-      allocate(sub%rhs(lrhs))
+      ! is array allocated?
+      if (.not.allocated(sub%rhs)) then
+         ! if not, allocate it
+         sub%lrhs = lrhs
+         allocate(sub%rhs(lrhs))
+      else
+         ! if yes, check that it is allocated to correct dimension
+         if (lrhs.ne.sub%lrhs) then
+            call error(routine_name,'Dimension of subdomain RHS mismatch for subdomain:',sub%isub)
+         end if
+      end if
       do i = 1,lrhs
          sub%rhs(i) = rhs(i)
       end do
 
       sub%is_rhs_loaded = .true.
    
+end subroutine
+
+!******************************************************
+subroutine dd_upload_interior_solution(sub, solo,lsolo)
+!******************************************************
+! Subroutine for uploading interior solution to subdomain structure
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+      integer,intent(in) :: lsolo
+      real(kr),intent(in)::  solo(lsolo)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_UPLOAD_INTERIOR_SOLUTION'
+      integer :: i
+      integer :: ndofo
+
+      ! check prerequisites
+      if (.not. sub%is_interface_loaded) then
+         call error(routine_name,'Interface not yet loaded.')
+      end if
+
+      ndofo = sub%ndofo
+      ! check dimension
+      if (lsolo.ne.ndofo) then
+         call error(routine_name,'Array SOLO dimension mismatch.')
+      end if
+
+      ! is array allocated?
+      if (.not.allocated(sub%solo)) then
+         ! if not, allocate it
+         sub%lsolo = lsolo
+         allocate(sub%solo(lsolo))
+      else
+         ! if yes, check that it is allocated to correct dimension
+         if (lsolo.ne.sub%lsolo) then
+            call error(routine_name,'Dimension of subdomain SOLO mismatch for subdomain:',sub%isub)
+         end if
+      end if
+      do i = 1,lsolo
+         sub%solo(i) = solo(i)
+      end do
+
+      sub%is_interior_solution_loaded = .true.
+   
+end subroutine
+
+!*************************************************
+subroutine dd_add_interior_solution(sub, sol,lsol)
+!*************************************************
+! Subroutine for adding interior solution (stored inside structure) to subdomain solution
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+      integer,intent(in) ::    lsol
+      real(kr),intent(inout)::  sol(lsol)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_ADD_INTERIOR_SOLUTION'
+      integer :: i, ind
+      integer :: ndof, ndofo
+
+      ! check prerequisites
+      if (.not. sub%is_interior_solution_loaded) then
+         call error(routine_name,'Interior solution not loaded.')
+      end if
+
+      ndof  = sub%ndof
+
+      ! check dimension
+      if (lsol.ne.ndof) then
+         call error(routine_name,'Array SOL dimension mismatch.')
+      end if
+
+      ndofo = sub%ndofo
+      do i = 1,ndofo
+         ind = sub%iovsvn(i)
+         sol(ind) = sol(ind) + sub%solo(i)
+      end do
+
 end subroutine
 
 !**********************************
@@ -2511,7 +2610,7 @@ subroutine dd_map_sub_to_subo(sub, vec,lvec, veco,lveco)
 
       ! check pre
       if (.not. sub%is_interface_loaded) then
-         write(*,*) 'DD_MAP_SUB_TO_SUBO: Mesh not loaded for subdomain: ',sub%isub
+         write(*,*) 'DD_MAP_SUB_TO_SUBO: Interface not loaded for subdomain: ',sub%isub
          call error_exit
       end if
 
@@ -2529,6 +2628,49 @@ subroutine dd_map_sub_to_subo(sub, vec,lvec, veco,lveco)
          ind = sub%iovsvn(i)
 
          veco(i) = vec(ind)
+      end do
+
+end subroutine
+
+!*******************************************************
+subroutine dd_map_subo_to_sub(sub, veco,lveco, vec,lvec)
+!*******************************************************
+! Subroutine that maps subdomain interiOr vector to subdomain vector
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+
+      integer,intent(in)  ::  lveco
+      real(kr),intent(in) ::   veco(lveco)
+
+      integer,intent(in)  ::  lvec
+      real(kr),intent(out) ::  vec(lvec)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_MAP_SUBO_TO_SUB'
+      integer :: i, ind
+      integer :: ndofo, ndof
+
+      ! check pre
+      if (.not. sub%is_interface_loaded) then
+         call error(routine_name,'Interface not loaded for subdomain: ',sub%isub)
+      end if
+
+      ! get dimensions
+      ndof  = sub%ndof
+      ndofo = sub%ndofo
+
+      ! check dimensions
+      if (lvec .ne. ndof .or. lveco .ne. ndofo) then
+         call error(routine_name,'Vectors size mismatch, isub : ',sub%isub)
+      end if
+
+      do i = 1,ndofo
+         ind = sub%iovsvn(i)
+
+         vec(ind) = vec(ind) + veco(i)
       end do
 
 end subroutine
@@ -2862,7 +3004,7 @@ subroutine dd_prepare_schur(sub,comm_self)
       ! local vars
       integer :: ndofo, la11, nnza11
       integer :: mumpsinfo
-      logical :: parallel_analysis
+      integer :: iparallel
 
       ! check the prerequisities
       if (.not. sub%is_blocked) then
@@ -2870,29 +3012,35 @@ subroutine dd_prepare_schur(sub,comm_self)
          call error_exit
       end if
 
-      ! Initialize MUMPS
-      call mumps_init(sub%mumps_interior_block,comm_self,sub%matrixtype)
-      ! Level of information from MUMPS
-      if (debug) then
-         mumpsinfo = 2
-      else
-         mumpsinfo = 0
-      end if
-      call mumps_set_info(sub%mumps_interior_block,mumpsinfo)
       ! Load matrix to MUMPS
       ndofo  = sub%ndofo
       nnza11 = sub%nnza11
       la11   = sub%la11
-      call mumps_load_triplet(sub%mumps_interior_block,ndofo,nnza11,&
-                              sub%i_a11_sparse,sub%j_a11_sparse,sub%a11_sparse,la11)
-      ! Analyze matrix
-      parallel_analysis = .false.
-      call mumps_analyze(sub%mumps_interior_block,parallel_analysis) 
-      ! Factorize matrix 
-      call mumps_factorize(sub%mumps_interior_block) 
+      if (ndofo.gt.0) then
+         ! Initialize MUMPS
+         call mumps_init(sub%mumps_interior_block,comm_self,sub%matrixtype)
+         ! Level of information from MUMPS
+         if (debug) then
+            mumpsinfo = 2
+         else
+            mumpsinfo = 0
+         end if
+         call mumps_set_info(sub%mumps_interior_block,mumpsinfo)
 
-      sub%is_mumps_interior_active = .true.
+         call mumps_load_triplet_centralized(sub%mumps_interior_block,ndofo,nnza11,&
+                                             sub%i_a11_sparse,sub%j_a11_sparse,sub%a11_sparse,nnza11)
+         ! Analyze matrix
+         iparallel = 1 ! force serial analysis
+         call mumps_analyze(sub%mumps_interior_block,iparallel) 
+         ! Factorize matrix 
+         call mumps_factorize(sub%mumps_interior_block) 
+
+         sub%is_mumps_interior_active = .true.
+      else
+         sub%is_mumps_interior_active = .false.
+      end if
       sub%is_interior_factorized = .true.
+
 
 end subroutine
 
@@ -3122,7 +3270,7 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,nvali
          write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Loading matrix of subdomain ',sub%isub,&
                     ' local glob #',ind_loc
          do i = 1,lmatrix1
-            print '(100f15.6)',(sub%cnodes(ind_loc)%matrix(i,j),j = 1,lmatrix2)
+            write(*,'(100f15.6)') (sub%cnodes(ind_loc)%matrix(i,j),j = 1,lmatrix2)
          end do
       end if
 end subroutine
@@ -3635,7 +3783,7 @@ subroutine dd_prepare_aug(sub,comm_self)
       integer ::  i, iaaug
       integer ::  mumpsinfo, aaugmatrixtype
       integer ::  icol, icoli
-      logical :: parallel_analysis
+      integer :: iparallel
 
       ! check the prerequisities
       if (.not.sub%is_matrix_loaded) then
@@ -3729,6 +3877,9 @@ subroutine dd_prepare_aug(sub,comm_self)
          ! in symmetric case, saddle point problem makes the augmented matrix indefinite,
          ! even if the original matrix is SPD:
          aaugmatrixtype = 2
+      else 
+         write(*,*) 'DD_PREPARE_AUG: Matrixtype not set for subdomain:', sub%isub
+         call error_exit
       end if
       call mumps_init(sub%mumps_aug,comm_self,aaugmatrixtype)
 
@@ -3747,11 +3898,11 @@ subroutine dd_prepare_aug(sub,comm_self)
 
       nnzaaug = sub%nnzaaug
       laaug   = sub%laaug
-      call mumps_load_triplet(sub%mumps_aug,ndofaaug,nnzaaug,&
-                              sub%i_aaug_sparse,sub%j_aaug_sparse,sub%aaug_sparse,laaug)
+      call mumps_load_triplet_centralized(sub%mumps_aug,ndofaaug,nnzaaug,&
+                                          sub%i_aaug_sparse,sub%j_aaug_sparse,sub%aaug_sparse,nnzaaug)
       ! Analyze matrix
-      parallel_analysis = .false.
-      call mumps_analyze(sub%mumps_aug,parallel_analysis) 
+      iparallel = 1 ! force serial analysis
+      call mumps_analyze(sub%mumps_aug,iparallel) 
       ! Factorize matrix 
       call mumps_factorize(sub%mumps_aug) 
 
@@ -4291,6 +4442,102 @@ subroutine dd_get_my_coarsem(suba,lsuba,matrixtype,indexsub,lindexsub,i_sparse, 
       end do
 end subroutine
       
+!*****************************************************************
+subroutine dd_construct_interior_residual(sub,sol,lsol,reso,lreso)
+!*****************************************************************
+! Subroutine for multiplication of interface vector by Schur complement
+      use module_utils
+      use module_sm
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+
+      ! input vector
+      integer,intent(in)  :: lsol
+      real(kr),intent(in) ::  sol(lsol)
+
+      ! output vector
+      integer,intent(in)   :: lreso
+      real(kr),intent(out) ::  reso(lreso)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_CONSTRUCT_INTERIOR_RESIDUAL'
+      integer ::              laux
+      real(kr),allocatable ::  aux(:)
+      integer ::              lsoli
+      real(kr),allocatable ::  soli(:)
+      integer ::              lsolo
+      real(kr),allocatable ::  solo(:)
+
+      integer :: ndofi, ndofo, ndof, nnza12, la12, nnza11, la11, &
+                 matrixtype_aux, matrixtype
+      integer :: i
+
+      ! check the prerequisities
+      if (.not. (sub%is_blocked)) then
+         call error(routine_name,'Matrix is not blocked for subdomain:',sub%isub)
+      end if
+      
+      ndof  = sub%ndof
+      ndofo = sub%ndofo
+
+      ! check dimensions
+      if (lsol.ne.ndof) then
+         call error(routine_name,'Vector SOL does not have correct dimension.',sub%isub)
+      end if
+      if (lreso.ne.ndofo) then
+         call error(routine_name,'Vector RESO does not have correct dimension.',sub%isub)
+      end if
+ 
+      ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
+      if (ndofo.eq.0) then
+         return
+      end if
+
+      ndofi = sub%ndofi
+
+      ! prepare interface part of solution
+      lsoli = ndofi
+      allocate(soli(lsoli))
+      call dd_map_sub_to_subi(sub, sol,lsol, soli,lsoli)
+
+      ! prepare interiOr part of solution
+      lsolo = ndofo
+      allocate(solo(lsolo))
+      call dd_map_sub_to_subo(sub, sol,lsol, solo,lsolo)
+   
+      ! get reso = A_11*solo
+      matrixtype = sub%matrixtype
+      nnza11     = sub%nnza11
+      la11       = sub%la11
+      call sm_vec_mult(matrixtype, nnza11, &
+                       sub%i_a11_sparse, sub%j_a11_sparse, sub%a11_sparse, la11, &
+                       solo,lsolo, reso,lreso)
+
+      laux = ndofo
+      allocate(aux(laux))
+      ! prepare rhs vector 
+      ! with offdiagonal blocks, use as nonsymmetric
+      ! aux1 = A_12 * soli  
+      matrixtype_aux = 0
+      nnza12     = sub%nnza12
+      la12       = sub%la12
+      call sm_vec_mult(matrixtype_aux, nnza12, &
+                       sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
+                       soli,lsoli, aux,laux)
+
+      ! add results together to get reso = reso + aux, i.e. reso = A_11 * solo + A_12 * soli
+      do i = 1,lreso
+         reso(i) = reso(i) + aux(i)
+      end do
+ 
+      deallocate(aux)
+      deallocate(solo)
+      deallocate(soli)
+
+end subroutine
+
 
 !*********************************************
 subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
@@ -4335,48 +4582,50 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
  
       ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
       ndofo = sub%ndofo
-      laux1 = ndofo
-      allocate(aux1(laux1))
-
-      ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
-      ! with offdiagonal blocks, use as nonsymmetric
-      matrixtype_aux = 0
-      nnza12     = sub%nnza12
-      la12       = sub%la12
-      call sm_vec_mult(matrixtype_aux, nnza12, &
-                       sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
-                       x,lx, aux1,laux1)
-
-      ! resolve interior problem by MUMPS
-      call mumps_resolve(sub%mumps_interior_block,aux1,laux1)
-
-      if (sub%istorage .eq. 4) then
-         is_symmetric_storage = .true.
-      else
-         is_symmetric_storage = .false.
-      end if
-
-      ! prepare auxiliary vector for multiplication
-      ndofi = sub%ndofi
-      laux2 = ndofi
-      allocate(aux2(laux2))
-
-      ! get aux2 = A_21*aux1, i.e. aux2 = A_21 * (A_11)^-1 * A_12 * x
-      if (is_symmetric_storage) then
+      if (ndofo.gt.0) then
+         laux1 = ndofo
+         allocate(aux1(laux1))
+   
+         ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
+         ! with offdiagonal blocks, use as nonsymmetric
          matrixtype_aux = 0
          nnza12     = sub%nnza12
          la12       = sub%la12
-         ! use the matrix with transposed indices in the call sm_vec_mult
          call sm_vec_mult(matrixtype_aux, nnza12, &
-                          sub%j_a12_sparse, sub%i_a12_sparse, sub%a12_sparse, la12, &
-                          aux1,laux1, aux2,laux2)
-      else
-         matrixtype_aux = 0
-         nnza21     = sub%nnza21
-         la21       = sub%la21
-         call sm_vec_mult(matrixtype_aux, nnza21, &
-                          sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, la21, &
-                          aux1,laux1, aux2,laux2)
+                          sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
+                          x,lx, aux1,laux1)
+   
+         ! resolve interior problem by MUMPS
+         call mumps_resolve(sub%mumps_interior_block,aux1,laux1)
+   
+         if (sub%istorage .eq. 4) then
+            is_symmetric_storage = .true.
+         else
+            is_symmetric_storage = .false.
+         end if
+   
+         ! prepare auxiliary vector for multiplication
+         ndofi = sub%ndofi
+         laux2 = ndofi
+         allocate(aux2(laux2))
+   
+         ! get aux2 = A_21*aux1, i.e. aux2 = A_21 * (A_11)^-1 * A_12 * x
+         if (is_symmetric_storage) then
+            matrixtype_aux = 0
+            nnza12     = sub%nnza12
+            la12       = sub%la12
+            ! use the matrix with transposed indices in the call sm_vec_mult
+            call sm_vec_mult(matrixtype_aux, nnza12, &
+                             sub%j_a12_sparse, sub%i_a12_sparse, sub%a12_sparse, la12, &
+                             aux1,laux1, aux2,laux2)
+         else
+            matrixtype_aux = 0
+            nnza21     = sub%nnza21
+            la21       = sub%la21
+            call sm_vec_mult(matrixtype_aux, nnza21, &
+                             sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, la21, &
+                             aux1,laux1, aux2,laux2)
+         end if
       end if
 
       ! get y = A_22*x
@@ -4388,12 +4637,14 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
                        x,lx, y,ly)
 
       ! add results together to get y = y - aux2, i.e. y = A_22 * x - A_21 * (A_11)^-1 * A_12 * x, or y = (A_22 - A_21 * (A_11)^-1 * A_12) * x
-      do i = 1,ly
-         y(i) = y(i) - aux2(i)
-      end do
+      if (ndofo.gt.0) then
+         do i = 1,ly
+            y(i) = y(i) - aux2(i)
+         end do
  
-      deallocate(aux1)
-      deallocate(aux2)
+         deallocate(aux1)
+         deallocate(aux2)
+      end if
 
 end subroutine
 
@@ -4450,65 +4701,108 @@ subroutine dd_resolve_interior(sub,x,lx,y,ly)
       end if
 
       ndofo = sub%ndofo
-      laux1 = ndofo
-      allocate(aux1(laux1))
+      ! continue only for nontrivial interior block
+      if (ndofo.gt.0) then
+         laux1 = ndofo
+         allocate(aux1(laux1))
  
-      ndof = sub%ndof
-      laux2 = ndof
-      allocate(aux2(laux2))
-      ! copy right hand side into aux2
-      do i = 1,ndof
-         aux2(i) = sub%rhs(i)
-      end do
-      ! fix BC in aux2
-      if (sub%is_bc_present) then
-         call sm_prepare_rhs(sub%ifix,sub%lifix,sub%bc,sub%lbc,aux2,laux2)
+         ndof = sub%ndof
+         laux2 = ndof
+         allocate(aux2(laux2))
+         ! copy right hand side into aux2
+         do i = 1,ndof
+            aux2(i) = sub%rhs(i)
+         end do
+         ! fix BC in aux2
+         if (sub%is_bc_present) then
+            call sm_prepare_rhs(sub%ifix,sub%lifix,sub%bc,sub%lbc,aux2,laux2)
+         end if
+
+         laux3 = ndofo
+         allocate(aux3(laux3))
+
+         ! map aux2 (length of whole subdomain solution) to subdomain interior aux1
+         call dd_map_sub_to_subo(sub, aux2,laux2, aux3,laux3)
+
+         deallocate(aux2)
+
+         ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
+         ! with offdiagonal blocks, use as nonsymmetric
+         matrixtype_aux = 0
+         nnza12     = sub%nnza12
+         la12       = sub%la12
+         call sm_vec_mult(matrixtype_aux, nnza12, &
+                          sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
+                          x,lx, aux1,laux1)
+
+         ! prepare rhs into aux1
+         ! aux = f - aux
+         do io = 1,ndofo
+            aux1(io) = aux3(io) - aux1(io)
+         end do
+
+         deallocate(aux3)
+
+         ! resolve interior problem by MUMPS
+         call dd_solve_interior_problem(sub,aux1,laux1)
+
+         ! embed vector of interior solution into subdomain solution y
+         do io = 1,ndofo
+            ind = sub%iovsvn(io)
+            y(ind) = y(ind) + aux1(io)
+         end do
+
+         deallocate(aux1)
       end if
-
-      laux3 = ndofo
-      allocate(aux3(laux3))
-
-      ! map aux2 (length of whole subdomain solution) to subdomain interior aux1
-      call dd_map_sub_to_subo(sub, aux2,laux2, aux3,laux3)
-
-      deallocate(aux2)
-
-      ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
-      ! with offdiagonal blocks, use as nonsymmetric
-      matrixtype_aux = 0
-      nnza12     = sub%nnza12
-      la12       = sub%la12
-      call sm_vec_mult(matrixtype_aux, nnza12, &
-                       sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
-                       x,lx, aux1,laux1)
-
-      ! prepare rhs into aux1
-      ! aux = f - aux
-      do io = 1,ndofo
-         aux1(io) = aux3(io) - aux1(io)
-      end do
-
-      deallocate(aux3)
-
-      ! resolve interior problem by MUMPS
-      call mumps_resolve(sub%mumps_interior_block,aux1,laux1)
-
-      ! embed vector of interior solution into subdomain solution y
-      do io = 1,ndofo
-         ind = sub%iovsvn(io)
-         y(ind) = y(ind) + aux1(io)
-      end do
-
-      deallocate(aux1)
 
       ! embed interface solution x into y
       call dd_map_subi_to_sub(sub, x,lx, y,ly)
       
 end subroutine
 
-!*******************************************************************************************
-subroutine dd_prepare_reduced_rhs(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexsub,comm_all)
-!*******************************************************************************************
+!*************************************************
+subroutine dd_solve_interior_problem(sub,vec,lvec)
+!*************************************************
+! Subroutine for resolution of interior variables with prepared right-hand side
+      use module_mumps
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+
+      ! input vector
+      integer,intent(in)     :: lvec
+      real(kr),intent(inout) ::  vec(lvec)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_SOLVE_INTERIOR_PROBLEM'
+      integer :: ndofo
+
+      ! check the prerequisities
+      if (.not. (sub%is_interior_factorized)) then
+         call error(routine_name,'Interior block not factorized yet for subdomain:',sub%isub)
+      end if
+      ! check dimensions
+      ndofo = sub%ndofo
+
+      if (lvec .ne. ndofo) then
+         call error(routine_name,'Data size mismatch for subdomain:',sub%isub)
+      end if
+
+      ! continue only for nontrivial interior block
+      if (ndofo.eq.0) then
+         return
+      end if
+
+      ! resolve interior problem by MUMPS
+      call mumps_resolve(sub%mumps_interior_block,vec,lvec)
+
+end subroutine
+
+!***********************************************************************************************
+subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexsub,comm_all)
+!***********************************************************************************************
 ! Subroutine for construction of reduced rhs
 ! g = f_2 - A_21 * A_11^-1 * f_1
       use module_mumps
@@ -4529,17 +4823,18 @@ subroutine dd_prepare_reduced_rhs(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexs
       integer,intent(in) :: comm_all
 
       ! local vars
-      integer ::              laux1
-      real(kr),allocatable ::  aux1(:)
-      integer ::              laux2
-      real(kr),allocatable ::  aux2(:)
-      integer ::              laux3
-      real(kr),allocatable ::  aux3(:)
+      character(*),parameter:: routine_name = 'DD_PREPARE_REDUCED_RHS_ALL'
+      integer ::              lrhs
+      real(kr),allocatable ::  rhs(:)
+      integer ::              lsolo
+      real(kr),allocatable ::  solo(:)
+      integer ::              lg
+      real(kr),allocatable ::  g(:)
+      integer ::              laux
+      real(kr),allocatable ::  aux(:)
 
-      integer :: ndofi, ndofo, nnza12, la12, nnza21, la21, &
-                 matrixtype_aux, lg, ndof
+      integer :: ndofi, ndofo, ndof
       integer :: i, isub_loc, isub
-      logical :: is_symmetric_storage
 
 
       ! loop over subdomains
@@ -4548,111 +4843,72 @@ subroutine dd_prepare_reduced_rhs(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexs
 
          ! check the prerequisities
          if (.not. (suba(isub_loc)%is_interior_factorized)) then
-            write(*,*) 'DD_PREPARE_REDUCED_RHS: Interior block not factorized yet.'
-            call error_exit
+            call error(routine_name,'Interior block not factorized yet.')
          end if
          if (.not. (suba(isub_loc)%is_rhs_loaded)) then
-            write(*,*) 'DD_PREPARE_REDUCED_RHS: RHS not loaded.'
-            call error_exit
+            call error(routine_name,'RHS not loaded.')
          end if
          if (.not. (suba(isub_loc)%is_weights_ready)) then
-            write(*,*) 'DD_PREPARE_REDUCED_RHS: Weights not ready.'
-            call error_exit
+            call error(routine_name,'Weights not ready.')
          end if
  
          ndof = suba(isub_loc)%ndof
-         laux2 = ndof
-         allocate(aux2(laux2))
+         ndofo = suba(isub_loc)%ndofo
+         ndofi = suba(isub_loc)%ndofi
+
+         ! prepare subdomain rhs array
+         lrhs = ndof
+         allocate(rhs(lrhs))
+
+         ! prepare interior solution array
+         lsolo = ndofo
+         allocate(solo(lsolo))
+
+         ! prepare reduced rhs array
+         lg = ndofi
+         allocate(g(lg))
+
          ! copy right hand side into aux2
          do i = 1,ndof
-            aux2(i) = suba(isub_loc)%rhs(i)
+            rhs(i) = suba(isub_loc)%rhs(i)
          end do
          ! fix BC in aux2
          if (suba(isub_loc)%is_bc_present) then
             call sm_prepare_rhs(suba(isub_loc)%ifix,suba(isub_loc)%lifix,&
-                                suba(isub_loc)%bc,suba(isub_loc)%lbc,aux2,laux2)
+                                suba(isub_loc)%bc,suba(isub_loc)%lbc,rhs,lrhs)
          end if
 
-         ! prepare f_1
-         ndofo = suba(isub_loc)%ndofo
-         laux1 = ndofo
-         allocate(aux1(laux1))
+         ! apply weights on interface
+         call dd_weights_apply(suba(isub_loc), rhs,lrhs)
 
-         ! map aux2 (length of whole subdomain solution) to subdomain interior aux1
-         call dd_map_sub_to_subo(suba(isub_loc), aux2,laux2, aux1,laux1)
+         ! prepare interior portion of solution
+         call dd_prepare_reduced_rhs(suba(isub_loc),rhs,lrhs,solo,lsolo,g,lg)
 
-         deallocate(aux2)
-
-         ! solve problem A_11*aux1 = f_1
-         ! by MUMPS
-         call mumps_resolve(suba(isub_loc)%mumps_interior_block,aux1,laux1)
-         
-         if (suba(isub_loc)%istorage .eq. 4) then
-            is_symmetric_storage = .true.
-         else
-            is_symmetric_storage = .false.
-         end if
-
-         ! prepare auxiliary vector for multiplication
-         ndofi = suba(isub_loc)%ndofi
-         laux2 = ndofi
-         allocate(aux2(laux2))
-
-         ! get aux2 = A_21*aux1, i.e. aux2 = A_21 * (A_11)^-1 * f_1
-         if (is_symmetric_storage) then
-            matrixtype_aux = 0
-            nnza12     = suba(isub_loc)%nnza12
-            la12       = suba(isub_loc)%la12
-            ! use the matrix with transposed indices in the call sm_vec_mult
-            call sm_vec_mult(matrixtype_aux, nnza12, &
-                             suba(isub_loc)%j_a12_sparse, suba(isub_loc)%i_a12_sparse, suba(isub_loc)%a12_sparse, la12,&
-                             aux1,laux1, aux2,laux2)
-         else
-            matrixtype_aux = 0
-            nnza21     = suba(isub_loc)%nnza21
-            la21       = suba(isub_loc)%la21
-            call sm_vec_mult(matrixtype_aux, nnza21, &
-                             suba(isub_loc)%i_a21_sparse, suba(isub_loc)%j_a21_sparse, suba(isub_loc)%a21_sparse, la21, &
-                             aux1,laux1, aux2,laux2)
-         end if
-
-         ! prepare f_2
-         laux3 = ndofi
-         allocate(aux3(laux3))
-         ! copy proper part of RHS
-         do i = 1,ndofi
-            aux3(i) = suba(isub_loc)%rhs(suba(isub_loc)%iivsvn(i))
-         end do
-         ! weigh f_2
-         do i = 1,ndofi
-            aux3(i) = suba(isub_loc)%wi(i) * aux3(i)
-         end do
-         ! add eliminated BC to right hand side
-         if (suba(isub_loc)%is_bc_nonzero) then
-            do i = 1,ndofi
-               aux3(i) = aux3(i) + suba(isub_loc)%bc(suba(isub_loc)%iivsvn(i))
-            end do
-         end if
-
-         ! add results together to get aux3 = aux3 - aux2, i.e. aux3 = f_2 - A_21 * (A_11)^-1 * f_1
-         do i = 1,ndofi
-            aux3(i) = aux3(i) - aux2(i)
-         end do
+         ! store interior solution in the structure
+         call dd_upload_interior_solution(suba(isub_loc),solo,lsolo)
 
          ! load reduced RHS for communication structure
-         call dd_comm_upload(suba(isub_loc), aux3,laux3) 
+         call dd_comm_upload(suba(isub_loc), g,lg) 
  
          ! save my own g into sub
-         lg = ndofi
-         suba(isub_loc)%lg = lg
-         allocate(suba(isub_loc)%g(lg))
+         ! is it already allocated?
+         if (.not.allocated(suba(isub_loc)%g)) then
+            ! if not, allocate it
+            suba(isub_loc)%lg = lg
+            allocate(suba(isub_loc)%g(lg))
+         else
+            ! if yes, check that it is allocated to correct dimension
+            if (lg.ne.suba(isub_loc)%lg) then
+               call error(routine_name,'Dimension of subdomain G mismatch for subdomain:',isub)
+            end if
+         end if
          do i = 1,lg
-            suba(isub_loc)%g(i) = aux3(i)
+            suba(isub_loc)%g(i) = g(i)
          end do
 
-         deallocate(aux1)
-         deallocate(aux2)
-         deallocate(aux3)
+         deallocate(rhs)
+         deallocate(solo)
+         deallocate(g)
       end do
 
       ! communicate condensed right hand side
@@ -4663,27 +4919,136 @@ subroutine dd_prepare_reduced_rhs(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexs
          isub = indexsub(isub_loc)
 
          ndofi = suba(isub_loc)%ndofi
-         laux3 = ndofi
-         allocate(aux3(laux3))
+         laux = ndofi
+         allocate(aux(laux))
 
          ! download contribution to g from my neighbours
-         call dd_comm_download(suba(isub_loc), aux3,laux3) 
+         call dd_comm_download(suba(isub_loc), aux,laux) 
 
          ! sum the contributions
          lg = suba(isub_loc)%lg
          do i = 1,lg
-            suba(isub_loc)%g(i) = suba(isub_loc)%g(i) + aux3(i)
+            suba(isub_loc)%g(i) = suba(isub_loc)%g(i) + aux(i)
          end do
 
          suba(isub_loc)%is_reduced_rhs_loaded = .true.
  
-         deallocate(aux3)
+         deallocate(aux)
       end do
 end subroutine
 
-!*******************************************
-subroutine dd_get_reduced_rhs(sub, rhs,lrhs)
-!*******************************************
+!****************************************************************
+subroutine dd_prepare_reduced_rhs(sub,rhs,lrhs, solo,lsolo, g,lg)
+!****************************************************************
+! Subroutine for construction of interior solution SOLO and reduced rhs gi
+! |A_11 A_12| u_1 = rhs_1
+! |A_21 A_22| u_2   rhs_2
+! solo = (A_11)^-1 * rhs_1
+! g   = rhs_2 - A_21 * solo
+      use module_mumps
+      use module_sm
+      use module_utils
+      implicit none
+
+! array of sub structure for actual subdomains
+      type(subdomain_type),intent(inout) :: sub
+! subdomain RHS
+      integer,intent(in) ::  lrhs
+      real(kr),intent(in) ::  rhs(lrhs)
+! subdomain interiOr solution
+      integer,intent(in) ::   lsolo
+      real(kr),intent(out) ::  solo(lsolo)
+! subdomain reduced RHS
+      integer,intent(in) ::   lg
+      real(kr),intent(out) ::  g(lg)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_PREPARE_REDUCED_RHS'
+      integer :: ndofi, ndofo, ndof, nnza12, la12, nnza21, la21, &
+                 matrixtype_aux
+      integer :: i
+      logical :: is_symmetric_storage
+
+
+      ! check the prerequisities
+      if (.not. (sub%is_interior_factorized)) then
+         call error(routine_name,'Interior block not factorized yet.')
+      end if
+ 
+      ndof  = sub%ndof
+      ndofo = sub%ndofo
+      ndofi = sub%ndofi
+
+      ! check dimensions 
+      if (lrhs.ne.ndof) then
+         call error(routine_name,'Dimension of RHS array mismatch.')
+      end if
+      if (lsolo.ne.ndofo) then
+         call error(routine_name,'Dimension of SOLO array mismatch.')
+      end if
+      if (lg.ne.ndofi) then
+         call error(routine_name,'Dimension of G array mismatch.')
+      end if
+
+      ! initialize solo and g
+      call zero(solo,lsolo)
+      call zero(g,lg)
+
+      ! continue for nontrivial interior block
+      if (ndofo.gt.0) then
+
+         ! prepare f_1
+         ! map RHS (length of whole subdomain solution) to subdomain interior SOLO
+         call dd_map_sub_to_subo(sub, rhs,lrhs, solo,lsolo)
+         ! SOLO now contains interior RHS
+
+         ! solve problem A_11*solo = f_1
+         ! by MUMPS
+         call mumps_resolve(sub%mumps_interior_block,solo,lsolo)
+         ! SOLO now contains interior solution
+         
+         if (sub%istorage .eq. 4) then
+            is_symmetric_storage = .true.
+         else
+            is_symmetric_storage = .false.
+         end if
+
+         ! get g = A_21*sol1, i.e. g = A_21 * (A_11)^-1 * rhs_1
+         if (is_symmetric_storage) then
+            matrixtype_aux = 0
+            nnza12     = sub%nnza12
+            la12       = sub%la12
+            ! use the matrix with transposed indices in the call sm_vec_mult
+            call sm_vec_mult(matrixtype_aux, nnza12, &
+                             sub%j_a12_sparse, sub%i_a12_sparse, sub%a12_sparse, la12,&
+                             solo,lsolo, g,lg)
+         else
+            matrixtype_aux = 0
+            nnza21     = sub%nnza21
+            la21       = sub%la21
+            call sm_vec_mult(matrixtype_aux, nnza21, &
+                             sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, la21, &
+                             solo,lsolo, g,lg)
+         end if
+      end if
+
+      ! add rhs_2
+      ! copy proper part of RHS
+      do i = 1,ndofi
+         g(i) = rhs(sub%iivsvn(i)) - g(i) 
+      end do
+      ! add eliminated BC to right hand side
+      if (sub%is_bc_nonzero) then
+         do i = 1,ndofi
+            g(i) = g(i) + sub%bc(sub%iivsvn(i))
+         end do
+      end if
+
+end subroutine
+
+!***************************************
+subroutine dd_get_reduced_rhs(sub, g,lg)
+!***************************************
 ! Subroutine for getting reduced rhs
       use module_utils
       implicit none
@@ -4691,8 +5056,8 @@ subroutine dd_get_reduced_rhs(sub, rhs,lrhs)
 ! Subdomain structure
       type(subdomain_type),intent(in) :: sub
       ! reduced rhs
-      integer,intent(in) ::  lrhs
-      real(kr),intent(out) :: rhs(lrhs)
+      integer,intent(in) ::  lg
+      real(kr),intent(out) :: g(lg)
 
       ! local vars
       integer :: i
@@ -4704,14 +5069,14 @@ subroutine dd_get_reduced_rhs(sub, rhs,lrhs)
          call error_exit
       end if
       ! check the size
-      if (lrhs .ne. sub%lg) then
+      if (lg .ne. sub%lg) then
          write(*,*) 'DD_GET_REDUCED_RHS: RHS size mismatch for subdomain:', sub%isub
          call error_exit
       end if
  
-      ! copy rhs
-      do i = 1,lrhs
-         rhs(i) = sub%g(i)
+      ! copy g
+      do i = 1,lg
+         g(i) = sub%g(i)
       end do
 
 end subroutine
@@ -6854,6 +7219,9 @@ subroutine dd_finalize(sub)
       end if
       if (allocated(sub%g)) then
          deallocate(sub%g)
+      end if
+      if (allocated(sub%solo)) then
+         deallocate(sub%solo)
       end if
 
       if (sub%is_mumps_aug_active) then

@@ -14,7 +14,7 @@ program test_module_levels
       ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
       integer,parameter:: lfilenamex = 130
       ! use prepared division into subdomains in file *.ES?
-      logical,parameter :: load_division = .true.
+      logical,parameter :: load_division = .false.
       ! use prepared selection of corners in file *.CN and description of globs in file *.GLB?
       logical,parameter :: load_globs = .false.
       ! type of matrix (0 - general, 1 - SPD, 2 - general symmetric)

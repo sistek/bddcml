@@ -7,12 +7,34 @@ integer,parameter,private :: kr = kind(1.D0)
 real(kr),parameter,private :: numerical_zero = 1.e-14
 logical,parameter,private :: debug = .false.
 
+! standard UNIX units
+integer,parameter,private:: unit_err    = 0 ! stderr
+integer,parameter,private:: unit_stdout = 6 ! stdout
+
 interface zero
    module procedure zero_int_1
    module procedure zero_int_2
    module procedure zero_real_1
    module procedure zero_real_2
 end interface zero
+
+interface info
+   module procedure info_plain
+   module procedure info_with_number_int
+   module procedure info_with_number_rp
+end interface info
+
+interface warning
+   module procedure warning_plain
+   module procedure warning_with_number_int
+   module procedure warning_with_number_rp
+end interface warning
+
+interface error
+   module procedure error_plain
+   module procedure error_with_number_int
+   module procedure error_with_number_rp
+end interface error
 
 ! Time measurements
 integer,parameter,private :: level_time_max = 30
@@ -150,19 +172,76 @@ do
 end do
 end subroutine
 
-subroutine error(mname,msg)
+subroutine info_plain(mname,msg)
 character(*),intent(in):: mname,msg
-integer,parameter:: err_unit = 0
+character(*),parameter:: info_fmt = '(a,": ",a)'
+write(unit_stdout,info_fmt) mname,msg
+call flush(unit_stdout)
+end subroutine
+
+subroutine info_with_number_int(mname,msg,inumber)
+character(*),intent(in):: mname,msg
+integer,intent(in) :: inumber
+character(*),parameter:: info_fmt = '(a,": ",a,X,i10)'
+write(unit_stdout,info_fmt) mname,msg,inumber
+call flush(unit_stdout)
+end subroutine
+
+subroutine info_with_number_rp(mname,msg,rnumber)
+character(*),intent(in):: mname,msg
+real(kr),intent(in) :: rnumber
+character(*),parameter:: info_fmt = '(a,": ",a,X,e17.9)'
+write(unit_stdout,info_fmt) mname,msg,rnumber
+call flush(unit_stdout)
+end subroutine
+
+subroutine warning_plain(mname,msg)
+character(*),intent(in):: mname,msg
+character(*),parameter:: wrn_fmt = '("WARNING in ",a,": ",a)'
+write(unit_stdout,wrn_fmt) mname,msg
+call flush(unit_stdout)
+end subroutine
+
+subroutine warning_with_number_int(mname,msg,inumber)
+character(*),intent(in):: mname,msg
+integer,intent(in) :: inumber
+character(*),parameter:: wrn_fmt = '("WARNING in ",a,": ",a,X,i10)'
+write(unit_stdout,wrn_fmt) mname,msg,inumber
+call flush(unit_stdout)
+end subroutine
+
+subroutine warning_with_number_rp(mname,msg,rnumber)
+character(*),intent(in):: mname,msg
+real(kr),intent(in) :: rnumber
+character(*),parameter:: wrn_fmt = '("WARNING in ",a,": ",a,X,e17.9)'
+write(unit_stdout,wrn_fmt) mname,msg,rnumber
+call flush(unit_stdout)
+end subroutine
+
+subroutine error_plain(mname,msg)
+character(*),intent(in):: mname,msg
 character(*),parameter:: err_fmt = '("ERROR in ",a,": ",a)'
-write(err_unit,err_fmt) mname,msg
+write(unit_err,err_fmt) mname,msg
+call flush(unit_err)
 call error_exit
 end subroutine
 
-subroutine warning(mname,msg)
+subroutine error_with_number_int(mname,msg,inumber)
 character(*),intent(in):: mname,msg
-integer,parameter:: err_unit = 0
-character(*),parameter:: err_fmt = '("WARNING in ",a,": ",a)'
-write(err_unit,err_fmt) mname,msg
+integer,intent(in) :: inumber
+character(*),parameter:: err_fmt = '("ERROR in ",a,": ",a,X,i10)'
+write(unit_err,err_fmt) mname,msg,inumber
+call flush(unit_err)
+call error_exit
+end subroutine
+
+subroutine error_with_number_rp(mname,msg,rnumber)
+character(*),intent(in):: mname,msg
+real(kr),intent(in) :: rnumber
+character(*),parameter:: err_fmt = '("ERROR in ",a,": ",a,X,e17.9)'
+write(unit_err,err_fmt) mname,msg,rnumber
+call flush(unit_err)
+call error_exit
 end subroutine
 
 subroutine error_exit
@@ -792,6 +871,20 @@ subroutine time_end(time)
       level_time = level_time - 1
 
       return
+end subroutine
+
+!******************************
+subroutine time_print(msg,time)
+!******************************
+! Routine that prints info about time
+implicit none
+character(*),intent(in):: msg
+real(kr),intent(in)    :: time
+character(*),parameter:: info_fmt = '("Time of ",a,": ",f13.3," s")'
+write(unit_stdout,'(a)') '****PROFILING*****************************'
+write(unit_stdout,info_fmt) msg,time
+write(unit_stdout,'(a)') '****PROFILING*****************************'
+call flush(unit_stdout)
 end subroutine
 
 !***********************************************************************

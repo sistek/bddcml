@@ -82,6 +82,9 @@ module_levels.o: \
    module_krylov_types_def.o \
    module_utils.o 
 
+module_mumps.o: \
+   module_utils.o
+
 module_dd.o: \
    module_pp.o \
    module_mumps.o \
@@ -152,12 +155,14 @@ lobpcg_mvecmult_f.o: module_levels.o
 # building binaries
 test_module_mumps: \
    test_module_mumps.o \
-   module_mumps.o
+   module_mumps.o \
+   module_utils.o
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
 
 test_module_mumps2: \
    test_module_mumps2.o \
-   module_mumps.o
+   module_mumps.o \
+   module_utils.o
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
 
 test_module_sm: \
@@ -204,6 +209,7 @@ test_module_adaptivity: \
    module_mumps.o \
    module_sm.o \
    module_utils.o \
+   module_krylov_types_def.o \
    ../lobpcg_driver/lobpcg_driver.o \
    lobpcg_mvecmult_f.o
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) $(BLOPEXLINK)
@@ -244,6 +250,7 @@ test_module_levels: \
    module_mumps.o \
    module_sm.o \
    module_utils.o \
+   module_krylov_types_def.o \
    ../lobpcg_driver/lobpcg_driver.o \
    lobpcg_mvecmult_f.o
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) $(BLOPEXLINK)

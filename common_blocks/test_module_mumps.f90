@@ -36,7 +36,7 @@ program test_module_mumps
 
 !  local variables
       integer :: matrixtype, mumpsinfo
-      logical :: parallel_analysis
+      integer :: iparallel
    
 
 ! MPI initialization
@@ -54,11 +54,11 @@ program test_module_mumps
       call mumps_set_info(test_mumps,mumpsinfo)
 
 ! Load matrix to MUMPS
-      call mumps_load_triplet(test_mumps,n,nnz,i_sparse,j_sparse,a_sparse,la)
+      call mumps_load_triplet_distributed(test_mumps,n,nnz,i_sparse,j_sparse,a_sparse,la)
 
 ! Analyze matrix
-      parallel_analysis = .true.
-      call mumps_analyze(test_mumps,parallel_analysis)
+      iparallel = 2 ! force parallel analysis
+      call mumps_analyze(test_mumps,iparallel)
 
 ! Analyze matrix
       call mumps_factorize(test_mumps)

@@ -36,18 +36,21 @@ program bddcml
 !                    | faces: arith. | faces: -      |
 !----------------------------------------------------- 
 
-! use prepared division into subdomains in file *.ES?
+! use prepared division into subdomains on first level in file *.ES?
       logical,parameter :: load_division = .false.
-! use prepared selection of corners in file *.CN and description of globs in file *.GLB?
+! use prepared selection of corners in file *.CN and description of globs for first level in file *.GLB?
       logical,parameter :: load_globs = .false.
-! correct disconnected subdomains to make them continuous - not allowed for parallel divisions
-      logical,parameter :: correct_division = .true.
+! correct disconnected subdomains to make them continuous (not allowed for parallel divisions and loaded divisions)
+      logical,parameter :: correct_division = .true. 
+      ! are you debugging the code?
+      logical,parameter :: debug = .true.
 ! maximal length of problemname
       integer,parameter:: lproblemnamex = 100
 ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
       integer,parameter:: lfilenamex = 130
 
 !######### END OF PARAMETERS TO SET
+      character(*),parameter:: routine_name = 'BDDCML'
 
       !  parallel variables
       integer :: myid, comm_all, comm_self, nproc, ierr
@@ -181,7 +184,9 @@ program bddcml
          call flush(6)
       end if
       if (nsub.ne.nsublev(1)) then
-         call error('BDDCML','number of subdomains at first level mismatch')
+         if (myid.eq.0) then
+            call error(routine_name,'number of subdomains at first level mismatch')
+         end if
       end if
 
       ! read PMD mesh and input it as zero level coarse problem
@@ -289,7 +294,7 @@ program bddcml
       ! call PCG method
       call MPI_BARRIER(comm_all,ierr)
       call time_start
-      call bddcpcg(pcg_data,lpcg_data, nsub_loc, myid,comm_all,tol,maxit,ndecrmax)
+      call bddcpcg(pcg_data,lpcg_data, nsub_loc, myid,comm_all,tol,maxit,ndecrmax,debug)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pcg)
 
@@ -331,9 +336,9 @@ program bddcml
 !***************************************************************PARALLEL
       end program
 
-!*****************************************************************************
-      subroutine bddcpcg(pcg_data,lpcg_data, nsub_loc, myid,comm_all,tol,maxit,ndecrmax)
-!*****************************************************************************
+!*********************************************************************************************
+      subroutine bddcpcg(pcg_data,lpcg_data, nsub_loc, myid,comm_all,tol,maxit,ndecrmax,debug)
+!*********************************************************************************************
 ! subroutine realizing PCG algorithm with vectors distributed by subdomains
 
 ! module for distributed Krylov data storage
@@ -367,7 +372,11 @@ program bddcml
       ! desired accuracy of relative residual
       real(kr),intent(in) :: tol
 
+      ! Are you debugging the code?
+      logical, intent(in) :: debug
+
       ! local vars
+      character(*),parameter:: routine_name = 'BDDCPCG'
       integer,parameter :: ilevel = 1
       integer :: isub_loc, i
       integer :: iter, ndecr
@@ -390,12 +399,9 @@ program bddcml
       integer :: nw, ldiag, lsubdiag
       real(kr) :: cond
 
-      ! Are you debugging the code?
-      logical, parameter :: debug = .true.
-
       ! Prepare data for Lanczos estimation
-      ldiag    = maxit
-      lsubdiag = maxit - 1
+      ldiag    = maxit + 1
+      lsubdiag = maxit 
       allocate(diag(ldiag))
       allocate(subdiag(lsubdiag))
       call zero(diag,ldiag)
@@ -440,14 +446,14 @@ program bddcml
       normrhs = sqrt(normres2)
       if (debug) then
          if (myid.eq.0) then
-            write(*,*) 'Norm of the right hand side: ',normrhs
+            call info(routine_name,'Norm of the right hand side =',normrhs)
          end if
       end if
 
       ! Check of zero right hand side => all zero solution
       if (normrhs.eq.0.0D0) then
          if (myid.eq.0) then
-            write(*,*) 'initial residual zero => initial solution exact'
+            call warning(routine_name,'initial residual zero => initial solution exact')
          end if
          return 
       end if
@@ -455,8 +461,10 @@ program bddcml
 
 ! Initial action of the preconditioner M on residual vector RESI
 ! M*resi => p
-      if (myid.eq.0) then
-         write(*,*) ' Initial action of preconditioner'
+      if (debug) then
+         if (myid.eq.0) then
+            call info(routine_name,' Initial action of preconditioner')
+         end if
       end if
       call levels_pc_apply(pcg_data,lpcg_data)
       ! produced new z
@@ -484,14 +492,13 @@ program bddcml
 ! Control of positive definiteness of preconditioner matrix
       if (rmp.le.0._kr) then
          if (myid.eq.0) then
-            write(*,*) 'Preconditioner not positive definite!'
-            call error_exit
+            call error(routine_name,'Preconditioner not positive definite!')
          end if
       end if
 
       if (debug) then
          if (myid.eq.0) then
-            write(*,*) 'rmp initial: ',rmp
+            call info(routine_name,'rmp initial =',rmp)
          end if
       end if
 
@@ -516,6 +523,11 @@ program bddcml
 
          ! multiply by system matrix
          ! ap = A * p
+         if (debug) then
+            if (myid.eq.0) then
+               call info(routine_name,' Action of system matrix')
+            end if
+         end if
          call levels_sm_apply(pcg_data,lpcg_data)
 
          ! write ap
@@ -540,14 +552,13 @@ program bddcml
 ! Control of positive definiteness of system matrix
          if (pap.le.0._kr) then
             if (myid.eq.0) then
-               write(*,*) ' System matrix not positive definite!'
-               call error_exit
+               call error(routine_name,'System matrix not positive definite!')
             end if
          end if
 
          if (debug) then
             if (myid.eq.0) then
-               write(*,*) 'iter',iter,'pap : ',pap
+               call info(routine_name,'pap =',pap)
             end if
          end if
 
@@ -582,7 +593,7 @@ program bddcml
          normres = sqrt(normres2)
          if (debug) then
             if (myid.eq.0) then
-               write(*,*) 'iter',iter,'normres : ',normres
+               call info(routine_name,'normres =',normres)
             end if
          end if
 
@@ -597,7 +608,16 @@ program bddcml
          if (relres.lt.tol) then
             nw = iter-1
             if (myid.eq.0) then
-               write(*,*)'Number of PCG iterations:',iter
+               call info(routine_name,'Number of PCG iterations:',iter)
+            end if
+            exit
+         end if
+
+         ! Check number of iterations
+         if (iter.eq.maxit) then
+            nw = iter-1
+            if (myid.eq.0) then
+               call warning(routine_name,'Maximal number of iterations reached, precision not achieved.')
             end if
             exit
          end if
@@ -609,8 +629,7 @@ program bddcml
             ndecr = ndecr + 1
             if (ndecr.ge.ndecrmax) then
                if (myid.eq.0) then
-                  write(*,*)'Residual did not decrease for',ndecrmax,   ' iterations'
-                  call error_exit
+                  call error(routine_name,'Residual did not decrease for maximal number of iterations:',ndecrmax)
                end if
             end if
          end if
@@ -618,10 +637,11 @@ program bddcml
 
 ! Action of the preconditioner M on residual vector RES 
 ! M*resi => z
-         if (myid.eq.0) then
-            write(*,*) ' Action of preconditioner'
+         if (debug) then
+            if (myid.eq.0) then
+               call info(routine_name,' Action of preconditioner')
+            end if
          end if
-
          call levels_pc_apply(pcg_data,lpcg_data)
          ! produced new z
 
@@ -653,14 +673,13 @@ program bddcml
          ! Check of positive definiteness of preconditioner matrix
          if (rmp.le.0._kr) then
             if (myid.eq.0) then
-               write(*,*) 'Preconditioner not positive definite!'
-               call error_exit
+               call error(routine_name,'Preconditioner not positive definite!')
             end if
          end if
 
          if (debug) then
             if (myid.eq.0) then
-               write(*,*) 'iter',iter,'rmp : ',rmp
+               call info(routine_name,'rmp =',rmp)
             end if
          end if
 

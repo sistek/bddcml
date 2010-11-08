@@ -18,6 +18,12 @@ module module_levels
       logical,parameter,private :: debug = .true.
 ! profiling 
       logical,parameter,private :: profile = .true.
+! damping division
+      logical,parameter,private :: damp_division = .true.
+! damping selected corners  
+      logical,parameter,private :: damp_corners = .true.
+! maximal allowed length of file names
+      integer,parameter,private :: lfnamex = 130
 ! adjustable parameters ############################
 
 ! type for data about levels
@@ -138,15 +144,16 @@ subroutine levels_init(nl,nsublev,lnsublev,nelem,nnod,ndof,&
       real(kr), intent(in):: sol(lsol)
 
       ! local vars 
+      character(*),parameter:: routine_name = 'LEVELS_INIT'
       integer,parameter :: ilevel = 0
       integer :: i, j
 
 ! initial checks 
       if (nl.lt.2) then
-         call error('LEVELS_INIT','Number of levels must be at least 2.')
+         call error(routine_name,'Number of levels must be at least 2.')
       end if
       if (nsublev(nl).ne.1) then
-         call error('LEVELS_INIT','Number of subdomains at last level must be 1.')
+         call error(routine_name,'Number of subdomains at last level must be 1.')
       end if
 
 ! initialize basic structure
@@ -218,6 +225,7 @@ subroutine levels_pc_setup(problemname,nsublev,lnsublev,load_division,load_globs
 !*************************************************************************************
 ! subroutine for multilevel BDDC preconditioner setup
       use module_pp
+      use module_utils
       implicit none
       include "mpif.h"
 
@@ -246,6 +254,7 @@ subroutine levels_pc_setup(problemname,nsublev,lnsublev,load_division,load_globs
       logical,intent(in) :: use_adaptive
 
       ! local vars 
+      character(*),parameter:: routine_name = 'LEVELS_PC_SETUP'
       integer :: isub, isub_loc, nsub, nsub_loc
       integer :: nproc, comm_self, comm_all, ierr, myid
 
@@ -302,7 +311,7 @@ subroutine levels_pc_setup(problemname,nsublev,lnsublev,load_division,load_globs
          call MPI_COMM_RANK(comm_all,myid,ierr)
          call MPI_COMM_SIZE(comm_all,nproc,ierr)
          if (debug .and. myid.eq.0) then
-            write(*,*) 'Preparing level',iactive_level
+            call info(routine_name,'Preparing level',iactive_level)
          end if
          call levels_prepare_standard_level(problemname,load_division,load_globs,&
                                             correct_division,neighbouring,matrixtype,ndim,meshdim,iactive_level,&
@@ -311,7 +320,7 @@ subroutine levels_pc_setup(problemname,nsublev,lnsublev,load_division,load_globs
 
       iactive_level = nlevels
       if (debug .and. myid.eq.0) then
-         write(*,*) 'Preparing level',iactive_level
+         call info(routine_name,'Preparing level',iactive_level)
       end if
       comm_all = levels(iactive_level)%comm_all
       ! orient in the communicator
@@ -340,6 +349,7 @@ subroutine levels_read_level_from_file(problemname,comm,ndim,ilevel)
       integer,intent(in) :: ilevel
 
 ! local variables
+      character(*),parameter:: routine_name = 'LEVELS_READ_LEVEL_FROM_FILE'
 ! number of processor
       integer :: myid
       integer :: idlevel
@@ -356,7 +366,7 @@ subroutine levels_read_level_from_file(problemname,comm,ndim,ilevel)
 
       integer :: i,j
 
-      character(500) :: filename
+      character(lfnamex) :: filename
 
       character(1) :: levelstring
 
@@ -367,11 +377,12 @@ subroutine levels_read_level_from_file(problemname,comm,ndim,ilevel)
          if (ilevel.lt.10) then
             write(levelstring,'(i1)') ilevel
          else
-            write(*,*) 'LEVELS_READ_LEVEL_FROM_FILE: Index of level too large...'
-            call error_exit
+            call error(routine_name,'Index of level too large for reading from file:',ilevel)
          end if
          filename = trim(problemname)//'.L'//levelstring
-         write(*,*) 'LEVELS_READ_LEVEL_FROM_FILE: Reading data from file ',trim(filename)
+         if (debug) then
+            call info(routine_name,' Reading data from file '//trim(filename))
+         end if
          call allocate_unit(idlevel)
          open (unit=idlevel,file=filename,status='old',form='formatted')
       end if
@@ -381,8 +392,7 @@ subroutine levels_read_level_from_file(problemname,comm,ndim,ilevel)
          read(idlevel,*) indlevel, nelem, nnod, linet
          read(idlevel,*) ncorner, nedge, nface, linetc
          if (indlevel.ne.ilevel) then
-            write(*,*) 'LEVELS_READ_LEVEL_FROM_FILE: Data mismatch...'
-            call error_exit
+            call error(routine_name,'Level number mismatch...')
          end if
       end if
 !*****************************************************************MPI
@@ -436,6 +446,84 @@ subroutine levels_read_level_from_file(problemname,comm,ndim,ilevel)
 
 end subroutine
 
+!*************************************************************
+subroutine levels_damp_division(problemname,ilevel,iets,liets)
+!*************************************************************
+! Subroutine for damping division into subdomains at level to file
+
+      use module_utils
+      implicit none
+
+! name of problem
+      character(*),intent(in) :: problemname
+! index of level to import
+      integer,intent(in) :: ilevel
+! division into subdomains
+      integer,intent(in) :: liets
+      integer,intent(in) ::  iets(liets)
+
+! local variables
+      character(*),parameter:: routine_name = 'LEVELS_DAMP_DIVISION'
+      character(lfnamex) :: filename
+      character(1) :: levelstring
+      integer :: idlevel
+
+      if (ilevel.lt.10) then
+         write(levelstring,'(i1)') ilevel
+      else
+         call error(routine_name,'Index of level too large for reading from file:',ilevel)
+      end if
+      filename = trim(problemname)//'_L'//levelstring//'.ES'
+      if (debug) then
+         call info(routine_name,' Damping division to file '//trim(filename))
+      end if
+      call allocate_unit(idlevel)
+      open (unit=idlevel,file=filename,status='replace',form='formatted')
+
+! write division into file 
+      write(idlevel,*) iets
+      close(idlevel)
+end subroutine
+
+!**************************************************************
+subroutine levels_damp_corners(problemname,ilevel,inodc,linodc)
+!**************************************************************
+! Subroutine for damping corners at level to file
+
+      use module_utils
+      implicit none
+
+! name of problem
+      character(*),intent(in) :: problemname
+! index of level to import
+      integer,intent(in) :: ilevel
+! global indices of corners
+      integer,intent(in) :: linodc
+      integer,intent(in) ::  inodc(linodc)
+
+! local variables
+      character(*),parameter:: routine_name = 'LEVELS_DAMP_CORNERS'
+      character(lfnamex) :: filename
+      character(1) :: levelstring
+      integer :: idlevel
+
+      if (ilevel.lt.10) then
+         write(levelstring,'(i1)') ilevel
+      else
+         call error(routine_name,'Index of level too large for reading from file:',ilevel)
+      end if
+      filename = trim(problemname)//'_L'//levelstring//'.CN'
+      if (debug) then
+         call info(routine_name,' Damping division to file '//trim(filename))
+      end if
+      call allocate_unit(idlevel)
+      open (unit=idlevel,file=filename,status='replace',form='formatted')
+
+! write division into file 
+      write(idlevel,*) inodc
+      close(idlevel)
+end subroutine
+
 !***********************************************************************************************
 subroutine levels_upload_level_mesh(ilevel,ncorner,nedge,nface,nnodc,ndofc,&
                                     inetc,linetc,nnetc,lnnetc,nndfc,lnndfc,xyzc,lxyzc1,lxyzc2)
@@ -457,25 +545,21 @@ subroutine levels_upload_level_mesh(ilevel,ncorner,nedge,nface,nnodc,ndofc,&
       real(kr),intent(in)::  xyzc(lxyzc1,lxyzc2)
 
       ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_UPLOAD_LEVEL_MESH'
       integer :: i, j
 
 
       ! check that array is allocated
       if (.not. allocated(levels) ) then
-         write(*,*) 'LEVELS_UPLOAD_LEVEL_MESH: LEVELS not allocated for level  ',ilevel
-         write(*,*) 'LEVELS_UPLOAD_LEVEL_MESH: Maybe missing call to LEVELS_INIT.'
-         call error_exit
+         call error(routine_name,'LEVELS not allocated.')
       end if
-      ! check that enough space is available
-      if (ilevel .gt. nlevels) then
-         write(*,*) 'LEVELS_UPLOAD_LEVEL_MESH: ILEVEL exceeds size of LEVELS array.  ',ilevel
-         call error_exit
+      ! check that level is within the allowed range
+      if (ilevel .lt. lbound(levels,1) .or. ilevel .gt. ubound(levels,1)) then
+         call error(routine_name,'ILEVEL out of range of LEVELS array: ',ilevel)
       end if
       ! check sum
       if (nnodc .ne. ncorner + nedge + nface) then
-         write(*,*) 'LEVELS_UPLOAD_LEVEL_MESH: coarse nodes number mismatch. nnodc = ',nnodc,&
-                    'sum of globs',ncorner + nedge + nface
-         call error_exit
+         call error(routine_name,'Coarse nodes number mismatch',nnodc)
       end if
 
 ! load data to structure
@@ -542,6 +626,8 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       logical,intent(in) :: use_adaptive
 
       ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_PREPARE_STANDARD_LEVEL'
+
       integer :: myid
       integer :: nproc
       integer :: comm_all, comm_self, ierr
@@ -610,10 +696,13 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
 
       ! time variables
       real(kr) :: t_division, t_globs, t_matrix_import, t_adjacency, t_loc_mesh,&
-                  t_loc_interface, t_loc_globs, t_loc_bc, t_loc_adjacency
+                  t_loc_interface, t_loc_globs, t_loc_bc, t_loc_adjacency,&
+                  t_matrix_assembly, t_schur_prepare, t_weights_prepare,&
+                  t_reduced_rhs_prepare,&
+                  t_standard_coarse_prepare, t_adaptive_coarse_prepare
 
       if (.not.levels(ilevel-1)%is_level_prepared) then
-         call error('LEVELS_PREPARE_STANDARD_LEVEL', 'Previous level not ready.')
+         call error(routine_name, 'Previous level not ready:', ilevel-1)
       end if
 
       ! orient in the communicator
@@ -647,6 +736,11 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       levels(ilevel)%lsol = levels(ilevel-1)%lsolc  
       levels(ilevel)%sol  => levels(ilevel-1)%solc  
 
+      ! debug
+      !print *,'nnod',levels(ilevel)%nnod
+      !print *,'nelem',levels(ilevel)%nelem
+      !print *,'nndf',levels(ilevel)%nndf
+
       ! initialize values
       nsub  = levels(ilevel)%nsub
       nnod  = levels(ilevel)%nnod
@@ -670,9 +764,10 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
 !***************************************************************PARALLEL
          call MPI_BCAST(levels(ilevel)%iets,levels(ilevel)%liets, MPI_INTEGER, 0, comm_all, ierr)
 !***************************************************************PARALLEL
-         if (myid.eq.0) then
-            write(*,*) ' Mesh division loaded from file ',trim(filename)
-            call flush(6)
+         if (debug) then
+            if (myid.eq.0) then
+               call info(routine_name, 'Mesh division loaded from file '//trim(filename))
+            end if
          end if
       else
          ! create division
@@ -692,22 +787,29 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
 !***************************************************************PARALLEL
          call MPI_BCAST(levels(ilevel)%iets,levels(ilevel)%liets, MPI_INTEGER, 0, comm_all, ierr)
 !***************************************************************PARALLEL
-         if (myid.eq.0) then
-            write(*,*) ' Mesh division created.'
-            call flush(6)
+         if (debug) then
+            if (myid.eq.0) then
+               call info(routine_name, 'Mesh division created.')
+            end if 
          end if 
+         if (damp_division) then
+            if (myid.eq.0) then
+               call levels_damp_division(trim(problemname),ilevel,levels(ilevel)%iets,levels(ilevel)%liets)
+            end if
+         end if
 !-----profile
          if (profile) then
             call MPI_BARRIER(comm_all,ierr)
             call time_end(t_division)
             if (myid.eq.0) then
-               write(*,*) '***********************************PROFILING'
-               write(*,*) 'Time of creating division into subdomains: ',t_division,' s.'
-               write(*,*) '***********************************PROFILING'
-               call flush(6)
+               call time_print('creating division into subdomains',t_division)
             end if
          end if
 !-----profile
+      end if
+      ! check division - that number of subdomains equal largest entry in partition array IETS
+      if (maxval(levels(ilevel)%iets).ne.nsub) then
+         call error(routine_name,'Partition does not contain all subdomains.')
       end if
 
 !-----profile 
@@ -733,10 +835,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_loc_mesh)
          if (myid.eq.0) then
-            write(*,*) '***********************************PROFILING'
-            write(*,*) 'Time of localizing mesh : ',t_loc_mesh,' s.'
-            write(*,*) '***********************************PROFILING'
-            call flush(6)
+            call time_print('localizing mesh',t_loc_mesh)
          end if
       end if
 !-----profile
@@ -773,10 +872,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_adjacency)
          if (myid.eq.0) then
-            write(*,*) '***********************************PROFILING'
-            write(*,*) 'Time of finding neighbours : ',t_adjacency,' s.'
-            write(*,*) '***********************************PROFILING'
-            call flush(6)
+            call time_print('finding neighbours',t_adjacency)
          end if
       end if
 !-----profile
@@ -800,10 +896,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_loc_adjacency)
          if (myid.eq.0) then
-            write(*,*) '***********************************PROFILING'
-            write(*,*) 'Time of localizing neighbours : ',t_loc_adjacency,' s.'
-            write(*,*) '***********************************PROFILING'
-            call flush(6)
+            call time_print('localizing neighbours',t_loc_adjacency)
          end if
       end if
 !-----profile
@@ -826,10 +919,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_loc_interface)
          if (myid.eq.0) then
-            write(*,*) '***********************************PROFILING'
-            write(*,*) 'Time of generating neighbouring data: ',t_loc_interface,' s.'
-            write(*,*) '***********************************PROFILING'
-            call flush(6)
+            call time_print('generating neighbouring data',t_loc_interface)
          end if
       end if
 !-----profile
@@ -858,9 +948,10 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
 !***************************************************************PARALLEL
          call MPI_BCAST(inodc,linodc, MPI_INTEGER, 0, comm_all, ierr)
 !***************************************************************PARALLEL
-         if (myid.eq.0) then
-            write(*,*) ' Corners loaded from file ',trim(filename)
-            call flush(6)
+         if (debug) then
+            if (myid.eq.0) then
+               call info(routine_name, 'Corners loaded from file '//trim(filename))
+            end if
          end if
 
          if (myid.eq.0) then
@@ -890,9 +981,10 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          call MPI_BCAST(nface, 1,     MPI_INTEGER, 0, comm_all, ierr)
 !***************************************************************PARALLEL
          nnodc = ncorner + nedge + nface
-         if (myid.eq.0) then
-            write(*,*) ' Globs loaded from file ',trim(filename)
-            call flush(6)
+         if (debug) then
+            if (myid.eq.0) then
+               call info(routine_name, 'Globs loaded from file '//trim(filename))
+            end if
          end if
       else
          ! TODO: make this parallel
@@ -946,6 +1038,11 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
                inodc(indinodc) = inod
             end if
          end do
+         if (damp_corners) then
+            if (myid.eq.0) then
+               call levels_damp_corners(trim(problemname),ilevel,inodc,linodc)
+            end if
+         end if
          ! arrays NNGLB and INGLB
          nglb = nedge + nface
          lnnglb = nglb
@@ -980,19 +1077,17 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          end do
          deallocate(kglb)
          deallocate(kglobs,typeglobs)
-         if (myid.eq.0) then
-            write(*,*) ' Corners and globs identified.'
-            call flush(6)
+         if (debug) then
+            if (myid.eq.0) then
+               call info(routine_name, 'Corners and globs identified.')
+            end if
          end if
 !-----profile
          if (profile) then
             call MPI_BARRIER(comm_all,ierr)
             call time_end(t_globs)
             if (myid.eq.0) then
-               write(*,*) '***********************************PROFILING'
-               write(*,*) 'Time of generating globs: ',t_globs,' s.'
-               write(*,*) '***********************************PROFILING'
-               call flush(6)
+               call time_print('generating globs',t_globs)
             end if
          end if
 !-----profile
@@ -1019,6 +1114,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       nnetcaux = 0
       ! create subdomain corners and globs
       do isub_loc = 1,levels(ilevel)%nsub_loc
+         isub = levels(ilevel)%indexsub(isub_loc)
          call dd_localize_cornersglobs(levels(ilevel)%subdomains(isub_loc),ncorner,inodc,linodc,nedge,nface,&
                                        nnglb,lnnglb,inglb,linglb,nnodcs)
          nnetcaux(isub) = nnodcs
@@ -1036,10 +1132,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_loc_globs)
          if (myid.eq.0) then
-            write(*,*) '***********************************PROFILING'
-            write(*,*) 'Time of localization of globs: ',t_loc_globs,' s.'
-            write(*,*) '***********************************PROFILING'
-            call flush(6)
+            call time_print('localization of globs',t_loc_globs)
          end if
       end if
 !-----profile
@@ -1051,40 +1144,37 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       end if
 !-----profile
 
-      ! create subdomain BC and RHS
-      do isub_loc = 1,levels(ilevel)%nsub_loc
-
-         ! find size of subdomain
-         call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
-
-         ! make subdomain boundary conditions - IFIXS and FIXVS
-         lifixs = ndofs
-         lfixvs = ndofs
-         allocate(ifixs(lifixs),fixvs(lfixvs))
-         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%ifix,levels(ilevel)%lifix, ifixs,lifixs)
-         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%fixv,levels(ilevel)%lfixv, fixvs,lfixvs)
-         call dd_upload_bc(levels(ilevel)%subdomains(isub_loc), ifixs,lifixs, fixvs,lfixvs)
-         deallocate(ifixs,fixvs)
-
-         ! on first level, load also RHS
-         if (ilevel.eq.1) then
+      ! create subdomain BC and RHS on first level
+      if (ilevel.eq.1) then
+         do isub_loc = 1,levels(ilevel)%nsub_loc
+   
+            ! find size of subdomain
+            call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+   
+            ! make subdomain boundary conditions - IFIXS and FIXVS
+            lifixs = ndofs
+            lfixvs = ndofs
+            allocate(ifixs(lifixs),fixvs(lfixvs))
+            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%ifix,levels(ilevel)%lifix, ifixs,lifixs)
+            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%fixv,levels(ilevel)%lfixv, fixvs,lfixvs)
+            call dd_upload_bc(levels(ilevel)%subdomains(isub_loc), ifixs,lifixs, fixvs,lfixvs)
+            deallocate(ifixs,fixvs)
+   
+            ! load subdomain RHS
             lrhss = ndofs
             allocate(rhss(lrhss))
             call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%rhs,levels(ilevel)%lrhs, rhss,lrhss)
             call dd_upload_rhs(levels(ilevel)%subdomains(isub_loc), rhss,lrhss)
             deallocate(rhss)
-         end if
-      end do
+         end do
+      end if
 
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_loc_bc)
          if (myid.eq.0) then
-            write(*,*) '***********************************PROFILING'
-            write(*,*) 'Time of localization of boundary conditions: ',t_loc_bc,' s.'
-            write(*,*) '***********************************PROFILING'
-            call flush(6)
+            call time_print('localization of boundary conditions',t_loc_bc)
          end if
       end if
 !-----profile
@@ -1093,6 +1183,9 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       do isub_loc = 1,levels(ilevel)%nsub_loc
          call dd_construct_cnodes(levels(ilevel)%subdomains(isub_loc))
       end do
+      ! debug
+      ! print *, 'myid =',myid,'cnodes constructed'
+      ! call flush(6)
 
 ! Begin loop over subdomains
 ! prepare coarse mesh for next level
@@ -1110,6 +1203,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       end if
 
       do isub_loc = 1,levels(ilevel)%nsub_loc
+         isub = levels(ilevel)%indexsub(isub_loc)
 
          call dd_get_coarse_size(levels(ilevel)%subdomains(isub_loc),ndofcs,nnodcs)
 
@@ -1136,7 +1230,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       ! print *,'myid =',myid,'inetc',inetc
       ! check the inetc array
       if (any(inetc.eq.0)) then
-         call error('LEVELS_PREPARE_STANDARD_LEVEL','Zeros in inetc array.')
+         call error(routine_name,'Zeros in inetc array.')
       end if
 
 ! prepare array of nodes for coarse mesh
@@ -1167,7 +1261,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       deallocate(nnglb)
       deallocate(inglb)
       deallocate(inodc)
-      
+
       ! Get matrix
 !-----profile
       if (profile) then
@@ -1204,46 +1298,105 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_matrix_import)
          if (myid.eq.0) then
-            write(*,*) '***********************************PROFILING'
-            write(*,*) 'Time of importing matrix: ',t_matrix_import,' s.'
-            write(*,*) '***********************************PROFILING'
-            call flush(6)
+            call time_print('importing matrix',t_matrix_import)
          end if
       end if
 !-----profile
 
       ! Assembly matrix for each subdomain
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
       do isub_loc = 1,levels(ilevel)%nsub_loc
          call dd_assembly_local_matrix(levels(ilevel)%subdomains(isub_loc))
       end do
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_matrix_assembly)
+         if (myid.eq.0) then
+            call time_print('assembling matrices',t_matrix_assembly)
+         end if
+      end if
+!-----profile
 
       ! For first level, prepare Schur complements
-      if (ilevel.eq.1) then
-         ! Schur only for first level
-         remove_original = .false.
-         do isub_loc = 1,levels(ilevel)%nsub_loc
-            call dd_matrix_tri2blocktri(levels(ilevel)%subdomains(isub_loc),remove_original)
-            call dd_prepare_schur(levels(ilevel)%subdomains(isub_loc),comm_self)
-         end do
-!         call dd_print_sub(myid)
-          ! neigbouring should be already created
-!         call dd_create_neighbouringi(myid,nsub,comm_all)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
       end if
+!-----profile
+      ! Schur only for first level
+      remove_original = .false.
+      do isub_loc = 1,levels(ilevel)%nsub_loc
+         call dd_matrix_tri2blocktri(levels(ilevel)%subdomains(isub_loc),remove_original)
+         call dd_prepare_schur(levels(ilevel)%subdomains(isub_loc),comm_self)
+      end do
+!      call dd_print_sub(myid)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_schur_prepare)
+         if (myid.eq.0) then
+            call time_print('preparing Schur complement matrices',t_schur_prepare)
+         end if
+      end if
+!-----profile
 
       ! weights
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
       call dd_weights_prepare(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                               levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                               levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
                               comm_all)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_weights_prepare)
+         if (myid.eq.0) then
+            call time_print('preparing weights',t_weights_prepare)
+         end if
+      end if
+!-----profile
 
       if (ilevel.eq.1) then
          ! prepare reduced RHS
-         call dd_prepare_reduced_rhs(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
-                                     levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
-                                     levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
-                                     comm_all)
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
+         call dd_prepare_reduced_rhs_all(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                                         levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                                         levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
+                                         comm_all)
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(t_reduced_rhs_prepare)
+            if (myid.eq.0) then
+               call time_print('preparing reduced righ-hand side',t_reduced_rhs_prepare)
+            end if
+         end if
+!-----profile
       end if
 
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
 ! prepare nndfc
       ! in nndfc, nodes are ordered as corners - edges - faces
       lnndfc   = nnodc
@@ -1295,8 +1448,24 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          ! prepare coarse space basis functions for BDDC
          call dd_prepare_coarse(levels(ilevel)%subdomains(isub_loc),keep_global)
       end do
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_standard_coarse_prepare)
+         if (myid.eq.0) then
+            call time_print('preparing standard coarse problem',t_standard_coarse_prepare)
+         end if
+      end if
+!-----profile
+
 
       if (use_adaptive) then
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
          ! open file with description of pairs
          if (myid.eq.0) then
             filename = trim(problemname)//'.PAIR'
@@ -1313,7 +1482,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
                                             levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
                                             comm_all,npair_locx,npair)
 
-         ! update nndf
+         ! update nndfc
          call adaptivity_update_ndof(nndfc,lnndfc,ncorner,nedge,nface)
    
          call adaptivity_finalize
@@ -1329,6 +1498,15 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
             ! prepare coarse space basis functions for BDDC
             call dd_prepare_coarse(levels(ilevel)%subdomains(isub_loc),keep_global)
          end do
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(t_adaptive_coarse_prepare)
+            if (myid.eq.0) then
+               call time_print('preparing adaptive coarse problem',t_adaptive_coarse_prepare)
+            end if
+         end if
+!-----profile
       end if
 
       ! print the output
@@ -1370,6 +1548,8 @@ subroutine levels_prepare_last_level(matrixtype)
       integer,intent(in) :: matrixtype
 
       ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_PREPARE_LAST_LEVEL'
+
       integer :: ilevel
 
       integer :: la, nnz
@@ -1378,10 +1558,10 @@ subroutine levels_prepare_last_level(matrixtype)
 
       integer :: ndof
 
-      integer :: mumpsinfo
+      integer :: mumpsinfo, iparallel
 
       ! MPI variables
-      integer :: comm_all, myid, ierr
+      integer :: comm_all, comm_self, myid, nproc, ierr
 
       ! time info
       real(kr) :: t_mumps_analysis, t_mumps_factorization
@@ -1389,19 +1569,45 @@ subroutine levels_prepare_last_level(matrixtype)
       ! last level has index of number of levels
       ilevel = nlevels
 
+      if (.not.levels(ilevel-1)%is_level_prepared) then
+         call error(routine_name, 'Previous level not ready.')
+      end if
+
       ! orient in the communicator
       comm_all  = levels(ilevel)%comm_all
+      comm_self = levels(ilevel)%comm_self
       call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
 
-      ! dof
-      ndof = levels(ilevel-1)%ndofc
+      ! make the connection with previous level
+      levels(ilevel)%nelem = levels(ilevel-1)%nsub
+      levels(ilevel)%nnod  = levels(ilevel-1)%nnodc
+      levels(ilevel)%ndof  = levels(ilevel-1)%ndofc
+
+      levels(ilevel)%linet = levels(ilevel-1)%linetc  
+      levels(ilevel)%inet  => levels(ilevel-1)%inetc  
+      levels(ilevel)%lnnet = levels(ilevel-1)%lnnetc  
+      levels(ilevel)%nnet  => levels(ilevel-1)%nnetc  
+      levels(ilevel)%lnndf = levels(ilevel-1)%lnndfc  
+      levels(ilevel)%nndf  => levels(ilevel-1)%nndfc  
+      levels(ilevel)%lxyz1 = levels(ilevel-1)%lxyzc1  
+      levels(ilevel)%lxyz2 = levels(ilevel-1)%lxyzc2  
+      levels(ilevel)%xyz   => levels(ilevel-1)%xyzc  
+      levels(ilevel)%lifix = levels(ilevel-1)%lifixc  
+      levels(ilevel)%ifix  => levels(ilevel-1)%ifixc  
+      levels(ilevel)%lfixv = levels(ilevel-1)%lfixvc  
+      levels(ilevel)%fixv  => levels(ilevel-1)%fixvc  
+      if (ilevel.eq.1) then
+         levels(ilevel)%lrhs = levels(ilevel-1)%lrhsc  
+         levels(ilevel)%rhs  => levels(ilevel-1)%rhsc  
+      end if
+      levels(ilevel)%lsol = levels(ilevel-1)%lsolc  
+      levels(ilevel)%sol  => levels(ilevel-1)%solc  
+
+      ! initialize values
+      ndof  = levels(ilevel)%ndof
 
       !write(*,*) 'coarse ndof on myid',myid,'is',ndof
-
-      if (.not.levels(ilevel-1)%is_level_prepared) then
-         write(*,*) 'LEVELS_PREPARE_LAST_LEVEL: Previous level not ready.'
-         call error_exit
-      end if
 
       ! find length of coarse matrix
       call dd_get_my_coarsem_length(levels(ilevel-1)%subdomains,levels(ilevel-1)%lsubdomains,&
@@ -1434,7 +1640,7 @@ subroutine levels_prepare_last_level(matrixtype)
       call mumps_set_info(mumps_coarse,mumpsinfo)
 
 ! Load matrix to MUMPS
-      call mumps_load_triplet(mumps_coarse,ndof,nnz,i_sparse,j_sparse,a_sparse,la)
+      call mumps_load_triplet_distributed(mumps_coarse,ndof,nnz,i_sparse,j_sparse,a_sparse,nnz)
 
 ! Analyze matrix
 !-----profile
@@ -1443,20 +1649,19 @@ subroutine levels_prepare_last_level(matrixtype)
          call time_start
       end if
 !-----profile
-      call mumps_analyze(mumps_coarse)
-      if (myid.eq.0) then
-         write(*,*)' Coarse matrix analyzed.'
-         call flush(6)
+      iparallel = 0 ! let MUMPS decide
+      call mumps_analyze(mumps_coarse,iparallel)
+      if (debug) then
+         if (myid.eq.0) then
+            call info(routine_name, 'Coarse matrix analyzed.')
+         end if
       end if
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_mumps_analysis)
          if (myid.eq.0) then
-            write(*,*) '***********************************PROFILING'
-            write(*,*) 'Time of analysis of the coarse problem is: ',t_mumps_analysis,' s.'
-            write(*,*) '***********************************PROFILING'
-            call flush(6)
+            call time_print('analysis of the coarse problem',t_mumps_analysis)
          end if
       end if
 !-----profile
@@ -1469,20 +1674,20 @@ subroutine levels_prepare_last_level(matrixtype)
       end if
 !-----profile
       call mumps_factorize(mumps_coarse)
-      if (myid.eq.0) then
-         write(*,*)' Coarse matrix factorized.'
-         call flush(6)
+      if (debug) then
+         if (myid.eq.0) then
+            call info(routine_name, 'Coarse matrix factorized.')
+         end if
       end if
+!-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_mumps_factorization)
          if (myid.eq.0) then
-            write(*,*) '***********************************PROFILING'
-            write(*,*) 'Time of factorization of the coarse problem is: ',t_mumps_factorization,' s.'
-            call flush(6)
-            write(*,*) '***********************************PROFILING'
+            call time_print('factorization of the coarse problem',t_mumps_factorization)
          end if
       end if
+!-----profile
 
       is_mumps_coarse_ready = .true.
 
@@ -1503,6 +1708,7 @@ subroutine levels_pc_apply(krylov_data,lkrylov_data)
       type(pcg_data_type),intent(inout) :: krylov_data(lkrylov_data)
 
       ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_PC_APPLY'
       integer :: ilr
       integer :: comm_all, myid, ierr
 
@@ -1512,8 +1718,7 @@ subroutine levels_pc_apply(krylov_data,lkrylov_data)
       ! orient in the communicator
       call MPI_COMM_RANK(comm_all,myid,ierr)
       if (debug .and. myid.eq.0) then
-         write(*,*) 'Applying subdomain correction at level',iactive_level
-         call flush(6)
+         call info(routine_name,'Applying subdomain correction at level',iactive_level)
       end if
       call levels_corsub_first_level(krylov_data,lkrylov_data)
 
@@ -1523,8 +1728,7 @@ subroutine levels_pc_apply(krylov_data,lkrylov_data)
          ! orient in the communicator
          call MPI_COMM_RANK(comm_all,myid,ierr)
          if (debug .and. myid.eq.0) then
-            write(*,*) 'Applying subdomain correction at level',iactive_level
-            call flush(6)
+            call info(routine_name,'Applying subdomain correction at level',iactive_level)
          end if
          call levels_corsub_standard_level(iactive_level)
       end do
@@ -1535,8 +1739,7 @@ subroutine levels_pc_apply(krylov_data,lkrylov_data)
       ! orient in the communicator
       call MPI_COMM_RANK(comm_all,myid,ierr)
       if (debug .and. myid.eq.0) then
-         write(*,*) 'Solving problem at last level ',iactive_level
-         call flush(6)
+         call info(routine_name,'Solving problem at last level ',iactive_level)
       end if
       call levels_solve_last_level
 
@@ -1549,8 +1752,7 @@ subroutine levels_pc_apply(krylov_data,lkrylov_data)
          ! orient in the communicator
          call MPI_COMM_RANK(comm_all,myid,ierr)
          if (debug .and. myid.eq.0) then
-            write(*,*) 'Adding coarse correction at level',iactive_level
-            call flush(6)
+            call info(routine_name,'Adding coarse correction at level',iactive_level)
          end if
          call levels_add_standard_level(iactive_level)
       end do
@@ -1561,8 +1763,7 @@ subroutine levels_pc_apply(krylov_data,lkrylov_data)
       ! orient in the communicator
       call MPI_COMM_RANK(comm_all,myid,ierr)
       if (debug .and. myid.eq.0) then
-         write(*,*) 'Adding coarse correction at level',iactive_level
-         call flush(6)
+         call info(routine_name,'Adding coarse correction at level',iactive_level)
       end if
       call levels_add_first_level(krylov_data,lkrylov_data)
 
@@ -1583,6 +1784,7 @@ subroutine levels_corsub_first_level(krylov_data,lkrylov_data)
 
 
       ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_CORSUB_FIRST_LEVEL'
       integer,pointer ::  lresc
       real(kr),pointer ::  resc(:)
 
@@ -1608,7 +1810,7 @@ subroutine levels_corsub_first_level(krylov_data,lkrylov_data)
 
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
-         call error('LEVELS_CORSUB_FIRST_LEVEL','Level is not prepared.')
+         call error(routine_name,'Level is not prepared.')
       end if
 
       ! set pointers
@@ -1623,8 +1825,7 @@ subroutine levels_corsub_first_level(krylov_data,lkrylov_data)
       lindexsub = levels(ilevel)%lindexsub
       ! check the length
       if (lkrylov_data .ne. lindexsub) then
-         write(*,*) 'LEVELS_CORSUB_FIRST_LEVEL: Inconsistent length of data.'
-         call error_exit
+         call error(routine_name,'Inconsistent length of data.')
       end if
 
       ! prepare global residual 
@@ -1696,6 +1897,7 @@ subroutine levels_corsub_standard_level(ilevel)
       integer,intent(in) ::  ilevel
 
       ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_CORSUB_STANDARD_LEVEL'
       ! residual on level
       integer,pointer :: lres
       real(kr),pointer :: res(:)
@@ -1708,13 +1910,15 @@ subroutine levels_corsub_standard_level(ilevel)
       real(kr),allocatable :: rescaux(:)
       integer ::             lrescs
       real(kr),allocatable :: rescs(:)
-      integer ::             laux
-      real(kr),allocatable :: aux(:)
-      integer ::             laux2
-      real(kr),allocatable :: aux2(:)
+      integer ::             lress
+      real(kr),allocatable :: ress(:)
+      integer ::             lgs
+      real(kr),allocatable :: gs(:)
+      integer ::             lresaugs
+      real(kr),allocatable :: resaugs(:)
 
-      integer :: ndofs, nnods, nelems, ndofaaugs, ndofcs, nnodcs
-      integer :: isub_loc, i, nrhs
+      integer :: ndofs, nnods, nelems, ndofaaugs, ndofcs, nnodcs, ndofis, nnodis
+      integer :: isub_loc, i, nrhs, isub
       logical :: transposed
 
       ! MPI vars
@@ -1722,11 +1926,11 @@ subroutine levels_corsub_standard_level(ilevel)
 
       ! check LEVEL
       if (ilevel.le.1 .or. ilevel.ge.nlevels) then
-         call error('LEVELS_CORSUB_STANDARD_LEVEL','Illegal index of level ILEVEL')
+         call error(routine_name,'Illegal index of level ILEVEL')
       end if
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
-         call error('LEVELS_CORSUB_STANDARD_LEVEL','Current level is not prepared.')
+         call error(routine_name,'Current level is not prepared.')
       end if
 
       ! set pointers
@@ -1740,6 +1944,28 @@ subroutine levels_corsub_standard_level(ilevel)
       comm_self = levels(ilevel)%comm_self
       call MPI_COMM_RANK(comm_all,myid,ierr)
 
+      ! get local contribution to coarse residual and load it into all subdomains of the level
+      do isub_loc = 1,levels(ilevel)%nsub_loc
+         isub = levels(ilevel)%indexsub(isub_loc)
+
+         ! get dimensions
+         call dd_get_size(levels(ilevel)%subdomains(isub_loc),ndofs,nnods,nelems)
+
+         lress = ndofs
+         allocate(ress(lress))
+         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), res,lres, ress,lress)
+
+         ! upload residual on subdomain to DD structure as RHS
+         call dd_upload_rhs(levels(ilevel)%subdomains(isub_loc), ress,lress)
+         deallocate(ress)
+      end do
+
+      ! prepare reduced RHS, i.e. G for all subdomains of the level
+      call dd_prepare_reduced_rhs_all(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                                      levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                                      levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
+                                      comm_all)
+
       ! prepare global coarse residual 
       allocate(rescaux(lresc))
       call zero(rescaux,lresc)
@@ -1748,20 +1974,29 @@ subroutine levels_corsub_standard_level(ilevel)
       allocate(resaux(lres))
       call zero(resaux,lres)
 
-      ! get local contribution to coarse residual
       do isub_loc = 1,levels(ilevel)%nsub_loc
+         isub = levels(ilevel)%indexsub(isub_loc)
 
          ! get dimensions
          call dd_get_size(levels(ilevel)%subdomains(isub_loc),ndofs,nnods,nelems)
+         call dd_get_interface_size(levels(ilevel)%subdomains(isub_loc),ndofis,nnodis)
          call dd_get_coarse_size(levels(ilevel)%subdomains(isub_loc),ndofcs,nnodcs)
 
-         laux = ndofs
-         allocate(aux(laux))
-         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), res,lres, aux,laux)
+         ! load reduced rhs on subdomain
+         lgs = ndofis
+         allocate(gs(lgs))
+         call dd_get_reduced_rhs(levels(ilevel)%subdomains(isub_loc), gs,lgs)
 
-         ! aux = wi * resi
-         ! weigths are not on interface now
-         call dd_weights_apply(levels(ilevel)%subdomains(isub_loc), aux,laux)
+         ! gs = w * gs
+         call dd_weightsi_apply(levels(ilevel)%subdomains(isub_loc), gs,lgs)
+
+         ! make new residual on whole subdomain from gs
+         ! prepare local residual from condensed RHS
+         lress = ndofs
+         allocate(ress(lress))
+         call zero(ress,lress)
+
+         call dd_map_subi_to_sub(levels(ilevel)%subdomains(isub_loc),gs,lgs,ress,lress)
 
          lrescs = ndofcs
          allocate(rescs(lrescs))
@@ -1769,7 +2004,7 @@ subroutine levels_corsub_standard_level(ilevel)
 
          ! rc = phis' * wi * resi
          transposed = .true.
-         call dd_phis_apply(levels(ilevel)%subdomains(isub_loc), transposed, aux,laux, rescs,lrescs)
+         call dd_phis_apply(levels(ilevel)%subdomains(isub_loc), transposed, ress,lress, rescs,lrescs)
 
          ! embed local resc to global one
          call dd_map_subc_to_globc(levels(ilevel)%subdomains(isub_loc), rescs,lrescs, rescaux,lresc)
@@ -1777,23 +2012,27 @@ subroutine levels_corsub_standard_level(ilevel)
          ! SUBDOMAIN CORRECTION
          ! prepare array of augmented size
          call dd_get_aug_size(levels(ilevel)%subdomains(isub_loc), ndofaaugs)
-         laux2 = ndofaaugs
-         allocate(aux2(laux2))
-         call zero(aux2,laux2)
-         call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+         lresaugs = ndofaaugs
+         allocate(resaugs(lresaugs))
+         call zero(resaugs,lresaugs)
          ! truncate the vector for embedding - zeros at the end
          do i = 1,ndofs
-            aux2(i) = aux(i)
+            resaugs(i) = ress(i)
          end do
 
          nrhs = 1
-         call dd_solve_aug(levels(ilevel)%subdomains(isub_loc), aux2,laux2, nrhs)
+         call dd_solve_aug(levels(ilevel)%subdomains(isub_loc), resaugs,lresaugs, nrhs)
+
+         ! apply weights
+         ! z = wi * z
+         call dd_weights_apply(levels(ilevel)%subdomains(isub_loc), resaugs,ndofs)
 
          ! get global part of the vector of preconditioned residual
-         call dd_map_sub_to_glob(levels(ilevel)%subdomains(isub_loc), aux2,ndofs, resaux,lres)
+         call dd_map_sub_to_glob(levels(ilevel)%subdomains(isub_loc), resaugs,ndofs, resaux,lres)
 
-         deallocate(aux2)
-         deallocate(aux)
+         deallocate(resaugs)
+         deallocate(ress)
+         deallocate(gs)
          deallocate(rescs)
       end do
 !*****************************************************************MPI
@@ -1852,6 +2091,7 @@ subroutine levels_add_standard_level(ilevel)
       integer,intent(in) ::  ilevel
 
       ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_ADD_STANDARD_LEVEL'
       ! residual on level
       integer,pointer :: lsol
       real(kr),pointer :: sol(:)
@@ -1866,11 +2106,14 @@ subroutine levels_add_standard_level(ilevel)
       integer ::             lsols
       real(kr),allocatable :: sols(:)
 
+      integer ::             lresos
+      real(kr),allocatable :: resos(:)
+
       real(kr),allocatable :: solaux(:)
       real(kr),allocatable :: solaux2(:)
 
-      integer :: ndofcs, nnodcs, nnods, nelems, ndofs
-      integer :: isub_loc, i
+      integer :: ndofcs, nnodcs, nnods, nelems, ndofs, ndofis, nnodis, ndofos
+      integer :: isub_loc, i, isub
       logical :: transposed
 
       ! MPI vars
@@ -1879,11 +2122,11 @@ subroutine levels_add_standard_level(ilevel)
 
       ! check LEVEL
       if (ilevel.le.1 .or. ilevel.ge.nlevels) then
-         call error('LEVELS_CORSUB_STANDARD_LEVEL','Illegal index of level ILEVEL')
+         call error(routine_name,'Illegal index of level ILEVEL',ilevel)
       end if
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
-         call error('LEVELS_APPLY_FIRST_LEVEL','Level is not prepared.')
+         call error(routine_name,'Level is not prepared:',ilevel)
       end if
 
       ! set pointers
@@ -1934,13 +2177,86 @@ subroutine levels_add_standard_level(ilevel)
 !*****************************************************************MPI
       call MPI_ALLREDUCE(solaux, solaux2, lsol , MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
 !*****************************************************************MPI
-      deallocate(solaux)
       
       ! add corrections - sol already contains subdomain contributions
+      ! TODO: this could be done only among neigbouring subdomains exactly as on the first level
+      !       using commvec instead of global allreduce
+
       do i = 1,lsol
          sol(i) = sol(i) + solaux2(i)
       end do
+      ! now SOL contains coarse and subdomain corrections
+
+      ! interior POST-CORRECTION
+      call zero(solaux,lsol) 
+      do isub_loc = 1,levels(ilevel)%nsub_loc
+         isub = levels(ilevel)%indexsub(isub_loc)
+
+         call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+         call dd_get_interface_size(levels(ilevel)%subdomains(isub_loc),ndofis,nnodis)
+         ndofos = ndofs - ndofis
+
+         lsols  = ndofs
+         allocate(sols(lsols))
+         call zero(sols,lsols)
+
+         ! restrict global corrections to local sols
+         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), sol,lsol, sols,lsols)
+
+         ! construct subdomain residual
+         lresos  = ndofos
+         allocate(resos(lresos))
+         call dd_construct_interior_residual(levels(ilevel)%subdomains(isub_loc),&
+                                             sols,lsols, resos,lresos)
+         ! solve interior problem
+         call dd_solve_interior_problem(levels(ilevel)%subdomains(isub_loc), &
+                                        resos,lresos)
+
+         ! map interior solution to subdomain
+         call zero(sols,lsols)
+         call dd_map_subo_to_sub(levels(ilevel)%subdomains(isub_loc), resos,lresos, sols,lsols)
+         deallocate(resos)
+
+         ! restrict prolong subdomain sols to global sol
+         call dd_map_sub_to_glob(levels(ilevel)%subdomains(isub_loc), sols,lsols, solaux,lsol)
+         deallocate(sols)
+      end do
+!*****************************************************************MPI
+      call MPI_ALLREDUCE(solaux, solaux2, lsol , MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
+!*****************************************************************MPI
+
+      ! subtract interior correction
+      do i = 1,lsol
+         sol(i) = sol(i) - solaux2(i)
+      end do
       deallocate(solaux2)
+
+      ! add stored solution at interior
+      call zero(solaux,lsol) 
+      do isub_loc = 1,levels(ilevel)%nsub_loc
+
+         call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+
+         lsols  = ndofs
+         allocate(sols(lsols))
+
+         ! restrict global corrections to local sols
+         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), sol,lsol, sols,lsols)
+
+         ! add subdomain interior correction
+         call dd_add_interior_solution(levels(ilevel)%subdomains(isub_loc), sols,lsols)
+
+         ! apply weights
+         call dd_weights_apply(levels(ilevel)%subdomains(isub_loc), sols,lsols)
+
+         ! restrict prolong subdomain sols to global sol
+         call dd_map_sub_to_glob(levels(ilevel)%subdomains(isub_loc), sols,lsols, solaux,lsol)
+         deallocate(sols)
+      end do
+!*****************************************************************MPI
+      call MPI_ALLREDUCE(solaux, sol, lsol , MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
+!*****************************************************************MPI
+      deallocate(solaux)
 
 end subroutine
 !**********************************************************
@@ -1956,6 +2272,7 @@ subroutine levels_add_first_level(krylov_data,lkrylov_data)
       type(pcg_data_type),intent(inout) :: krylov_data(lkrylov_data)
 
       ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_ADD_FIRST_LEVEL'
       integer,pointer :: lsolc
       real(kr),pointer :: solc(:)
       integer ::             lsolcs
@@ -1975,7 +2292,7 @@ subroutine levels_add_first_level(krylov_data,lkrylov_data)
 
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
-         call error('LEVELS_ADD_FIRST_LEVEL','Level is not prepared.')
+         call error(routine_name,'Level is not prepared.')
       end if
 
       ! set pointers
@@ -1990,8 +2307,7 @@ subroutine levels_add_first_level(krylov_data,lkrylov_data)
       lindexsub = levels(ilevel)%lindexsub
       ! check the length
       if (lkrylov_data .ne. lindexsub) then
-         write(*,*) 'LEVELS_ADD_FIRST_LEVEL: Inconsistent length of data.'
-         call error_exit
+         call error(routine_name,'Inconsistent length of data.')
       end if
 
       do isub_loc = 1,levels(ilevel)%nsub_loc
@@ -2051,10 +2367,12 @@ subroutine levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
 ! number of subdomains in that level
       integer,intent(out) :: nsub
       integer,intent(out) :: nsub_loc
+      ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_GET_NUMBER_OF_SUBDOMAINS'
 
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
-         call error('LEVELS_GET_NUMBER_OF_SUBDOMAINS','Level is not prepared.')
+         call error(routine_name,'Level is not prepared.')
       end if
 
       nsub     = levels(ilevel)%nsub
@@ -2077,6 +2395,7 @@ subroutine levels_prepare_krylov_data(krylov_data,lkrylov_data)
       type (pcg_data_type),intent(out) ::  krylov_data(lkrylov_data)
 
 ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_PREPARE_KRYLOV_DATA'
       ! for Krylov data, index of level is 1
       integer,parameter :: ilevel = 1
 
@@ -2089,11 +2408,11 @@ subroutine levels_prepare_krylov_data(krylov_data,lkrylov_data)
 
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
-         call error('LEVELS_PREPARE_KRYLOV_DATA','Level is not prepared.')
+         call error(routine_name,'Level is not prepared.')
       end if
       ! check dimensions
       if (lkrylov_data.ne.levels(ilevel)%nsub_loc) then
-         call error('LEVELS_PREPARE_KRYLOV_DATA','Dimension mismatch.')
+         call error(routine_name,'Dimension mismatch.')
       end if
 
       do isub_loc = 1,levels(ilevel)%nsub_loc
@@ -2172,17 +2491,18 @@ subroutine levels_fix_bc_interface_dual(krylov_data,lkrylov_data)
       type (pcg_data_type),intent(inout) ::  krylov_data(lkrylov_data)
 
 ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_FIX_BC_INTERFACE_DUAL'
       ! for Krylov data, index of level is 1
       integer,parameter :: ilevel = 1
       integer :: isub_loc
 
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
-         call error('LEVELS_FIX_BC_INTERFACE_DUAL','Level is not prepared.')
+         call error(routine_name,'Level is not prepared:',ilevel)
       end if
       ! check dimensions
       if (lkrylov_data.ne.levels(ilevel)%nsub_loc) then
-         call error('LEVELS_FIX_BC_INTERFACE_DUAL','Dimension mismatch.')
+         call error(routine_name,'Dimension mismatch.')
       end if
 
       do isub_loc = 1,levels(ilevel)%nsub_loc
@@ -2196,7 +2516,7 @@ end subroutine
 !***************************************************
 subroutine levels_sm_apply(krylov_data,lkrylov_data)
 !***************************************************
-! Subroutine for postprocessong of data by Krylov iterative method
+! Subroutine for multiplication of distributed vector by System Matrix
 ! module for distributed Krylov data storage
       use module_krylov_types_def
 ! module with utility routines
@@ -2208,6 +2528,7 @@ subroutine levels_sm_apply(krylov_data,lkrylov_data)
       type (pcg_data_type),intent(inout) ::  krylov_data(lkrylov_data)
 
 ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_SM_APPLY'
       ! for Krylov data, index of level is 1
       integer,parameter :: ilevel = 1
       integer :: i
@@ -2217,11 +2538,11 @@ subroutine levels_sm_apply(krylov_data,lkrylov_data)
 
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
-         call error('LEVELS_POSTPROCESS_SOLUTION','Level is not prepared.')
+         call error(routine_name,'Level is not prepared:',ilevel)
       end if
       ! check dimensions
       if (lkrylov_data.ne.levels(ilevel)%nsub_loc) then
-         call error('LEVELS_POSTPROCESS_SOLUTION','Dimension mismatch.')
+         call error(routine_name,'Dimension mismatch.')
       end if
 
       ! set communicator
@@ -2276,6 +2597,7 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
       logical, intent(in) :: print_solution
 
 ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_POSTPROCESS_SOLUTION'
       ! for Krylov data, index of level is 1
       integer,parameter :: ilevel = 1
       integer :: isub_loc, isub
@@ -2286,11 +2608,11 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
 
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
-         call error('LEVELS_POSTPROCESS_SOLUTION','Level is not prepared.')
+         call error(routine_name,'Level is not prepared:',ilevel)
       end if
       ! check dimensions
       if (lkrylov_data.ne.levels(ilevel)%nsub_loc) then
-         call error('LEVELS_POSTPROCESS_SOLUTION','Dimension mismatch.')
+         call error(routine_name,'Dimension mismatch.')
       end if
 
       do isub_loc = 1,levels(ilevel)%nsub_loc
@@ -2334,6 +2656,7 @@ subroutine levels_destroy_krylov_data(krylov_data,lkrylov_data)
       type (pcg_data_type),intent(inout) ::  krylov_data(lkrylov_data)
 
 ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_DESTROY_KRYLOV_DATA'
       ! for Krylov data, index of level is 1
       integer,parameter :: ilevel = 1
 
@@ -2341,11 +2664,11 @@ subroutine levels_destroy_krylov_data(krylov_data,lkrylov_data)
 
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
-         call error('LEVELS_DESTROY_KRYLOV_DATA','Level is not prepared.')
+         call error(routine_name,'Level is not prepared:',ilevel)
       end if
       ! check dimensions
       if (lkrylov_data.ne.levels(ilevel)%nsub_loc) then
-         call error('LEVELS_DESTROY_KRYLOV_DATA','Dimension mismatch.')
+         call error(routine_name,'Dimension mismatch.')
       end if
 
       do isub_loc = 1,levels(ilevel)%nsub_loc
@@ -2433,10 +2756,6 @@ subroutine levels_clear_level(level)
          deallocate (level%nndfc)
       end if
       level%lnndf = 0
-      if (allocated(level%iets)) then
-         deallocate (level%iets)
-      end if
-      level%liets = 0
       if (allocated(level%xyzc)) then
          deallocate (level%xyzc)
       end if
@@ -2454,6 +2773,10 @@ subroutine levels_clear_level(level)
          deallocate (level%rhsc)
       end if
       level%lrhsc = 0
+      if (allocated(level%iets)) then
+         deallocate (level%iets)
+      end if
+      level%liets = 0
       if (allocated(level%sub2proc)) then
          deallocate (level%sub2proc)
       end if

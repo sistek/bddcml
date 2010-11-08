@@ -106,7 +106,7 @@ program test_module_dd
       end do
 
       ! prepare reduced RHS
-      call dd_prepare_reduced_rhs(subdomains,lsubdomains, sub2proc,lsub2proc, indexsub,lindexsub, comm_all)
+      call dd_prepare_reduced_rhs_all(subdomains,lsubdomains, sub2proc,lsub2proc, indexsub,lindexsub, comm_all)
 
       ! multiply vector of ones by subdomain # 1
       x = 1.

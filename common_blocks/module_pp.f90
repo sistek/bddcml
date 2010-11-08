@@ -1932,7 +1932,9 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 ! dof of node
       lkdof = nnod
       allocate(kdof(lkdof))
-      kdof(1) = 0
+      if (lkdof.gt.0) then
+         kdof(1) = 0
+      end if
       do inod = 2,nnod
          kdof(inod) = kdof(inod-1) + nndf(inod-1)
       end do
@@ -2030,14 +2032,16 @@ type(neighbouring_type), allocatable :: neighbourings(:)
          end if
       end do
 ! mark Dirichlet boundary conditions from the list of globs
-      do inodi = 1,nnodi
-         indnod = igingn(inodi)
-         inddof = kdof(indnod)
-         ndofn = nndf(indnod)
-         if (any(ifix(inddof+1:inddof+ndofn).gt.0)) then
-            icheck(inodi) = 1
-         end if
-      end do
+      if (remove_bc_nodes) then
+         do inodi = 1,nnodi
+            indnod = igingn(inodi)
+            inddof = kdof(indnod)
+            ndofn = nndf(indnod)
+            if (any(ifix(inddof+1:inddof+ndofn).gt.0)) then
+               icheck(inodi) = 1
+            end if
+         end do
+      end if
       ! Every node should be present once
       if (any(icheck.ne.1)) then
          write(*,*) 'Error in interface coverage:'
