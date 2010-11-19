@@ -55,6 +55,8 @@ module module_dd
          integer ::             proc    ! index of processor taking care of this subdomain
          integer ::             comm    ! communicator to which proc refer
 
+         logical ::             is_degenerated = .false. ! this flag serves for switching off degenerated subdomains 
+
          logical ::             is_mesh_loaded = .false.
          integer ::             nelem   ! number of elements
          integer ::             nnod    ! number of nodes
@@ -90,14 +92,14 @@ module module_dd
          integer,allocatable ::  iovsvn(:) ! IOVSVN array - indices of interiOr variables in subdomain variable numbering
 
          ! boundary conditions
-         logical ::             is_bc_present ! are some Dirichlet BC on subdomain?
+         logical ::             is_bc_present = .false. ! are some Dirichlet BC on subdomain?
          logical ::             is_bc_nonzero ! are some Dirichlet BC nonzero?
          logical ::             is_bc_loaded = .false. 
          integer ::             lifix         ! length of IFIX array
          integer,allocatable ::  ifix(:)      ! IFIX array - indices of fixed variables
          integer ::             lfixv         ! length of FIXV array
          real(kr),allocatable :: fixv(:)      ! FIXV array - fixed variables values
-         integer ::             lbc           ! length of BC array
+         integer ::             lbc = 0       ! length of BC array
          real(kr),allocatable :: bc(:)        ! BC array - eliminated entries of stiffness matrix multiplied by values of fixed variables 
 
          ! description of corners
@@ -206,6 +208,12 @@ module module_dd
          logical :: is_mumps_interior_active = .false.
          logical :: is_interior_factorized   = .false.
          type(DMUMPS_STRUC) :: mumps_interior_block
+
+         ! explicit Schur complement if desired
+         integer ::             lschur1
+         integer ::             lschur2
+         real(kr),allocatable :: schur(:,:)
+         logical :: is_explicit_schur_prepared = .false.
 
          ! Matrices for BDDC 
          integer ::              ndofc            ! number of coarse degrees of freedom on subdomain
@@ -1003,6 +1011,7 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
       integer,intent(in) ::  iets(liets)
 
 ! local variables
+      character(*),parameter:: routine_name = 'DD_GATHER_MATRIX'
       integer :: myid, nproc, ierr
       integer :: stat(MPI_STATUS_SIZE)
       integer :: nelems, nnods, ndofs
@@ -1042,7 +1051,7 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
 
 ! check dimension
       if (nelem.ne.liets) then
-         call error('DD_GATHER_MATRIX','wrong length of array IETS')
+         call error(routine_name,'wrong length of array IETS')
       end if
 
 ! orient in communicators
@@ -1050,10 +1059,10 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
       call MPI_COMM_SIZE(comm_all,nproc,ierr)
 
       if (nproc+1.ne.lsub2proc) then
-         call error('DD_GATHER_MATRIX','wrong length of array sub2proc')
+         call error(routine_name,'wrong length of array sub2proc')
       end if
       if (nproc+1.ne.lelm2proc) then
-         call error('DD_GATHER_MATRIX','wrong length of array elm2proc')
+         call error(routine_name,'wrong length of array elm2proc')
       end if
 
       ! prepare arrays for quick mappings of processors for subdomains
@@ -1113,7 +1122,7 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
          else if (matrixtype.eq.1 .or. matrixtype.eq.2) then
             suba(isub_loc)%istorage   = 2
          else
-            call error('DD_READ_MATRIX_BY_ROOT','strange type of matrix')
+            call error(routine_name,'strange type of matrix',matrixtype)
          end if
          suba(isub_loc)%la       = la
          allocate(suba(isub_loc)%i_a_sparse(la))
@@ -1122,7 +1131,9 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
          ! Creation of field KDOF(NNOD) with addresses before first global dof of node
          lkdof = nnods
          allocate(kdof(lkdof))
-         kdof(1) = 0
+         if (lkdof.gt.0) then
+            kdof(1) = 0
+         end if
          do inods = 2,nnods
             kdof(inods) = kdof(inods-1) + suba(isub_loc)%nndf(inods-1)
          end do
@@ -1240,7 +1251,7 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
             deallocate(bc)
          end if
          if (debug) then
-            write(*,*) 'DD_GATHER_MATRIX: myid= ',myid, 'isub =',isub,': matrix loaded.'
+            call info(routine_name,'matrix loaded for subdomain',isub)
          end if
       end do
 
@@ -1329,6 +1340,7 @@ subroutine dd_localize_mesh(sub,isub,ndim,nelem,nnod,&
       integer,intent(in) ::  iets(liets)
 
 ! local vars
+      character(*),parameter:: routine_name = 'DD_LOCALIZE_MESH'
       integer ::            lkdof
       integer,allocatable :: kdof(:)
       integer ::            linets,   lnnets,   lnndfs,   lkdofs,   lisegns,   lisngns,   lisvgvns
@@ -1341,13 +1353,11 @@ subroutine dd_localize_mesh(sub,isub,ndim,nelem,nnod,&
       integer ::             indn, indvg, indvs
 
       if (isub .ne. sub%isub) then
-         write(*,*) 'DD_LOCALIZE_MESH: Subdomain index mismatch for subdomain:', isub
-         call error_exit
+         call error(routine_name,'subdomain index mismatch for subdomain:', isub)
       end if
 ! check prerequisites
       if (.not.sub%is_initialized) then
-         write(*,*) 'DD_LOCALIZE_MESH: Subdomain ', isub,' not initialized.'
-         call error_exit
+         call error(routine_name,'subdomain not initialized.',isub)
       end if
 
       ! create array KDOF
@@ -1368,6 +1378,8 @@ subroutine dd_localize_mesh(sub,isub,ndim,nelem,nnod,&
             linets = linets + nnet(ie)
          end if
       end do
+
+
       lnnets  = nelems
       lisegns = nelems
       lisngns = linets
@@ -1484,7 +1496,7 @@ subroutine dd_localize_adj(sub,nsub,kadjsub,lkadjsub)
          end if
       end do
       ! debug
-      !print *,'nadjs',nadjs
+      !print *,'nadjs for sub',isub,':',nadjs
 
       ! create list of neighbouring subdomains
       liadjs = nadjs
@@ -1497,7 +1509,8 @@ subroutine dd_localize_adj(sub,nsub,kadjsub,lkadjsub)
          end if
       end do
       ! debug
-      !print *,'iadjs',iadjs
+      !print *,'iadjs for sub',isub,':',iadjs
+      call flush(6)
       call dd_upload_sub_adj(sub, nadjs, iadjs,liadjs)
       deallocate(iadjs)
 
@@ -1840,16 +1853,15 @@ subroutine dd_load_eliminated_bc(sub, bc,lbc)
       real(kr),intent(in)::  bc(lbc)
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_LOAD_ELIMINATED_BC'
       integer :: i
 
       ! check if I store the subdomain
-      if (sub%is_bc_loaded) then
-         write(*,*) 'DD_LOAD_ELIMINATED_BC: BC already loaded for subdomain ',sub%isub
+      if (.not.sub%is_bc_loaded) then
+         call warning(routine_name,'Boundary Conditions not loaded for subdomain ',sub%isub)
       end if
       if (.not.sub%is_bc_nonzero) then 
-         write(*,*) 'DD_LOAD_ELIMINATED_BC: subdomain ',sub%isub,&
-                    ': loading BC for homogenous conditions.'
-         call error_exit
+         call error(routine_name,'loading BC for homogenous conditions on subdomain ',sub%isub)
       end if
 
       ! load eliminated boundary conditions if they are present
@@ -1947,6 +1959,11 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
          end do
       end do
 
+      if (nelem.eq.0) then
+         sub%is_degenerated = .true.
+      else
+         sub%is_degenerated = .false.
+      end if
       sub%is_mesh_loaded = .true.
 
 end subroutine
@@ -2130,9 +2147,9 @@ subroutine dd_upload_sub_globs(sub, nglob, &
 
 end subroutine
 
-!**********************************************************
+!***************************************************
 subroutine dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
-!**********************************************************
+!***************************************************
 ! Subroutine for loading boundary conditions on subdomain
       implicit none
 
@@ -2175,6 +2192,7 @@ subroutine dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
          end do
 
       end if
+
       sub%is_bc_loaded = .true.
 
 end subroutine
@@ -2380,6 +2398,50 @@ subroutine dd_map_sub_to_subi(sub, vec,lvec, veci,lveci)
 
       integer,intent(in)  ::  lveci
       real(kr),intent(out) ::  veci(lveci)
+
+      ! local vars
+      integer :: i, ind
+      integer :: ndofi, ndof
+
+      ! check if mesh is loaded
+      if (.not. sub%is_interface_loaded) then
+         write(*,*) 'DD_MAP_SUB_TO_SUBI: Interface not loaded for subdomain: ',sub%isub
+         call error_exit
+      end if
+
+      ! get dimensions
+      ndof  = sub%ndof
+      ndofi = sub%ndofi
+
+      ! check dimensions
+      if (lvec .ne. ndof .or. lveci .ne. ndofi) then
+         write(*,*) 'DD_MAP_SUB_TO_SUBI: Vectors size mismatch, isub : ',sub%isub
+         call error_exit
+      end if
+
+      do i = 1,ndofi
+         ind = sub%iivsvn(i)
+
+         veci(i) = vec(ind)
+      end do
+
+end subroutine
+
+!***********************************************************
+subroutine dd_map_sub_to_subi_int(sub, vec,lvec, veci,lveci)
+!***********************************************************
+! Subroutine that maps subdomain vector to interface vector
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+
+      integer,intent(in)  ::  lvec
+      integer,intent(in) ::   vec(lvec)
+
+      integer,intent(in)  ::  lveci
+      integer,intent(out) ::  veci(lveci)
 
       ! local vars
       integer :: i, ind
@@ -3119,6 +3181,7 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,nvali
       integer,intent(out) :: nvalid ! number of valid constraints after regularization
 
 ! local variables
+      character(*),parameter:: routine_name = 'DD_LOAD_ADAPTIVE_CONSTRAINTS'
 
 ! Variables for regularization of constraints
       integer              :: lavg1, lavg2
@@ -3139,27 +3202,24 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,nvali
       ! local vars
       integer :: ind_loc, lmatrix1, lmatrix2, nvarglb, ncdof
       integer :: i, j, indiv
+      integer :: limit_loop
 
       ! check the prerequisities
       if (.not.allocated(sub%cnodes) .or. .not.sub%is_cnodes_loaded) then
-         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Array for cnodes not ready.'
-         call error_exit
+         call error(routine_name,'Array for cnodes not ready.')
       end if
 
       ! find local (subdomain) index of the glob from its global number
       call get_index(gglob,sub%cnodes%global_cnode_number,sub%ncnodes,ind_loc)
       if (ind_loc.le.0) then
-         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Index of glob not found!'
-         call error_exit
+         call error(routine_name,' Index of local glob not found for global ',gglob)
       end if
 
       ! prepare space for these constraints in the structure
       nvarglb = sub%cnodes(ind_loc)%nvar 
 
       if (nvarglb.gt.lcadapt1) then
-         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Dimension of matrix of averages is smaller than number of variables on glob.'
-         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: nvarglb =',nvarglb, 'lcadapt1 =',lcadapt1
-         call error_exit
+         call error(routine_name,' Number of variables at glob seems larger than interface size of subdomain for glob',gglob)
       end if
 
       ! regularize the matrix of constraints by QR decomposition
@@ -3210,7 +3270,8 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,nvali
          normval = abs(avg(1,1))
          if (normval.gt.numerical_zero) then
             thresh_diag = 0.01_kr * normval
-            do i = 1,lavg2
+            limit_loop = min(lavg1,lavg2)
+            do i = 1,limit_loop
                if (abs(avg(i,i)) .lt. thresh_diag) then
                   exit
                else
@@ -3236,8 +3297,8 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,nvali
 
       if (debug) then
          if (nvalid.lt.lcadapt2) then
-            write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: WARNING - almost linearly dependent constraints on glob ',gglob
-            write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS:           Number of constrains reduced from ',lcadapt2,' to ',nvalid
+            call warning(routine_name,' Almost linearly dependent constraints on glob ',gglob)
+            call warning(routine_name,' Number of constrains reduced to ',nvalid)
          end if
       end if
 
@@ -3267,8 +3328,8 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,nvali
       deallocate(avg)
 
       if (debug) then
-         write(*,*) 'DD_LOAD_ADAPTIVE_CONSTRAINTS: Loading matrix of subdomain ',sub%isub,&
-                    ' local glob #',ind_loc
+         call info(routine_name,' Loading adaptive matrix of globs of subdomain ',sub%isub)
+         call info(routine_name,' local glob #',ind_loc)
          do i = 1,lmatrix1
             write(*,'(100f15.6)') (sub%cnodes(ind_loc)%matrix(i,j),j = 1,lmatrix2)
          end do
@@ -3442,14 +3503,18 @@ subroutine dd_construct_cnodes(sub)
          lxyz = sub%ndim
          sub%cnodes(icnode)%lxyz = lxyz
          allocate(sub%cnodes(icnode)%xyz(lxyz))
-         sub%cnodes(icnode)%xyz(lxyz) = 0._kr
+         call zero(sub%cnodes(icnode)%xyz,lxyz)
          ! create averaged coordinates
          do i = 1,nnodgl
             indin = sub%ignsin(iglob,i)
             indn  = sub%iin(indin)
-            sub%cnodes(icnode)%xyz(:) = sub%cnodes(icnode)%xyz(:) + sub%xyz(indn,:)
+            sub%cnodes(icnode)%xyz(1:lxyz) = sub%cnodes(icnode)%xyz(1:lxyz) + sub%xyz(indn,1:lxyz)
          end do
-         sub%cnodes(icnode)%xyz(:) = sub%cnodes(icnode)%xyz(:) / nnodgl
+         sub%cnodes(icnode)%xyz(1:lxyz) = sub%cnodes(icnode)%xyz(1:lxyz) / nnodgl
+         ! debug
+         !print *,'coords of glob'
+         !print *,sub%cnodes(icnode)%xyz(:)
+         !call flush(6)
 
          ! fill coarse node nodes
          allocate(sub%cnodes(icnode)%insin(nnodgl))
@@ -3592,7 +3657,9 @@ subroutine dd_prepare_c(sub)
       nnod  = sub%nnod
       lkdof = nnod
       allocate(kdof(lkdof))
-      kdof(1) = 0
+      if (lkdof.gt.0) then
+         kdof(1) = 0
+      end if
       do inod = 2,nnod
          kdof(inod) = kdof(inod-1) + sub%nndf(inod-1)
       end do
@@ -3786,6 +3853,9 @@ subroutine dd_prepare_aug(sub,comm_self)
       integer :: iparallel
 
       ! check the prerequisities
+      if (sub%is_degenerated) then
+         return
+      end if
       if (.not.sub%is_matrix_loaded) then
          write(*,*) 'DD_PREPARE_AUG: Matrix is not loaded for subdomain:', sub%isub
          call error_exit
@@ -3867,6 +3937,9 @@ subroutine dd_prepare_aug(sub,comm_self)
       sub%nnzaaug = nnzaaug
       sub%laaug   = laaug
 
+      if (sub%is_degenerated) then
+         goto 133
+      end if
 
       ! factorize matrix Aaug
       ! Set type of matrix
@@ -3907,7 +3980,8 @@ subroutine dd_prepare_aug(sub,comm_self)
       call mumps_factorize(sub%mumps_aug) 
 
       sub%is_mumps_aug_active = .true.
-      sub%is_aug_factorized = .true.
+
+ 133  sub%is_aug_factorized = .true.
 
 end subroutine
 
@@ -3931,6 +4005,7 @@ subroutine dd_prepare_coarse(sub,keep_global)
       logical,intent(in) :: keep_global
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_PREPARE_COARSE'
       integer ::  ndof, nconstr, ndofaaug, ndofi, matrixtype
       integer ::  ndofc
       integer ::  i, j, indphis, nrhs, &
@@ -3944,18 +4019,21 @@ subroutine dd_prepare_coarse(sub,keep_global)
       real(kr),allocatable :: ac(:,:)
 
       ! check the prerequisities
+      if (sub%is_degenerated) then
+         return
+      end if
       if (.not.sub%is_aug_factorized) then
-         write(*,*) 'DD_PREPARE_COARSE: Augmented matrix in not factorized for subdomain:', sub%isub
-         call error_exit
+         call error(routine_name, 'Augmented matrix in not factorized for subdomain:', sub%isub)
       end if
       if (.not.sub%is_mumps_aug_active) then
-         write(*,*) 'DD_PREPARE_COARSE: Augmented matrix solver in not ready for subdomain:', sub%isub
-         call error_exit
+         call error(routine_name, 'Augmented matrix solver in not ready for subdomain:', sub%isub)
       end if
 
       ! if coarse problem is ready, clear it and prepare it again - this can happen for adaptivity
       if (sub%is_coarse_prepared) then
-         write(*,*) 'Reinitializing coarse problem for subdomain ', sub%isub
+         if (debug) then
+            call info(routine_name,'Reinitializing coarse problem for subdomain ', sub%isub)
+         end if
 
          if (allocated(sub%phis)) then
             deallocate(sub%phis)
@@ -4081,8 +4159,7 @@ subroutine dd_prepare_coarse(sub,keep_global)
       end if
       ! check the counter
       if (icoarsem.ne.lcoarsem) then
-         write(*,*) 'DD_PREPARE_COARSE: Check of coarse matrix length failed for subdomain: ',sub%isub
-         call error_exit
+         call error(routine_name, 'Check of coarse matrix length failed for subdomain: ',sub%isub)
       end if
 
       ! number of coarse degrees of freedom equals number of constraints in this implementation
@@ -4177,7 +4254,9 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs)
       end if
 
       ! solve the system with multiple RHS
-      call mumps_resolve(sub%mumps_aug,vec,lvec,nrhs)
+      if (.not.sub%is_degenerated) then
+         call mumps_resolve(sub%mumps_aug,vec,lvec,nrhs)
+      end if
 
 end subroutine
 
@@ -4288,6 +4367,9 @@ subroutine dd_phis_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
       real(kr) :: alpha, beta
 
       ! check the prerequisities
+      if (sub%is_degenerated) then
+         return
+      end if
       if (.not.sub%is_phis_prepared) then
          write(*,*) 'DD_PHIS_APPLY: PHIS matrix not ready:', sub%isub
          call error_exit
@@ -4445,7 +4527,7 @@ end subroutine
 !*****************************************************************
 subroutine dd_construct_interior_residual(sub,sol,lsol,reso,lreso)
 !*****************************************************************
-! Subroutine for multiplication of interface vector by Schur complement
+! Subroutine for construction of interior residual
       use module_utils
       use module_sm
       implicit none
@@ -5133,6 +5215,88 @@ subroutine dd_get_size(sub,ndof,nnod,nelem)
 
 end subroutine
 
+!*************************************************
+subroutine dd_get_mesh_basic_size(sub,linet,lnnet)
+!*************************************************
+! Subroutine for finding size of subdomain mesh
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+! Length of subdomain INET array
+      integer,intent(out) :: linet
+! Length of subdomain NNET array
+      integer,intent(out) :: lnnet
+
+! local vars
+      character(*),parameter:: routine_name = 'DD_GET_MESH_BASIC_SIZE'
+
+
+      if (.not.sub%is_mesh_loaded) then
+         call error(routine_name,'Mesh not loaded for subdomain ',sub%isub)
+      end if
+
+      ! if all checks are OK, return data
+      linet = sub%linet
+      lnnet = sub%lnnet
+
+end subroutine
+
+!*************************************************************************
+subroutine dd_get_mesh_basic(sub,use_global_indices,inet,linet,nnet,lnnet)
+!*************************************************************************
+! Subroutine for finding size of subdomain mesh
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+! Should INET array contain global indices rather than local to subdomain (native to storage)
+      logical,intent(in) :: use_global_indices
+! Length of subdomain INET array
+      integer,intent(in) :: linet
+! Local INET array
+      integer,intent(out) :: inet(linet)
+! Length of subdomain NNET array
+      integer,intent(in) :: lnnet
+! Local NNET array
+      integer,intent(out) :: nnet(lnnet)
+
+! local vars
+      character(*),parameter:: routine_name = 'DD_GET_MESH_BASIC'
+      integer :: i, indnode, indnodeg
+
+      ! check prerequisites
+      if (.not.sub%is_mesh_loaded) then
+         call error(routine_name,'Mesh not loaded for subdomain ',sub%isub)
+      end if
+
+      ! check dimensions
+      if (linet.ne.sub%linet) then
+         call error(routine_name,'Dimension of INET mismatch for subdomain ',sub%isub)
+      end if
+      if (lnnet.ne.sub%lnnet) then
+         call error(routine_name,'Dimension of NNET mismatch for subdomain ',sub%isub)
+      end if
+
+      ! if all checks are OK, copy INET and NNET arrays
+      do i = 1,linet
+         inet(i) = sub%inet(i)
+      end do
+      do i = 1,lnnet
+         nnet(i) = sub%nnet(i)
+      end do
+
+      ! embed the INET array into global numbering if required
+      if (use_global_indices) then
+         do i = 1,linet
+            indnode  = inet(i)
+            indnodeg = sub%isngn(indnode)
+
+            inet(i) = indnodeg
+         end do
+      end if
+end subroutine
+
 !***********************************************
 subroutine dd_get_coarse_size(sub,ndofc,ncnodes)
 !***********************************************
@@ -5191,6 +5355,48 @@ subroutine dd_get_coarse_cnodes(sub,icnodes,licnodes)
       do icn = 1,ncnodes
          icnodes(icn) = sub%cnodes(icn)%global_cnode_number
       end do
+end subroutine
+
+!***********************************************************
+subroutine dd_get_coarse_coordinates(sub,xyzc,lxyzc1,lxyzc2)
+!***********************************************************
+! Subroutine for getting coordinates of subdomain coarse nodes
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+! Coordinates of subdomain coarse nodes
+      integer,intent(in)  :: lxyzc1
+      integer,intent(in)  :: lxyzc2
+      real(kr),intent(out) :: xyzc(lxyzc1,lxyzc2)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GET_COARSE_COORDINATES'
+      integer :: ncnodes, icn, ndim, idm 
+
+      ! check prerequisites
+      if (.not.sub%is_cnodes_loaded) then
+         call error(routine_name, 'Coarse nodes not loaded for subdomain',sub%isub)
+      end if
+
+      ncnodes = sub%ncnodes
+      ndim    = sub%ndim
+
+      ! check length of output array
+      if (ncnodes .ne. lxyzc1) then
+         call error(routine_name, 'First dimension of array for coordinates mismatch for subdomain',sub%isub)
+      end if
+      if (ndim .ne. lxyzc2) then
+         call error(routine_name, 'Second dimension of array for coordinates mismatch for subdomain',sub%isub)
+      end if
+
+      ! if all checks are OK, return subdomain coarse nodes coordinates
+      do icn = 1,ncnodes
+         do idm = 1,ndim
+            xyzc(icn,idm) = sub%cnodes(icn)%xyz(idm)
+         end do
+      end do
+
 end subroutine
 
 !**********************************************
@@ -5424,6 +5630,35 @@ subroutine dd_get_subdomain_isngn(sub,isngn,lisngn)
 
 end subroutine
 
+!*****************************************************
+subroutine dd_get_subdomain_isvgvn(sub,isvgvn,lisvgvn)
+!*****************************************************
+! Subroutine for getting subdomain Indices of Subdomain Variables in Global Variable Numbering (ISVGVN) array
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+! Array ISNGN
+      integer,intent(in) :: lisvgvn
+      integer,intent(out) :: isvgvn(lisvgvn)
+! local vars
+      character(*),parameter:: routine_name = 'DD_GET_SUBDOMAIN_ISVGVN'
+      integer :: ndof, i
+
+      if (.not.sub%is_mesh_loaded) then
+         call error(routine_name,'Mesh is not loaded yet for subdomain ',sub%isub)
+      end if
+      if (sub%ndof .ne. lisvgvn) then
+         call error(routine_name,'Size of array ISVGVN not consistent.',sub%isub)
+      end if
+
+      ! if all checks are OK, construct array of indices of subdomain nodes in global numbering
+      ndof = sub%ndof
+      do i = 1,ndof
+         isvgvn(i) = sub%isvgvn(i)
+      end do
+
+end subroutine
 !************************************************************
 subroutine dd_get_interface_global_numbers(sub, iingn,liingn)
 !************************************************************
@@ -5527,37 +5762,38 @@ subroutine dd_get_interface_variables(sub, iivsvn,liivsvn)
       end do
 end subroutine
 
-!*****************************************
-subroutine dd_get_schur(sub, schur,lschur)
-!*****************************************
+!****************************************
+subroutine dd_prepare_explicit_schur(sub)
+!****************************************
 ! Subroutine for explicit construction of Schur complement
       use module_utils
       implicit none
 ! Subdomain structure
       type(subdomain_type),intent(inout) :: sub
-      integer,intent(in)  ::  lschur
-      real(kr),intent(out) ::  schur(lschur)
+
 
       ! local vars
-      integer :: j, lmat, ndofi, pointschur
+      character(*),parameter:: routine_name = 'DD_PREPARE_EXPLICIT_SCHUR'
+      integer :: j, ndofi
+
+      integer  ::  lschur1, lschur2
 
       integer              :: le
       real(kr),allocatable ::  e(:)
 
       ! check if interface is loaded
       if (.not. sub%is_interface_loaded) then
-         write(*,*) 'DD_GET_SCHUR: Interface not loaded for subdomain: ',sub%isub
-         call error_exit
-      end if
-      ! check dimensions
-      ndofi = sub%ndofi
-      lmat = ndofi*ndofi
-      if (lmat.ne.lschur) then
-         write(*,*) 'DD_GET_SCHUR: Interface dimensions mismatch for subdomain ',sub%isub
-         call error_exit
+         call error(routine_name,'Interface not loaded for subdomain: ',sub%isub)
       end if
 
-      pointschur = 1
+      ! get dimensions
+      ndofi = sub%ndofi
+      lschur1 = ndofi
+      lschur2 = ndofi
+      allocate(sub%schur(lschur1,lschur2))
+      sub%lschur1 = lschur1
+      sub%lschur2 = lschur2
+
       le = ndofi
       allocate(e(le))
       do j = 1,ndofi
@@ -5566,11 +5802,78 @@ subroutine dd_get_schur(sub, schur,lschur)
          e(j) = 1._kr
 
          ! get column of S*I
-         call dd_multiply_by_schur(sub,e,le,schur(pointschur),le)
+         call dd_multiply_by_schur(sub,e,le,sub%schur(1:lschur1,j),le)
 
-         pointschur = pointschur + ndofi
       end do
       deallocate(e)
+
+      sub%is_explicit_schur_prepared = .true.
+
+end subroutine
+
+!*************************************************
+subroutine dd_get_schur(sub,schur,lschur1,lschur2)
+!*************************************************
+! Subroutine for getting Schur complement from the structure
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+
+      integer,intent(in)  ::  lschur1, lschur2
+      real(kr),intent(out) ::  schur(lschur1,lschur2)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GET_SCHUR'
+      integer :: i, j
+
+      ! check if explicit Schur is loaded
+      if (.not. sub%is_explicit_schur_prepared) then
+         call error(routine_name,'Schur complement not ready for subdomain: ',sub%isub)
+      end if
+      ! check dimensions
+      if (lschur1 .ne. sub%lschur1) then
+         call error(routine_name,'Schur complement first dimension mismatch for subdomain: ',sub%isub)
+      end if
+      if (lschur2 .ne. sub%lschur2) then
+         call error(routine_name,'Schur complement second dimension mismatch for subdomain: ',sub%isub)
+      end if
+
+      ! if all checks are OK, copy Schur complement
+
+      do j = 1,lschur2
+         do i = 1,lschur1
+            schur(i,j) = sub%schur(i,j)
+         end do
+      end do
+
+end subroutine
+
+!****************************************
+subroutine dd_destroy_explicit_schur(sub)
+!****************************************
+! Subroutine for deallocating Schur complement from the structure
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_DESTROY_EXPLICIT_SCHUR'
+
+      ! check if explicit Schur is loaded
+      if (.not. sub%is_explicit_schur_prepared) then
+         call error(routine_name,'Schur complement not ready for subdomain: ',sub%isub)
+      end if
+      if (.not. allocated(sub%schur)) then
+         call error(routine_name,'Schur complement seems not allocated for subdomain: ',sub%isub)
+      end if
+
+      deallocate(sub%schur)
+      sub%lschur1 = 0
+      sub%lschur2 = 0
+
+      sub%is_explicit_schur_prepared = .false.
 
 end subroutine
 
@@ -5595,16 +5898,15 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
       integer,intent(in) :: comm_all ! MPI communicator
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_CREATE_NEIGHBOURING'
       integer :: isub_loc, isub, isubadj_loc, isubadj, nsub
       integer :: i, ia, inodis, inods, indg
       integer :: procadj
       integer :: kishnadj
-      integer :: ierr, ireq
       integer :: nadj
       integer :: nnod
       integer :: nshared
       integer :: nsharedv, lcommvec, ndofn
-      integer :: tag
       integer :: idofi, idofo, idofn, inod, inodi, &
                  kisngnadj, ndofi, ndofo, nnodi, nnodadj
 
@@ -5636,115 +5938,175 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
          integer ::             lisngnadj
          integer,allocatable ::  isngnadj(:)
 
-         ! MPI related arrays and variables
-         integer ::            nreq
-         integer ::            lrequest
-         integer,allocatable :: request(:)
-         integer             :: lstatarray1
-         integer             :: lstatarray2
-         integer,allocatable :: statarray(:,:)
       end type
 
       integer :: lsub_aux
       type(sub_aux_type),allocatable :: sub_aux(:)
 
+      ! MPI related arrays and variables
       integer :: myid, nproc
+      integer :: ierr, ireq
+      integer :: tag
+      integer ::            nreq
+      integer ::            lrequest
+      integer,allocatable :: request(:)
+      integer             :: lstatarray1
+      integer             :: lstatarray2
+      integer,allocatable :: statarray(:,:)
+
 
 ! orient in communicators
       call MPI_COMM_RANK(comm_all,myid,ierr)
       call MPI_COMM_SIZE(comm_all,nproc,ierr)
 
+      nsub = sub2proc(lsub2proc) - 1
+
+      ! check safety of MPI due to tag limitations (supposed 4-byte integer)
+      if (nsub .gt. 46340) then
+         call error(routine_name,'number of subdomains reaches the limit for safe computing of tag')
+      end if
 
       lsub_aux = lsuba
       allocate(sub_aux(lsub_aux))
 
-      ! prepare subdomain data      
+      ! prepare memory for each subdomain
+      ireq = 0
       do isub_loc = 1,lindexsub
          isub = indexsub(isub_loc)
-         nsub = suba(isub_loc)%nsub
-
+   
          if (.not. suba(isub_loc)%is_mesh_loaded) then
-            write(*,*) 'DD_CREATE_NEIGHBOURING: myid =',myid,', Mesh not loaded for subdomain: ',isub
-            call error_exit
+            call error(routine_name, 'Mesh not loaded for subdomain: ',isub)
          end if
-
+   
          ! load data
          nadj  = suba(isub_loc)%nadj
          nnod  = suba(isub_loc)%nnod
-
+   
          sub_aux(isub_loc)%lnnodadj = nadj
          allocate(sub_aux(isub_loc)%nnodadj(sub_aux(isub_loc)%lnnodadj))
+   
+         ireq = ireq + nadj
+      end do
+      nreq = ireq
 
-         ! MPI arrays
-         sub_aux(isub_loc)%lrequest = 2*nadj
-         allocate(sub_aux(isub_loc)%request(sub_aux(isub_loc)%lrequest))
-         sub_aux(isub_loc)%lstatarray1 = MPI_STATUS_SIZE
-         sub_aux(isub_loc)%lstatarray2 = sub_aux(isub_loc)%lrequest
-         allocate(sub_aux(isub_loc)%statarray(sub_aux(isub_loc)%lstatarray1,sub_aux(isub_loc)%lstatarray2))
+      ! MPI arrays
+      lrequest = nreq
+      allocate(request(lrequest))
+      lstatarray1 = MPI_STATUS_SIZE
+      lstatarray2 = nreq
+      allocate(statarray(lstatarray1,lstatarray2))
 
-! Determine sizes of interace of my neighbours
-         ireq = 0
+      ! prepare subdomain data      
+      ireq = 0
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+   
+         ! load data
+         nadj  = suba(isub_loc)%nadj
+         nnod  = suba(isub_loc)%nnod
+   
+   ! Determine sizes of interace of my neighbours
          do ia = 1,nadj
             ! get index of neighbour
             isubadj = suba(isub_loc)%iadj(ia)
-   
+      
             ! who owns this subdomain?
             call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
-   
-            if (procadj .eq. myid) then
-               ! I have subdomain data, simply copy necessary arrays
-               call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
-               if (.not. suba(isubadj_loc)%is_mesh_loaded) then
-                  write(*,*) 'DD_CREATE_NEIGHBOURING: myid =',myid,', Mesh not loaded for subdomain: ',isubadj
-                  call error_exit
-               end if
-   
-               sub_aux(isub_loc)%nnodadj(ia) = suba(isubadj_loc)%nnod
-   
-            else 
+            if (procadj.gt.nproc-1.or.procadj.lt.0) then
+               call error(routine_name,'out of range of processors')
+            end if
+      
+            if (procadj .ne. myid) then
                ! interchange via MPI
-   
-               ! receive his data
+      
+               ! make a receiving request for his data
                tag = isubadj*nsub + isub
                ireq = ireq + 1
                call MPI_IRECV(sub_aux(isub_loc)%nnodadj(ia),1,MPI_INTEGER,procadj,tag,comm_all,&
-                              sub_aux(isub_loc)%request(ireq),ierr)
-            !   print *, 'myid =',myid,'receiving', sub_aux(isub_loc)%nnodiadj(ia),'from',procadj,' tag',tag
-
-               ! send him my data
-               tag = isub*nsub + isubadj
-               ireq = ireq + 1
-               call MPI_ISEND(nnod,1,MPI_INTEGER,procadj,tag,comm_all,sub_aux(isub_loc)%request(ireq),ierr)
-            !   print *, 'myid =',myid,'Sending', nnodi,'to ',procadj,' tag',tag
+                              request(ireq),ierr)
+               !print *, 'myid =',myid,'receiving one integer from',procadj,' tag',tag
+            else 
+               ! I have subdomain data, simply copy necessary arrays
+               call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
+               if (.not. suba(isubadj_loc)%is_mesh_loaded) then
+                  call error(routine_name, 'Mesh not loaded for subdomain: ',isubadj)
+               end if
+      
+               sub_aux(isub_loc)%nnodadj(ia) = suba(isubadj_loc)%nnod
             end if
          end do
-         sub_aux(isub_loc)%nreq = ireq
       end do
-
-      ! waiting for communication to complete
+      nreq = ireq
+      ! prepare subdomain data      
       do isub_loc = 1,lindexsub
          isub = indexsub(isub_loc)
-         call MPI_WAITALL(sub_aux(isub_loc)%nreq, sub_aux(isub_loc)%request, sub_aux(isub_loc)%statarray, ierr)
-      end do
-
-      do isub_loc = 1,lindexsub
-         isub = indexsub(isub_loc)
-         nsub = suba(isub_loc)%nsub
-
+   
          ! load data
          nadj  = suba(isub_loc)%nadj
          nnod  = suba(isub_loc)%nnod
+   
+   ! Determine sizes of interace of my neighbours
+         do ia = 1,nadj
+            ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+      
+            ! who owns this subdomain?
+            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
+            if (procadj.gt.nproc-1.or.procadj.lt.0) then
+               call error(routine_name,'out of range of processors')
+            end if
+      
+            if (procadj .ne. myid) then
+               ! interchange via MPI
+      
+               ! send him my data
+               tag = isub*nsub + isubadj
+               call MPI_SEND(nnod,1,MPI_INTEGER,procadj,tag,comm_all,ierr)
+               !print *, 'myid =',myid,'Sending', nnod,'to ',procadj,' tag',tag
+            end if
+         end do
+      end do
+      !print *, 'myid',myid,'I am here 1'
+      !call flush(6)
+      ! waiting for communication to complete in this round
+      if (nreq.gt.0) then
+         call MPI_WAITALL(nreq,request,statarray,ierr)
+      end if
+      !print *, 'myid',myid,'I am here 1.2'
+      !call flush(6)
 
-! Allocate array for global node numbers for neighbours
+      ! Prepare memory to interchange subdomain indices
+
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+   
+         ! load data
+         nadj  = suba(isub_loc)%nadj
+         nnod  = suba(isub_loc)%nnod
+   
+   ! Allocate array for global node numbers for neighbours
          sub_aux(isub_loc)%lisngnadj = sum(sub_aux(isub_loc)%nnodadj)
          allocate(sub_aux(isub_loc)%isngnadj(sub_aux(isub_loc)%lisngnadj))
          ! allocate data for myself
          sub_aux(isub_loc)%lisngn = nnod
          allocate(sub_aux(isub_loc)%isngn(sub_aux(isub_loc)%lisngn))
-         call dd_get_subdomain_isngn(suba(isub_loc),sub_aux(isub_loc)%isngn,sub_aux(isub_loc)%lisngn)
+
+         ! prepare local ISNGN array
+         do i = 1,nnod
+            sub_aux(isub_loc)%isngn(i) = suba(isub_loc)%isngn(i)
+         end do
+      end do
+
+      ireq = 0
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+         nsub = suba(isub_loc)%nsub
    
-! Interchange nodes in global numbering
-         ireq = 0
+         ! load data
+         nadj  = suba(isub_loc)%nadj
+         nnod  = suba(isub_loc)%nnod
+   
+   ! Interchange nodes in global numbering
          kisngnadj = 0
          do ia = 1,nadj
             ! get index of neighbour
@@ -5752,41 +6114,69 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
             
             ! who owns this subdomain?
             call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
-
-            nnodadj = sub_aux(isub_loc)%nnodadj(ia)
    
-            if (procadj .eq. myid) then
+            nnodadj = sub_aux(isub_loc)%nnodadj(ia)
+            if (nnodadj.eq.0) then
+               call error(routine_name,'adjacent subdomain with zero shared nodes?',isubadj)
+            end if
+      
+            if (procadj .ne. myid) then
+               ! interchange via MPI
+   
+               ! make a receiving request for his data
+               tag = isubadj*nsub + isub
+               ireq = ireq + 1
+               call MPI_IRECV(sub_aux(isub_loc)%isngnadj(kisngnadj + 1),nnodadj,MPI_INTEGER,&
+                              procadj,tag,comm_all,request(ireq),ierr)
+            else 
                ! I have subdomain data, simply copy necessary arrays
                call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
                do i = 1,nnodadj
                   sub_aux(isub_loc)%isngnadj(kisngnadj + i) = suba(isubadj_loc)%isngn(i)
                end do
-   
-            else 
-               ! interchange via MPI
-
-               ! receive his data
-               tag = isubadj*nsub + isub
-               ireq = ireq + 1
-               call MPI_IRECV(sub_aux(isub_loc)%isngnadj(kisngnadj + 1),nnodadj,MPI_INTEGER,&
-                              procadj,tag,comm_all,sub_aux(isub_loc)%request(ireq),ierr)
-   
-               ! send him my data
-               tag = isub*nsub + isubadj
-               ireq = ireq + 1
-               call MPI_ISEND(sub_aux(isub_loc)%isngn,sub_aux(isub_loc)%lisngn,MPI_INTEGER,&
-                              procadj,tag,comm_all,sub_aux(isub_loc)%request(ireq),ierr)
             end if
             kisngnadj = kisngnadj + nnodadj
          end do
-         sub_aux(isub_loc)%nreq = ireq
       end do
-
-      ! waiting for communication to complete
+      nreq = ireq
       do isub_loc = 1,lindexsub
          isub = indexsub(isub_loc)
-         call MPI_WAITALL(sub_aux(isub_loc)%nreq, sub_aux(isub_loc)%request, sub_aux(isub_loc)%statarray, ierr)
+         nsub = suba(isub_loc)%nsub
+   
+         ! load data
+         nadj  = suba(isub_loc)%nadj
+         nnod  = suba(isub_loc)%nnod
+   
+   ! Interchange nodes in global numbering
+         kisngnadj = 0
+         do ia = 1,nadj
+            ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+            
+            ! who owns this subdomain?
+            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
+   
+            nnodadj = sub_aux(isub_loc)%nnodadj(ia)
+            if (procadj .ne. myid) then
+               ! send him my data
+               tag = isub*nsub + isubadj
+               call MPI_SEND(sub_aux(isub_loc)%isngn(1),nnod,MPI_INTEGER, procadj,tag,comm_all,ierr)
+            end if
+            kisngnadj = kisngnadj + nnodadj
+         end do
       end do
+      !print *, 'myid',myid,'I am here 2'
+      !call flush(6)
+
+      ! waiting for communication to complete
+      if (nreq.gt.0) then
+         call MPI_WAITALL(nreq, request, statarray, ierr)
+      end if
+
+      !print *, 'myid',myid,'I am here 2.5'
+      !call flush(6)
+      deallocate(request)
+      deallocate(statarray)
 
       ! Compare data with neighbours to detect interface
       do isub_loc = 1,lindexsub
@@ -5813,7 +6203,7 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
                                         sub_aux(isub_loc)%isngnadj(kisngnadj + 1),nnodadj,&
                                         ishared,lishared,nshared)
             if (nshared.le.0) then
-               write(*,*) 'DD_CREATE_NEIGHBOURING: myid =',myid,', It seems as subdomain ',&
+               write(*,*) routine_name,': myid =',myid,', It seems as subdomain ',&
                            isub, ' does not share nodes with neighbour ',isubadj
                call error_exit
             end if
@@ -5884,8 +6274,8 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
                end do
             end if
          end do
-         deallocate(kdof)
          deallocate(kinodes)
+         deallocate(kdof)
 
          ! load data to structure
          call dd_upload_sub_interface(suba(isub_loc), nnodi, ndofi, ndofo, &
@@ -5921,7 +6311,7 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
                                         sub_aux(isub_loc)%isngnadj(kisngnadj + 1),nnodadj,&
                                         ishared,lishared,nshared)
             if (nshared.le.0) then
-               write(*,*) 'DD_CREATE_NEIGHBOURING: myid =',myid,', It seems as subdomain ',&
+               write(*,*) routine_name,': myid =',myid,', It seems as subdomain ',&
                            isub, ' does not share nodes with neighbour ',isubadj
                call error_exit
             end if
@@ -5987,310 +6377,1536 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
          deallocate(sub_aux(isub_loc)%isngn)
          deallocate(sub_aux(isub_loc)%isngnadj)
          deallocate(sub_aux(isub_loc)%nnodadj)
-         deallocate(sub_aux(isub_loc)%request)
-         deallocate(sub_aux(isub_loc)%statarray)
       end do
 
       deallocate(sub_aux)
 
 end subroutine
 
-!!*******************************************************
-!subroutine dd_create_neighbouringi(myid, nsub, comm_all)
-!!*******************************************************
-!! Subroutine for construction of array of shared nodes with other subdomains
-!! based on interface data
-!      use module_utils
-!      implicit none
-!      include "mpif.h"
-!
-!      integer,intent(in) :: myid, nsub
-!      integer,intent(in) :: comm_all ! MPI communicator
-!
-!      ! local vars
-!      integer :: i, ia, inds, inodis, inods, indg, isub
-!      integer :: isubadj, procadj
-!      integer :: kiinadj, kishnadj
-!      integer :: ierr, ireq
-!      integer :: nnadj
-!      integer :: nadj
-!      integer :: nnod
-!      integer :: nnodi
-!      integer :: nshared
-!      integer :: nsharedv, lcommvec, ndofn
-!      integer :: tag
-!
-!      integer ::             lnshnadj
-!      integer,allocatable ::  nshnadj(:)
-!      integer ::             lkshvadj
-!      integer,allocatable ::  kshvadj(:)
-!      integer ::             lishnadj
-!      integer,allocatable ::  ishnadj(:)
-!      integer ::             lishared
-!      integer,allocatable ::  ishared(:)
-!
-!      type sub_aux_type
-!
-!         integer ::             lnnodiadj
-!         integer,allocatable ::  nnodiadj(:)
-!         integer ::             liinadj
-!         integer,allocatable ::  iinadj(:)
-!         integer ::             liingn
-!         integer,allocatable ::  iingn(:)
-!
-!         ! MPI related arrays and variables
-!         integer ::            nreq
-!         integer ::            lrequest
-!         integer,allocatable :: request(:)
-!         integer             :: lstatarray1
-!         integer             :: lstatarray2
-!         integer,allocatable :: statarray(:,:)
-!      end type
-!
-!      integer :: lsub_aux
-!      type(sub_aux_type),allocatable :: sub_aux(:)
-!
-!      lsub_aux = nsub
-!      allocate(sub_aux(lsub_aux))
-!
-!      ! check if I store the subdomain
-!      do isub = 1,nsub
-!
-!         if (.not. sub(isub)%proc .eq. myid) then
-!            if (debug) then
-!               write(*,*) 'DD_CREATE_NEIGHBOURING: myid =',myid,', not my subdomain: ',isub
-!            end if
-!            cycle
-!         end if
-!         if (.not. sub(isub)%is_mesh_loaded) then
-!            write(*,*) 'DD_CREATE_NEIGHBOURING: myid =',myid,', Mesh not loaded for subdomain: ',isub
-!            call error_exit
-!         end if
-!
-!         ! load data
-!         nnod  = sub(isub)%nnod
-!         nnodi = sub(isub)%nnodi
-!         nadj  = sub(isub)%nadj
-!
-!         sub_aux(isub)%lnnodiadj = nadj
-!         allocate(sub_aux(isub)%nnodiadj(sub_aux(isub)%lnnodiadj))
-!
-!         sub_aux(isub)%lrequest = 2*nadj
-!         allocate(sub_aux(isub)%request(sub_aux(isub)%lrequest))
-!         sub_aux(isub)%lstatarray1 = MPI_STATUS_SIZE
-!         sub_aux(isub)%lstatarray2 = sub_aux(isub)%lrequest
-!         allocate(sub_aux(isub)%statarray(sub_aux(isub)%lstatarray1,sub_aux(isub)%lstatarray2))
-!
-!! Determine sizes of interace of my neighbours
-!         ireq = 0
-!         do ia = 1,nadj
-!            ! get index of neighbour
-!            isubadj = sub(isub)%iadj(ia)
-!   
-!            ! who owns this subdomain?
-!            procadj = sub(isubadj)%proc
-!   
-!            if (procadj .eq. myid) then
-!               ! I have subdomain data, simply copy necessary arrays
-!               if (.not. sub(isubadj)%is_mesh_loaded) then
-!                  write(*,*) 'DD_CREATE_NEIGHBOURING: myid =',myid,', Mesh not loaded for subdomain: ',isubadj
-!                  call error_exit
-!               end if
-!   
-!               sub_aux(isub)%nnodiadj(ia) = sub(isubadj)%nnodi
-!   
-!            else 
-!               ! interchange via MPI
-!   
-!               ! send him my data
-!               tag = isub*nsub + isubadj
-!               ireq = ireq + 1
-!               call MPI_ISEND(nnodi,1,MPI_INTEGER,procadj,tag,comm_all,sub_aux(isub)%request(ireq),ierr)
-!            !   print *, 'myid =',myid,'Sending', nnodi,'to ',procadj,' tag',tag
-!               ! receive his data
-!               tag = isubadj*nsub + isub
-!               ireq = ireq + 1
-!               call MPI_IRECV(sub_aux(isub)%nnodiadj(ia),1,MPI_INTEGER,procadj,tag,comm_all,sub_aux(isub)%request(ireq),ierr)
-!            !   print *, 'myid =',myid,'receiving', sub_aux(isub)%nnodiadj(ia),'from',procadj,' tag',tag
-!            end if
-!         end do
-!         sub_aux(isub)%nreq = ireq
-!      end do
-!
-!      do isub = 1,nsub
-!         if (.not. sub(isub)%proc .eq. myid) then
-!            cycle
-!         end if
-!         call MPI_WAITALL(sub_aux(isub)%nreq, sub_aux(isub)%request, sub_aux(isub)%statarray, ierr)
-!      end do
-!
-!      do isub = 1,nsub
-!         if (.not. sub(isub)%proc .eq. myid) then
-!            cycle
-!         end if
-!
-!         ! load data
-!         nnod  = sub(isub)%nnod
-!         nnodi = sub(isub)%nnodi
-!         nadj  = sub(isub)%nadj
-!
-!! Allocate array for global node numbers at interface of for neighbours
-!         sub_aux(isub)%liinadj = sum(sub_aux(isub)%nnodiadj)
-!         allocate(sub_aux(isub)%iinadj(sub_aux(isub)%liinadj))
-!   
-!
-!! prepare array of interface nodes in global numbering
-!         sub_aux(isub)%liingn = nnodi
-!         allocate(sub_aux(isub)%iingn(sub_aux(isub)%liingn))
-!         call dd_get_interface_global_numbers(myid, isub, sub_aux(isub)%iingn,sub_aux(isub)%liingn)
-!
-!!     Interchange interface nodes in global numbering
-!         ireq = 0
-!         kiinadj = 0
-!         do ia = 1,nadj
-!         ! get index of neighbour
-!            isubadj = sub(isub)%iadj(ia)
-!
-!         ! who owns this subdomain?
-!            procadj = sub(isubadj)%proc
-!
-!            nnadj = sub_aux(isub)%nnodiadj(ia)
-!   
-!            if (procadj .eq. myid) then
-!               ! I have subdomain data, simply copy necessary arrays
-!               do i = 1,nnadj
-!                  inds     = sub(isubadj)%iin(i)
-!                  sub_aux(isub)%iinadj(kiinadj + i) = sub(isubadj)%isngn(inds)
-!               end do
-!   
-!            else 
-!               ! interchange via MPI
-!   
-!               ! send him my data
-!               tag = isub*nsub + isubadj
-!               ireq = ireq + 1
-!               call MPI_ISEND(sub_aux(isub)%iingn,sub_aux(isub)%liingn,MPI_INTEGER,&
-!                              procadj,tag,comm_all,sub_aux(isub)%request(ireq),ierr)
-!               ! receive his data
-!               tag = isubadj*nsub + isub
-!               ireq = ireq + 1
-!               call MPI_IRECV(sub_aux(isub)%iinadj(kiinadj + 1),nnadj,MPI_INTEGER,&
-!                              procadj,tag,comm_all,sub_aux(isub)%request(ireq),ierr)
-!            end if
-!            kiinadj = kiinadj + nnadj
-!         end do
-!         sub_aux(isub)%nreq = ireq
-!      end do
-!
-!      do isub = 1,nsub
-!         if (.not. sub(isub)%proc .eq. myid) then
-!            cycle
-!         end if
-!         call MPI_WAITALL(sub_aux(isub)%nreq, sub_aux(isub)%request, sub_aux(isub)%statarray, ierr)
-!      end do
-!
-!      ! Compare data at interface with neighbours 
-!      do isub = 1,nsub
-!         if (.not. sub(isub)%proc .eq. myid) then
-!            cycle
-!         end if
-!
-!         ! load data
-!         nnod  = sub(isub)%nnod
-!         nnodi = sub(isub)%nnodi
-!         nadj  = sub(isub)%nadj
-!
-!         lishared = nnodi
-!         allocate(ishared(lishared))
-!         lnshnadj = nadj
-!         allocate(nshnadj(lnshnadj))
-!         lkshvadj = nadj + 1
-!         allocate(kshvadj(lkshvadj))
-!         lishnadj = nadj * nnodi
-!         allocate(ishnadj(lishnadj))
-!
-!         kiinadj = 0
-!         kishnadj = 0
-!         lcommvec = 0
-!         kshvadj(1) = 1
-!         do ia = 1,nadj
-!            ! get index of neighbour
-!            isubadj = sub(isub)%iadj(ia)
-!   
-!            nnadj = sub_aux(isub)%nnodiadj(ia)
-!   
-!            call get_array_intersection(sub_aux(isub)%iingn,sub_aux(isub)%liingn,sub_aux(isub)%iinadj(kiinadj + 1),nnadj,&
-!                                        ishared,lishared,nshared)
-!            if (nshared.le.0) then
-!               write(*,*) 'DD_CREATE_NEIGHBOURING: myid =',myid,', It seems as subdomain ',&
-!                           isub, ' does not share nodes with neighbour ',isubadj
-!               call error_exit
-!            end if
-!   
-!            nshnadj(ia) = nshared
-!   
-!            ! load shared nodes 
-!            nsharedv = 0
-!            do i = 1,nshared
-!               indg = ishared(i)
-!               call get_index(indg,sub(isub)%isngn,nnod,inods)
-!               call get_index(inods,sub(isub)%iin,nnodi,inodis)
-!
-!               ndofn = sub(isub)%nndf(inods)
-!               nsharedv = nsharedv + ndofn
-!
-!               ishnadj(kishnadj + i) = inodis
-!            end do
-!   
-!            kshvadj(ia + 1) = kshvadj(ia) + nsharedv
-!            lcommvec = lcommvec + nsharedv
-!
-!            kiinadj  = kiinadj  + nnadj
-!            kishnadj = kishnadj + nshared
-!         end do
-!   
-!         ! load info about shared nodes into structure
-!         sub(isub)%lnshnadj = lnshnadj
-!         allocate(sub(isub)%nshnadj(lnshnadj))
-!         do i = 1,nadj
-!            sub(isub)%nshnadj(i) = nshnadj(i)
-!         end do
-!   
-!         ! load info about number of shared dof into structure
-!         sub(isub)%lkshvadj = lkshvadj
-!         allocate(sub(isub)%kshvadj(lkshvadj))
-!         do i = 1,lkshvadj
-!            sub(isub)%kshvadj(i) = kshvadj(i)
-!         end do
-!
-!         ! truncate array ishnadj to really used indices
-!         sub(isub)%lishnadj = sum(nshnadj)
-!         allocate(sub(isub)%ishnadj(sub(isub)%lishnadj))
-!         do i = 1,sub(isub)%lishnadj
-!            sub(isub)%ishnadj(i) = ishnadj(i)
-!         end do
-!
-!         ! prepare communication arrays
-!         sub(isub)%lcommvec = lcommvec
-!         
-!         ! activate the flag
-!         sub(isub)%is_neighbouring_ready = .true.
-!   
-!         deallocate(ishared)
-!         deallocate(nshnadj)
-!         deallocate(kshvadj)
-!         deallocate(ishnadj)
-!
-!         deallocate(sub_aux(isub)%iingn)
-!         deallocate(sub_aux(isub)%iinadj)
-!         deallocate(sub_aux(isub)%nnodiadj)
-!         deallocate(sub_aux(isub)%request)
-!         deallocate(sub_aux(isub)%statarray)
-!      end do
-!
-!      deallocate(sub_aux)
-!
-!end subroutine
+!*******************************************************************************************************
+subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, comm_all, remove_bc_nodes,&
+                           ncorner, nedge, nface)
+!*******************************************************************************************************
+! Subroutine for finding corners in BDDC
+! based on subdomain data
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+! array of sub structure for actual subdomains
+      integer,intent(in) ::                lsuba
+      type(subdomain_type),intent(inout) :: suba(lsuba)
+
+      integer,intent(in) :: lsub2proc
+      integer,intent(in) ::  sub2proc(lsub2proc)
+      integer,intent(in) :: lindexsub
+      integer,intent(in) ::  indexsub(lindexsub)
+      integer,intent(in) :: comm_all ! MPI communicator
+! should nodes on Dirichlet BC be removed?
+      logical,intent(in) :: remove_bc_nodes
+      ! basic properties of the coarse problem
+      integer,intent(out) :: ncorner
+      integer,intent(out) :: nedge
+      integer,intent(out) :: nface
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_CREATE_GLOBS'
+      integer :: isub_loc, isub, isubadj
+      integer :: ia, i, inodi, indni, indn, inodshaux
+      integer :: nadj, nnodi, ndofi, nshn, ishn, indshn, nsubnx
+      integer :: kishnadj
+      integer :: iglobs, nglobs, jnodi, nsubn, nglobn, ndim, nsub_loc
+      integer :: ncornerp
+      integer :: icorners, iedges, ifaces, ncorners, nedges, nfaces
+      integer :: indcp, inds, indg
+      integer :: start, finish, step, maxl
+      real(kr):: maxv
+      integer :: iproc
+      integer :: ncp_loc, ncp_loc_proc, kinodcw
+      integer ::            lncpa
+      integer,allocatable :: ncpa(:)
+      integer :: nep_loc, nep_loc_proc, kinodew
+      integer ::            lnepa
+      integer,allocatable :: nepa(:)
+      integer :: nfp_loc, nfp_loc_proc, kinodfw
+      integer ::            lnfpa
+      integer,allocatable :: nfpa(:)
+      integer :: indedges, indfaces
+      real(kr):: x1, y1, z1, x2, y2, z2, xish, yish, zish
+      logical :: we_share_a_face
+
+      ! MPI related variables 
+      integer :: ierr, nproc, myid
+      integer :: stat(MPI_STATUS_SIZE)
+
+      integer ::             lnsubnode
+      integer,pointer ::  nsubnode(:)
+      integer ::             lglobsubs1, lglobsubs2
+      integer,pointer ::  globsubs(:,:)
+      integer ::             lkglobs
+      integer,pointer ::      kglobs(:)
+      integer ::             lglobtypes
+      integer,pointer ::      globtypes(:)
+
+      integer ::             linodc_loc
+      integer,allocatable ::  inodc_loc(:)
+      integer ::             linodcw
+      integer,allocatable ::  inodcw(:)
+      integer ::             linodc
+      integer,allocatable ::  inodc(:)
+
+      integer ::             linode_loc
+      integer,allocatable ::  inode_loc(:)
+      integer ::             linodf_loc
+      integer,allocatable ::  inodf_loc(:)
+      integer ::             linodew
+      integer,allocatable ::  inodew(:)
+      integer ::             linodfw
+      integer,allocatable ::  inodfw(:)
+      integer ::             linode
+      integer,allocatable ::  inode(:)
+      integer ::             linodf
+      integer,allocatable ::  inodf(:)
+
+      integer ::             indep, indfp, indglb, nedgep, nfacep
+      integer ::             index_old, index_new, iedg, ifac
+
+      integer ::             liingns
+      integer,allocatable ::  iingns(:)
+      integer ::            lglobal_corner_numbers,   licnsins
+      integer,allocatable :: global_corner_numbers(:), icnsins(:)
+      integer :: inc, indi, indins, indnc, inodcs
+      integer :: icnodes
+      integer::            lglobal_glob_numbers
+      integer,allocatable:: global_glob_numbers(:)
+      integer::            lglob_types
+      integer,allocatable:: glob_types(:)
+      integer::            lnglobnodess
+      integer,allocatable:: nglobnodess(:)
+      integer::            lnglobvars
+      integer,allocatable:: nglobvars(:)
+      integer::            lignsins1, lignsins2
+      integer,allocatable:: ignsins(:,:)
+      integer::            ligvsivns1, ligvsivns2
+      integer,allocatable:: igvsivns(:,:)
+      integer ::            lkdofi
+      integer,allocatable :: kdofi(:)
+      integer ::            lifixi
+      integer,allocatable :: ifixi(:)
+      integer :: idofn, ndofn, indeg, indfg, indivs 
+      integer :: pifixi
+
+      integer::             ldist,   larea
+      real(kr),allocatable:: dist(:), area(:)
+      integer::             lxyzsh1, lxyzsh2 
+      real(kr),allocatable:: xyzsh(:,:)
+      integer::             lxyzbase
+      real(kr),allocatable:: xyzbase(:)
+      integer ::             inodcf(3)
+      integer ::             indaux(1)
+
+      type sub_aux_type
+         integer ::             nglobs
+         integer ::             ncorners
+         integer ::             nedges
+         integer ::             nfaces
+         integer ::             lnsubnode
+         integer,allocatable ::  nsubnode(:)
+         integer ::             lglobsubs1
+         integer ::             lglobsubs2
+         integer,allocatable ::  globsubs(:,:)
+         integer ::             lglobtypes
+         integer,allocatable ::  globtypes(:)
+         integer ::             lkglobs
+         integer,allocatable ::  kglobs(:)
+
+         ! MPI related arrays and variables
+         integer ::            nreq
+         integer ::            lrequest
+         integer,allocatable :: request(:)
+         integer             :: lstatarray1
+         integer             :: lstatarray2
+         integer,allocatable :: statarray(:,:)
+      end type
+
+      integer :: lsub_aux
+      type(sub_aux_type),allocatable,target :: sub_aux(:)
+
+
+! orient in communicator
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
+
+      nsub_loc = sub2proc(myid+2) - sub2proc(myid+1) 
+      lsub_aux = nsub_loc
+      allocate(sub_aux(lsub_aux))
+
+      ! prepare array of corners local to processor
+      ncornerp = 0
+
+      ! Compare data with neighbours to detect interface
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         ! check prerequisites
+         if (.not. suba(isub_loc)%is_neighbouring_ready) then
+            call error(routine_name,'Neighbouring not ready for subdomain',isub)
+         end if
+         if (remove_bc_nodes .and. .not. suba(isub_loc)%is_bc_loaded) then
+            call error(routine_name,'Boundary conditions not ready for subdomain',isub)
+         end if
+
+         ! load data
+         nadj   = suba(isub_loc)%nadj
+         nnodi  = suba(isub_loc)%nnodi
+         ndim   = suba(isub_loc)%ndim
+
+         lnsubnode = nnodi
+         sub_aux(isub_loc)%lnsubnode = lnsubnode
+         allocate(sub_aux(isub_loc)%nsubnode(lnsubnode))
+         nsubnode => sub_aux(isub_loc)%nsubnode
+         call zero(nsubnode,lnsubnode)
+
+         kishnadj  = 0
+         do ia = 1,nadj
+            ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+
+            ! number of nodes shared with this subdomain
+            nshn = suba(isub_loc)%nshnadj(ia)
+
+            do ishn = 1,nshn
+               ! index of shared node in interface numbering
+               indshn = suba(isub_loc)%ishnadj(kishnadj + ishn)
+
+               ! mark the node to array nsubnode
+               nsubnode(indshn) = nsubnode(indshn) + 1
+            end do
+   
+            kishnadj = kishnadj + nshn
+         end do
+
+         ! check coverage of interface
+         if (any(nsubnode.eq.0)) then
+            call error(routine_name,'Coverage of interface by globs failed for subdomain',isub)
+         end if
+
+         ! find maximal number of subdomains sharing a node
+         nsubnx = maxval(nsubnode)
+         ! create list of subdomains at interface nodes
+         lglobsubs1 = nnodi
+         lglobsubs2 = nsubnx
+         sub_aux(isub_loc)%lglobsubs1 = lglobsubs1
+         sub_aux(isub_loc)%lglobsubs2 = lglobsubs2
+         allocate(sub_aux(isub_loc)%globsubs(lglobsubs1,lglobsubs2))
+         globsubs => sub_aux(isub_loc)%globsubs
+         call zero(globsubs,lglobsubs1,lglobsubs2)
+         ! use now nsubnode as counters
+         call zero(nsubnode,lnsubnode)
+         kishnadj  = 0
+         do ia = 1,nadj
+            ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+
+            ! number of nodes shared with this subdomain
+            nshn = suba(isub_loc)%nshnadj(ia)
+
+            do ishn = 1,nshn
+               ! index of shared node in interface numbering
+               indshn = suba(isub_loc)%ishnadj(kishnadj + ishn)
+
+               ! mark the node to array nsubnode
+               nsubnode(indshn) = nsubnode(indshn) + 1
+
+               globsubs(indshn,nsubnode(indshn)) = isubadj
+            end do
+   
+            kishnadj = kishnadj + nshn
+         end do
+         ! debug
+         !do inodi = 1,nnodi
+         !   print *,'isub = ',isub,'inodi',inodi,'nsubnode',(globsubs(inodi,i),i = 1,nsubnode(inodi))
+         !end do
+
+         ! Identify topology of globs
+         lglobtypes = nnodi
+         sub_aux(isub_loc)%lglobtypes  = lglobtypes
+         allocate(sub_aux(isub_loc)%globtypes(lglobtypes))
+         globtypes => sub_aux(isub_loc)%globtypes
+         lkglobs = nnodi
+         sub_aux(isub_loc)%lkglobs     = lkglobs   
+         allocate(sub_aux(isub_loc)%kglobs(lkglobs))
+         kglobs => sub_aux(isub_loc)%kglobs
+
+         ! Initialize KGLOBS
+         kglobs = -1
+         call zero(globtypes,lglobtypes)
+
+         iglobs   = 0
+         icorners = 0
+         iedges   = 0
+         ifaces   = 0
+         do inodi = 1,nnodi
+            if (kglobs(inodi) .eq. -1) then
+               ! node is not assigned to glob yet
+               iglobs = iglobs + 1
+               kglobs(inodi) = iglobs
+               ! search for nodes shared by the same set of subdomains
+               nsubn = nsubnode(inodi)
+               nglobn = 1
+               do jnodi = inodi+1,nnodi
+                  ! check that the node is not yet assigned to glob and it is not a corner
+                  if (kglobs(jnodi).eq.-1 .and. globtypes(jnodi).ne.3) then
+                     ! check that number of subdomains sharing the node matches
+                     if (nsubnode(jnodi).eq.nsubn) then
+                        ! check that all indices are the same
+                        if (all(globsubs(jnodi,1:nsubn).eq.globsubs(inodi,1:nsubn))) then
+                           ! the node belongs to the same glob
+                           kglobs(jnodi) = iglobs
+                           nglobn = nglobn + 1
+                           if (nsubn.eq.1) then
+                              ! it is a face
+                              globtypes(jnodi) = 1
+                           else
+                              ! it is an edge
+                              globtypes(jnodi) = 2
+                           end if
+                        end if
+                     end if
+                  end if
+               end do
+               ! determine type of glob
+               if (nsubn.eq.1) then
+                  ! it is a face
+                  ifaces = ifaces + 1
+                  globtypes(inodi) = 1
+               else
+                  if (nglobn.gt.1) then
+                     ! it is an edge
+                     iedges = iedges + 1
+                     globtypes(inodi) = 2
+                  else
+                     ! it is a vertex, add it as a corner
+                     icorners = icorners + 1
+                     globtypes(inodi) = 3
+                  end if
+               end if
+            end if
+         end do
+         nglobs   = iglobs
+         ncorners = icorners
+         nfaces   = ifaces
+         nedges   = iedges
+         !print *,'initial isub = ',isub,'nglobs',nglobs
+         !print *,'initial isub = ',isub,'ncorners',ncorners
+         !print *,'initial isub = ',isub,'nedges',nedges
+         !print *,'initial isub = ',isub,'nfaces',nfaces
+         !print *,'isub = ',isub,'kglobs',kglobs
+         !print *,'isub = ',isub,'globtypes',globtypes
+         !call flush(6)
+
+         ! where nsubnode is 1, there is a face
+         where (nsubnode.eq.1) globtypes = 1
+
+         ! now with subdomains sharing a face, run the corner selecting algorithm
+         kishnadj  = 0
+         do ia = 1,nadj
+            ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+
+            ! number of nodes shared with this subdomain
+            nshn = suba(isub_loc)%nshnadj(ia)
+
+            we_share_a_face = .false.
+            do ishn = 1,nshn
+               ! index of shared node in interface numbering
+               indshn = suba(isub_loc)%ishnadj(kishnadj + ishn)
+
+               if (globtypes(indshn).eq.1) then
+                  we_share_a_face = .true.
+                  exit
+               end if
+            end do
+
+            if (we_share_a_face) then
+               ! prepare coordinates of common interface
+               lxyzsh1 = nshn
+               lxyzsh2 = ndim
+               ! localize coordinates of shared nodes
+               allocate(xyzsh(lxyzsh1,lxyzsh2))
+               do ishn = 1,nshn
+                  indni = suba(isub_loc)%ishnadj(kishnadj + ishn)
+                  indn  = suba(isub_loc)%iin(indni)
+                  xyzsh(ishn,1:ndim) = suba(isub_loc)%xyz(indn,1:ndim)
+               end do
+
+
+               ! search an optimal triangle
+               inodcf = 0
+               if (nshn.eq.0) then
+                  call error(routine_name,'There appears that there are zero shared nodes for subdomain:',isub)
+               end if
+               if (nshn.gt.0) then
+                  lxyzbase = ndim
+                  allocate(xyzbase(lxyzbase))
+                  ! make it the most remote node to the first interface node
+                  inodshaux = 1
+                  xyzbase(1:ndim) = xyzsh(inodshaux,1:ndim)
+               
+                  ! Find second corner by maximizing the distance of the first shared node
+                  ldist = nshn
+                  allocate(dist(ldist))
+                  do ishn = 1,nshn
+                     dist(ishn) = sum((xyzsh(ishn,1:ndim) - xyzbase(1:ndim))**2)
+                  end do
+                  indaux  = maxloc(dist)
+
+                  ! set index of first new corner
+                  inodcf(1) = indaux(1)
+
+                  deallocate(xyzbase)
+                  deallocate(dist)
+               end if
+               if (nshn.gt.1) then
+                  lxyzbase = ndim
+                  allocate(xyzbase(lxyzbase))
+                  ! one corner is already selected, select the second
+                  xyzbase(1:ndim) = xyzsh(inodcf(1),1:ndim)
+               
+                  ! Find second corner by maximizing the distance from the first one
+                  ldist = nshn
+                  allocate(dist(ldist))
+                  do ishn = 1,nshn
+                     dist(ishn) = sum((xyzsh(ishn,1:ndim) - xyzbase(1:ndim))**2)
+                  end do
+                  indaux  = maxloc(dist)
+
+                  ! set index of second new corner
+                  inodcf(2) = indaux(1)
+
+                  if (inodcf(2).eq.inodcf(1)) then
+                     print *,'dist:',dist
+                     call flush(6)
+                     call error(routine_name, 'Problem finding second corner on subdomain - same as first.',inodcf(2))
+                  end if
+
+                  deallocate(xyzbase)
+                  deallocate(dist)
+               end if
+               ! play with meshdim if necessary for selection of the third corner if necessary
+               if (ndim.gt.2.and.nshn.gt.2) then
+               ! two corners are already set, select the third
+                  x1 = xyzsh(inodcf(1),1)
+                  y1 = xyzsh(inodcf(1),2)
+                  z1 = xyzsh(inodcf(1),3)
+                  x2 = xyzsh(inodcf(2),1)
+                  y2 = xyzsh(inodcf(2),2)
+                  z2 = xyzsh(inodcf(2),3)
+               
+                  ! Find third corner as the one maximizing area of triangle
+                  larea = nshn
+                  allocate(area(larea))
+                  do ishn = 1,nshn
+                     xish = xyzsh(ishn,1)
+                     yish = xyzsh(ishn,2)
+                     zish = xyzsh(ishn,3)
+                     area(ishn) = ((y2-y1)*(zish-z1) - (yish-y1)*(z2-z1))**2 &
+                                + ((x2-x1)*(zish-z1) - (xish-x1)*(z2-z1))**2 &
+                                + ((x2-x1)*(yish-y1) - (xish-x1)*(y2-y1))**2 
+                  end do
+                  ! find maximum in the area array
+                  ! if my subdomain index is smaller that neighbour, search maximum from beginning, otherwise from the end
+                  if (isub.lt.isubadj) then
+                     start  = 1
+                     finish = larea
+                     step   = 1
+                  else if (isub.gt.isubadj) then
+                     start  = larea
+                     finish = 1
+                     step   = -1
+                  else
+                     call error(routine_name,'subdomain index mismatch - apperars same')
+                  end if
+                  ! search maximum
+                  maxv = 0._kr
+                  maxl = 0
+                  do i = start,finish,step
+                     if (area(i).gt.maxv) then
+                        maxv = area(i)
+                        maxl = i
+                     end if
+                  end do
+                  indaux(1) = maxl
+                  !indaux  = maxloc(area)
+
+                  ! set index of the third new corner
+                  inodcf(3) = indaux(1)
+                  if (inodcf(3).eq.inodcf(1).or.inodcf(3).eq.inodcf(2)) then
+                     print *,'area:',area
+                     call flush(6)
+                     call error(routine_name, 'Problem finding third corner on subdomain - same as first or second.',inodcf(3))
+                  end if
+
+                  deallocate(area)
+               end if
+
+               ! mark corner in subdomain interface
+               !print *,'inodcf',suba(isub_loc)%isngn(suba(isub_loc)%iin(suba(isub_loc)%ishnadj(kishnadj + inodcf)))
+               do i = 1,3
+                  if (inodcf(i).ne.0) then
+
+                     indni = suba(isub_loc)%ishnadj(kishnadj + inodcf(i))
+
+                     globtypes(indni) = 3
+                  end if
+               end do
+
+               deallocate(xyzsh)
+
+               ! TODO: add local pair
+            end if
+   
+            kishnadj = kishnadj + nshn
+         end do
+
+         ncorners = count(globtypes.eq.3)
+
+         ! determine size of corner data local to processor
+         ncornerp = ncornerp + ncorners
+
+         nullify(globtypes)
+         nullify(kglobs)
+         nullify(globsubs)
+         nullify(nsubnode)
+      end do
+      ! now preliminary selection only with respect to each subdomain is done,
+      ! prepare data of corners local to processor
+
+      ! debug
+      !print *, 'number of corners on processor ',myid,'is',ncornerp
+      !call flush(6)
+
+      ! prepare space for global indices of corners local to processor
+      linodc_loc = ncornerp
+      allocate(inodc_loc(linodc_loc))
+
+
+      ! index to processor's array of corners
+      indcp = 0
+      ! Compare data with neighbours to detect interface
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         ! load data
+         nadj   = suba(isub_loc)%nadj
+         nnodi  = suba(isub_loc)%nnodi
+         ndim   = suba(isub_loc)%ndim
+
+         ! set pointers
+         lnsubnode = sub_aux(isub_loc)%lnsubnode 
+         nsubnode => sub_aux(isub_loc)%nsubnode
+
+         lglobsubs1 = sub_aux(isub_loc)%lglobsubs1
+         lglobsubs2 = sub_aux(isub_loc)%lglobsubs2
+         globsubs => sub_aux(isub_loc)%globsubs
+
+         lglobtypes = sub_aux(isub_loc)%lglobtypes
+         globtypes => sub_aux(isub_loc)%globtypes
+
+         lkglobs = sub_aux(isub_loc)%lkglobs
+         kglobs => sub_aux(isub_loc)%kglobs
+
+         ! count corners at each subdomain
+         do inodi = 1,nnodi
+            if (globtypes(inodi) .eq. 3) then
+               inds = suba(isub_loc)%iin(inodi)
+               indg = suba(isub_loc)%isngn(inds)
+
+               ! add this corner to the list
+               indcp = indcp + 1
+               if (indcp.gt.linodc_loc) then
+                  call error(routine_name,'not enough space for local corners')
+               end if
+               inodc_loc(indcp) = indg
+            end if
+         end do
+
+         nullify(globtypes)
+         nullify(kglobs)
+         nullify(globsubs)
+         nullify(nsubnode)
+      end do
+
+      ! debug
+      !print *,'inodc_loc',inodc_loc
+      !call flush(6)
+
+      ! sort local array of corners before its send
+      call iquick_sort(inodc_loc,linodc_loc)
+      ! remove repeated indices
+      call get_array_norepeat(inodc_loc,linodc_loc,ncp_loc)
+
+      ! Create global array of corners
+
+      if (myid.eq.0) then
+         lncpa = nproc
+         allocate(ncpa(lncpa))
+      end if
+!*****************************************************************MPI
+      call MPI_GATHER(ncp_loc,1, MPI_INTEGER,ncpa,1, MPI_INTEGER,  0, comm_all, ierr) 
+!*****************************************************************MPI
+      if (myid.eq.0) then
+         ! debug
+         !print *,'ncpa:',ncpa
+         !call flush(6)
+
+         ! determine the global size of array of corners
+         linodcw = sum(ncpa)
+         allocate(inodcw(linodcw))
+
+
+         ! first copy my own inodc_loc into global array
+         kinodcw = 0
+         do i = 1,ncp_loc
+            inodcw(kinodcw + i) = inodc_loc(i)
+         end do
+         kinodcw = kinodcw + ncp_loc
+            
+         ! then receive data from others
+         do iproc = 1,nproc-1
+            ncp_loc_proc = ncpa(iproc+1)
+
+            if (ncp_loc_proc .gt.0) then
+               call MPI_RECV(inodcw(kinodcw+1),ncp_loc_proc,MPI_INTEGER,iproc,iproc,comm_all,stat,ierr)
+            end if
+
+            kinodcw = kinodcw + ncp_loc_proc
+         end do
+
+         deallocate(ncpa)
+      else
+         ! send my inodc_loc to root
+         if (ncp_loc.gt.0) then
+            call MPI_SEND(inodc_loc,ncp_loc,MPI_INTEGER,0,myid,comm_all,ierr)
+         end if
+      end if
+      deallocate(inodc_loc)
+
+      ! now root sorts corners and remove duplicities
+      if (myid.eq.0) then
+         ! debug
+         !print *,'inodcw',inodcw
+
+         ! sort local array of corners before its send
+         call iquick_sort(inodcw,linodcw)
+         ! remove repeated indices
+         call get_array_norepeat(inodcw,linodcw,ncorner)
+
+         ! debug
+         !print *,'ncorner on root',ncorner
+         !print *,'inodcw',inodcw(1:ncorner)
+         !call flush(6)
+      end if
+      ! root already has global array of corners, populate it along communicator
+!*****************************************************************MPI
+      call MPI_BCAST(ncorner,1, MPI_INTEGER, 0, comm_all, ierr) 
+!*****************************************************************MPI
+      !print *,'myid =',myid,'ncorner',ncorner
+      !call flush(6)
+
+      linodc = ncorner
+      allocate(inodc(linodc))
+      if (myid.eq.0) then
+         do i = 1,linodc
+            inodc(i) = inodcw(i)
+         end do
+         deallocate(inodcw)
+      end if
+!*****************************************************************MPI
+      call MPI_BCAST(inodc,linodc, MPI_INTEGER, 0, comm_all, ierr) 
+!*****************************************************************MPI
+      !print *,'myid =',myid,'inodc:',inodc
+      !call flush(6)
+
+      ! now all processes has global array of corners available, perform
+      ! correction of globs
+      nedgep = 0
+      nfacep = 0
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         ! load data
+         nadj   = suba(isub_loc)%nadj
+         nnodi  = suba(isub_loc)%nnodi
+         ndim   = suba(isub_loc)%ndim
+
+         ! set pointers
+         lnsubnode = sub_aux(isub_loc)%lnsubnode 
+         nsubnode => sub_aux(isub_loc)%nsubnode
+
+         lglobsubs1 = sub_aux(isub_loc)%lglobsubs1
+         lglobsubs2 = sub_aux(isub_loc)%lglobsubs2
+         globsubs => sub_aux(isub_loc)%globsubs
+
+         lglobtypes = sub_aux(isub_loc)%lglobtypes
+         globtypes => sub_aux(isub_loc)%globtypes
+
+         lkglobs = sub_aux(isub_loc)%lkglobs
+         kglobs => sub_aux(isub_loc)%kglobs
+
+
+         ! prepare array for global indices of interface nodes 
+         liingns = nnodi
+         allocate(iingns(liingns))
+         call dd_get_interface_global_numbers(suba(isub_loc), iingns,liingns)
+
+! find number of coarse nodes on subdomain NCORNERS
+         icorners = 0
+         do inc = 1,ncorner
+            indnc = inodc(inc)
+            if (any(iingns.eq.indnc)) then
+               icorners = icorners + 1
+            end if
+         end do
+         ncorners = icorners
+
+! localize corners
+         lglobal_corner_numbers = ncorners
+         allocate(global_corner_numbers(lglobal_corner_numbers))
+         licnsins = ncorners
+         allocate(icnsins(licnsins))
+
+         inodcs = 0
+         do inc = 1,ncorner
+            indnc = inodc(inc)
+            if (any(iingns.eq.indnc)) then
+               inodcs = inodcs + 1
+
+               ! mapping to global corner numbers
+               global_corner_numbers(inodcs) = inc
+               ! mapping to subdomain interface numbers
+               call get_index(indnc,iingns,nnodi,indins)
+               if (indins .eq. -1) then
+                  write(*,*) 'Index of subdomain interface node not found.', indnc
+                  write(*,*) 'iingns',iingns
+                  call error_exit
+               end if
+               icnsins(inodcs) = indins
+            end if
+         end do
+         deallocate(iingns)
+
+         ! upload subdomain corners 
+         call dd_upload_sub_corners(suba(isub_loc), ncorners, global_corner_numbers,lglobal_corner_numbers, icnsins,licnsins)
+
+
+         ! reinitialize kglobs
+         kglobs    = -1
+         globtypes = 0
+         icnodes   = 0
+
+         ! first mark corners in subdomain interface
+         do icorners = 1,ncorners
+            indi = icnsins(icorners)
+
+            kglobs(indi)    = icorners
+            globtypes(indi) = 3
+         end do
+         deallocate(icnsins)
+         deallocate(global_corner_numbers)
+         ! at this point, local numbering of corners is already sorted before globs
+
+         ! next, find edges on each subdomain
+         iedges   = 0
+         do inodi = 1,nnodi
+            if (kglobs(inodi) .eq. -1) then
+               ! node is not assigned to glob yet
+               nsubn = nsubnode(inodi)
+               if (nsubn.gt.1) then ! it is an edge 
+                  iedges = iedges + 1
+                  kglobs(inodi)    = ncorners + iedges
+                  globtypes(inodi) = 2
+
+                  ! search for nodes shared by the same set of subdomains
+                  do jnodi = inodi+1,nnodi
+                     ! check that the node is not yet assigned to glob and it is not a corner
+                     if (kglobs(jnodi).eq.-1) then
+                        ! check that number of subdomains sharing the node matches
+                        if (nsubnode(jnodi).eq.nsubn) then
+                           ! check that all indices are the same
+                           if (all(globsubs(jnodi,1:nsubn).eq.globsubs(inodi,1:nsubn))) then
+                              ! the node belongs to the same glob
+                              kglobs(jnodi) = ncorners + iedges
+                              ! it is an edge
+                              globtypes(jnodi) = 2
+                           end if
+                        end if
+                     end if
+                  end do
+               end if
+            end if
+         end do
+         nedges   = iedges
+         ! find faces each subdomain
+         ifaces   = 0
+         do inodi = 1,nnodi
+            if (kglobs(inodi) .eq. -1) then
+               ! node is not assigned to glob yet
+               nsubn = nsubnode(inodi)
+               if (nsubn.ne.1) then ! it is a face, check it!
+                  call error(routine_name,'The only unassigned nodes should belong to a face!')
+               end if
+
+               ifaces = ifaces + 1
+               icnodes = icnodes + 1
+               kglobs(inodi)    = ncorners + nedges + ifaces
+               globtypes(inodi) = 1
+
+               ! search for nodes with shared by the same set of subdomains
+               nglobn = 1
+               do jnodi = inodi+1,nnodi
+                  ! check that the node is not yet assigned to glob and it is not a corner
+                  if (kglobs(jnodi).eq.-1) then
+                     ! check that number of subdomains sharing the node matches
+                     if (nsubnode(jnodi).eq.nsubn) then
+                        ! check that all indices are the same
+                        if (all(globsubs(jnodi,1:nsubn).eq.globsubs(inodi,1:nsubn))) then
+                           ! the node belongs to the same glob
+                           kglobs(jnodi) = ncorners + nedges + ifaces
+                           ! it is a face
+                           globtypes(jnodi) = 1
+                        end if
+                     end if
+                  end if
+               end do
+            end if
+         end do
+         nfaces = ifaces
+
+         ! debug
+         !print *,'isub = ',isub,'ncorners',ncorners
+         !print *,'isub = ',isub,'nedges',nedges
+         !print *,'isub = ',isub,'nfaces',nfaces
+         !print *,'isub = ',isub,'kglobs',kglobs
+         !print *,'isub = ',isub,'globtypes',globtypes
+         !call flush(6)
+ 
+         ! take care of Dirichlet BC
+         if (remove_bc_nodes) then
+            if (suba(isub_loc)%is_bc_present) then
+               ! prepare kdofi
+               lkdofi = nnodi
+               allocate(kdofi(lkdofi))
+               if (lkdofi.gt.0) then
+                  kdofi(1) = 0
+               end if
+               do inodi = 2,nnodi
+                  inds = suba(isub_loc)%iin(inodi-1)
+                  ndofn = suba(isub_loc)%nndf(inds)
+
+                  kdofi(inodi) = kdofi(inodi-1) + ndofn
+               end do
+               
+               ndofi = suba(isub_loc)%ndofi
+               lifixi = ndofi
+               allocate(ifixi(lifixi))
+
+               call dd_map_sub_to_subi_int(suba(isub_loc),suba(isub_loc)%ifix,suba(isub_loc)%lifix,ifixi,lifixi)
+
+               do inodi = 1,nnodi
+                  if (globtypes(inodi) .ne. 3) then
+                     inds = suba(isub_loc)%iin(inodi)
+                     ndofn = suba(isub_loc)%nndf(inds)
+                     pifixi = kdofi(inodi)
+                     if (any(ifixi(pifixi+1:pifixi+ndofn).gt.0)) then
+                        kglobs(inodi)    = -2
+                        globtypes(inodi) = -2
+                     end if
+                  end if
+               end do
+               !print *,'isub =',isub,'kglobs:',kglobs
+               !print *,'isub =',isub,'globtypes:',globtypes
+
+               ! update number of edges and faces
+               iedges = 0
+               do iedg = 1,nedges
+                  index_old = ncorners + iedg
+                  if (any(kglobs.eq.index_old)) then
+                     iedges = iedges + 1
+                     index_new = ncorners + iedges
+                     where (kglobs.eq.index_old) kglobs = index_new
+                  end if
+               end do
+               ifaces = 0
+               do ifac = 1,nfaces
+               index_old = ncorners + nedges + ifac
+                  if (any(kglobs.eq.index_old)) then
+                     ifaces = ifaces + 1
+                     index_new = ncorners + iedges + ifaces
+                     where(kglobs.eq.index_old) kglobs = index_new
+                  end if
+               end do
+               ! now update numbers
+               nedges = iedges
+               nfaces = ifaces
+
+               deallocate(ifixi)
+               deallocate(kdofi)
+            end if
+         end if
+
+         ! debug
+         !print *,'after removing BC isub = ',isub,'ncorners',ncorners
+         !print *,'after removing BC isub = ',isub,'nedges',nedges
+         !print *,'after removing BC isub = ',isub,'nfaces',nfaces
+
+         ! make a note on numbers to the structure
+         sub_aux(isub_loc)%ncorners = ncorners
+         sub_aux(isub_loc)%nedges   = nedges
+         sub_aux(isub_loc)%nfaces   = nfaces
+
+         nedgep = nedgep + nedges
+         nfacep = nfacep + nfaces
+
+         nullify(globtypes)
+         nullify(kglobs)
+         nullify(globsubs)
+         nullify(nsubnode)
+      end do
+      ! debug
+      !print *, 'number of edges on processor ',myid,'is',nedgep
+      !print *, 'number of faces on processor ',myid,'is',nfacep
+      !call flush(6)
+
+      ! prepare space for global indices of first nodes in edges and faces, respectively, local to processor
+      linode_loc = nedgep
+      allocate(inode_loc(linode_loc))
+      linodf_loc = nfacep
+      allocate(inodf_loc(linodf_loc))
+
+
+      ! index to processor's array of corners
+      indep = 0
+      indfp = 0
+      ! Prepare lists of global indices of first nodes at edges and faces
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         ! load data
+         nadj   = suba(isub_loc)%nadj
+         nnodi  = suba(isub_loc)%nnodi
+         ndim   = suba(isub_loc)%ndim
+
+         ! set pointers
+         lnsubnode = sub_aux(isub_loc)%lnsubnode 
+         nsubnode => sub_aux(isub_loc)%nsubnode
+
+         lglobsubs1 = sub_aux(isub_loc)%lglobsubs1
+         lglobsubs2 = sub_aux(isub_loc)%lglobsubs2
+         globsubs => sub_aux(isub_loc)%globsubs
+
+         lglobtypes = sub_aux(isub_loc)%lglobtypes
+         globtypes => sub_aux(isub_loc)%globtypes
+
+         lkglobs = sub_aux(isub_loc)%lkglobs
+         kglobs => sub_aux(isub_loc)%kglobs
+
+         ncorners = sub_aux(isub_loc)%ncorners 
+         nedges   = sub_aux(isub_loc)%nedges   
+         nfaces   = sub_aux(isub_loc)%nfaces   
+
+         ! prepare list of edges faces at each subdomain
+
+         do iedges = 1,nedges
+            indedges = ncorners + iedges
+
+            ! get interface index of first node of glob
+            call get_index(indedges,kglobs,lkglobs,inodi)
+            if (inodi .eq. -1) then
+               call error(routine_name,'Index of edge not found in kglobs ', indedges)
+            end if
+
+            inds = suba(isub_loc)%iin(inodi)
+            indg = suba(isub_loc)%isngn(inds)
+
+            ! add this edge index to the list
+            indep = indep + 1
+            if (indep.gt.linode_loc) then
+               call error(routine_name,'not enough space for local edges')
+            end if
+            inode_loc(indep) = indg
+         end do
+         do ifaces = 1,nfaces
+            indfaces = ncorners + nedges + ifaces
+
+            ! get interface index of first node of glob
+            call get_index(indfaces,kglobs,lkglobs,inodi)
+            if (inodi .eq. -1) then
+               call error(routine_name,'Index of face not found in kglobs ', indfaces)
+            end if
+
+            inds = suba(isub_loc)%iin(inodi)
+            indg = suba(isub_loc)%isngn(inds)
+
+            ! add this face index to the list
+            indfp = indfp + 1
+            if (indfp.gt.linodf_loc) then
+               call error(routine_name,'not enough space for local faces')
+            end if
+            inodf_loc(indfp) = indg
+         end do
+
+         nullify(globtypes)
+         nullify(kglobs)
+         nullify(globsubs)
+         nullify(nsubnode)
+      end do
+
+      ! debug
+      !print *,'myid =',myid,'inode_loc',inode_loc 
+      !print *,'myid =',myid,'inodf_loc',inodf_loc 
+      !call flush(6)
+
+      ! sort local array of edges and faces before its send
+      call iquick_sort(inode_loc,linode_loc)
+      call iquick_sort(inodf_loc,linodf_loc)
+      ! remove repeated indices
+      call get_array_norepeat(inode_loc,linode_loc,nep_loc)
+      call get_array_norepeat(inodf_loc,linodf_loc,nfp_loc)
+
+      ! Create global array of edges and faces
+
+      if (myid.eq.0) then
+         lnepa = nproc
+         allocate(nepa(lnepa))
+         lnfpa = nproc
+         allocate(nfpa(lnfpa))
+      end if
+!*****************************************************************MPI
+      call MPI_GATHER(nep_loc,1, MPI_INTEGER,nepa,1, MPI_INTEGER,  0, comm_all, ierr) 
+      call MPI_GATHER(nfp_loc,1, MPI_INTEGER,nfpa,1, MPI_INTEGER,  0, comm_all, ierr) 
+!*****************************************************************MPI
+      if (myid.eq.0) then
+         ! debug
+         !print *,'nepa:',nepa
+         !print *,'nfpa:',nfpa
+         !call flush(6)
+
+         ! determine the global size of array of edges and faces
+         linodew = sum(nepa)
+         linodfw = sum(nfpa)
+         allocate(inodew(linodew))
+         allocate(inodfw(linodfw))
+
+         ! first copy my own inode_loc into global array
+         kinodew = 0
+         do i = 1,nep_loc
+            inodew(kinodew + i) = inode_loc(i)
+         end do
+         kinodew = kinodew + nep_loc
+         ! first copy my own inodf_loc into global array
+         kinodfw = 0
+         do i = 1,nfp_loc
+            inodfw(kinodfw + i) = inodf_loc(i)
+         end do
+         kinodfw = kinodfw + nfp_loc
+            
+         ! then receive data from others
+         do iproc = 1,nproc-1
+            nep_loc_proc = nepa(iproc+1)
+
+            if (nep_loc_proc.gt.0) then
+               call MPI_RECV(inodew(kinodew+1),nep_loc_proc,MPI_INTEGER,iproc,iproc,comm_all,stat,ierr)
+            end if
+
+            kinodew = kinodew + nep_loc_proc
+
+            nfp_loc_proc = nfpa(iproc+1)
+
+            if (nfp_loc_proc.gt.0) then
+               call MPI_RECV(inodfw(kinodfw+1),nfp_loc_proc,MPI_INTEGER,iproc,iproc,comm_all,stat,ierr)
+            end if
+
+            kinodfw = kinodfw + nfp_loc_proc
+         end do
+
+         deallocate(nepa)
+         deallocate(nfpa)
+      else
+         ! send my inode_loc and inodf_loc to root
+         if (nep_loc.gt.0) then
+            call MPI_SEND(inode_loc,nep_loc,MPI_INTEGER,0,myid,comm_all,ierr)
+         end if
+         if (nfp_loc.gt.0) then
+            call MPI_SEND(inodf_loc,nfp_loc,MPI_INTEGER,0,myid,comm_all,ierr)
+         end if
+      end if
+      deallocate(inode_loc)
+      deallocate(inodf_loc)
+
+      ! now root sorts edges and faces and remove duplicities
+      if (myid.eq.0) then
+         ! debug
+         !print *,'inodcw',inodcw
+
+         ! sort local array of first indices of edges and faces 
+         call iquick_sort(inodew,linodew)
+         call iquick_sort(inodfw,linodfw)
+         ! remove repeated indices
+         call get_array_norepeat(inodew,linodew,nedge)
+         call get_array_norepeat(inodfw,linodfw,nface)
+
+         ! debug
+         !print *,'inodcw',inodcw(1:ncorner)
+         !call flush(6)
+      end if
+      ! root already has global array of edges and faces, populate it along communicator
+!*****************************************************************MPI
+      call MPI_BCAST(nedge,1, MPI_INTEGER, 0, comm_all, ierr) 
+      call MPI_BCAST(nface,1, MPI_INTEGER, 0, comm_all, ierr) 
+!*****************************************************************MPI
+      !print *,'myid =',myid,'nedge',nedge
+      !print *,'myid =',myid,'nface',nface
+      !call flush(6)
+
+      linode = nedge
+      linodf = nface
+      allocate(inode(linode))
+      allocate(inodf(linodf))
+      if (myid.eq.0) then
+         do i = 1,linode
+            inode(i) = inodew(i)
+         end do
+         deallocate(inodew)
+         do i = 1,linodf
+            inodf(i) = inodfw(i)
+         end do
+         deallocate(inodfw)
+      end if
+!*****************************************************************MPI
+      call MPI_BCAST(inode,linode, MPI_INTEGER, 0, comm_all, ierr) 
+      call MPI_BCAST(inodf,linodf, MPI_INTEGER, 0, comm_all, ierr) 
+!*****************************************************************MPI
+      !print *,'myid =',myid,'inode:',inode
+      !print *,'myid =',myid,'inodf:',inodf
+      !call flush(6)
+
+      ! now all processes has global array of first indices of edges and faces available, perform localization of globs
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         ! load data
+         nadj   = suba(isub_loc)%nadj
+         nnodi  = suba(isub_loc)%nnodi
+         ndim   = suba(isub_loc)%ndim
+
+         ! set pointers
+         lnsubnode = sub_aux(isub_loc)%lnsubnode 
+         nsubnode => sub_aux(isub_loc)%nsubnode
+
+         lglobsubs1 = sub_aux(isub_loc)%lglobsubs1
+         lglobsubs2 = sub_aux(isub_loc)%lglobsubs2
+         globsubs => sub_aux(isub_loc)%globsubs
+
+         lglobtypes = sub_aux(isub_loc)%lglobtypes
+         globtypes => sub_aux(isub_loc)%globtypes
+
+         lkglobs = sub_aux(isub_loc)%lkglobs
+         kglobs => sub_aux(isub_loc)%kglobs
+
+         ncorners = sub_aux(isub_loc)%ncorners  
+         nedges   = sub_aux(isub_loc)%nedges  
+         nfaces   = sub_aux(isub_loc)%nfaces  
+
+         ! prepare array for global indices of interface nodes 
+         liingns = nnodi
+         allocate(iingns(liingns))
+         call dd_get_interface_global_numbers(suba(isub_loc), iingns,liingns)
+
+         ! mapping of globs
+         nglobs = nedges + nfaces
+         lglobal_glob_numbers = nglobs
+         allocate(global_glob_numbers(lglobal_glob_numbers))
+         lnglobvars = nglobs
+         allocate(nglobvars(lnglobvars))
+         call zero(nglobvars,lnglobvars)
+         lnglobnodess = nglobs
+         allocate(nglobnodess(lnglobnodess))
+         call zero(nglobnodess,lnglobnodess)
+         lglob_types = nglobs
+         allocate(glob_types(lglob_types))
+
+         indedges   = 0
+         indfaces   = 0
+         ! find edges
+         do iedges = 1,nedges
+            indedges = ncorners + iedges
+
+            ! get interface index of first node of glob
+            call get_index(indedges,kglobs,lkglobs,inodi)
+            if (inodi .eq. -1) then
+               call error(routine_name,'Index of edge not found in kglobs ', indedges)
+            end if
+
+            inds = suba(isub_loc)%iin(inodi)
+            indg = suba(isub_loc)%isngn(inds)
+
+            ! search for this glob in the list
+            call get_index(indg,inode,linode,indeg)
+            if (indeg .eq. -1) then
+               call error(routine_name,'Global index of edge not found for node ', indg)
+            end if
+
+            global_glob_numbers(iedges) = indeg
+            glob_types(iedges)          = 2
+         end do
+
+         ! find faces
+         do ifaces = 1,nfaces
+            indfaces = ncorners + nedges + ifaces
+
+            ! get interface index of first node of glob
+            call get_index(indfaces,kglobs,lkglobs,inodi)
+            if (inodi .eq. -1) then
+               call error(routine_name,'Index of face not found in kglobs ', indfaces)
+            end if
+
+            inds = suba(isub_loc)%iin(inodi)
+            indg = suba(isub_loc)%isngn(inds)
+
+            ! search for this glob in the list
+            call get_index(indg,inodf,linodf,indfg)
+            if (indfg .eq. -1) then
+               print *,'inodi',inodi
+               print *,'indglb',indglb
+               call error(routine_name,'Global index of face not found for node ', indg)
+            end if
+
+            ! shift numbering of globs behind edges
+            global_glob_numbers(nedges + ifaces) = indfg + nedge
+            glob_types(nedges + ifaces)          = 1
+         end do
+         ! compute number of nodes and variables at individual globs
+         do inodi = 1,nnodi
+            if (globtypes(inodi) .eq. 1 .or. globtypes(inodi) .eq. 2 ) then
+               ! it is a face or edge
+
+               indglb = kglobs(inodi) - ncorners
+
+               inds = suba(isub_loc)%iin(inodi)
+               ndofn = suba(isub_loc)%nndf(inds)
+
+               nglobnodess(indglb) = nglobnodess(indglb) + 1
+               nglobvars(indglb)   = nglobvars(indglb)  + ndofn
+            end if
+         end do
+
+         ! debug
+         !print *,'nglobnodess',nglobnodess
+         !print *,'nglobvars',nglobvars
+
+         ! shift numbering behind corners
+         global_glob_numbers = global_glob_numbers + ncorner
+
+         ! debug
+         !print *,'global_glob_numbers',global_glob_numbers
+
+         ligvsivns1 = nglobs
+         ligvsivns2 = maxval(nglobvars)
+         allocate(igvsivns(ligvsivns1,ligvsivns2))
+         call zero(igvsivns,ligvsivns1,ligvsivns2)
+         lignsins1 = nglobs
+         lignsins2 = maxval(nglobnodess)
+         allocate(ignsins(lignsins1,lignsins2))
+         call zero(ignsins,lignsins1,lignsins2)
+
+         lkdofi = nnodi
+         allocate(kdofi(lkdofi))
+         if (lkdofi.gt.0) then
+            kdofi(1) = 0
+         end if
+         do inodi = 2,nnodi
+            inds = suba(isub_loc)%iin(inodi-1)
+            ndofn = suba(isub_loc)%nndf(inds)
+
+            kdofi(inodi) = kdofi(inodi-1) + ndofn
+         end do
+         ! debug
+         !print *,'kdofi',kdofi
+
+         ! use nglobnodess as counter
+         call zero(nglobnodess,lnglobnodess)
+         call zero(nglobvars,lnglobvars)
+         do inodi = 1,nnodi
+            if (globtypes(inodi) .eq. 1 .or. globtypes(inodi) .eq. 2 ) then
+               ! it is a face or edge
+               indglb = kglobs(inodi) - ncorners
+
+               inds = suba(isub_loc)%iin(inodi)
+               ndofn = suba(isub_loc)%nndf(inds)
+
+
+               nglobnodess(indglb) = nglobnodess(indglb) + 1
+               ignsins(indglb,nglobnodess(indglb)) = inodi
+
+               do idofn = 1,ndofn
+                  nglobvars(indglb) = nglobvars(indglb)  + 1
+
+                  indivs = kdofi(inodi) + idofn
+
+                  igvsivns(indglb,nglobvars(indglb)) = indivs
+               end do
+            end if
+         end do
+         deallocate(kdofi)
+         ! debug
+         !print *,'igvsivns'
+         !do i = 1,ligvsivns1
+         !   print *,(igvsivns(i,j),j = 1,nglobvars(i))
+         !end do
+
+         call dd_upload_sub_globs(suba(isub_loc), nglobs, global_glob_numbers,lglobal_glob_numbers,&
+                                  nglobnodess,lnglobnodess, nglobvars,lnglobvars,&
+                                  ignsins,lignsins1,lignsins2, igvsivns,ligvsivns1,ligvsivns2,&
+                                  glob_types,lglob_types)
+         deallocate(ignsins)
+         deallocate(igvsivns)
+         deallocate(glob_types)
+         deallocate(nglobnodess)
+         deallocate(nglobvars)
+         deallocate(global_glob_numbers)
+
+         deallocate(iingns)
+
+         nullify(globtypes)
+         nullify(kglobs)
+         nullify(globsubs)
+         nullify(nsubnode)
+      end do
+
+      deallocate(inodc)
+      deallocate(inode)
+      deallocate(inodf)
+
+      ! root print the summary of selection of globs
+      if (myid.eq.0) then
+         write(*,*) '   The following globs were recognized: '
+         write(*,'(a,i8)') '    nface   = ',nface
+         write(*,'(a,i8)') '    nedge   = ',nedge
+         write(*,'(a,i8)') '    ncorner = ',ncorner
+         call flush(6)
+      end if
+
+      ! clear auxiliary structure
+      do isub_loc = 1,lindexsub
+         deallocate(sub_aux(isub_loc)%globtypes)
+         deallocate(sub_aux(isub_loc)%kglobs)
+         deallocate(sub_aux(isub_loc)%globsubs)
+         deallocate(sub_aux(isub_loc)%nsubnode)
+      end do
+      deallocate(sub_aux)
+
+end subroutine
+
+!********************************************************************
+subroutine dd_create_pairs(suba,lsuba, indexsub,lindexsub, comm_all,&
+                           pairs,lpairs1,lpairs2, npair)
+!********************************************************************
+! Subroutine for finding pairs for adaptivity
+! based on subdomain data
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+! array of sub structure for actual subdomains
+      integer,intent(in) ::                lsuba
+      type(subdomain_type),intent(inout) :: suba(lsuba)
+
+      integer,intent(in) :: lindexsub
+      integer,intent(in) ::  indexsub(lindexsub)
+      integer,intent(in) :: comm_all ! MPI communicator
+      ! list of pairs for adaptivity
+      integer,intent(in) :: lpairs1,lpairs2
+      integer,intent(out) :: pairs(lpairs1,lpairs2)
+      ! actual number of pairs (number of really used rows in pairs - may be lower that dimension of pairs)
+      integer,intent(out) :: npair
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_CREATE_PAIRS'
+      integer :: isub_loc, isub, jsub
+      integer :: ncnodes
+      integer :: iproc
+      integer :: nface_loc
+      integer :: npairp, npairp_proc, kpair
+      integer ::            lnpairpa
+      integer,allocatable :: npairpa(:)
+      integer :: npairdoubled
+      integer :: i, icnodes, ipairp
+      integer :: ign, jgn, ipair, idp
+
+      ! MPI related variables 
+      integer :: ierr, nproc, myid
+      integer :: stat(MPI_STATUS_SIZE)
+
+      integer ::             lglobal_cnode_number_loc
+      integer,allocatable ::  global_cnode_number_loc(:)
+      integer ::             lglobal_cnode_number
+      integer,allocatable ::  global_cnode_number(:)
+      integer ::             lpair_subdomain_loc
+      integer,allocatable ::  pair_subdomain_loc(:)
+      integer ::             lpair_subdomain
+      integer,allocatable ::  pair_subdomain(:)
+
+! orient in communicator
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
+
+      ! find maximal size of local pairs
+      nface_loc = 0
+      do isub_loc = 1,lindexsub
+         ! check prerequisites
+         if (.not. suba(isub_loc)%is_cnodes_loaded) then
+            call error(routine_name,'Coarse nodes not ready for subdomain',isub)
+         end if
+
+         nface_loc = nface_loc + suba(isub_loc)%ncnodes
+      end do
+
+      ! prepare local array for finding pairs
+      lglobal_cnode_number_loc = nface_loc
+      allocate(global_cnode_number_loc(lglobal_cnode_number_loc))
+      lpair_subdomain_loc      = nface_loc
+      allocate(pair_subdomain_loc(lpair_subdomain_loc))
+
+      ipairp = 0
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+
+         ! load data
+         ncnodes   = suba(isub_loc)%ncnodes
+
+         ! loop over coarse nodes
+         do icnodes = 1,ncnodes
+            if (suba(isub_loc)%cnodes(icnodes)%itype.eq.1) then
+               ! submit this face as a pair
+               ipairp = ipairp + 1
+
+               ! check bounds
+               if (ipairp.gt.nface_loc) then
+                  call error(routine_name,'not enough space for local pairs')
+               end if
+
+               global_cnode_number_loc(ipairp) = suba(isub_loc)%cnodes(icnodes)%global_cnode_number
+               pair_subdomain_loc(ipairp)      = isub
+            end if
+         end do
+      end do
+      npairp = ipairp
+
+      ! Create global array of pairs
+      lnpairpa = nproc
+      allocate(npairpa(lnpairpa))
+!*****************************************************************MPI
+      call MPI_ALLGATHER(npairp,1, MPI_INTEGER,npairpa,1, MPI_INTEGER,  comm_all, ierr) 
+!*****************************************************************MPI
+
+      npairdoubled = sum(npairpa)
+      ! check that it is even number
+      if (mod(npairdoubled,2).ne.0) then
+         call error(routine_name,'Twice the number of pairs should be even number.')
+      end if
+      npair = npairdoubled / 2
+
+
+      ! determine the global size of array of pair subdomains
+      lglobal_cnode_number = npairdoubled
+      allocate(global_cnode_number(lglobal_cnode_number))
+      lpair_subdomain = npairdoubled
+      allocate(pair_subdomain(lpair_subdomain))
+
+
+      if (myid.eq.0) then
+         ! first copy my own inodc_loc into global array
+         kpair = 0
+         do i = 1,npairp
+            global_cnode_number(kpair + i) = global_cnode_number_loc(i)
+            pair_subdomain(kpair + i)      = pair_subdomain_loc(i)
+         end do
+         kpair = kpair + npairp
+            
+         ! then receive data from others
+         do iproc = 1,nproc-1
+            npairp_proc = npairpa(iproc+1)
+
+            if (npairp_proc .gt.0) then
+               call MPI_RECV(global_cnode_number(kpair+1),npairp_proc,MPI_INTEGER,iproc,iproc,comm_all,stat,ierr)
+               call MPI_RECV(pair_subdomain(kpair+1),npairp_proc,MPI_INTEGER,iproc,iproc,comm_all,stat,ierr)
+            end if
+
+            kpair = kpair + npairp_proc
+         end do
+
+      else
+         ! send my inodc_loc to root
+         if (npairp.gt.0) then
+            call MPI_SEND(global_cnode_number_loc,npairp,MPI_INTEGER,0,myid,comm_all,ierr)
+            call MPI_SEND(pair_subdomain_loc,npairp,MPI_INTEGER,0,myid,comm_all,ierr)
+         end if
+      end if
+
+      deallocate(npairpa)
+      deallocate(global_cnode_number_loc)
+      deallocate(pair_subdomain_loc)
+
+      ! now root sorts corners and remove duplicities
+      if (myid.eq.0) then
+
+         ! sort local array of corners before its send
+         call iquick_sort_simultaneous(global_cnode_number,lglobal_cnode_number,pair_subdomain,lpair_subdomain)
+      end if
+      ! root already has global array of pairs, populate it along communicator
+!*****************************************************************MPI
+      call MPI_BCAST(global_cnode_number,lglobal_cnode_number, MPI_INTEGER, 0, comm_all, ierr) 
+      call MPI_BCAST(pair_subdomain,lpair_subdomain, MPI_INTEGER, 0, comm_all, ierr) 
+!*****************************************************************MPI
+      !print *,'myid =',myid,'ncorner',ncorner
+      !call flush(6)
+
+      ! now parse array of pairs to get global pairs
+
+      idp = 0
+      do ipair = 1,npair
+         idp = idp + 1
+         isub = pair_subdomain(idp)
+         ign  = global_cnode_number(idp)
+
+         idp = idp + 1
+         jsub = pair_subdomain(idp)
+         jgn  = global_cnode_number(idp)
+
+         ! check we have pair
+         if (ign.ne.jgn) then
+            call error(routine_name,'global indices not in pairs',ign)
+         end if
+         ! mark pair's global cnode number
+         pairs(ipair,1) = ign
+         ! mark pair's first sharing subdomain
+         pairs(ipair,2) = isub
+         ! mark pair's second sharing subdomain
+         pairs(ipair,3) = jsub
+      end do
+
+      deallocate(global_cnode_number)
+      deallocate(pair_subdomain)
+
+      ! root print the summary of selection of globs
+      if (myid.eq.0) then
+         write(*,*) '   We have found ',npair,' pairs for adaptivity.'
+         call flush(6)
+      end if
+
+end subroutine
 
 !***************************************
 subroutine dd_comm_upload(sub, vec,lvec)
@@ -6391,113 +8007,146 @@ subroutine dd_comm_swapdata(suba,lsuba, indexsub,lindexsub, sub2proc,lsub2proc,c
       integer,intent(in) :: comm_all ! MPI communicator
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_COMM_SWAPDATA'
       integer :: i, ia, isub, isub_loc, nsub
       integer :: isubadj, isubadj_loc, procadj
 
-      integer :: myid, ierr, tag, ireq
       integer :: isubadj_ia
       integer :: kneib_isub
       integer :: kneib_isubadj
-      integer :: lcommvec, nadj, nsharedv
+      integer :: nadj, nsharedv
+      integer :: nsubd
 
-      type sub_aux_type
-
-         ! MPI related arrays and variables
-         integer ::            nreq
-         integer ::            lrequest
-         integer,allocatable :: request(:)
-         integer             :: lstatarray1
-         integer             :: lstatarray2
-         integer,allocatable :: statarray(:,:)
-      end type
-
-      integer :: lsub_aux
-      type(sub_aux_type),allocatable :: sub_aux(:)
+      ! MPI related arrays and variables
+      integer :: myid, nproc, ierr, tag, ireq, nreq
+      integer ::            lrequest
+      integer,allocatable :: request(:)
+      integer             :: lstatarray1
+      integer             :: lstatarray2
+      integer,allocatable :: statarray(:,:)
 
 ! orient in communicator
       call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
 
-      lsub_aux = lsuba
-      allocate(sub_aux(lsub_aux))
+      nsub = sub2proc(nproc+1) - 1
 
+      ! check safety of MPI due to tag limitations (supposed 4-byte integer)
+      if (nsub .gt. 46340) then
+         call error(routine_name,'number of subdomains reaches the limit for safe computing of tag')
+      end if
+
+      ! get number of requests
+      ireq = 0
       do isub_loc = 1,lindexsub
          isub = indexsub(isub_loc)
-         nsub = suba(isub_loc)%nsub
+         nsubd = suba(isub_loc)%nsub
 
+         if (nsubd.ne.nsub) then
+            call error(routine_name,'number of subdomains mismatch from DD module and from arguments for sub',isub)
+         end if
          if (.not. suba(isub_loc)%is_neighbouring_ready) then
-            write(*,*) 'DD_COMM_SWAPDATA: Neighbouring is not ready for subdomain ',isub
-            call error_exit
+            call error(routine_name,'Neighbouring is not ready for subdomain ',isub)
          end if
          if (.not. allocated(suba(isub_loc)%commvec_out)) then
-            write(*,*) 'DD_COMM_SWAPDATA: Array COMMVEC_OUT not allocated.  Perhaps missing call to dd_comm_upload. ',isub
-            call error_exit
+            call error(routine_name,'Array COMMVEC_OUT not allocated. Perhaps missing call to dd_comm_upload. ',isub)
          end if
 
          ! load data
          nadj  = suba(isub_loc)%nadj
-         lcommvec = suba(isub_loc)%lcommvec
 
-         sub_aux(isub_loc)%lrequest = 2*nadj
-         allocate(sub_aux(isub_loc)%request(sub_aux(isub_loc)%lrequest))
-         sub_aux(isub_loc)%lstatarray1 = MPI_STATUS_SIZE
-         sub_aux(isub_loc)%lstatarray2 = sub_aux(isub_loc)%lrequest
-         allocate(sub_aux(isub_loc)%statarray(sub_aux(isub_loc)%lstatarray1,sub_aux(isub_loc)%lstatarray2))
+         ireq = ireq + nadj
+      end do
+
+      ! prepare MPI data for processor
+      nreq = ireq
+      lrequest = nreq
+      allocate(request(lrequest))
+      lstatarray1 = MPI_STATUS_SIZE
+      lstatarray2 = nreq
+      allocate(statarray(lstatarray1,lstatarray2))
 
 !     Interchange interface nodes in global numbering
-         ireq = 0
+      ireq = 0
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         nadj = suba(isub_loc)%nadj
+
          do ia = 1,nadj
          ! get index of neighbour
             isubadj = suba(isub_loc)%iadj(ia)
 
             nsharedv = suba(isub_loc)%kshvadj(ia + 1) - suba(isub_loc)%kshvadj(ia)
+            if (nsharedv.gt.0) then
 
-            ! who owns this subdomain?
-            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
+               ! who owns this subdomain?
+               call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
 
-            if (procadj .eq. myid) then
-               ! I have subdomain data, simply copy necessary arrays
-               call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
-               call get_index(isub,suba(isubadj_loc)%iadj,suba(isubadj_loc)%nadj,isubadj_ia)
-               kneib_isub    = suba(isub_loc)%kshvadj(ia) - 1
-               if ((suba(isubadj_loc)%kshvadj(isubadj_ia + 1) - suba(isubadj_loc)%kshvadj(isubadj_ia)) &
-                  .ne. nsharedv) then
-                  write(*,*) 'DD_COMM_SWAPDATA: Inconsistent lenght of copied array.'
-                  call error_exit
+               if (procadj .ne. myid) then
+                  ! interchange via MPI
+   
+                  ! raise a request to receive data
+                  tag = isubadj*nsub + isub
+                  ireq = ireq + 1
+                  call MPI_IRECV(suba(isub_loc)%commvec_in(suba(isub_loc)%kshvadj(ia)),nsharedv,MPI_DOUBLE_PRECISION,&
+                                 procadj,tag,comm_all,request(ireq),ierr)
+               else 
+                  ! I have subdomain data, simply copy necessary arrays
+                  call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
+                  call get_index(isub,suba(isubadj_loc)%iadj,suba(isubadj_loc)%nadj,isubadj_ia)
+                  kneib_isub    = suba(isub_loc)%kshvadj(ia) - 1
+                  if ((suba(isubadj_loc)%kshvadj(isubadj_ia + 1) - suba(isubadj_loc)%kshvadj(isubadj_ia)) &
+                     .ne. nsharedv) then
+                     write(*,*) 'DD_COMM_SWAPDATA: Inconsistent lenght of copied array.'
+                     call error_exit
+                  end if
+
+                  kneib_isubadj = suba(isubadj_loc)%kshvadj(isubadj_ia) - 1
+                  do i = 1,nsharedv
+                     suba(isub_loc)%commvec_in(kneib_isub + i) = suba(isubadj_loc)%commvec_out(kneib_isubadj + i)
+                  end do
                end if
-
-               kneib_isubadj = suba(isubadj_loc)%kshvadj(isubadj_ia) - 1
-               do i = 1,nsharedv
-                  suba(isub_loc)%commvec_in(kneib_isub + i) = suba(isubadj_loc)%commvec_out(kneib_isubadj + i)
-               end do
-   
-            else 
-               ! interchange via MPI
-   
-               ! receive his data
-               tag = isubadj*nsub + isub
-               ireq = ireq + 1
-               call MPI_IRECV(suba(isub_loc)%commvec_in(suba(isub_loc)%kshvadj(ia)),nsharedv,MPI_DOUBLE_PRECISION,&
-                              procadj,tag,comm_all,sub_aux(isub_loc)%request(ireq),ierr)
-               ! send him my data
-               tag = isub*nsub + isubadj
-               ireq = ireq + 1
-               call MPI_ISEND(suba(isub_loc)%commvec_out(suba(isub_loc)%kshvadj(ia)),nsharedv,MPI_DOUBLE_PRECISION,&
-                              procadj,tag,comm_all,sub_aux(isub_loc)%request(ireq),ierr)
             end if
+   
          end do
-         sub_aux(isub_loc)%nreq = ireq
       end do
-
+      nreq = ireq
       do isub_loc = 1,lindexsub
-         call MPI_WAITALL(sub_aux(isub_loc)%nreq, sub_aux(isub_loc)%request, sub_aux(isub_loc)%statarray, ierr)
+         isub = indexsub(isub_loc)
+
+         nadj = suba(isub_loc)%nadj
+
+!     Interchange interface nodes in global numbering
+         do ia = 1,nadj
+         ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+
+            nsharedv = suba(isub_loc)%kshvadj(ia + 1) - suba(isub_loc)%kshvadj(ia)
+            if (nsharedv.gt.0) then
+
+               ! who owns this subdomain?
+               call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
+
+               if (procadj .ne. myid) then
+                  ! interchange via MPI
+   
+                  ! send him my data
+                  tag = isub*nsub + isubadj
+                  call MPI_SEND(suba(isub_loc)%commvec_out(suba(isub_loc)%kshvadj(ia)),nsharedv,MPI_DOUBLE_PRECISION,&
+                                procadj,tag,comm_all,ierr)
+               end if
+            end if
+   
+         end do
       end do
+      if (nreq.gt.0) then
+         call MPI_WAITALL(nreq, request, statarray, ierr)
+      end if
 
       ! clear memory
-      do isub_loc = 1,lindexsub
-         deallocate(sub_aux(isub_loc)%request)
-         deallocate(sub_aux(isub_loc)%statarray)
-      end do
-      deallocate(sub_aux)
+      deallocate(request)
+      deallocate(statarray)
 
 end subroutine
 
@@ -7181,6 +8830,9 @@ subroutine dd_finalize(sub)
       end if
       if (sub%is_mumps_interior_active) then
          call mumps_finalize(sub%mumps_interior_block)
+      end if
+      if (allocated(sub%schur)) then
+         deallocate(sub%schur)
       end if
 
       ! BDDC matrices

@@ -526,6 +526,104 @@ END SUBROUTINE iinterchange_sort
 
 END SUBROUTINE iquick_sort
 
+RECURSIVE SUBROUTINE iquick_sort_simultaneous(list1,llist1,list2,llist2)
+
+! quick sort that sorts two arrays based on sorting of first array
+! Quick sort routine from:
+! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
+! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
+! modified by Jakub Sistek
+
+IMPLICIT NONE
+INTEGER,INTENT(IN) :: llist1
+INTEGER,INTENT(IN OUT)  :: list1(llist1)
+INTEGER,INTENT(IN) :: llist2
+INTEGER,INTENT(IN OUT)  :: list2(llist2)
+! local vars
+
+character(*),parameter:: routine_name = 'IQUICK_SORT_SIMULTANEOUS'
+
+! check dimension
+if (llist1.ne.llist2) then
+   call error(routine_name,'dimension of arrays mismatch')
+end if
+
+CALL iquick_sort_simultaneous_1(1, llist1)
+
+CONTAINS
+
+RECURSIVE SUBROUTINE iquick_sort_simultaneous_1(left_end, right_end)
+
+INTEGER, INTENT(IN) :: left_end, right_end
+
+!     Local variables
+INTEGER             :: i, j
+INTEGER             :: reference, temp
+INTEGER, PARAMETER  :: max_simple_sort_size = 6
+
+IF (right_end < left_end + max_simple_sort_size) THEN
+  ! Use interchange sort for small lists
+  CALL iinterchange_sort_simultaneous(left_end, right_end)
+
+ELSE
+  ! Use partition ("quick") sort
+  reference = list1((left_end + right_end)/2)
+  i = left_end  - 1 
+  j = right_end + 1
+
+  DO
+    ! Scan list from left end until element >= reference is found
+    DO
+      i = i + 1
+      IF (list1(i) >= reference) EXIT
+    END DO
+    ! Scan list from right end until element <= reference is found
+    DO
+      j = j - 1
+      IF (list1(j) <= reference) EXIT
+    END DO
+
+
+    IF (i < j) THEN
+      ! Swap two out-of-order elements
+      temp = list1(i) ; list1(i) = list1(j) ; list1(j) = temp
+      temp = list2(i) ; list2(i) = list2(j) ; list2(j) = temp
+    ELSE IF (i == j) THEN
+      i = i + 1
+      EXIT
+    ELSE
+      EXIT
+    END IF
+  END DO
+
+  IF (left_end < j) CALL iquick_sort_simultaneous_1(left_end, j)
+  IF (i < right_end) CALL iquick_sort_simultaneous_1(i, right_end)
+END IF
+
+END SUBROUTINE iquick_sort_simultaneous_1
+
+SUBROUTINE iinterchange_sort_simultaneous(left_end, right_end)
+
+INTEGER, INTENT(IN) :: left_end, right_end
+
+!     Local variables
+INTEGER             :: i, j
+INTEGER             :: temp
+
+DO i = left_end, right_end - 1
+  DO j = i+1, right_end
+    IF (list1(i) > list1(j)) THEN
+      temp = list1(i); list1(i) = list1(j); list1(j) = temp
+      temp = list2(i); list2(i) = list2(j); list2(j) = temp
+    END IF
+  END DO
+END DO
+
+END SUBROUTINE iinterchange_sort_simultaneous
+
+END SUBROUTINE iquick_sort_simultaneous
+
+
 RECURSIVE SUBROUTINE rquick_sort(list,llist1,llist2,indsort,istart,iend)
 
 ! Quick sort routine from:

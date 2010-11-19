@@ -281,9 +281,12 @@ integer :: ierr
          !write(*,*) 'nnet_loc',nnet_loc
          allocate(eptr(leptr))
          eptr(1) = 1 ! In Fortran, start from 1
-         do i = 2,leptr
-            eptr(i) = eptr(i-1) + nnet_loc(i-1)
-         end do
+         if (nelem_loc .gt. 0) then
+            do i = 2,leptr
+               eptr(i) = eptr(i-1) + nnet_loc(i-1)
+            end do
+         end if
+
          ! EIND is the same as INET_LOC
          ! set debugging
          if (debug) then 
@@ -299,12 +302,14 @@ integer :: ierr
             call flush(6)
          end if
          ! debug
-         !write(*,*) 'elmdist',elmdist
-         !write(*,*) 'eptr',eptr
-         !write(*,*) 'inet_loc',inet_loc
-         !write(*,*) 'numflag',numflag
-         !write(*,*) 'ncommonnodes',ncommonnodes
+         !print *,'elmdist',elmdist
+         !print *,'eptr',eptr
+         !print *,'inet_loc',inet_loc
+         !print *,'numflag',numflag
+         !print *,'ncommonnodes',ncommonnodes
+         !print *,'nelempa',nelempa
          !call flush(6)
+
          call pget_sub_neighbours_c(elmdist,eptr,inet_loc,numflag,ncommonnodes,iets,liets, nsub, nsub_loc, sub_start,&
                                     kadjsub,lkadjsub, numdebug, comm)
          if (myid.eq.0) then
@@ -1911,8 +1916,10 @@ type(neighbouring_type), allocatable :: neighbourings(:)
             nnodis = count(kmynodes.eq.1.and.kinodes.gt.1)
             write(*,*) 'Number of interface nodes on subdomain',isub,' is ',nnodis
             if (nnodis.eq.0) then
-               write(*,*) 'Error in topology - subdomain ',isub,' has zero interface nodes.'
-               call error_exit
+               if (any(iets.eq.isub)) then
+                  write(*,*) 'Error in topology - subdomain ',isub,' has zero interface nodes.'
+                  call error_exit
+               end if
             end if
          end if
       end do
@@ -2179,11 +2186,11 @@ integer:: ie, indsub, ine, nne, ipoint, indng
 
 end subroutine pp_mark_sub_nodes
 
-!******************************************************************
-subroutine pp_distribute_subdomains(nsub,nproc, sub2proc,lsub2proc)
-!******************************************************************
-!     Distribute linearly NSUB subdomains to processors in communicator COMM
-!*****************************************************************
+!****************************************************************
+subroutine pp_distribute_linearly(nsub,nproc, sub2proc,lsub2proc)
+!****************************************************************
+!     Distribute linearly NSUB elements to NPROC parts
+!****************************************************************
 implicit none
       
 ! INPUT:
@@ -2206,7 +2213,7 @@ do iproc = 1,nproc
    sub2proc(iproc+1) = sub2proc(iproc) + nsub_loc
 end do
 
-end subroutine pp_distribute_subdomains
+end subroutine pp_distribute_linearly
 
 !*****************************************************************
 subroutine pp_get_proc_for_sub(isub,comm,sub2proc,lsub2proc,iproc)
@@ -2255,7 +2262,7 @@ do ip = 2,lsub2proc
    end if
 end do
 
-call error('PP_GET_PROC_FOR_SUB','processor not found for subdomain')
+call error('PP_GET_PROC_FOR_SUB','processor not found for subdomain',isub)
 
 end subroutine pp_get_proc_for_sub
 

@@ -240,7 +240,7 @@ extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSI
           NULL,
           mvecmultB,
           NULL,
-	  mvecmultM,
+	  NULL, /* for option with preconditioner, use mvecmultM here,*/
           NULL,
           blap_fn,
           lobpcg_tol,

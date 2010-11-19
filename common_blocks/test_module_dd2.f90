@@ -98,7 +98,7 @@ program test_module_dd2
 !*******************************************AUX
       lsub2proc = nproc + 1
       allocate(sub2proc(lsub2proc))
-      call pp_distribute_subdomains(nsub,nproc,sub2proc,lsub2proc)
+      call pp_distribute_linearly(nsub,nproc,sub2proc,lsub2proc)
       nsub_loc = sub2proc(myid+2) - sub2proc(myid+1)
       lsubdomains = nsub_loc
       lindexsub   = nsub_loc

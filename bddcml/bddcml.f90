@@ -37,17 +37,29 @@ program bddcml
 !----------------------------------------------------- 
 
 ! use prepared division into subdomains on first level in file *.ES?
-      logical,parameter :: load_division = .false.
+      logical,parameter :: load_division = .true.
 ! use prepared selection of corners in file *.CN and description of globs for first level in file *.GLB?
       logical,parameter :: load_globs = .false.
+! use prepared file with pairs for adaptivity (*.PAIR) on first level?
+      logical,parameter :: load_pairs = .false.
+! should parallel division be used (ParMETIS instead of METIS)?
+      logical,parameter :: parallel_division = .true.
 ! correct disconnected subdomains to make them continuous (not allowed for parallel divisions and loaded divisions)
       logical,parameter :: correct_division = .true. 
-      ! are you debugging the code?
+! should parallel search of neighbours be used? (distributed graph rather than serial graph)
+      logical,parameter :: parallel_neighbouring = .true.
+! should parallel search of globs be used? (some corrections on globs may not be available)
+      logical,parameter :: parallel_globs = .true.
+! are you debugging the code?
       logical,parameter :: debug = .true.
 ! maximal length of problemname
       integer,parameter:: lproblemnamex = 100
 ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
       integer,parameter:: lfilenamex = 130
+! print solution on screen?
+      logical,parameter :: print_solution = .false.
+! write solution to a single file instead of distributed files?
+      logical,parameter :: write_solution_by_root = .true.
 
 !######### END OF PARAMETERS TO SET
       character(*),parameter:: routine_name = 'BDDCML'
@@ -94,10 +106,8 @@ program bddcml
       integer ::                          lpcg_data
       type (pcg_data_type), allocatable :: pcg_data(:)
 
-      logical :: print_solution 
-
       ! time variables
-      real(kr) :: t_total, t_pc_setup, t_pcg
+      real(kr) :: t_total, t_import, t_distribute, t_init, t_pc_setup, t_pcg, t_postproc
 
 
 
@@ -189,48 +199,67 @@ program bddcml
          end if
       end if
 
-      ! read PMD mesh and input it as zero level coarse problem
+      call time_start
       lnnet = nelem
       lnndf = nnod
       lxyz1 = nnod
       lxyz2 = ndim
       allocate(inet(linet),nnet(lnnet),nndf(lnndf),xyz(lxyz1,lxyz2))
-      if (myid.eq.0) then
-         filename = problemname(1:lproblemname)//'.GMIS'
-         call allocate_unit(idgmi)
-         open (unit=idgmi,file=filename,status='old',form='formatted')
-      end if
-      call pp_pread_pmd_mesh(comm_all,idgmi,inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2)
-      if (myid.eq.0) then
-         close(idgmi)
-      end if
-
-      ! read PMD boundary conditions 
       lifix = ndof
       lfixv = ndof
       allocate(ifix(lifix),fixv(lfixv))
-      if (myid.eq.0) then
-         filename = problemname(1:lproblemname)//'.FVS'
-         call allocate_unit(idfvs)
-         open (unit=idfvs,file=filename,status='old',form='formatted')
-      end if
-      call pp_pread_pmd_bc(comm_all,idfvs,ifix,lifix,fixv,lfixv)
-      if (myid.eq.0) then
-         close(idfvs)
-      end if
-
-      ! read PMD right-hand side
       lrhs = ndof
       allocate(rhs(lrhs))
       if (myid.eq.0) then
+         write (*,'(a,$)') 'Reading data files ...'
+         call flush(6)
+      ! read PMD mesh 
+         filename = problemname(1:lproblemname)//'.GMIS'
+         call allocate_unit(idgmi)
+         open (unit=idgmi,file=filename,status='old',form='formatted')
+         call pp_read_pmd_mesh(idgmi,inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2)
+         close(idgmi)
+
+      ! read PMD boundary conditions 
+         filename = problemname(1:lproblemname)//'.FVS'
+         call allocate_unit(idfvs)
+         open (unit=idfvs,file=filename,status='old',form='formatted')
+         call pp_read_pmd_bc(idfvs,ifix,lifix,fixv,lfixv)
+         close(idfvs)
+
+      ! read PMD right-hand side
          filename = problemname(1:lproblemname)//'.RHS'
          call allocate_unit(idrhs)
          open (unit=idrhs,file=filename,status='old',form='unformatted')
-      end if
-      call pp_pread_pmd_rhs(comm_all,idrhs,rhs,lrhs)
-      if (myid.eq.0) then
+         call pp_read_pmd_rhs(idrhs,rhs,lrhs)
          close(idrhs)
+         write (*,'(a)') 'done.'
+         call flush(6)
       end if
+      call MPI_BARRIER(comm_all,ierr)
+      call time_end(t_import)
+
+      call time_start
+      if (myid.eq.0) then
+         write (*,'(a,$)') 'Distributing initial data ...'
+         call flush(6)
+      end if
+!***************************************************************PARALLEL
+      call MPI_BCAST(inet, linet, MPI_INTEGER, 0, comm_all, ierr)
+      call MPI_BCAST(nnet, lnnet, MPI_INTEGER, 0, comm_all, ierr)
+      call MPI_BCAST(nndf, lnndf, MPI_INTEGER, 0, comm_all, ierr)
+      call MPI_BCAST(xyz, lxyz1*lxyz2, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
+      call MPI_BCAST(ifix, lifix, MPI_INTEGER, 0, comm_all, ierr)
+      call MPI_BCAST(fixv, lfixv, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
+      call MPI_BCAST(rhs, lrhs, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
+!***************************************************************PARALLEL
+
+      if (myid.eq.0) then
+         write (*,'(a)') 'done.'
+         call flush(6)
+      end if
+      call MPI_BARRIER(comm_all,ierr)
+      call time_end(t_distribute)
 
       ! prepare initial solution
       lsol = ndof
@@ -242,13 +271,17 @@ program bddcml
          call flush(6)
       end if
 
-      call levels_init(nlevels,nsublev,lnsublev,nelem,nnod,ndof,&
-                       inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                       ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
+      call time_start
+      call levels_init(nlevels,nsublev,lnsublev,comm_all)
+      call levels_load_global_data(nelem,nnod,ndof,&
+                                   inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                   ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
       deallocate(inet,nnet,nndf,xyz)
       deallocate(ifix,fixv)
       deallocate(rhs)
       deallocate(sol)
+      call MPI_BARRIER(comm_all,ierr)
+      call time_end(t_init)
       if (myid.eq.0) then
          write (*,'(a)') 'Initializing LEVELS done.'
          call flush(6)
@@ -272,9 +305,9 @@ program bddcml
       call MPI_BARRIER(comm_all,ierr)
       call time_start
       matrixtype = 1 ! SPD matrix
-      call levels_pc_setup(problemname(1:lproblemname),nsublev,lnsublev,load_division,load_globs,&
-                           correct_division,neighbouring,&
-                           matrixtype,ndim,meshdim,use_arithmetic,use_adaptive)
+      call levels_pc_setup(problemname(1:lproblemname),load_division,load_globs,load_pairs,&
+                           parallel_division,correct_division,parallel_neighbouring,neighbouring,&
+                           parallel_globs,matrixtype,ndim,meshdim,use_arithmetic,use_adaptive)
 
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pc_setup)
@@ -299,8 +332,10 @@ program bddcml
       call time_end(t_pcg)
 
       ! Postprocessing of solution - computing interior values
-      print_solution = .false.
-      call levels_postprocess_solution(pcg_data,lpcg_data,problemname(1:lproblemname),print_solution)
+      call time_start
+      call levels_postprocess_solution(pcg_data,lpcg_data,problemname(1:lproblemname),&
+                                       print_solution,write_solution_by_root)
+      call time_end(t_postproc)
 
       ! Clear memory of PCG
       call levels_destroy_krylov_data(pcg_data,lpcg_data)
@@ -324,10 +359,14 @@ program bddcml
       ! Information about times
       if (myid.eq.0) then
          write(*,'(a)')         ' TIMES OF RUN OF ROUTINES:'
-         write(*,'(a,f11.3,a)') '  pc_setup  ',t_pc_setup, ' s'
-         write(*,'(a,f11.3,a)') '  PCG       ',t_pcg, ' s'
-         write(*,'(a)')         '  ______________________'
-         write(*,'(a,f11.3,a)') '  total     ',t_total,    ' s'
+         write(*,'(a,f11.3,a)') '  reading data      ',t_import, ' s'
+         write(*,'(a,f11.3,a)') '  distributing data ',t_distribute, ' s'
+         write(*,'(a,f11.3,a)') '  initialization    ',t_init, ' s'
+         write(*,'(a,f11.3,a)') '  pc_setup          ',t_pc_setup, ' s'
+         write(*,'(a,f11.3,a)') '  PCG               ',t_pcg, ' s'
+         write(*,'(a,f11.3,a)') '  postprocessing    ',t_postproc, ' s'
+         write(*,'(a)')         '  ______________________________'
+         write(*,'(a,f11.3,a)') '  total             ',t_total,    ' s'
       end if
 
       ! MPI finalization

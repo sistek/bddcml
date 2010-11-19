@@ -14,11 +14,15 @@ program test_module_adaptivity
       integer :: myid, comm_self, comm_all, nproc, ierr
 
       integer :: idpar, idpair, idcn, idglb
+      ! data concerning pairs for adaptivity
+      ! how many pairs are assigned to a processor
       integer :: npair
+      integer ::            lpairs1, lpairs2
+      integer,allocatable :: pairs(:,:)
+      integer :: ipair, ldata, j
+
 
       integer :: matrixtype
-      ! how many pairs are assigned to a processor
-      integer :: npair_locx
       integer :: ndim, nsub, nelem, ndof, nnod, nnodc, linet
       integer :: nsub_loc
 
@@ -31,6 +35,7 @@ program test_module_adaptivity
       integer ::             linglb
       integer,allocatable ::  inglb(:)
 
+      real(kr) :: adaptivity_estimate
 
       integer :: isub, isub_loc, glob_type
       logical :: remove_original 
@@ -47,6 +52,11 @@ program test_module_adaptivity
       integer,allocatable ::  sub2proc(:)
       integer ::             lindexsub
       integer,allocatable ::  indexsub(:)
+
+      integer ::             lpair2proc
+      integer,allocatable ::  pair2proc(:)
+
+      logical :: use_explicit_schurs = .true.
 
 
       ! MPI initialization
@@ -96,13 +106,6 @@ program test_module_adaptivity
       call MPI_BCAST(linet,    1, MPI_INTEGER,         0, comm_all, ierr)
 !***************************************************************PARALLEL
 
-      ! open file with description of pairs
-      if (myid.eq.0) then
-         filename = trim(problemname)//'.PAIR'
-         call allocate_unit(idpair)
-         open (unit=idpair,file=filename,status='old',form='formatted')
-      end if
-   
       ! SPD matrix
       matrixtype = 1
 
@@ -112,9 +115,12 @@ program test_module_adaptivity
       timeaux1 = MPI_WTIME()
 !*******************************************AUX
 
+      print *,'I am here 1'
+      call flush(6)
+
       lsub2proc = nproc + 1
       allocate(sub2proc(lsub2proc))
-      call pp_distribute_subdomains(nsub,nproc,sub2proc,lsub2proc)
+      call pp_distribute_linearly(nsub,nproc,sub2proc,lsub2proc)
       nsub_loc = sub2proc(myid+2) - sub2proc(myid+1)
       lsubdomains = nsub_loc
       lindexsub   = nsub_loc
@@ -127,6 +133,14 @@ program test_module_adaptivity
 
          call dd_init(subdomains(isub_loc),isub,nsub,comm_all)
          call dd_read_mesh_from_file(subdomains(isub_loc),trim(problemname))
+      end do
+      call dd_create_neighbouring(subdomains,lsubdomains,&
+                                  sub2proc,lsub2proc,&
+                                  indexsub,lindexsub, &
+                                  comm_all)
+      do isub_loc = 1,nsub_loc
+         isub = indexsub(isub_loc)
+
          ! SPD matrix
          matrixtype = 1
          call dd_read_matrix_from_file(subdomains(isub_loc),matrixtype,trim(problemname))
@@ -204,30 +218,59 @@ program test_module_adaptivity
          write(*,*) 'Time spent in DD setup is ',timeaux,' s'
          write(*,*) '***************************************'
       end if
-!*******************************************AUX
-!      do isub = 1,nsub
-!         call dd_get_interface_size(myid,isub,ndofi,nnodi)
-!         lschur = ndofi*ndofi
-!         allocate (schur(lschur))
-!         call dd_get_schur(myid, isub, schur,lschur)
-!         print *,'Schur complement matrix. isub = ',isub
-!         do i = 1,ndofi
-!            print '(100f10.6)',(schur((j-1)*ndofi + i),j = 1,ndofi)
-!         end do
-!         deallocate(schur)
-!      end do
-!*******************************************AUX
 ! Measure time spent in adaptivity
       call MPI_BARRIER(comm_all,ierr)
       timeaux1 = MPI_WTIME()
 !*******************************************AUX
-      call adaptivity_init(myid,comm_all,idpair,npair)
 
-      print *, 'I am processor ',myid,': nproc = ',nproc, 'nsub = ',nsub
-      call adaptivity_assign_pairs(npair,nproc,npair_locx)
+! read pairs from *.PAIR file
+      if (myid.eq.0) then
+         filename = trim(problemname)//'.PAIR'
+         call allocate_unit(idpair)
+         open (unit=idpair,file=filename,status='old',form='formatted')
+         read(idpair,*) npair
+      end if
+!*****************************************************************MPI
+      call MPI_BCAST(npair,1, MPI_INTEGER, 0, comm_all, ierr)
+!*****************************************************************MPI
+
+      lpairs1 = npair
+      lpairs2 = 3
+      allocate(pairs(lpairs1,lpairs2))
+      call zero(pairs,lpairs1,lpairs2)
+      if (myid.eq.0) then
+         do ipair = 1,npair
+            ! first column is associated with processors - initialize it to -1 = no processor assigned
+            read(idpair,*) (pairs(ipair,j), j = 1,3)
+         end do
+         close(idpair)
+      end if
+      ldata = lpairs1*lpairs2
+      if (npair.gt.0) then
+!*****************************************************************MPI
+         call MPI_BCAST(pairs,lpairs1*lpairs2, MPI_INTEGER, 0, comm_all, ierr)
+!*****************************************************************MPI
+      end if
+
+      call adaptivity_init(comm_all,pairs,lpairs1,lpairs2, npair)
+      print *, 'I am processor ',myid,'adaptivity initialized.'
+      call flush(6)
+
+      deallocate(pairs)
+
+      lpair2proc = nproc + 1
+      allocate(pair2proc(lpair2proc))
+      call pp_distribute_linearly(npair,nproc,pair2proc,lpair2proc)
+
+      call adaptivity_assign_pairs(comm_all,pair2proc,lpair2proc)
+      print *, 'I am processor ',myid,'pairs assigned.'
+      call flush(6)
 
       call adaptivity_solve_eigenvectors(subdomains,lsubdomains,sub2proc,lsub2proc,&
-                                         indexsub,lindexsub,comm_all,npair_locx,npair)
+                                         indexsub,lindexsub,pair2proc,lpair2proc, comm_all,use_explicit_schurs,&
+                                         adaptivity_estimate)
+      print *, 'I am processor ',myid,'eigenvectors solved.'
+      call flush(6)
 
       !print *,'nndf_coarse before update:'
       !print *,nndf_coarse
@@ -236,6 +279,8 @@ program test_module_adaptivity
       !print *,nndf_coarse
 
       call adaptivity_finalize
+
+      deallocate(pair2proc)
 
 !*******************************************AUX
 ! Measure time spent in adaptivity

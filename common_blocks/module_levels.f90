@@ -19,9 +19,9 @@ module module_levels
 ! profiling 
       logical,parameter,private :: profile = .true.
 ! damping division
-      logical,parameter,private :: damp_division = .true.
+      logical,parameter,private :: damp_division = .false.
 ! damping selected corners  
-      logical,parameter,private :: damp_corners = .true.
+      logical,parameter,private :: damp_corners = .false.
 ! maximal allowed length of file names
       integer,parameter,private :: lfnamex = 130
 ! adjustable parameters ############################
@@ -29,8 +29,11 @@ module module_levels
 ! type for data about levels
       type levels_type
 
+         logical :: i_am_active_in_this_level ! this is a flag for switching processors at levels
+         logical :: is_new_comm_created       ! this is a flag to remember, if a new communicator was created for this level
          integer :: comm_all  ! global communicator for the level
          integer :: comm_self ! local communicator for the level
+         
 
          integer :: nelem    ! number of elements on level
          integer :: nnod     ! number of nodes on level
@@ -95,6 +98,8 @@ module module_levels
          real(kr),allocatable :: solc(:) ! coarse residual/solution at level
          logical :: use_initial_solution = .false. ! should some initial solution be used for iterations?
 
+         real(kr) :: adaptivity_estimate ! estimate of condition number on given level
+
          logical :: is_level_prepared = .false. ! level prepared
 
       end type levels_type
@@ -109,13 +114,22 @@ module module_levels
 
 contains
 
-!************************************************************************
-subroutine levels_init(nl,nsublev,lnsublev,nelem,nnod,ndof,&
-                       inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                       ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
-!************************************************************************
-! Subroutine for initialization of levels data
+!****************************************************
+subroutine levels_init(nl,nsublev,lnsublev,comm_init)
+!****************************************************
+! Subroutine for initialization of levels data and creating communicators
+      ! NOTE:
+      ! although the code supports reducing communicators, some routines require
+      ! them to be in triangular shape, meaning following IDs:
+      ! L(n)   :   0 1 2
+      ! L(n-1) :   0 1 2 3 4
+      ! ...
+      ! L(3)   :   0 1 2 3 4 5 6 7 8
+      ! L(2)   :   0 1 2 3 4 5 6 7 8 9 10
+      ! L(1)   :   0 1 2 3 4 5 6 7 8 9 10
+      ! L(0)   :   0 1 2 3 4 5 6 7 8 9 10
       use module_utils
+      use module_pp
       implicit none
       include "mpif.h"
 
@@ -124,6 +138,167 @@ subroutine levels_init(nl,nsublev,lnsublev,nelem,nnod,ndof,&
 ! number of subdomains in all levels
       integer,intent(in) :: lnsublev
       integer,intent(in) ::  nsublev(lnsublev)
+
+      integer, intent(in):: comm_init ! initial global communicator (possibly MPI_COMM_WORLD)
+
+      ! local vars 
+      character(*),parameter:: routine_name = 'LEVELS_INIT'
+      integer,parameter :: ilevel = 0
+      integer :: isub, isub_loc, nsub, nsub_loc
+      integer :: myid, nproc, comm_self, comm_all, ierr
+      integer ::            lranks
+      integer,allocatable :: ranks(:)
+      integer :: mpi_group_new, mpi_group_old, comm_new, comm_old
+      integer :: myid_old, nproc_old
+
+! initial checks 
+      if (nl.lt.2) then
+         call error(routine_name,'Number of levels must be at least 2.')
+      end if
+      if (nsublev(nl).ne.1) then
+         call error(routine_name,'Number of subdomains at last level must be 1.')
+      end if
+      if (any(nsublev(2:nl).gt.nsublev(1:nl-1))) then
+         call error(routine_name,'Number of subdomains must decrease monotonically with increasing level.')
+      end if
+
+! initialize basic structure
+      nlevels = nl
+      llevels = nlevels
+      allocate(levels(0:llevels))
+
+      ! initialize zero level
+      iactive_level = 0
+      levels(iactive_level)%i_am_active_in_this_level = .true.
+      levels(iactive_level)%is_new_comm_created = .false.
+      levels(iactive_level)%comm_all  = comm_init
+      levels(iactive_level)%comm_self = MPI_COMM_SELF
+
+      ! prepare communicators for levels
+      do iactive_level = 1,nlevels-1
+         nsub = nsublev(iactive_level)
+         levels(iactive_level)%nsub = nsub
+
+         ! if I did not compute on previous level, do not compute on this one as well
+         if (.not.levels(iactive_level-1)%i_am_active_in_this_level) then
+            levels(iactive_level)%i_am_active_in_this_level = .false.
+            levels(iactive_level)%is_new_comm_created = .false.
+            return
+         end if
+
+         comm_self   = MPI_COMM_SELF
+         if (iactive_level.eq.1) then
+            comm_old = comm_init
+         else
+            comm_old = levels(iactive_level-1)%comm_all
+         end if
+         ! get absolute number of processes
+         ! find ID in old communicator
+         call MPI_COMM_SIZE(comm_old,nproc_old,ierr)
+         call MPI_COMM_RANK(comm_old,myid_old,ierr)
+
+         if (nsub.ge.nproc_old .or. iactive_level.eq.1) then
+            comm_all = comm_old
+            levels(iactive_level)%is_new_comm_created       = .false.
+            levels(iactive_level)%i_am_active_in_this_level = .true.
+         else
+            if (debug) then
+               if (myid_old.eq.0) then
+                  call info(routine_name,'reducing communicator for level',iactive_level)
+               end if
+            end if
+            lranks = nsub
+            allocate(ranks(lranks))
+            ! TODO: build new communicators with better data locality (derived from division on previous level)
+            do isub = 1,nsub
+               ranks(isub) = isub - 1 
+            end do
+            ! extract group of processors of previous level
+            call MPI_COMM_GROUP(comm_old,mpi_group_old,ierr)
+            ! prepare new group of processes
+            call MPI_GROUP_INCL(mpi_group_old,nsub,ranks,mpi_group_new,ierr)
+            ! create new communicator
+            call MPI_COMM_CREATE(comm_all,mpi_group_new,comm_new,ierr)
+            ! free groups
+            call MPI_GROUP_FREE(mpi_group_new,ierr)
+            call MPI_GROUP_FREE(mpi_group_old,ierr)
+
+            comm_all = comm_new
+            levels(iactive_level)%is_new_comm_created  = .true.
+
+            ! I won't work at this level 
+            if (.not.any(ranks.eq.myid_old)) then
+               ! I have not been included to the new communicator
+               levels(iactive_level)%i_am_active_in_this_level = .false.
+            else
+               ! I have been included to the new communicator
+               levels(iactive_level)%i_am_active_in_this_level = .true.
+            end if
+            deallocate(ranks)
+         end if
+
+         levels(iactive_level)%comm_self = comm_self
+         levels(iactive_level)%comm_all  = comm_all
+
+         if (levels(iactive_level)%i_am_active_in_this_level) then
+
+            ! orient in the communicator
+            call MPI_COMM_SIZE(comm_all,nproc,ierr)
+            call MPI_COMM_RANK(comm_all,myid,ierr)
+
+            ! prepare distribution of subdomains for the level
+            levels(iactive_level)%lsub2proc = nproc + 1
+            allocate(levels(iactive_level)%sub2proc(levels(iactive_level)%lsub2proc))
+            call pp_distribute_linearly(nsub,nproc,levels(iactive_level)%sub2proc,levels(iactive_level)%lsub2proc)
+
+            nsub_loc    = levels(iactive_level)%sub2proc(myid+2) - levels(iactive_level)%sub2proc(myid+1)
+            levels(iactive_level)%nsub_loc = nsub_loc
+
+            ! prepare array of indices of local subdomains for each level
+            levels(iactive_level)%lindexsub = nsub_loc
+            allocate(levels(iactive_level)%indexsub(levels(iactive_level)%lindexsub))
+            do isub_loc = 1,nsub_loc
+               isub = levels(iactive_level)%sub2proc(myid+1) + isub_loc - 1
+
+               levels(iactive_level)%indexsub(isub_loc) = isub
+            end do
+
+            ! prepare space for subdomains
+            levels(iactive_level)%lsubdomains = nsub_loc
+            allocate(levels(iactive_level)%subdomains(levels(iactive_level)%lsubdomains))
+            do isub_loc = 1,nsub_loc
+               isub = levels(iactive_level)%indexsub(isub_loc)
+               call dd_init(levels(iactive_level)%subdomains(isub_loc),isub,nsub,comm_all)
+            end do
+
+         else
+            levels(iactive_level)%lsub2proc = 0
+            allocate(levels(iactive_level)%sub2proc(levels(iactive_level)%lsub2proc))
+            levels(iactive_level)%nsub_loc  = 0
+            levels(iactive_level)%lindexsub = 0
+            allocate(levels(iactive_level)%indexsub(levels(iactive_level)%lindexsub))
+            levels(iactive_level)%lsubdomains = 0
+            allocate(levels(iactive_level)%subdomains(levels(iactive_level)%lsubdomains))
+         end if
+      end do
+
+      ! prepare communicators for last level
+      iactive_level = nlevels
+      levels(iactive_level)%comm_self = comm_self
+      levels(iactive_level)%comm_all  = levels(iactive_level-1)%comm_all
+      levels(iactive_level)%i_am_active_in_this_level = levels(iactive_level-1)%i_am_active_in_this_level
+      levels(iactive_level)%is_new_comm_created       = .false.
+
+end subroutine
+
+!***********************************************************************************
+subroutine levels_load_global_data(nelem,nnod,ndof,&
+                                   inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                   ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
+!***********************************************************************************
+! Subroutine for loading global data as zero level
+      use module_utils
+      implicit none
 
       integer, intent(in):: nelem, nnod, ndof
       integer, intent(in):: linet
@@ -144,84 +319,79 @@ subroutine levels_init(nl,nsublev,lnsublev,nelem,nnod,ndof,&
       real(kr), intent(in):: sol(lsol)
 
       ! local vars 
-      character(*),parameter:: routine_name = 'LEVELS_INIT'
-      integer,parameter :: ilevel = 0
-      integer :: i, j
+      character(*),parameter:: routine_name = 'LEVELS_LOAD_GLOBAL_DATA'
+      integer :: i,j
 
-! initial checks 
-      if (nl.lt.2) then
-         call error(routine_name,'Number of levels must be at least 2.')
-      end if
-      if (nsublev(nl).ne.1) then
-         call error(routine_name,'Number of subdomains at last level must be 1.')
-      end if
+      ! set active level to zero
+      iactive_level = 0
 
-! initialize basic structure
-      nlevels = nl
-      llevels = nlevels
-      allocate(levels(0:llevels))
+      ! check number of elements
+      if (levels(1)%nsub.gt.nelem) then
+         call error(routine_name,'Number of subdomains at first level must not be larger than number of elements.')
+      end if
 
 ! initialize zero level
-      levels(ilevel)%nsub  = nelem
-      levels(ilevel)%nnodc = nnod
-      levels(ilevel)%ndofc = ndof
+      levels(iactive_level)%nsub  = nelem
+      levels(iactive_level)%nnodc = nnod
+      levels(iactive_level)%ndofc = ndof
 
-      levels(ilevel)%linetc = linet  
-      allocate(levels(ilevel)%inetc(levels(ilevel)%linetc))
-      do i = 1,levels(ilevel)%linetc
-         levels(ilevel)%inetc(i) = inet(i)
+      levels(iactive_level)%linetc = linet  
+      allocate(levels(iactive_level)%inetc(levels(iactive_level)%linetc))
+      do i = 1,levels(iactive_level)%linetc
+         levels(iactive_level)%inetc(i) = inet(i)
       end do
-      levels(ilevel)%lnnetc = lnnet  
-      allocate(levels(ilevel)%nnetc(levels(ilevel)%lnnetc))
-      do i = 1,levels(ilevel)%lnnetc
-         levels(ilevel)%nnetc(i) = nnet(i)
+      levels(iactive_level)%lnnetc = lnnet  
+      allocate(levels(iactive_level)%nnetc(levels(iactive_level)%lnnetc))
+      do i = 1,levels(iactive_level)%lnnetc
+         levels(iactive_level)%nnetc(i) = nnet(i)
       end do
-      levels(ilevel)%lnndfc = lnndf  
-      allocate(levels(ilevel)%nndfc(levels(ilevel)%lnndfc))
-      do i = 1,levels(ilevel)%lnndfc
-         levels(ilevel)%nndfc(i) = nndf(i)
+      levels(iactive_level)%lnndfc = lnndf  
+      allocate(levels(iactive_level)%nndfc(levels(iactive_level)%lnndfc))
+      do i = 1,levels(iactive_level)%lnndfc
+         levels(iactive_level)%nndfc(i) = nndf(i)
       end do
-      levels(ilevel)%lxyzc1 = lxyz1  
-      levels(ilevel)%lxyzc2 = lxyz2  
-      allocate(levels(ilevel)%xyzc(levels(ilevel)%lxyzc1,levels(ilevel)%lxyzc2))
-      do j = 1,levels(ilevel)%lxyzc2
-         do i = 1,levels(ilevel)%lxyzc1
-            levels(ilevel)%xyzc(i,j) = xyz(i,j)
+      levels(iactive_level)%lxyzc1 = lxyz1  
+      levels(iactive_level)%lxyzc2 = lxyz2  
+      allocate(levels(iactive_level)%xyzc(levels(iactive_level)%lxyzc1,levels(iactive_level)%lxyzc2))
+      do j = 1,levels(iactive_level)%lxyzc2
+         do i = 1,levels(iactive_level)%lxyzc1
+            levels(iactive_level)%xyzc(i,j) = xyz(i,j)
          end do
       end do
-      levels(ilevel)%lifixc = lifix
-      allocate(levels(ilevel)%ifixc(levels(ilevel)%lifixc))
-      do i = 1,levels(ilevel)%lifixc
-         levels(ilevel)%ifixc(i) = ifix(i)
+      levels(iactive_level)%lifixc = lifix
+      allocate(levels(iactive_level)%ifixc(levels(iactive_level)%lifixc))
+      do i = 1,levels(iactive_level)%lifixc
+         levels(iactive_level)%ifixc(i) = ifix(i)
       end do
-      levels(ilevel)%lfixvc = lfixv
-      allocate(levels(ilevel)%fixvc(levels(ilevel)%lfixvc))
-      do i = 1,levels(ilevel)%lfixvc
-         levels(ilevel)%fixvc(i) = fixv(i)
+      levels(iactive_level)%lfixvc = lfixv
+      allocate(levels(iactive_level)%fixvc(levels(iactive_level)%lfixvc))
+      do i = 1,levels(iactive_level)%lfixvc
+         levels(iactive_level)%fixvc(i) = fixv(i)
       end do
-      levels(ilevel)%lrhsc = lrhs
-      allocate(levels(ilevel)%rhsc(levels(ilevel)%lrhsc))
-      do i = 1,levels(ilevel)%lrhsc
-         levels(ilevel)%rhsc(i) = rhs(i)
+      levels(iactive_level)%lrhsc = lrhs
+      allocate(levels(iactive_level)%rhsc(levels(iactive_level)%lrhsc))
+      do i = 1,levels(iactive_level)%lrhsc
+         levels(iactive_level)%rhsc(i) = rhs(i)
       end do
-      levels(ilevel)%lsolc = lsol
-      allocate(levels(ilevel)%solc(levels(ilevel)%lsolc))
-      do i = 1,levels(ilevel)%lsolc
-         levels(ilevel)%solc(i) = sol(i)
+      levels(iactive_level)%lsolc = lsol
+      allocate(levels(iactive_level)%solc(levels(iactive_level)%lsolc))
+      do i = 1,levels(iactive_level)%lsolc
+         levels(iactive_level)%solc(i) = sol(i)
       end do
       if (any(sol.ne.0._kr)) then
-         levels(ilevel)%use_initial_solution = .true.
+         levels(iactive_level)%use_initial_solution = .true.
       else
-         levels(ilevel)%use_initial_solution = .false.
+         levels(iactive_level)%use_initial_solution = .false.
       end if
 
-      levels(ilevel)%is_level_prepared = .true.
-
+      levels(iactive_level)%is_level_prepared = .true.
 end subroutine
 
 !*************************************************************************************
-subroutine levels_pc_setup(problemname,nsublev,lnsublev,load_division,load_globs,correct_division,&
-                           neighbouring,matrixtype,ndim, meshdim, use_arithmetic, use_adaptive)
+subroutine levels_pc_setup(problemname,load_division,load_globs,load_pairs,&
+                           parallel_division,correct_division,&
+                           parallel_neighbouring, neighbouring, parallel_globs, &
+                           matrixtype,ndim, meshdim, use_arithmetic, use_adaptive)
 !*************************************************************************************
 ! subroutine for multilevel BDDC preconditioner setup
       use module_pp
@@ -231,17 +401,22 @@ subroutine levels_pc_setup(problemname,nsublev,lnsublev,load_division,load_globs
 
 ! name of problem
       character(*),intent(in) :: problemname
-! number of subdomains in all levels
-      integer,intent(in) :: lnsublev
-      integer,intent(in) ::  nsublev(lnsublev)
 ! use prepared division into subdomains?
       logical,intent(in) :: load_division
 ! use prepared selected corners and globs?
       logical,intent(in) :: load_globs
-! should disconnected subdomains be connected?
+! use prepared file with pairs for adaptivity (*.PAIR) on first level?
+      logical,intent(in) :: load_pairs
+! should parallel division be used (ParMETIS instead of METIS)?
+      logical,intent(in) :: parallel_division
+! should disconnected subdomains be connected? (not applicable for parallel division)
       logical,intent(in) :: correct_division
+! should parallel search of neighbours be used? (distributed graph rather than serial graph)
+      logical,intent(in) :: parallel_neighbouring
 ! how many nodes are shared to called elements adjacent
       integer,intent(in) :: neighbouring
+! should parallel search of globs be used? (some corrections on globs may not be available)
+      logical,intent(in) :: parallel_globs
 ! type of matrix (0 - nosymetric, 1 - SPD, 2 - general symmetric)
       integer,intent(in) :: matrixtype
 ! dimension
@@ -255,78 +430,60 @@ subroutine levels_pc_setup(problemname,nsublev,lnsublev,load_division,load_globs
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_PC_SETUP'
-      integer :: isub, isub_loc, nsub, nsub_loc
-      integer :: nproc, comm_self, comm_all, ierr, myid
+      integer :: comm_all, ierr, myid
+      real(kr) :: cond_est
 
       ! no debug
       !iactive_level = 1
       !call levels_read_level_from_file(problemname,comm_all,ndim,iactive_level)
 
-      do iactive_level = 1,nlevels
+      ! check input
+      if (.not. (load_globs .eqv. load_pairs).and. use_adaptive) then
+         call warning(routine_name,'loading globs while not loading pairs or vice versa may result in wrong constraints')
+      end if
 
-         ! TODO: create proper communicators
-         comm_all  = MPI_COMM_WORLD
-         comm_self = MPI_COMM_SELF
-
-         levels(iactive_level)%comm_all  = comm_all
-         levels(iactive_level)%comm_self = comm_self
-
-         ! orient in the communicator
-         call MPI_COMM_RANK(comm_all,myid,ierr)
-         call MPI_COMM_SIZE(comm_all,nproc,ierr)
-
-         nsub = nsublev(iactive_level)
-         levels(iactive_level)%nsub = nsub
-
-         ! prepare distribution of subdomains for the level
-         levels(iactive_level)%lsub2proc = nproc + 1
-         allocate(levels(iactive_level)%sub2proc(levels(iactive_level)%lsub2proc))
-         call pp_distribute_subdomains(nsub,nproc,levels(iactive_level)%sub2proc,levels(iactive_level)%lsub2proc)
-
-         nsub_loc    = levels(iactive_level)%sub2proc(myid+2) - levels(iactive_level)%sub2proc(myid+1)
-         levels(iactive_level)%nsub_loc = nsub_loc
-
-         ! prepare array of indices of local subdomains for each level
-         levels(iactive_level)%lindexsub = nsub_loc
-         allocate(levels(iactive_level)%indexsub(levels(iactive_level)%lindexsub))
-         do isub_loc = 1,nsub_loc
-            isub = levels(iactive_level)%sub2proc(myid+1) + isub_loc - 1
-
-            levels(iactive_level)%indexsub(isub_loc) = isub
-         end do
-
-         ! prepare space for subdomains
-         levels(iactive_level)%lsubdomains = nsub_loc
-         allocate(levels(iactive_level)%subdomains(levels(iactive_level)%lsubdomains))
-         do isub_loc = 1,nsub_loc
-            isub = levels(iactive_level)%indexsub(isub_loc)
-            call dd_init(levels(iactive_level)%subdomains(isub_loc),isub,nsub,comm_all)
-         end do
+      ! prepare standard levels 
+      do iactive_level = 1,nlevels-1
+         if (iactive_level.eq.1 .or. (iactive_level.gt.1.and.levels(iactive_level - 1)%i_am_active_in_this_level)) then
+            comm_all = levels(iactive_level-1)%comm_all
+            ! orient in the communicator
+            call MPI_COMM_RANK(comm_all,myid,ierr)
+            if (debug .and. myid.eq.0) then
+               call info(routine_name,'Preparing level',iactive_level)
+            end if
+            call levels_prepare_standard_level(problemname,load_division,load_globs,load_pairs, &
+                                               parallel_division,correct_division,&
+                                               parallel_neighbouring, neighbouring,&
+                                               parallel_globs, matrixtype,ndim,meshdim,iactive_level,&
+                                               use_arithmetic,use_adaptive)
+         end if
       end do
 
-      ! associate subdomains with first level
-      do iactive_level = 1,nlevels-1
-         comm_all = levels(iactive_level)%comm_all
+      ! prediction of condition number
+      if (use_adaptive) then
+         comm_all = levels(1)%comm_all
          ! orient in the communicator
          call MPI_COMM_RANK(comm_all,myid,ierr)
-         call MPI_COMM_SIZE(comm_all,nproc,ierr)
+         if (myid.eq.0) then
+            cond_est = 1._kr
+            do iactive_level = 1,nlevels-1
+               cond_est = cond_est * levels(iactive_level)%adaptivity_estimate
+            end do
+            call info(routine_name,'Expected estimated multilevel condition number: ',cond_est)
+         end if
+      end if
+
+      ! prepare last level
+      iactive_level = nlevels
+      if (levels(iactive_level - 1)%i_am_active_in_this_level) then
+         comm_all = levels(iactive_level-1)%comm_all
+         ! orient in the communicator
+         call MPI_COMM_RANK(comm_all,myid,ierr)
          if (debug .and. myid.eq.0) then
             call info(routine_name,'Preparing level',iactive_level)
          end if
-         call levels_prepare_standard_level(problemname,load_division,load_globs,&
-                                            correct_division,neighbouring,matrixtype,ndim,meshdim,iactive_level,&
-                                            use_arithmetic,use_adaptive)
-      end do
-
-      iactive_level = nlevels
-      if (debug .and. myid.eq.0) then
-         call info(routine_name,'Preparing level',iactive_level)
+         call levels_prepare_last_level(matrixtype)
       end if
-      comm_all = levels(iactive_level)%comm_all
-      ! orient in the communicator
-      call MPI_COMM_RANK(comm_all,myid,ierr)
-
-      call levels_prepare_last_level(matrixtype)
 
 end subroutine
 
@@ -599,8 +756,11 @@ subroutine levels_upload_level_mesh(ilevel,ncorner,nedge,nface,nnodc,ndofc,&
 end subroutine
 
 !*****************************************************************************************
-subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
-                                         correct_division,neighbouring,matrixtype,ndim,meshdim,ilevel,&
+subroutine levels_prepare_standard_level(problemname,load_division,load_globs,load_pairs, &
+                                         parallel_division,correct_division,&
+                                         parallel_neighbouring, neighbouring,&
+                                         parallel_globs, &
+                                         matrixtype,ndim,meshdim,ilevel,&
                                          use_arithmetic,use_adaptive)
 !*****************************************************************************************
 ! Subroutine for building the standard level
@@ -614,8 +774,12 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       character(*),intent(in) :: problemname
       logical,intent(in) :: load_division
       logical,intent(in) :: load_globs
+      logical,intent(in) :: load_pairs ! should pairs be loaded from  PAIR file?
+      logical,intent(in) :: parallel_division ! should parallel division be used?
       logical,intent(in) :: correct_division
+      logical,intent(in) :: parallel_neighbouring ! should neighbours be devised from parallel graph?
       integer,intent(in) :: neighbouring
+      logical,intent(in) :: parallel_globs ! should globs be found in parallel?
       integer,intent(in) :: matrixtype
       integer,intent(in) :: ndim
       integer,intent(in) :: meshdim
@@ -636,21 +800,60 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
 
       integer :: ncorner, nedge, nface, isub, nnodc, ndofc, nelem, nnod, nnodi
       integer :: edgecut, ncornermin
-      integer :: isub_loc, nsub, glbtype, nglb, nglbn
+      integer :: nsub_loc, isub_loc, nsub, glbtype, nglb, sub_start
 
-      integer ::             lifixs
-      integer,allocatable ::  ifixs(:)
+      !  division variables
+      integer :: stat(MPI_STATUS_SIZE)
+      integer:: nelem_loc, nelem_locx
+      ! pointers until mesh is local 
+      integer,pointer :: linet
+      integer,pointer ::  inet(:)
+      integer,pointer :: lnnet
+      integer,pointer ::  nnet(:)
+      integer,pointer :: liets
+      integer,pointer ::  iets(:)
+      ! linear partitioning of elements
+      integer ::           lelm2proc
+      integer,allocatable:: elm2proc(:)
+      ! local mesh
+      integer ::           lnnet_loc
+      integer,allocatable:: nnet_loc(:)
+      integer ::             linet_loc
+      integer*4,allocatable:: inet_loc(:)
+      ! division
+      integer ::           lelm2sub
+      integer,allocatable:: elm2sub(:)
+      integer ::           lpart_loc
+      integer,allocatable:: part_loc(:)
+      integer ::           lpart_loc_proc
+      integer,allocatable:: part_loc_proc(:)
+      integer:: el_start
+      integer:: el_start_send, el_finish_send, ie, indinet, indproc
+      integer:: length_send, length
+      integer:: ie_loc, indel, indsub
+      integer:: el_start_proc, ie_loc_proc, nelem_loc_proc
+      integer:: i,j
+
+      ! data for neighbouring
       integer :: ndofs, nelems, nnods, neighball
+      integer :: linets, lnnets
       integer :: pkadjsub
+      integer ::           lkadjsub
+      integer,allocatable:: kadjsub(:)
+      integer :: kinet_loc, knnet_loc
+      logical :: use_global_indices
+      integer ::           lnelemsa
+      integer,allocatable:: nelemsa(:)
+      integer,allocatable:: nelemsaaux(:)
+      integer ::           liets_linear
+      integer,allocatable:: iets_linear(:)
+      integer ::            indiets
 
       integer ::           lkglobs
       integer,allocatable:: kglobs(:)
       integer ::           ltypeglobs
       integer,allocatable:: typeglobs(:)
       integer :: indglob, indinodc
-
-      integer ::           lkadjsub
-      integer,allocatable:: kadjsub(:)
 
       integer ::            linodc
       integer,allocatable :: inodc(:)
@@ -661,6 +864,9 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       integer ::            lkglb
       integer,allocatable :: kglb(:)
       
+      integer ::             lifixs
+      integer,allocatable ::  ifixs(:)
+
       integer ::            lrhss,   lfixvs
       real(kr),allocatable:: rhss(:), fixvs(:)
 
@@ -677,39 +883,70 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
 
       integer,allocatable :: nnetcaux(:)
       integer,allocatable :: inetcaux(:)
+      real(kr),allocatable :: xyzcaux(:,:)
 
       integer ::            lcnodenumbers
       integer,allocatable :: cnodenumbers(:)
+      integer ::             lxyzcs1, lxyzcs2
+      real(kr),allocatable :: xyzcs(:,:)
+      real(kr) :: init_value
 
-      integer :: iglb, inc, indnc, inod, pointinglb
-      integer :: indxyzc, ndofcs, nnodcs, pointinetc
+      integer :: iglb, inc, inod, indc, indcs
+      integer :: ndofcs, nnodcs, pointinetc
 
+      ! data concerning pairs for adaptivity
+      integer :: idpair
+      character(lfnamex) :: filename
+      integer :: npair
+      integer ::            lpairs1, lpairs2
+      integer,allocatable :: pairs(:,:)
+      integer :: ipair, ldata
+      integer ::            lpair2proc
+      integer,allocatable :: pair2proc(:)
 
       logical :: remove_original 
       logical :: remove_bc_nodes 
       logical :: keep_global 
 
-      ! adaptivity variables
-      integer :: idpair
-      character(200) :: filename
-      integer :: npair, npair_locx
+      ! variables for new Parmetis Communicator
+      integer ::            lranks
+      integer,allocatable :: ranks(:)
+      integer ::            lnelempa
+      integer,allocatable :: nelempa(:)
+      integer ::             comm_parmetis, myid_parmetis, nproc_parmetis, mpi_group_all, mpi_group_parmetis
+      logical :: is_comm_parmetis_created
+      integer ::             nproc_used, kranks, iproc
+      integer ::             nelem_loc_min
+
+      ! variables for matrix distribution among levels
+      integer ::            comm_prev, myid_prev, nproc_prev
+      integer ::            liets_aux
+      integer,allocatable :: iets_aux(:)
+      integer ::            lsub2proc_aux
+      integer,allocatable :: sub2proc_aux(:)
+
+      logical,parameter :: use_explicit_schurs = .false.
+
 
       ! time variables
       real(kr) :: t_division, t_globs, t_matrix_import, t_adjacency, t_loc_mesh,&
                   t_loc_interface, t_loc_globs, t_loc_bc, t_loc_adjacency,&
                   t_matrix_assembly, t_schur_prepare, t_weights_prepare,&
                   t_reduced_rhs_prepare,&
-                  t_standard_coarse_prepare, t_adaptive_coarse_prepare
+                  t_standard_coarse_prepare, t_adaptive_coarse_prepare,&
+                  t_par_globs_search, t_construct_cnodes 
 
       if (.not.levels(ilevel-1)%is_level_prepared) then
          call error(routine_name, 'Previous level not ready:', ilevel-1)
       end if
 
       ! orient in the communicator
-      comm_all  = levels(ilevel)%comm_all
-      comm_self = levels(ilevel)%comm_self
-      call MPI_COMM_RANK(comm_all,myid,ierr)
-      call MPI_COMM_SIZE(comm_all,nproc,ierr)
+      if (levels(ilevel)%i_am_active_in_this_level) then
+         comm_all  = levels(ilevel)%comm_all
+         comm_self = levels(ilevel)%comm_self
+         call MPI_COMM_RANK(comm_all,myid,ierr)
+         call MPI_COMM_SIZE(comm_all,nproc,ierr)
+      end if
 
       ! make the connection with previous level
       levels(ilevel)%nelem = levels(ilevel-1)%nsub
@@ -742,14 +979,22 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       !print *,'nndf',levels(ilevel)%nndf
 
       ! initialize values
-      nsub  = levels(ilevel)%nsub
-      nnod  = levels(ilevel)%nnod
-      nelem = levels(ilevel)%nelem
+      nsub      = levels(ilevel)%nsub
+      nsub_loc  = levels(ilevel)%nsub_loc
+      nnod      = levels(ilevel)%nnod
+      nelem     = levels(ilevel)%nelem
 
       ! make division into subdomains
       graphtype = 0 ! not weighted
       levels(ilevel)%liets = levels(ilevel)%nelem
       allocate(levels(ilevel)%iets(levels(ilevel)%liets))
+
+      ! use previous communicator for distributing resulting IETS
+      if (.not.levels(ilevel)%i_am_active_in_this_level) then
+         ! jump to obtain resulting division
+         goto 111
+      end if
+
       if (ilevel.eq.1 .and. load_division) then
          ! read the division from file *.ES
          if (myid.eq.0) then
@@ -761,32 +1006,220 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
             read(ides,*) levels(ilevel)%iets
             close (ides)
          end if
-!***************************************************************PARALLEL
-         call MPI_BCAST(levels(ilevel)%iets,levels(ilevel)%liets, MPI_INTEGER, 0, comm_all, ierr)
-!***************************************************************PARALLEL
          if (debug) then
             if (myid.eq.0) then
                call info(routine_name, 'Mesh division loaded from file '//trim(filename))
             end if
          end if
       else
-         ! create division
-         ! TODO: make this parallel 
+         ! distribute the mesh among processors
 !-----profile
          if (profile) then
             call MPI_BARRIER(comm_all,ierr)
             call time_start
          end if
 !-----profile
-         if (myid.eq.0) then
-            call pp_divide_mesh(graphtype,correct_division,neighbouring,&
-                                levels(ilevel)%nelem,levels(ilevel)%nnod,&
-                                levels(ilevel)%inet,levels(ilevel)%linet,levels(ilevel)%nnet,levels(ilevel)%lnnet,nsub,&
-                                edgecut,levels(ilevel)%iets,levels(ilevel)%liets)
-         end if 
+         !if (parallel_division.and.nproc.gt.1) then
+         if (parallel_division.and.nproc.gt.1.and.ilevel.eq.1) then
+            ! TODO: use INET only on root
+            ! at the moment, all processors have access to global INET array
+            linet => levels(ilevel)%linet
+            inet  => levels(ilevel)%inet
+            lnnet => levels(ilevel)%lnnet
+            nnet  => levels(ilevel)%nnet
+            liets => levels(ilevel)%liets
+            iets  => levels(ilevel)%iets
+
+            if (nproc.gt.nsub) then
+               if (myid.eq.0) then
+                  call info(routine_name, 'creating communicator for ParMETIS')
+               end if
+               call MPI_COMM_GROUP(comm_all,mpi_group_all,ierr)
+               lranks = nsub
+               allocate(ranks(lranks))
+               do isub = 1,nsub
+                  ranks(isub) = isub - 1 
+               end do
+               ! prepare new group of processes
+               call MPI_GROUP_INCL(mpi_group_all,nsub,ranks,mpi_group_parmetis,ierr)
+               ! create new communicator
+               call MPI_COMM_CREATE(comm_all,mpi_group_parmetis,comm_parmetis,ierr)
+               is_comm_parmetis_created = .true.
+               ! free groups
+               call MPI_GROUP_FREE(mpi_group_parmetis,ierr)
+               call MPI_GROUP_FREE(mpi_group_all,ierr)
+
+               ! I won't work on partitioning, skip to getting IETS array
+               if (.not.any(ranks.eq.myid)) then
+                  deallocate(ranks)
+                  goto 123
+               end if
+               deallocate(ranks)
+            else
+               comm_parmetis = comm_all
+               is_comm_parmetis_created = .false.
+            end if
+
+            call MPI_COMM_RANK(comm_parmetis,myid_parmetis,ierr)
+            call MPI_COMM_SIZE(comm_parmetis,nproc_parmetis,ierr)
+
+            ! first create linear distribution of elements among processors
+            lelm2proc = nproc_parmetis + 1
+            allocate(elm2proc(lelm2proc))
+            call pp_distribute_linearly(nelem,nproc_parmetis,elm2proc,lelm2proc)
+
+            ! find local number of elements in linear distribution and maximal value
+            nelem_loc  = elm2proc(myid_parmetis+2) - elm2proc(myid_parmetis+1)
 !***************************************************************PARALLEL
-         call MPI_BCAST(levels(ilevel)%iets,levels(ilevel)%liets, MPI_INTEGER, 0, comm_all, ierr)
+            call MPI_ALLREDUCE(nelem_loc,nelem_locx,1, MPI_INTEGER, MPI_MAX, comm_parmetis, ierr) 
 !***************************************************************PARALLEL
+            ! debug
+            !print *,'myid = ',myid_parmetis,'nelem_loc',nelem_loc,'nelem_locx',nelem_locx
+            
+            ! distribute NNET array
+            lnnet_loc = nelem_loc
+            allocate(nnet_loc(lnnet_loc))
+            el_start = elm2proc(myid_parmetis+1)
+            do ie_loc = 1,nelem_loc
+               indel = el_start + ie_loc - 1
+               nnet_loc(ie_loc) = nnet(indel)
+            end do
+      
+            ! debug
+            !print *, 'myid =',myid_parmetis,'nnet_loc = ',nnet_loc
+      
+            linet_loc = sum(nnet_loc(1:lnnet_loc))
+            allocate(inet_loc(linet_loc))
+      
+            ! now distribute INET array
+            if (myid_parmetis.eq.0) then
+               ! root process copies its data and distributes the inet array by messages
+               length = sum(nnet_loc)
+               inet_loc = inet(1:length)
+      
+               ! now send messages to others
+               indinet = length + 1
+               do indproc = 1,nproc_parmetis - 1
+                  el_start_send  = indproc * nelem_locx + 1
+                  el_finish_send = min((indproc+1) * nelem_locx,nelem)
+                  length_send = 0
+                  do ie = el_start_send,el_finish_send
+                     length_send = length_send + nnet(ie)
+                  end do
+                  if (length_send.gt.0) then
+!***************************************************************PARALLEL
+                     call MPI_SEND(inet(indinet),length_send,MPI_INTEGER,indproc,indproc,comm_parmetis,ierr)
+!***************************************************************PARALLEL
+                  end if
+                  indinet = indinet + length_send
+               end do
+               ! free memory on root
+               nullify(inet)
+               nullify(nnet)
+            else
+               if (linet_loc.gt.0) then
+!***************************************************************PARALLEL
+                  call MPI_RECV(inet_loc,linet_loc,MPI_INTEGER,0,myid_parmetis,comm_parmetis,stat,ierr)
+!***************************************************************PARALLEL
+               end if
+            end if
+      
+            ! debug
+            !write(*,*) 'myid =',myid_parmetis,'inet_loc = ',inet_loc
+
+            ! prepare initial iets
+            lelm2sub = nsub + 1
+            allocate(elm2sub(lelm2sub))
+            call pp_distribute_linearly(nelem,nsub,elm2sub,lelm2sub)
+            do isub = 1,nsub
+               do ie = elm2sub(isub),elm2sub(isub+1)-1
+                  iets(ie) = isub
+               end do
+            end do
+            deallocate(elm2sub)
+      
+            lpart_loc = nelem_loc
+            allocate(part_loc(lpart_loc))
+      
+            ! prepare initial linear distribution of subdomains
+            do ie_loc = 1,nelem_loc
+               indel  = el_start + ie_loc - 1
+               indsub = iets(indel)
+      
+               part_loc(ie_loc) = indsub
+            end do
+               
+            ! debug
+            !print *, 'myid =',myid_parmetis,'part_loc = ',part_loc
+            !call flush(6)
+      
+      ! divide mesh into subdomains by ParMetis
+            graphtype = 0 ! no weights
+            call pp_pdivide_mesh(myid_parmetis,nproc_parmetis,comm_parmetis,graphtype,neighbouring,nelem,nelem_loc,&
+                                 inet_loc,linet_loc,nnet_loc,lnnet_loc,nsub,&
+                                 edgecut,part_loc,lpart_loc)
+            if (myid.eq.0) then
+               write(*,'(a,i9)') 'Mesh divided. Resulting number of cut edges:',edgecut
+               call flush(6)
+            end if
+      
+      ! prepare memory for the global array on root
+            if (myid_parmetis.eq.0) then
+               ! store my data
+               do ie_loc = 1,nelem_loc
+                  indel  = el_start + ie_loc - 1
+                  iets(indel) = part_loc(ie_loc)
+               end do
+
+               ! receive data from others processors
+               do iproc = 1,nproc_parmetis-1
+                  nelem_loc_proc = elm2proc(iproc+2) - elm2proc(iproc+1)
+                  el_start_proc  = elm2proc(iproc+1)
+                  lpart_loc_proc = nelem_loc_proc
+                  allocate(part_loc_proc(lpart_loc_proc))
+                  call MPI_RECV(part_loc_proc,lpart_loc_proc,MPI_INTEGER,iproc,iproc,comm_parmetis,stat,ierr)
+                  ! store data from processor
+                  do ie_loc_proc = 1,nelem_loc_proc
+                     indel  = el_start_proc + ie_loc_proc - 1
+                     iets(indel) = part_loc_proc(ie_loc_proc)
+                  end do
+                  deallocate(part_loc_proc)
+               end do
+               ! debug
+               !print *,'iets',iets
+            else
+               ! send my part_loc to root
+               call MPI_SEND(part_loc,lpart_loc,MPI_INTEGER,0,myid_parmetis,comm_parmetis,ierr)
+            end if
+
+      ! clear communicator
+            if (is_comm_parmetis_created) then
+               call MPI_COMM_FREE(comm_parmetis,ierr)
+               is_comm_parmetis_created = .false.
+            end if
+      ! free some memory
+            deallocate(part_loc)
+            deallocate(inet_loc)
+            deallocate(nnet_loc)
+            deallocate(elm2proc)
+            
+      ! free memory
+            nullify(inet)
+            nullify(linet)
+            nullify(nnet)
+            nullify(lnnet)
+            nullify(iets)
+            nullify(liets)
+  
+  123       continue     
+         else
+            if (myid.eq.0) then
+               call pp_divide_mesh(graphtype,correct_division,neighbouring,&
+                                   levels(ilevel)%nelem,levels(ilevel)%nnod,&
+                                   levels(ilevel)%inet,levels(ilevel)%linet,levels(ilevel)%nnet,levels(ilevel)%lnnet,nsub,&
+                                   edgecut,levels(ilevel)%iets,levels(ilevel)%liets)
+            end if 
+         end if
          if (debug) then
             if (myid.eq.0) then
                call info(routine_name, 'Mesh division created.')
@@ -807,8 +1240,13 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          end if
 !-----profile
       end if
+      ! populate IETS along previous communicator
+!***************************************************************PARALLEL
+      call MPI_BCAST(levels(ilevel)%iets,levels(ilevel)%liets, MPI_INTEGER, 0, comm_all, ierr)
+!***************************************************************PARALLEL
       ! check division - that number of subdomains equal largest entry in partition array IETS
       if (maxval(levels(ilevel)%iets).ne.nsub) then
+         !write(*,*) 'IETS:',levels(ilevel)%iets
          call error(routine_name,'Partition does not contain all subdomains.')
       end if
 
@@ -820,8 +1258,13 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
 !-----profile
 
       ! create subdomain mesh
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
          isub = levels(ilevel)%indexsub(isub_loc)
+         ! check division - that number of subdomains equal largest entry in partition array IETS
+         if (.not.any(levels(ilevel)%iets.eq.isub)) then
+            !write(*,*) 'IETS:',levels(ilevel)%iets
+            call warning(routine_name,'Partition does not contain subdomain',isub)
+         end if
          call dd_localize_mesh(levels(ilevel)%subdomains(isub_loc),isub,ndim,levels(ilevel)%nelem,levels(ilevel)%nnod,&
                                levels(ilevel)%inet,levels(ilevel)%linet,&
                                levels(ilevel)%nnet,levels(ilevel)%lnnet,&
@@ -840,6 +1283,48 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       end if
 !-----profile
 
+!-----profile 
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+
+      ! create subdomain BC and RHS on first level
+      if (ilevel.eq.1) then
+         do isub_loc = 1,nsub_loc
+   
+            ! find size of subdomain
+            call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+   
+            ! make subdomain boundary conditions - IFIXS and FIXVS
+            lifixs = ndofs
+            lfixvs = ndofs
+            allocate(ifixs(lifixs),fixvs(lfixvs))
+            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%ifix,levels(ilevel)%lifix, ifixs,lifixs)
+            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%fixv,levels(ilevel)%lfixv, fixvs,lfixvs)
+            call dd_upload_bc(levels(ilevel)%subdomains(isub_loc), ifixs,lifixs, fixvs,lfixvs)
+            deallocate(ifixs,fixvs)
+   
+            ! load subdomain RHS
+            lrhss = ndofs
+            allocate(rhss(lrhss))
+            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%rhs,levels(ilevel)%lrhs, rhss,lrhss)
+            call dd_upload_rhs(levels(ilevel)%subdomains(isub_loc), rhss,lrhss)
+            deallocate(rhss)
+         end do
+      end if
+
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_loc_bc)
+         if (myid.eq.0) then
+            call time_print('localizing boundary conditions and right-hand side',t_loc_bc)
+         end if
+      end if
+!-----profile
+
       ! for communication, any shared nodes are considered
 !-----profile 
       if (profile) then
@@ -847,24 +1332,195 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          call time_start
       end if
 !-----profile
-      ! TODO: make this parallel
       neighball = 1
-      lkadjsub = nsub*nsub
-      allocate(kadjsub(lkadjsub))
-      if (myid.eq.0) then
-         call pp_get_sub_neighbours(neighball,nelem,nnod,nsub,&
-                                    levels(ilevel)%inet,levels(ilevel)%linet,&
-                                    levels(ilevel)%nnet,levels(ilevel)%lnnet,&
-                                    levels(ilevel)%iets,levels(ilevel)%liets,&
-                                    kadjsub,lkadjsub)
+      if (parallel_neighbouring) then
+         nelem_loc  = 0
+         do isub_loc = 1,nsub_loc
+            ! find size of subdomain and mesh
+            call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+
+            ! add counters
+            nelem_loc = nelem_loc + nelems
+         end do
+         lnelempa = nproc
+         allocate(nelempa(lnelempa))
+!***************************************************************PARALLEL
+         call MPI_ALLGATHER(nelem_loc,1,MPI_INTEGER,nelempa,1,MPI_INTEGER,comm_all,ierr)
+!***************************************************************PARALLEL
+
+         nelem_loc_min = minval(nelempa)
+         if (nelem_loc_min.eq.0) then
+            if (myid.eq.0) then
+               call info(routine_name, 'creating communicator for ParMETIS')
+            end if
+            call MPI_COMM_GROUP(comm_all,mpi_group_all,ierr)
+            lranks = nproc
+            allocate(ranks(lranks))
+            kranks = 0
+            do iproc = 0,nproc-1
+               if (nelempa(iproc+1).gt.0 ) then
+                  kranks = kranks + 1
+                  ranks(kranks) = iproc
+               end if
+            end do
+            nproc_used = kranks
+            !print *,'ranks',ranks(1:kranks)
+            !print *,'kranks',kranks
+            !call flush(6)
+            ! prepare new group of processes
+            call MPI_GROUP_INCL(mpi_group_all,nproc_used,ranks(1:nproc_used),mpi_group_parmetis,ierr)
+            ! create new communicator
+            call MPI_COMM_CREATE(comm_all,mpi_group_parmetis,comm_parmetis,ierr)
+            is_comm_parmetis_created = .true.
+            ! free groups
+            call MPI_GROUP_FREE(mpi_group_parmetis,ierr)
+            call MPI_GROUP_FREE(mpi_group_all,ierr)
+
+            ! I won't work on partitioning, skip to getting IETS array
+            if (.not.any(ranks(1:nproc_used).eq.myid)) then
+               deallocate(nelempa)
+               deallocate(ranks)
+               goto 124
+            end if
+            deallocate(ranks)
+         else
+            comm_parmetis = comm_all
+            is_comm_parmetis_created = .false.
+         end if
+         deallocate(nelempa)
+
+         call MPI_COMM_RANK(comm_parmetis,myid_parmetis,ierr)
+         call MPI_COMM_SIZE(comm_parmetis,nproc_parmetis,ierr)
+
+         lkadjsub = nsub * nsub_loc
+         allocate(kadjsub(lkadjsub))
+         kadjsub = 0
+
+         lnelemsa = nsub ! number of elements in subdomains
+         allocate(nelemsaaux(lnelemsa),nelemsa(lnelemsa))
+         nelemsaaux = 0 ! number of elements in subdomains
+
+         linet_loc  = 0 ! length of local INET
+         lnnet_loc  = 0 ! length of local NNET
+         nelem_loc  = 0
+         do isub_loc = 1,nsub_loc
+            isub = levels(ilevel)%indexsub(isub_loc)
+
+            ! find size of subdomain and mesh
+            call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+            call dd_get_mesh_basic_size(levels(ilevel)%subdomains(isub_loc),linets,lnnets)
+
+            ! add counters
+            linet_loc = linet_loc + linets
+            lnnet_loc = lnnet_loc + lnnets
+            nelem_loc = nelem_loc + nelems
+
+            nelemsaaux(isub) = nelems
+         end do
+!***************************************************************PARALLEL
+         call MPI_ALLREDUCE(nelemsaaux, nelemsa, lnelemsa,MPI_INTEGER, MPI_SUM, comm_parmetis, ierr)
+!***************************************************************PARALLEL
+         deallocate(nelemsaaux)
+         ! debug
+         !write(*,*) 'nelemsaaux',nelemsaaux
+         !write(*,*) 'nelemsa',nelemsa
+
+         ! get local INET and NNET
+         ! take care of zero arrays
+         linet_loc = max(1,linet_loc)
+         lnnet_loc = max(1,lnnet_loc)
+         allocate(nnet_loc(lnnet_loc),inet_loc(linet_loc))
+         kinet_loc = 1
+         knnet_loc = 1
+         do isub_loc = 1,nsub_loc
+            isub = levels(ilevel)%indexsub(isub_loc)
+
+            ! find size of subdomain mesh
+            call dd_get_mesh_basic_size(levels(ilevel)%subdomains(isub_loc),linets,lnnets)
+
+            ! debug
+            !print *,'myid =',myid
+            !print *,'nsub_loc =',nsub_loc
+            !print *,'linet_loc =',linet_loc
+            !print *,'kinet_loc =',kinet_loc
+            !print *,'linets =',linets
+            !print *,'lnnets =',lnnets
+            !call flush(6)
+
+            ! get portion of INET and NNET arrays
+            use_global_indices = .true.
+            call dd_get_mesh_basic(levels(ilevel)%subdomains(isub_loc),use_global_indices,&
+                                   inet_loc(kinet_loc),linets,nnet_loc(knnet_loc),lnnets)
+
+            kinet_loc = kinet_loc + linets
+            knnet_loc = knnet_loc + lnnets
+         end do
+         ! create fake IETS array with elements ordered subdomain by subdomain
+         liets_linear = nelem
+         allocate(iets_linear(liets_linear))
+         indiets = 0
+         do isub = 1,nsub
+            do ie = 1,nelemsa(isub)
+               indiets = indiets + 1
+               iets_linear(indiets) = isub
+            end do
+         end do
+         !print *, 'nelemsa',nelemsa
+         !print *, 'iets_linear',iets_linear
+         deallocate(nelemsa)
+
+         sub_start = levels(ilevel)%sub2proc(myid+1)
+         call pp_pget_sub_neighbours(myid_parmetis,nproc_parmetis,comm_parmetis,neighball,nelem,nelem_loc,nsub,nsub_loc,sub_start,&
+                                     inet_loc,linet_loc,nnet_loc,lnnet_loc, &
+                                     iets_linear, liets_linear, &
+                                     debug, kadjsub,lkadjsub)
+      ! clear communicator
+         if (is_comm_parmetis_created) then
+            call MPI_COMM_FREE(comm_parmetis,ierr)
+            is_comm_parmetis_created = .false.
+         end if
+         deallocate(nnet_loc,inet_loc)
+         deallocate(iets_linear)
+ 124     continue
+      else
+         lkadjsub = nsub*nsub
+         allocate(kadjsub(lkadjsub))
+         kadjsub = 0
+         if (myid.eq.0) then
+            call pp_get_sub_neighbours(neighball,nelem,nnod,nsub,&
+                                       levels(ilevel)%inet,levels(ilevel)%linet,&
+                                       levels(ilevel)%nnet,levels(ilevel)%lnnet,&
+                                       levels(ilevel)%iets,levels(ilevel)%liets,&
+                                       kadjsub,lkadjsub)
+         end if
+         ! check zeros on diagonal
+         do i = 1,nsub
+            if (kadjsub((i-1)*nsub + i) .ne. 0) then
+               call error(routine_name,'nonzero on diagonal of adjacency matrix')
+            end if
+         end do
+         ! check symmetry
+         do i = 1,nsub
+            do j = i+1,nsub
+               if (kadjsub((i-1)*nsub + j) .ne. kadjsub((j-1)*nsub + i)) then
+                  call error(routine_name,'adjacency matrix not symmetric')
+               end if
+            end do
+         end do
+!***************************************************************PARALLEL
+         call MPI_BCAST(kadjsub,lkadjsub, MPI_INTEGER, 0, comm_all, ierr)
+!***************************************************************PARALLEL
       end if
-!***************************************************************PARALLEL
-      call MPI_BCAST(kadjsub,lkadjsub, MPI_INTEGER, 0, comm_all, ierr)
-!***************************************************************PARALLEL
+
       ! debug
       !write(*,*) 'kadjsub'
-      !do isub = 1,nsub
-      !   pkadjsub = (isub-1)*nsub
+      !do isub_loc = 1,nsub_loc
+      !   if (parallel_neighbouring) then
+      !      pkadjsub = (isub_loc-1)*nsub
+      !   else
+      !      isub = levels(ilevel)%indexsub(isub_loc)
+      !      pkadjsub = (isub-1)*nsub
+      !   end if
       !   write(*,*) (kadjsub(pkadjsub+j),j = 1,nsub)
       !end do
 !-----profile
@@ -884,12 +1540,18 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
 !-----profile
 
       ! create subdomain neighbours
-      do isub_loc = 1,levels(ilevel)%nsub_loc
-         isub = levels(ilevel)%indexsub(isub_loc)
-         pkadjsub = (isub-1)*nsub
+      do isub_loc = 1,nsub_loc
+         if (parallel_neighbouring) then
+            pkadjsub = (isub_loc-1)*nsub
+         else
+            isub = levels(ilevel)%indexsub(isub_loc)
+            pkadjsub = (isub-1)*nsub
+         end if
          call dd_localize_adj(levels(ilevel)%subdomains(isub_loc),nsub,kadjsub(pkadjsub+1),nsub)
       end do
-      deallocate(kadjsub)
+      if (allocated(kadjsub)) then
+         deallocate(kadjsub)
+      end if
 
 !-----profile
       if (profile) then
@@ -986,8 +1648,64 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
                call info(routine_name, 'Globs loaded from file '//trim(filename))
             end if
          end if
+!-----profile 
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
+
+         ! localize subdomain corners and globs
+         do isub_loc = 1,nsub_loc
+            call dd_localize_cornersglobs(levels(ilevel)%subdomains(isub_loc),ncorner,inodc,linodc,nedge,nface,&
+                                          nnglb,lnnglb,inglb,linglb,nnodcs)
+         end do
+
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(t_loc_globs)
+            if (myid.eq.0) then
+               call time_print('localization of globs',t_loc_globs)
+            end if
+         end if
+!-----profile
+         deallocate(nnglb)
+         deallocate(inglb)
+         deallocate(inodc)
+      ! PARALLEL IDENTIFICATION OF GLOBS
+      else if (parallel_globs) then
+!-----profile 
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
+
+         ! generate globs on level
+         ! on the first level, remove nodes at boundary consitions from globs
+         if (ilevel.eq.1) then
+            remove_bc_nodes = .true.
+         else
+            remove_bc_nodes = .false.
+         end if
+         call dd_create_globs(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains,&
+                              levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                              levels(ilevel)%indexsub,levels(ilevel)%lindexsub, &
+                              comm_all,remove_bc_nodes, ncorner,nedge,nface)
+         nnodc = ncorner + nedge + nface
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(t_par_globs_search)
+            if (myid.eq.0) then
+               call time_print('generating globs',t_par_globs_search)
+            end if
+         end if
+!-----profile
+      ! SERIAL IDENTIFICATION OF GLOBS
       else
-         ! TODO: make this parallel
+         ! select globs by serial algorithm (slow for large number of subdomains)
 !-----profile 
          if (profile) then
             call MPI_BARRIER(comm_all,ierr)
@@ -1091,6 +1809,32 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
             end if
          end if
 !-----profile
+!-----profile 
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
+
+         ! localize subdomain corners and globs
+         do isub_loc = 1,nsub_loc
+            call dd_localize_cornersglobs(levels(ilevel)%subdomains(isub_loc),ncorner,inodc,linodc,nedge,nface,&
+                                          nnglb,lnnglb,inglb,linglb,nnodcs)
+         end do
+
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(t_loc_globs)
+            if (myid.eq.0) then
+               call time_print('localization of globs',t_loc_globs)
+            end if
+         end if
+!-----profile
+         deallocate(nnglb)
+         deallocate(inglb)
+         deallocate(inodc)
+
       end if
 
       ! debug
@@ -1113,10 +1857,12 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       allocate(nnetcaux(lnnetc))
       nnetcaux = 0
       ! create subdomain corners and globs
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
          isub = levels(ilevel)%indexsub(isub_loc)
-         call dd_localize_cornersglobs(levels(ilevel)%subdomains(isub_loc),ncorner,inodc,linodc,nedge,nface,&
-                                       nnglb,lnnglb,inglb,linglb,nnodcs)
+         
+         call dd_construct_cnodes(levels(ilevel)%subdomains(isub_loc))
+         call dd_get_coarse_size(levels(ilevel)%subdomains(isub_loc),ndofc,nnodcs)
+
          nnetcaux(isub) = nnodcs
       end do
       allocate(nnetc(lnnetc))
@@ -1130,62 +1876,12 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
-         call time_end(t_loc_globs)
+         call time_end(t_construct_cnodes)
          if (myid.eq.0) then
-            call time_print('localization of globs',t_loc_globs)
+            call time_print('constructing coarse nodes',t_construct_cnodes)
          end if
       end if
 !-----profile
-
-!-----profile 
-      if (profile) then
-         call MPI_BARRIER(comm_all,ierr)
-         call time_start
-      end if
-!-----profile
-
-      ! create subdomain BC and RHS on first level
-      if (ilevel.eq.1) then
-         do isub_loc = 1,levels(ilevel)%nsub_loc
-   
-            ! find size of subdomain
-            call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
-   
-            ! make subdomain boundary conditions - IFIXS and FIXVS
-            lifixs = ndofs
-            lfixvs = ndofs
-            allocate(ifixs(lifixs),fixvs(lfixvs))
-            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%ifix,levels(ilevel)%lifix, ifixs,lifixs)
-            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%fixv,levels(ilevel)%lfixv, fixvs,lfixvs)
-            call dd_upload_bc(levels(ilevel)%subdomains(isub_loc), ifixs,lifixs, fixvs,lfixvs)
-            deallocate(ifixs,fixvs)
-   
-            ! load subdomain RHS
-            lrhss = ndofs
-            allocate(rhss(lrhss))
-            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%rhs,levels(ilevel)%lrhs, rhss,lrhss)
-            call dd_upload_rhs(levels(ilevel)%subdomains(isub_loc), rhss,lrhss)
-            deallocate(rhss)
-         end do
-      end if
-
-!-----profile
-      if (profile) then
-         call MPI_BARRIER(comm_all,ierr)
-         call time_end(t_loc_bc)
-         if (myid.eq.0) then
-            call time_print('localization of boundary conditions',t_loc_bc)
-         end if
-      end if
-!-----profile
-
-      ! start preparing cnodes
-      do isub_loc = 1,levels(ilevel)%nsub_loc
-         call dd_construct_cnodes(levels(ilevel)%subdomains(isub_loc))
-      end do
-      ! debug
-      ! print *, 'myid =',myid,'cnodes constructed'
-      ! call flush(6)
 
 ! Begin loop over subdomains
 ! prepare coarse mesh for next level
@@ -1202,7 +1898,16 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          end do
       end if
 
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+! prepare coordinates for coarse mesh
+      lxyzc1 = nnodc
+      lxyzc2 = ndim
+      allocate(xyzc(lxyzc1,lxyzc2))
+      allocate(xyzcaux(lxyzc1,lxyzc2))
+      ! initialize array
+      init_value = -Huge(init_value)
+      xyzcaux = init_value
+
+      do isub_loc = 1,nsub_loc
          isub = levels(ilevel)%indexsub(isub_loc)
 
          call dd_get_coarse_size(levels(ilevel)%subdomains(isub_loc),ndofcs,nnodcs)
@@ -1216,6 +1921,34 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          inetcaux(pointinetc+1:pointinetc+nnodcs) = cnodenumbers
          pointinetc = pointinetc + nnodcs
 
+         lxyzcs1 = nnodcs
+         lxyzcs2 = ndim
+         allocate(xyzcs(lxyzcs1,lxyzcs2))
+
+         call dd_get_coarse_coordinates(levels(ilevel)%subdomains(isub_loc), xyzcs,lxyzcs1,lxyzcs2)
+
+         ! copy local coordinates into global array
+         do indcs = 1,nnodcs
+            indc = cnodenumbers(indcs)
+            if (xyzcaux(indc,1) .eq. init_value) then
+               ! I am the first one to write local coordinates to the global
+               xyzcaux(indc,1:ndim) = xyzcs(indcs,1:ndim)
+            else if (any(abs(xyzcaux(indc,1:ndim) - xyzcs(indcs,1:ndim)).gt.numerical_zero)) then
+
+               ! debug
+               !print *,'myid',myid,'isub',isub
+               !print *,'cnodenumbers',cnodenumbers
+               !print *,'xyzcs'
+               !do i = 1,nnodcs
+               !   print *,xyzcs(i,1:ndim)
+               !end do
+               !call flush(6)
+               !print *,xyzcaux(indc,1:ndim) , 'vs.', xyzcs(indcs,1:ndim)
+               call error(routine_name,'Different coarse coordinates from two subdomains.')
+            end if
+         end do
+
+         deallocate(xyzcs)
          deallocate(cnodenumbers)
 
 ! Finish loop over subdomains
@@ -1224,43 +1957,16 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       allocate(inetc(linetc))
 !*****************************************************************MPI
       call MPI_ALLREDUCE(inetcaux,inetc,linetc, MPI_INTEGER, MPI_SUM, comm_all, ierr) 
+      call MPI_ALLREDUCE(xyzcaux,xyzc,lxyzc1*lxyzc2, MPI_DOUBLE_PRECISION, MPI_MAX, comm_all, ierr) 
 !*****************************************************************MPI
       deallocate(inetcaux)
+      deallocate(xyzcaux)
       ! debug
       ! print *,'myid =',myid,'inetc',inetc
       ! check the inetc array
       if (any(inetc.eq.0)) then
          call error(routine_name,'Zeros in inetc array.')
       end if
-
-! prepare array of nodes for coarse mesh
-      lxyzc1 = nnodc
-      lxyzc2 = ndim
-      allocate(xyzc(lxyzc1,lxyzc2))
-
-! copy coordinates of corners
-      indxyzc = 0
-      do inc = 1,ncorner
-         indxyzc = indxyzc + 1
-
-         indnc = inodc(inc)
-         xyzc(indxyzc,:) = levels(ilevel)%xyz(indnc,:)
-      end do
-! create coordinates of globs as mean values
-      pointinglb = 0
-      do iglb = 1,nglb
-         indxyzc = indxyzc + 1
-
-         nglbn = nnglb(iglb)
-
-         ! touch first node in glob
-         xyzc(indxyzc,:) = sum(levels(ilevel)%xyz(inglb(pointinglb + 1:pointinglb + nglbn),:),dim=1)/nglbn
-
-         pointinglb = pointinglb + nglbn
-      end do
-      deallocate(nnglb)
-      deallocate(inglb)
-      deallocate(inodc)
 
       ! Get matrix
 !-----profile
@@ -1269,10 +1975,12 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          call time_start
       end if
 !-----profile
+ 111  continue
+      ! IMPORTANT: at levels > 1, this routine must be run by all members of previous level
       if (ilevel.eq.1) then
          if (load_division) then
             ! if division was loaded, subdomain files with element matrices should be ready, load them
-            do isub_loc = 1,levels(ilevel)%nsub_loc
+            do isub_loc = 1,nsub_loc
                call dd_read_matrix_from_file(levels(ilevel)%subdomains(isub_loc),matrixtype,trim(problemname))
             end do
          else
@@ -1284,15 +1992,66 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
                                         levels(ilevel)%iets,levels(ilevel)%liets)
          end if
       else
+         ! this is a tricky routine - it needs to be run at all processes at PREVIOUS level to properly distribute matrices
+         ! prepare auxiliary arrays necessary by the routine
+         comm_prev = levels(ilevel-1)%comm_all
+         call MPI_COMM_RANK(comm_prev,myid_prev,ierr)
+         call MPI_COMM_SIZE(comm_prev,nproc_prev,ierr)
+         ! distribute IETS along all processes at previous level
+         if (myid_prev.eq.0) then 
+            liets_aux = levels(ilevel)%liets
+         end if
+!*****************************************************************MPI
+         call MPI_BCAST(liets_aux,  1,  MPI_INTEGER, 0, comm_prev, ierr)
+!*****************************************************************MPI
+         allocate(iets_aux(liets_aux))
+         if (myid_prev.eq.0) then 
+            ! copy IETS at root
+            do i = 1,liets_aux
+               iets_aux(i) = levels(ilevel)%iets(i)
+            end do
+         end if
+!*****************************************************************MPI
+         call MPI_BCAST(iets_aux,  liets_aux,  MPI_INTEGER, 0, comm_prev, ierr)
+!*****************************************************************MPI
+         ! distribute SUB2PROC along all processes at previous level
+         if (myid_prev.eq.0) then 
+            lsub2proc_aux = nproc_prev+1
+         end if
+!*****************************************************************MPI
+         call MPI_BCAST(lsub2proc_aux,  1,  MPI_INTEGER, 0, comm_prev, ierr)
+!*****************************************************************MPI
+         allocate(sub2proc_aux(lsub2proc_aux))
+         if (myid_prev.eq.0) then 
+            ! copy SUB2PROC at root
+            do i = 1,levels(ilevel)%lsub2proc
+               sub2proc_aux(i) = levels(ilevel)%sub2proc(i)
+            end do
+            ! make auxiliary record to last parts of sub2proc
+            do i = levels(ilevel)%lsub2proc,levels(ilevel-1)%lsub2proc
+               sub2proc_aux(i) = nsub+1
+            end do
+         end if
+!*****************************************************************MPI
+         call MPI_BCAST(sub2proc_aux,  lsub2proc_aux,  MPI_INTEGER, 0, comm_prev, ierr)
+!*****************************************************************MPI
          call dd_gather_matrix(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains,&
                                levels(ilevel-1)%subdomains,levels(ilevel-1)%lsubdomains,&
-                               comm_all,levels(ilevel)%nsub,levels(ilevel)%nelem,matrixtype,&
-                               levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                               comm_prev,levels(ilevel)%nsub,levels(ilevel-1)%nsub,matrixtype,&
+                               sub2proc_aux,lsub2proc_aux,&
                                levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
                                levels(ilevel-1)%sub2proc,levels(ilevel-1)%lsub2proc,&
                                levels(ilevel-1)%indexsub,levels(ilevel-1)%lindexsub,&
-                               levels(ilevel)%iets,levels(ilevel)%liets)
+                               iets_aux,liets_aux)
+         deallocate(iets_aux)
+         deallocate(sub2proc_aux)
       end if
+      ! IMPORTANT: at levels > 1, previous routine must be run by all members of previous level, 
+      !            processors not active at current level can now exit
+      if (.not.levels(ilevel)%i_am_active_in_this_level) then
+         return
+      end if
+
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
@@ -1310,7 +2069,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
          call time_start
       end if
 !-----profile
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
          call dd_assembly_local_matrix(levels(ilevel)%subdomains(isub_loc))
       end do
 !-----profile
@@ -1332,7 +2091,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
 !-----profile
       ! Schur only for first level
       remove_original = .false.
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
          call dd_matrix_tri2blocktri(levels(ilevel)%subdomains(isub_loc),remove_original)
          call dd_prepare_schur(levels(ilevel)%subdomains(isub_loc),comm_self)
       end do
@@ -1385,7 +2144,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
             call MPI_BARRIER(comm_all,ierr)
             call time_end(t_reduced_rhs_prepare)
             if (myid.eq.0) then
-               call time_print('preparing reduced righ-hand side',t_reduced_rhs_prepare)
+               call time_print('preparing reduced right-hand side',t_reduced_rhs_prepare)
             end if
          end if
 !-----profile
@@ -1427,7 +2186,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       else
          keep_global = .true.
       end if
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
          ! load arithmetic averages on edges
          if (use_arithmetic) then
             glbtype = 2
@@ -1458,7 +2217,6 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       end if
 !-----profile
 
-
       if (use_adaptive) then
 !-----profile
          if (profile) then
@@ -1466,29 +2224,85 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
             call time_start
          end if
 !-----profile
-         ! open file with description of pairs
-         if (myid.eq.0) then
-            filename = trim(problemname)//'.PAIR'
-            call allocate_unit(idpair)
-            open (unit=idpair,file=filename,status='old',form='formatted')
+         if (ilevel.eq.1 .and. load_pairs) then
+            ! read pairs from *.PAIR file
+            if (myid.eq.0) then
+               filename = trim(problemname)//'.PAIR'
+               call allocate_unit(idpair)
+               open (unit=idpair,file=filename,status='old',form='formatted')
+            end if
+            if (myid.eq.0) then
+               read(idpair,*) npair
+            end if
+!*****************************************************************MPI
+            call MPI_BCAST(npair,1, MPI_INTEGER, 0, comm_all, ierr)
+!*****************************************************************MPI
+            lpairs1 = npair
+            lpairs2 = 3
+            allocate(pairs(lpairs1,lpairs2))
+            call zero(pairs,lpairs1,lpairs2)
+            if (myid.eq.0) then
+               do ipair = 1,npair
+                  ! first column is associated with processors - initialize it to -1 = no processor assigned
+                  read(idpair,*) (pairs(ipair,j), j = 1,3)
+               end do
+               close(idpair)
+            end if
+            ldata = lpairs1*lpairs2
+!*****************************************************************MPI
+            call MPI_BCAST(pairs,lpairs1*lpairs2, MPI_INTEGER, 0, comm_all, ierr)
+!*****************************************************************MPI
+         else
+            ! generate pairs
+            lpairs1 = nface
+            lpairs2 = 3
+            allocate(pairs(lpairs1,lpairs2))
+            call dd_create_pairs(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                                 levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
+                                 comm_all,&
+                                 pairs,lpairs1,lpairs2, npair)
          end if
 
-         call adaptivity_init(myid,comm_all,idpair,npair)
+         ! check number of pairs
+         if (npair.ne.nface) then
+            call warning(routine_name,'number of found pairs different from number of faces')
+         end if
+
+         call adaptivity_init(comm_all,pairs,lpairs1,lpairs2, npair)
+         deallocate(pairs)
+
    
-         call adaptivity_assign_pairs(npair,nproc,npair_locx)
-   
+         lpair2proc = nproc + 1
+         allocate(pair2proc(lpair2proc))
+         call pp_distribute_linearly(npair,nproc,pair2proc,lpair2proc)
+
+         call adaptivity_assign_pairs(comm_all,pair2proc,lpair2proc)
+
+         if (use_explicit_schurs) then
+            do isub_loc = 1,nsub_loc
+               call dd_prepare_explicit_schur(levels(ilevel)%subdomains(isub_loc))
+            end do
+         end if
          call adaptivity_solve_eigenvectors(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                                             levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                                             levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
-                                            comm_all,npair_locx,npair)
+                                            pair2proc,lpair2proc, comm_all, use_explicit_schurs,&
+                                            levels(ilevel)%adaptivity_estimate)
+         if (use_explicit_schurs) then
+            do isub_loc = 1,nsub_loc
+               call dd_destroy_explicit_schur(levels(ilevel)%subdomains(isub_loc))
+            end do
+         end if
 
          ! update nndfc
          call adaptivity_update_ndof(nndfc,lnndfc,ncorner,nedge,nface)
    
          call adaptivity_finalize
 
+         deallocate(pair2proc)
+
          ! prepare AGAIN BDDC data
-         do isub_loc = 1,levels(ilevel)%nsub_loc
+         do isub_loc = 1,nsub_loc
             ! prepare matrix C for corners and arithmetic averages on edges
             call dd_embed_cnodes(levels(ilevel)%subdomains(isub_loc),nndfc,lnndfc)
             ! prepare matrix C for corners and arithmetic averages on edges
@@ -1510,7 +2324,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,&
       end if
 
       ! print the output
-      !do isub_loc = 1,levels(ilevel)%nsub_loc
+      !do isub_loc = 1,nsub_loc
       !   call dd_print_sub(levels(ilevel)%subdomains(isub_loc))
       !end do
 
@@ -1724,37 +2538,43 @@ subroutine levels_pc_apply(krylov_data,lkrylov_data)
 
 ! Sweep levels upwards - make coarse correction and produce coarse residual
       do iactive_level = 2,nlevels-1
-         comm_all = levels(iactive_level)%comm_all
-         ! orient in the communicator
-         call MPI_COMM_RANK(comm_all,myid,ierr)
-         if (debug .and. myid.eq.0) then
-            call info(routine_name,'Applying subdomain correction at level',iactive_level)
+         if (levels(iactive_level)%i_am_active_in_this_level) then
+            comm_all = levels(iactive_level)%comm_all
+            ! orient in the communicator
+            call MPI_COMM_RANK(comm_all,myid,ierr)
+            if (debug .and. myid.eq.0) then
+               call info(routine_name,'Applying subdomain correction at level',iactive_level)
+            end if
+            call levels_corsub_standard_level(iactive_level)
          end if
-         call levels_corsub_standard_level(iactive_level)
       end do
 
 ! Solve coarse porblem at last level
       iactive_level = nlevels
-      comm_all = levels(iactive_level)%comm_all
-      ! orient in the communicator
-      call MPI_COMM_RANK(comm_all,myid,ierr)
-      if (debug .and. myid.eq.0) then
-         call info(routine_name,'Solving problem at last level ',iactive_level)
+      if (levels(iactive_level)%i_am_active_in_this_level) then
+         comm_all = levels(iactive_level)%comm_all
+         ! orient in the communicator
+         call MPI_COMM_RANK(comm_all,myid,ierr)
+         if (debug .and. myid.eq.0) then
+            call info(routine_name,'Solving problem at last level ',iactive_level)
+         end if
+         call levels_solve_last_level
       end if
-      call levels_solve_last_level
 
 ! Sweep levels downward - add coarse correction 
       do ilr = 2,nlevels-1
          ! make a reverse loop
          iactive_level = nlevels+1 - ilr
 
-         comm_all = levels(iactive_level)%comm_all
-         ! orient in the communicator
-         call MPI_COMM_RANK(comm_all,myid,ierr)
-         if (debug .and. myid.eq.0) then
-            call info(routine_name,'Adding coarse correction at level',iactive_level)
+         if (levels(iactive_level)%i_am_active_in_this_level) then
+            comm_all = levels(iactive_level)%comm_all
+            ! orient in the communicator
+            call MPI_COMM_RANK(comm_all,myid,ierr)
+            if (debug .and. myid.eq.0) then
+               call info(routine_name,'Adding coarse correction at level',iactive_level)
+            end if
+            call levels_add_standard_level(iactive_level)
          end if
-         call levels_add_standard_level(iactive_level)
       end do
 
 ! Add coarse correction at the first level
@@ -1796,8 +2616,8 @@ subroutine levels_corsub_first_level(krylov_data,lkrylov_data)
       integer ::             laux2
       real(kr),allocatable :: aux2(:)
 
-      integer :: lindexsub, ndofs, nnods, nelems, ndofaaugs, ndofcs, nnodcs
-      integer :: isub_loc, i, nrhs
+      integer :: ndofs, nnods, nelems, ndofaaugs, ndofcs, nnodcs
+      integer :: nsub_loc, isub_loc, i, nrhs
       integer :: ilevel
       logical :: transposed
 
@@ -1822,9 +2642,10 @@ subroutine levels_corsub_first_level(krylov_data,lkrylov_data)
       comm_self = levels(ilevel)%comm_self
       call MPI_COMM_RANK(comm_all,myid,ierr)
 
-      lindexsub = levels(ilevel)%lindexsub
+      ! get local number of subdomains
+      nsub_loc = levels(ilevel)%nsub_loc
       ! check the length
-      if (lkrylov_data .ne. lindexsub) then
+      if (lkrylov_data .ne. nsub_loc) then
          call error(routine_name,'Inconsistent length of data.')
       end if
 
@@ -1833,7 +2654,7 @@ subroutine levels_corsub_first_level(krylov_data,lkrylov_data)
       call zero(rescaux,lresc)
 
       ! get local contribution to coarse residual
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
 
          call dd_get_coarse_size(levels(ilevel)%subdomains(isub_loc),ndofcs,nnodcs)
 
@@ -1880,7 +2701,7 @@ subroutine levels_corsub_first_level(krylov_data,lkrylov_data)
          deallocate(rescs)
       end do
 !*****************************************************************MPI
-      call MPI_ALLREDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
+      call MPI_REDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
 !*****************************************************************MPI
       deallocate(rescaux)
 end subroutine
@@ -1918,7 +2739,7 @@ subroutine levels_corsub_standard_level(ilevel)
       real(kr),allocatable :: resaugs(:)
 
       integer :: ndofs, nnods, nelems, ndofaaugs, ndofcs, nnodcs, ndofis, nnodis
-      integer :: isub_loc, i, nrhs, isub
+      integer :: nsub_loc, isub_loc, i, nrhs, isub
       logical :: transposed
 
       ! MPI vars
@@ -1933,19 +2754,27 @@ subroutine levels_corsub_standard_level(ilevel)
          call error(routine_name,'Current level is not prepared.')
       end if
 
+      ! orient in communicators
+      comm_all  = levels(ilevel)%comm_all
+      comm_self = levels(ilevel)%comm_self
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+
       ! set pointers
       lres  => levels(ilevel-1)%lsolc
       res   => levels(ilevel-1)%solc
       lresc => levels(ilevel)%lsolc
       resc  => levels(ilevel)%solc
 
-      ! get communicators
-      comm_all  = levels(ilevel)%comm_all
-      comm_self = levels(ilevel)%comm_self
-      call MPI_COMM_RANK(comm_all,myid,ierr)
+      ! assure distribution of previous data from root
+!*****************************************************************MPI
+      call MPI_BCAST(res, lres , MPI_DOUBLE_PRECISION, 0, comm_all, ierr) 
+!*****************************************************************MPI
+
+      ! local number of subdomains
+      nsub_loc = levels(ilevel)%nsub_loc
 
       ! get local contribution to coarse residual and load it into all subdomains of the level
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
          isub = levels(ilevel)%indexsub(isub_loc)
 
          ! get dimensions
@@ -1974,7 +2803,7 @@ subroutine levels_corsub_standard_level(ilevel)
       allocate(resaux(lres))
       call zero(resaux,lres)
 
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
          isub = levels(ilevel)%indexsub(isub_loc)
 
          ! get dimensions
@@ -2035,9 +2864,10 @@ subroutine levels_corsub_standard_level(ilevel)
          deallocate(gs)
          deallocate(rescs)
       end do
+      ! store data only on root
 !*****************************************************************MPI
-      call MPI_ALLREDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
-      call MPI_ALLREDUCE(resaux, res, lres , MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
+      call MPI_REDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+      call MPI_REDUCE(resaux, res, lres , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
 !*****************************************************************MPI
       deallocate(rescaux)
       deallocate(resaux)
@@ -2071,10 +2901,8 @@ subroutine levels_solve_last_level
        solc => levels(ilevel-1)%solc
 
 ! Solve problem matrix
+      ! right hand side and solution are correct only on root
       call mumps_resolve(mumps_coarse,solc,lsolc)
-!***************************************************************PARALLEL
-      call MPI_BCAST(solc, lsolc, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
-!***************************************************************PARALLEL
 
 end subroutine
 
@@ -2113,7 +2941,7 @@ subroutine levels_add_standard_level(ilevel)
       real(kr),allocatable :: solaux2(:)
 
       integer :: ndofcs, nnodcs, nnods, nelems, ndofs, ndofis, nnodis, ndofos
-      integer :: isub_loc, i, isub
+      integer :: nsub_loc, isub_loc, i, isub
       logical :: transposed
 
       ! MPI vars
@@ -2129,16 +2957,25 @@ subroutine levels_add_standard_level(ilevel)
          call error(routine_name,'Level is not prepared:',ilevel)
       end if
 
+      ! get communicators
+      comm_all  = levels(ilevel)%comm_all
+      comm_self = levels(ilevel)%comm_self
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+
       ! set pointers
       lsol => levels(ilevel-1)%lsolc
       sol  => levels(ilevel-1)%solc
       lsolc => levels(ilevel)%lsolc
       solc  => levels(ilevel)%solc
 
-      ! get communicators
-      comm_all  = levels(ilevel)%comm_all
-      comm_self = levels(ilevel)%comm_self
-      call MPI_COMM_RANK(comm_all,myid,ierr)
+      ! assure correct distribution of coarse solution
+!***************************************************************PARALLEL
+      call MPI_BCAST(solc, lsolc, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
+      call MPI_BCAST(sol,  lsol, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
+!***************************************************************PARALLEL
+
+      ! local number of subdomains
+      nsub_loc = levels(ilevel)%nsub_loc
 
       ! prepare memory for coarse contribution
       allocate(solaux(lsol))
@@ -2146,7 +2983,7 @@ subroutine levels_add_standard_level(ilevel)
       call zero(solaux,lsol)
       call zero(solaux2,lsol)
 
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
 
          call dd_get_coarse_size(levels(ilevel)%subdomains(isub_loc), ndofcs,nnodcs)
          call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
@@ -2189,7 +3026,7 @@ subroutine levels_add_standard_level(ilevel)
 
       ! interior POST-CORRECTION
       call zero(solaux,lsol) 
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
          isub = levels(ilevel)%indexsub(isub_loc)
 
          call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
@@ -2233,7 +3070,7 @@ subroutine levels_add_standard_level(ilevel)
 
       ! add stored solution at interior
       call zero(solaux,lsol) 
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
 
          call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
 
@@ -2254,7 +3091,7 @@ subroutine levels_add_standard_level(ilevel)
          deallocate(sols)
       end do
 !*****************************************************************MPI
-      call MPI_ALLREDUCE(solaux, sol, lsol , MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
+      call MPI_REDUCE(solaux, sol, lsol , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
 !*****************************************************************MPI
       deallocate(solaux)
 
@@ -2278,8 +3115,8 @@ subroutine levels_add_first_level(krylov_data,lkrylov_data)
       integer ::             lsolcs
       real(kr),allocatable :: solcs(:)
 
-      integer :: lindexsub, ndofcs, nnodcs
-      integer :: isub_loc, i
+      integer :: ndofcs, nnodcs
+      integer :: nsub_loc, isub_loc, i
       integer :: ilevel
       logical :: transposed
 
@@ -2295,22 +3132,28 @@ subroutine levels_add_first_level(krylov_data,lkrylov_data)
          call error(routine_name,'Level is not prepared.')
       end if
 
-      ! set pointers
-      lsolc => levels(ilevel)%lsolc
-      solc  => levels(ilevel)%solc
-
       ! get communicators
       comm_all  = levels(ilevel)%comm_all
       comm_self = levels(ilevel)%comm_self
       call MPI_COMM_RANK(comm_all,myid,ierr)
 
-      lindexsub = levels(ilevel)%lindexsub
+      ! set pointers
+      lsolc => levels(ilevel)%lsolc
+      solc  => levels(ilevel)%solc
+
+      ! assure correct distribution of coarse solution
+!***************************************************************PARALLEL
+      call MPI_BCAST(solc, lsolc, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
+!***************************************************************PARALLEL
+
+      ! get local number of subdomains
+      nsub_loc = levels(ilevel)%nsub_loc
       ! check the length
-      if (lkrylov_data .ne. lindexsub) then
+      if (lkrylov_data .ne. nsub_loc) then
          call error(routine_name,'Inconsistent length of data.')
       end if
 
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
 
          call dd_get_coarse_size(levels(ilevel)%subdomains(isub_loc), ndofcs,nnodcs)
 
@@ -2341,7 +3184,7 @@ subroutine levels_add_first_level(krylov_data,lkrylov_data)
                             levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                             comm_all)
       ! Download data
-      do isub_loc = 1,levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
 
          call zero(krylov_data(isub_loc)%zadj,krylov_data(isub_loc)%lz)
          ! get contibution from neigbours
@@ -2578,9 +3421,9 @@ subroutine levels_sm_apply(krylov_data,lkrylov_data)
       end do
 end subroutine
 
-!******************************************************************************************
-subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,print_solution)
-!******************************************************************************************
+!*****************************************************************************************************************
+subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,print_solution,write_solution_by_root)
+!*****************************************************************************************************************
 ! Subroutine for postprocessong of data by Krylov iterative method
 ! module for distributed Krylov data storage
       use module_krylov_types_def
@@ -2588,13 +3431,14 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
       use module_dd
 ! module with utility routines
       use module_utils
-
       implicit none
+      include "mpif.h"
 
       integer,intent(in)              :: lkrylov_data
       type (pcg_data_type),intent(in) ::  krylov_data(lkrylov_data)
       character(*),intent(in) :: problemname
       logical, intent(in) :: print_solution
+      logical, intent(in) :: write_solution_by_root
 
 ! local vars
       character(*),parameter:: routine_name = 'LEVELS_POSTPROCESS_SOLUTION'
@@ -2606,6 +3450,24 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
       integer ::             lsols
       real(kr),allocatable :: sols(:)
 
+      integer ::             lisvgvn
+      integer,allocatable ::  isvgvn(:)
+
+      integer ::             lacceptedp
+      integer,allocatable ::  acceptedp(:)
+
+      integer ::             lsol
+      real(kr),allocatable :: sol(:)
+
+      ! MPI variables
+      integer :: ierr, myid, nproc, iproc, comm_all
+      integer :: i, indv, nsub_locp
+      integer :: stat(MPI_STATUS_SIZE)
+      integer :: idsol
+
+      ! timing
+      real(kr) :: t_solution_postprocessing
+
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
          call error(routine_name,'Level is not prepared:',ilevel)
@@ -2615,6 +3477,24 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
          call error(routine_name,'Dimension mismatch.')
       end if
 
+      comm_all = levels(ilevel)%comm_all
+      ! orient in the communicator
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
+
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+
+      if (write_solution_by_root .and. myid.eq.0) then
+         ! prepare solution array on root
+         lsol = levels(ilevel)%ndof
+         allocate(sol(lsol))
+         call zero(sol,lsol)
+      end if
       do isub_loc = 1,levels(ilevel)%nsub_loc
          isub = levels(ilevel)%indexsub(isub_loc)
 
@@ -2634,10 +3514,98 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
                                   sols,lsols)
 
          ! write subdomain solution to independent disk files
-         call dd_write_solution_to_file(trim(problemname),isub,sols,lsols,print_solution)
+         if (write_solution_by_root) then
+            ! send solution to root
+            lisvgvn = ndofs
+            allocate(isvgvn(lisvgvn))
+            call dd_get_subdomain_isvgvn(levels(ilevel)%subdomains(isub_loc),isvgvn,lisvgvn)
+            if (myid.ne.0) then
+               ! now send the data to root
+               call MPI_SEND(ndofs,1,MPI_INTEGER,0,isub,comm_all,ierr)
+               call MPI_SEND(isvgvn,lisvgvn,MPI_INTEGER,0,isub,comm_all,ierr)
+               call MPI_SEND(sols,lsols,MPI_DOUBLE_PRECISION,0,isub,comm_all,ierr)
+            else
+               ! as root, first write my solution, then process others
+               do i = 1,ndofs
+                  indv = isvgvn(i)
+                  sol(indv) = sols(i)
+               end do
+            end if
+            deallocate(isvgvn)
+         else
+            call dd_write_solution_to_file(trim(problemname),isub,sols,lsols,print_solution)
+         end if
 
          deallocate(sols)
       end do
+
+      if (write_solution_by_root .and. myid.eq.0) then
+         lacceptedp = nproc
+         allocate(acceptedp(lacceptedp))
+         call zero(acceptedp,lacceptedp)
+         acceptedp(1) = levels(ilevel)%nsub_loc
+         ! get solutions from others 
+         do 
+
+            do iproc = 1,nproc-1
+               nsub_locp = levels(ilevel)%sub2proc(iproc+2) - levels(ilevel)%sub2proc(iproc+1)
+               if (acceptedp(iproc+1).lt.nsub_locp) then
+
+                  ! I haven't got all processors subdomains yet, get one
+                  isub = levels(ilevel)%sub2proc(iproc+1) + acceptedp(iproc+1)
+                  call MPI_RECV(ndofs,1,MPI_INTEGER,iproc,isub,comm_all,stat,ierr)
+                  lisvgvn = ndofs
+                  allocate(isvgvn(lisvgvn))
+                  call MPI_RECV(isvgvn,lisvgvn,MPI_INTEGER,iproc,isub,comm_all,stat,ierr)
+                  lsols = ndofs
+                  allocate(sols(lsols))
+                  call MPI_RECV(sols,lsols,MPI_DOUBLE_PRECISION,iproc,isub,comm_all,stat,ierr)
+
+                  ! as root, write received solution
+                  do i = 1,ndofs
+                     indv = isvgvn(i)
+
+                     sol(indv) = sols(i)
+                  end do
+
+                  deallocate(sols)
+                  deallocate(isvgvn)
+                  ! add counter
+                  acceptedp(iproc+1) = acceptedp(iproc+1) + 1
+               end if
+            end do
+            if (all(acceptedp.eq.levels(ilevel)%sub2proc(2:nproc+1) - levels(ilevel)%sub2proc(1:nproc))) then
+               exit
+            end if
+         end do
+         deallocate(acceptedp)
+
+         ! solution is ready, write it to SOL file
+         call allocate_unit(idsol)
+         open (unit=idsol,file=trim(problemname)//'.SOL',status='replace',form='unformatted')
+         rewind idsol
+      
+         write(idsol) (sol(i), i = 1,lsol)
+! Nonsense writing in place where postprocessor expect reactions
+         write(idsol) (sol(i), i = 1,lsol), 0.0D0, 0.0D0, 0.0D0
+         write(*,*) 'Solution has been written into file ',trim(problemname)//'.SOL'
+         write(*,*) 'Warning: At the moment solver does not ',&
+                    'resolve reaction forces. Record of these does not',&
+                    ' make sense and is present only to make ',&
+                    'postprocessor str3 happy with input data.'
+         close(idsol)
+
+         deallocate(sol)
+      end if
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_solution_postprocessing)
+         if (myid.eq.0) then
+            call time_print('postprocessing of solution',t_solution_postprocessing)
+         end if
+      end if
+!-----profile
 
 end subroutine
 
@@ -2825,6 +3793,10 @@ subroutine levels_clear_level(level)
       end if
       level%lxyz1 = 0
       level%lxyz2 = 0
+      if (associated(level%sol)) then
+         nullify(level%sol)
+      end if
+      level%lsol = 0
 
 end subroutine
 
@@ -2834,9 +3806,11 @@ subroutine levels_finalize
 ! Subroutine for initialization of levels data
       use module_mumps
       implicit none
+      include "mpif.h"
 
 ! local variables
-      integer :: ilevel, start(1)
+      integer :: ilevel, start(1), irl
+      integer :: ierr
       
 ! destroy MUMPS structure of the last level
       if (is_mumps_coarse_ready) then
@@ -2847,8 +3821,15 @@ subroutine levels_finalize
       if (allocated(levels)) then
          ! clear data of particular subdomains
          start = lbound(levels)
-         do ilevel = start(1),llevels
+         do irl = start(1),llevels
+            ! reverse levels
+            ilevel = llevels + start(1) - irl
+
             call levels_clear_level(levels(ilevel))
+
+            if (levels(ilevel)%is_new_comm_created .and. levels(ilevel)%i_am_active_in_this_level) then
+               call MPI_COMM_FREE(levels(ilevel)%comm_all,ierr)
+            end if
          end do
 
          deallocate (levels)
