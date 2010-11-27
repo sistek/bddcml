@@ -438,7 +438,9 @@ subroutine sm_prepare_rhs(ifix,lifix,bc,lbc,rhs,lrhs)
       real(kr),intent(inout) :: rhs(lrhs)
 
 ! Natural RHS is zero in constraints
-      where(ifix.ne.0) rhs = 0.0_kr
+      if (lifix.gt.0) then
+         where(ifix.ne.0) rhs = 0.0_kr
+      end if
 
 ! Add eliminated variables from BC (if it has sense)
       if (lbc.eq.lrhs) then

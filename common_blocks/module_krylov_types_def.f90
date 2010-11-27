@@ -8,22 +8,48 @@ module module_krylov_types_def
 ! type of real variables
       integer,parameter,private :: kr = kind(1.D0)
 
-! type for storing PCG data in distributed manner
+! type for auxiliary handling of data for Krylov methods in distributed manner
+      type common_krylov_data_type
+         integer ::            lvec_in
+         real(kr),pointer ::    vec_in(:)  ! vector that inputs SM or PC applications
+         integer ::            lvec_out
+         real(kr),pointer ::    vec_out(:) ! vector that outputs SM or PC applications
+      end type common_krylov_data_type
+
+! type for storing data for PCG method in distributed manner
       type pcg_data_type
          integer ::             lsoli
          real(kr),allocatable :: soli(:)     ! array of solution at interface
          integer ::             lresi
          real(kr),allocatable :: resi(:)     ! array of residual at interface
-         real(kr),allocatable :: resiadj(:)  ! array of residual at interface from adjacent subdomains
          integer ::             lp
          real(kr),allocatable :: p(:)        ! array for search direction p
-         real(kr),allocatable :: padj(:)     ! array for search direction p from adjacent subdomains
          integer ::             lap
          real(kr),allocatable :: ap(:)       ! array for A*p
-         real(kr),allocatable :: apadj(:)    ! array for A*p from adjacent subdomains
          integer ::             lz
          real(kr),allocatable :: z(:)        ! array for preconditioned residual M*res
-         real(kr),allocatable :: zadj(:)     ! array for preconditioned residual M*res from adjacent subdomains
       end type pcg_data_type
+
+! type for storing data for BICGSTAB method in distributed manner
+      type bicgstab_data_type
+         integer ::             lsoli
+         real(kr),allocatable :: soli(:)     ! array of solution at interface
+         integer ::             lresi
+         real(kr),allocatable :: resi(:)     ! array of residual at interface
+         integer ::             lresistab
+         real(kr),allocatable :: resistab(:) ! array of stabilizing residual at interface
+         integer ::             lv
+         real(kr),allocatable :: v(:)     
+         integer ::             lp
+         real(kr),allocatable :: p(:)     
+         integer ::             ly
+         real(kr),allocatable :: y(:)        
+         integer ::             lz
+         real(kr),allocatable :: z(:)        
+         integer ::             ls
+         real(kr),allocatable :: s(:)       
+         integer ::             lt
+         real(kr),allocatable :: t(:)      
+      end type bicgstab_data_type
 
 end module

@@ -32,12 +32,12 @@ module module_dd
          real(kr),allocatable :: xyz(:) ! coordinates
          ! where the glob maps to
          integer :: global_cnode_number ! embedding into coarse nodes
-         integer :: ncdof              ! number of coarse degrees of freedom
+         integer :: ncdof = 0              ! number of coarse degrees of freedom
          integer,allocatable :: igcdof(:) ! indices of global coarse dof
          ! where it maps from
-         integer :: nnod               ! number of nodes it contains
+         integer :: nnod  = 0             ! number of nodes it contains
          integer,allocatable :: insin(:)  ! indices of glob nodes in subdomain interface numbering
-         integer :: nvar               ! number of variables it contains
+         integer :: nvar = 0              ! number of variables it contains
          integer,allocatable :: ivsivn(:)  ! indices of glob variables in subdomain interface numbering
          ! constraints on glob
          integer :: nnz      ! number of nonzeros the matrix contains
@@ -147,6 +147,10 @@ module module_dd
          ! weights on interface
          integer ::              lwi
          real(kr),allocatable ::  wi(:)                ! weights at interface
+         integer ::               weights_type         ! type of weights:
+                                                       ! 0 - cardinality
+                                                       ! 1 - diagonal stiffness 
+                                                       ! 2 - Marta Certikova's version
          logical ::               is_weights_ready = .false. ! are weights ready?
 
          ! common description of joint coarse nodes/dofs
@@ -712,11 +716,13 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
       integer,intent(in) ::  iets(liets)
 
 ! local variables
+      character(*),parameter:: routine_name = 'DD_READ_MATRIX_BY_ROOT'
       integer :: myid, nproc, ierr
       integer :: stat(MPI_STATUS_SIZE)
-      integer :: idelm, nelems, nnods, ndofs
+      integer :: idelm, nelems, nnods, ndofs, ndofis
       integer :: nevax_sub, nevax_loc, nevax, lelmx, lelm
       real(kr),allocatable :: elm(:)
+      logical :: is_bc_present_loc, is_bc_present
 
 !     Matrix in IJA sparse format - triplet
       integer::  la
@@ -733,16 +739,18 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
       integer::              llocsubnumber
       integer,allocatable  :: locsubnumber(:)
 
-!     BC array
+!     BC arrays
       integer::              lbc
       real(kr),allocatable :: bc(:)
+      integer::              lbci
+      real(kr),allocatable :: bci(:)
 
       integer :: i, ie, iproc, inods, isub, isub_loc, ios
 
 
 ! check dimension
       if (nelem.ne.liets) then
-         call error('DD_READ_MATRIX_BY_ROOT','wrong length of array IETS')
+         call error(routine_name,'wrong length of array IETS')
       end if
 
 ! orient in communicator
@@ -751,16 +759,16 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
 
       if (debug) then
          if (nproc+1.ne.lsub2proc) then
-            call error('DD_READ_MATRIX_BY_ROOT','wrong length of array sub2proc')
+            call error(routine_name,'wrong length of array sub2proc')
          end if
          if (any(suba%comm .ne. comm_all)) then
-            call error('DD_READ_MATRIX_BY_ROOT','communicator mismatch')
+            call error(routine_name,'communicator mismatch')
          end if
          if (any(suba%proc .ne. myid)) then
-            call error('DD_READ_MATRIX_BY_ROOT','communicator mismatch')
+            call error(routine_name,'communicator mismatch')
          end if
          if (any(suba%nsub .ne. nsub)) then
-            call error('DD_READ_MATRIX_BY_ROOT','number of subdomains mismatch')
+            call error(routine_name,'number of subdomains mismatch')
          end if
       end if
 
@@ -809,7 +817,7 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
          else if (matrixtype.eq.1 .or. matrixtype.eq.2) then
             suba(isub_loc)%istorage   = 2
          else
-            call error('DD_READ_MATRIX_BY_ROOT','strange type of matrix')
+            call error(routine_name,'strange type of matrix:',suba(isub_loc)%istorage)
          end if
          suba(isub_loc)%la       = la
          allocate(suba(isub_loc)%i_a_sparse(la))
@@ -870,8 +878,7 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
          call allocate_unit(idelm)
          open(unit=idelm,file=trim(problemname)//'.ELM',status='old',form='unformatted',iostat=ios)
          if (ios.ne.0) then
-            write(*,*) 'DD_READ_MATRIX_BY_ROOT','Problem opening file ',trim(problemname)//'.ELM'
-            call error_exit
+            call error(routine_name,'Problem opening file '//trim(problemname)//'.ELM')
          end if
          rewind idelm
       end if
@@ -920,6 +927,17 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
       ! free memory
       deallocate(elm)
 
+      ! find if any nonzero BC is present
+      is_bc_present_loc = .false.
+      do isub_loc = 1,lindexsub
+         if (suba(isub_loc)%is_bc_present) then
+            is_bc_present_loc = .true.
+         end if
+      end do
+!*****************************************************************MPI
+      call MPI_ALLREDUCE(is_bc_present_loc,is_bc_present,1, MPI_LOGICAL, MPI_LOR, comm_all, ierr) 
+!*****************************************************************MPI
+
       ! finalize input of sparse matrix at each subdomain
       do isub_loc = 1,lindexsub
          isub = indexsub(isub_loc)
@@ -936,30 +954,59 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
          suba(isub_loc)%is_triplet       = .true.
 
       ! eliminate boundary conditions
-         if (suba(isub_loc)%is_bc_present) then
-            ndofs =  suba(isub_loc)%ndof
-            if (suba(isub_loc)%is_bc_nonzero) then
-               lbc = ndofs
-               allocate(bc(lbc))
-            else
-               lbc = 0
-            end if
+         ndofs =  suba(isub_loc)%ndof
 
-            ! eliminate natural BC
-            call sm_apply_bc(suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
-                             suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc)
-            if (suba(isub_loc)%is_bc_nonzero) then
-               call dd_load_eliminated_bc(suba(isub_loc), bc,lbc)
-            end if
+         if (is_bc_present) then
+            lbc = ndofs
+            allocate(bc(lbc))
+            call zero(bc,lbc)
          end if
 
-         if (allocated(bc)) then
+         ! eliminate natural BC
+         if (suba(isub_loc)%is_bc_present) then
+            call sm_apply_bc(suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
+                             suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc)
+         end if
+
+         if (is_bc_present) then
+            ndofis = suba(isub_loc)%ndofi
+            lbci = ndofis
+            allocate(bci(lbci))
+            call zero(bci,lbci)
+            call dd_map_sub_to_subi(suba(isub_loc), bc,lbc, bci,lbci) 
+            call dd_comm_upload(suba(isub_loc), bci,lbci) 
+            call dd_load_eliminated_bc(suba(isub_loc), bc,lbc)
+            deallocate(bci)
             deallocate(bc)
          end if
          if (debug) then
-            write(*,*) 'DD_READ_MATRIX_BY_ROOT: myid = ',myid, 'isub =',isub,' matrix loaded.'
+            call info(routine_name,' matrix loaded for subdomain',isub)
          end if
       end do
+      if (is_bc_present) then
+         call dd_comm_swapdata(suba,lsuba, indexsub,lindexsub, sub2proc,lsub2proc,comm_all)
+         ! finalize input of boundary conditions
+         do isub_loc = 1,lindexsub
+            isub = indexsub(isub_loc)
+
+            ndofis = suba(isub_loc)%ndofi
+            lbci = ndofis
+            allocate(bci(lbci))
+            call zero(bci,lbci)
+
+            call dd_comm_download(suba(isub_loc), bci,lbci) 
+            ! add correction from neighbours
+            call dd_map_subi_to_sub(suba(isub_loc), bci,lbci, suba(isub_loc)%bc,suba(isub_loc)%lbc) 
+
+            deallocate(bci)
+
+            suba(isub_loc)%is_bc_present = .true.
+
+            if (debug) then
+               call info(routine_name,' bc loaded for subdomain',isub)
+            end if
+         end do
+      end if
 
       deallocate(locsubnumber)
       deallocate(subp)
@@ -1860,9 +1907,6 @@ subroutine dd_load_eliminated_bc(sub, bc,lbc)
       if (.not.sub%is_bc_loaded) then
          call warning(routine_name,'Boundary Conditions not loaded for subdomain ',sub%isub)
       end if
-      if (.not.sub%is_bc_nonzero) then 
-         call error(routine_name,'loading BC for homogenous conditions on subdomain ',sub%isub)
-      end if
 
       ! load eliminated boundary conditions if they are present
       if (lbc .gt. 0) then
@@ -2336,13 +2380,16 @@ subroutine dd_fix_bc(sub, vec,lvec)
          call error('DD_FIX_BC','BC not yet loaded')
       end if
       ! check size
-      if (sub%lifix .ne. lvec) then
+      if (sub%lifix .gt. 0 .and. sub%lifix .ne. lvec) then
+         print *,'lifix',sub%lifix, 'lvec',lvec
          write(*,*) 'DD_FIX_BC: Vector size mismatch for subdomain ',sub%isub
          call error_exit
       end if
 
       ! enforce boundary conditions
-      where (sub%ifix .ne. 0) vec = sub%fixv
+      if (sub%lifix .gt. 0) then
+         where (sub%ifix .ne. 0) vec = sub%fixv
+      end if
 
 end subroutine
 
@@ -2374,12 +2421,14 @@ subroutine dd_fix_bc_interface_dual(sub, vec,lvec)
       end if
 
       ! enforce boundary conditions
-      do i = 1,ndofi
-         ind = sub%iivsvn(i)
-         if (sub%ifix(ind) .ne. 0) then
-            vec(i) = 0._kr
-         end if
-      end do
+      if (sub%lifix.gt.0) then
+         do i = 1,ndofi
+            ind = sub%iivsvn(i)
+            if (sub%ifix(ind) .ne. 0) then
+               vec(i) = 0._kr
+            end if
+         end do
+      end if
 
 end subroutine
 
@@ -3118,27 +3167,37 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
       integer,intent(in) :: itype ! type of globs (2 - edges, 1 - faces)
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_LOAD_ARITHMETIC_CONSTRAINTS'
       integer :: icnode, lmatrix1, lmatrix2, ncnodes, ncdof, nvar
-      integer :: i, j
+      integer :: pointdof, nnod, inod, ndofn, idofn, indi, ind, ind1, ind2
 
       ! check the prerequisities
       if (.not.allocated(sub%cnodes) .or. .not.sub%is_cnodes_loaded) then
-         write(*,*) 'DD_LOAD_ARITHMETIC_CONSTRAINTS: Array for cnodes not ready.'
-         call error_exit
+         call error(routine_name, 'Array for cnodes not ready for subdomain ',sub%isub)
       end if
 
       ! get number of coarse nodes
       ncnodes = sub%ncnodes
-
-      ! get number of constraints on an arithmetic constraint
-      ! ndim for arithmetic averages
-      ncdof = sub%ndim
 
       ! generate arithmetic averages on coarse nodes of prescribed type (e.g. edges)
       do icnode = 1,ncnodes
          if (sub%cnodes(icnode)%itype .eq. itype) then
          
             nvar = sub%cnodes(icnode)%nvar
+
+            ! get number of constraints on an arithmetic constraint
+            ! maximal number of dofs at a node
+            ncdof = 0
+            nnod = sub%cnodes(icnode)%nnod
+            do inod = 1,nnod
+               indi = sub%cnodes(icnode)%insin(inod)
+               ind  = sub%iin(indi)
+
+               ndofn = sub%nndf(ind)
+               if (ndofn.gt.ncdof) then
+                  ncdof = ndofn
+               end if
+            end do
 
             lmatrix1 = ncdof
             lmatrix2 = nvar
@@ -3151,10 +3210,26 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
 
             call zero(sub%cnodes(icnode)%matrix,lmatrix1,lmatrix2)
 
-            do i = 1,lmatrix1
-               do j = i,lmatrix2,lmatrix1
-                  sub%cnodes(icnode)%matrix(i,j) = 1._kr
+            pointdof = 0
+            do inod = 1,nnod
+               indi = sub%cnodes(icnode)%insin(inod)
+               ind  = sub%iin(indi)
+
+               ndofn = sub%nndf(ind)
+               do idofn = 1,ndofn
+                  ind1 = idofn
+                  ind2 = pointdof + idofn
+                  ! check indices
+                  if (ind1.gt.lmatrix1) then
+                     call error(routine_name,'row index out of bounds for matrix of constraints')
+                  end if
+                  if (ind2.gt.lmatrix2) then
+                     call error(routine_name,'column index out of bounds for matrix of constraints')
+                  end if
+
+                  sub%cnodes(icnode)%matrix(ind1,ind2) = 1._kr
                end do
+               pointdof = pointdof + ndofn
             end do
             sub%cnodes(icnode)%arithmetic = .true.
 
@@ -3411,31 +3486,48 @@ subroutine dd_construct_cnodes(sub)
       type(subdomain_type),intent(inout) :: sub
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_CONSTRUCT_CNODES'
       integer ::             ncorner
       integer ::             nglob
       integer ::             ncnodes, lcnodes
+      integer ::             nnodi, ndofn
       integer ::             icnode, igcnode
       integer ::             inodc, indnode, indinode, i, nvar, iglob, nnodgl, indn, indin
       integer ::             lxyz
 
+      integer ::             lkdofi
+      integer,allocatable ::  kdofi(:)
+
       ! check the prerequisities
       if (.not.sub%is_corners_loaded) then
-         write(*,*) 'DD_GET_CNODES: Corners not loaded for subdomain:', sub%isub
-         call error_exit
+         call error(routine_name,'Corners not loaded for subdomain:', sub%isub)
       end if
       if (.not.sub%is_globs_loaded) then
-         write(*,*) 'DD_GET_CNODES: Globs not loaded for subdomain:', sub%isub
-         call error_exit
+         call error(routine_name,'Globs not loaded for subdomain:', sub%isub)
       end if
 
       ! determine number of coarse nodes
       ncorner = sub%ncorner
       nglob   = sub%nglob
+      nnodi   = sub%nnodi
       ncnodes = ncorner + nglob
       sub%ncnodes = ncnodes
 
       lcnodes = ncnodes
       allocate(sub%cnodes(lcnodes))
+
+      ! prepare KDOFI
+      lkdofi = nnodi
+      allocate(kdofi(lkdofi))
+      kdofi(1) = 0
+      if (lkdofi.gt.0) then
+         do i = 2,nnodi
+            indn = sub%iin(i-1)
+            ndofn = sub%nndf(indn)
+            
+            kdofi(i) = kdofi(i-1) + ndofn
+         end do
+      end if
 
       ! set counter
       icnode = 0
@@ -3467,7 +3559,7 @@ subroutine dd_construct_cnodes(sub)
          lxyz = sub%ndim
          sub%cnodes(icnode)%lxyz = lxyz
          allocate(sub%cnodes(icnode)%xyz(lxyz))
-         sub%cnodes(icnode)%xyz = sub%xyz(indnode,:)
+         sub%cnodes(icnode)%xyz = sub%xyz(indnode,1:lxyz)
 
          ! fill coarse node nodes
          allocate(sub%cnodes(icnode)%insin(1))
@@ -3476,7 +3568,7 @@ subroutine dd_construct_cnodes(sub)
          ! fill coarse node variables
          allocate(sub%cnodes(icnode)%ivsivn(nvar))
          do i = 1,nvar
-            sub%cnodes(icnode)%ivsivn(i) = (indinode-1)*nvar + i
+            sub%cnodes(icnode)%ivsivn(i) = kdofi(indinode) + i
          end do
 
       end do
@@ -3531,74 +3623,7 @@ subroutine dd_construct_cnodes(sub)
 
       sub%is_cnodes_loaded = .true.
 
-      return
-end subroutine
-
-!*******************************************************
-subroutine dd_embed_cnodes(sub,nndf_coarse,lnndf_coarse)
-!*******************************************************
-! Merging corners with globs - order first corners, then globs
-      use module_utils
-      implicit none
-
-! Subdomain structure
-      type(subdomain_type),intent(inout) :: sub
-      ! coarse NNDF
-      integer,intent(in) :: lnndf_coarse
-      integer,intent(in) ::  nndf_coarse(lnndf_coarse)
-
-      ! local vars
-      integer ::             ncorner
-      integer ::             nglob
-      integer ::             ncnodes
-      integer ::             icnode, igcnode
-      integer ::             ncdof, indn, i, kcdof
-
-      integer ::            lkdof_coarse
-      integer,allocatable :: kdof_coarse(:)
-
-
-      ! check the prerequisities
-      if (.not.sub%is_cnodes_loaded) then
-         write(*,*) 'DD_EMBED_CNODES: Coarse nodes not loaded for subdomain:', sub%isub
-         call error_exit
-      end if
-
-      ! determine number of coarse nodes
-      ncorner = sub%ncorner
-      nglob = sub%nglob
-      ncnodes = ncorner + nglob
-      sub%ncnodes = ncnodes
-
-      ! create array of global coarse dof KDOFC(ncorner) with addresses before first global dof
-      lkdof_coarse = lnndf_coarse
-      allocate(kdof_coarse(lkdof_coarse))
-      kdof_coarse(1) = 0
-      do indn = 2,lnndf_coarse
-         kdof_coarse(indn) = kdof_coarse(indn-1) + nndf_coarse(indn-1)
-      end do
-
-      ! Update embedding arrays
-      do icnode = 1,ncnodes
-         ! number of coarse dof it contains
-         igcnode = sub%cnodes(icnode)%global_cnode_number 
-         ncdof = nndf_coarse(igcnode)
-         if (allocated(sub%cnodes(icnode)%igcdof)) then
-            deallocate(sub%cnodes(icnode)%igcdof)
-         end if
-
-         sub%cnodes(icnode)%ncdof = ncdof
-         allocate(sub%cnodes(icnode)%igcdof(ncdof))
-         ! fill coarse node dof
-         kcdof = kdof_coarse(igcnode)
-         do i = 1,ncdof
-            sub%cnodes(icnode)%igcdof(i) = kcdof + i
-         end do
-
-      end do
-      sub%is_cnodes_embedded = .true.
-
-      deallocate(kdof_coarse)
+      deallocate(kdofi)
 
       return
 end subroutine
@@ -3614,6 +3639,7 @@ subroutine dd_prepare_c(sub)
       type(subdomain_type),intent(inout) :: sub
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_PREPARE_C'
       integer ::             nnzc
       integer ::             lc
       integer,allocatable ::  i_c_sparse(:)
@@ -3623,18 +3649,18 @@ subroutine dd_prepare_c(sub)
       integer ::             lindrowc
       integer,allocatable ::  indrowc(:)
 
-      integer ::              lkdof
-      real(kr),allocatable ::  kdof(:)
+      integer ::             lkdof
+      integer,allocatable ::  kdof(:)
 
       integer :: nnod
       integer :: inod,& 
                  nconstr, icdof, icn, inzc, irowc, ivar, ncdof, &
-                 ncnodes, nrowc, nvar, lmatrix2
+                 ncnodes, nrowc, nvar, lmatrix1, lmatrix2
+      real(kr) :: val
 
       ! check the prerequisities
       if (.not.sub%is_cnodes_embedded) then
-         write(*,*) 'DD_PREPARE_C: Coarse nodes not ready for subdomain:', sub%isub
-         call error_exit
+         call error(routine_name, 'Coarse nodes not ready for subdomain:', sub%isub)
       end if
 
       ! find number of rows in C (constraints)
@@ -3650,7 +3676,6 @@ subroutine dd_prepare_c(sub)
          end if
       end do
       nconstr = nrowc
-
 
       ! Creation of field KDOF(NNOD) with addresses before first global
       ! dof of node
@@ -3676,83 +3701,49 @@ subroutine dd_prepare_c(sub)
       inzc  = 0
       do icn = 1,ncnodes
          if (sub%cnodes(icn)%used) then
+            ! copy the matrix of constraints on glob into sparse triplet of subdomain matrix C
+            ! row by row
+            nvar      = sub%cnodes(icn)%nvar
+            ncdof     = sub%cnodes(icn)%ncdof
+            lmatrix1  = sub%cnodes(icn)%lmatrix1
+            lmatrix2  = sub%cnodes(icn)%lmatrix2
+            if (nvar.ne.lmatrix2) then
+               call error(routine_name, 'Second matrix dimension does not match for subdomain', sub%isub)
+            end if
+            if (ncdof.ne.lmatrix1) then
+               call error(routine_name, 'First matrix dimension does not match for subdomain', sub%isub)
+            end if
+            do icdof = 1,ncdof
+               irowc = irowc + 1
 
-            if (sub%cnodes(icn)%itype .eq. 3) then
-               ! for corners, do not read matrices but construct the sparse matrix directly
-               nvar = sub%cnodes(icn)%nvar
                do ivar = 1,nvar
-                  irowc = irowc + 1
-                  inzc  = inzc  + 1
-
-                  i_c_sparse(inzc) = irowc
-                  j_c_sparse(inzc) = sub%cnodes(icn)%ivsivn(ivar)
-                  c_sparse(inzc)   = 1._kr
-
-                  indrowc(irowc) = sub%cnodes(icn)%igcdof(ivar)
-               end do
-            else if (((sub%cnodes(icn)%arithmetic .eqv. .true.) .and. (sub%cnodes(icn)%itype .eq. 2)) &
-                     .or. &
-                     ((sub%cnodes(icn)%arithmetic .eqv. .true.) .and. (sub%cnodes(icn)%adaptive .eqv. .false.) &
-                      .and. (sub%cnodes(icn)%itype .eq. 1))) then
-               ! use arithmetic averages for edges and faces if desired
-               nvar  = sub%cnodes(icn)%nvar
-               ncdof = sub%cnodes(icn)%ncdof
-               do icdof = 1,ncdof
-                  irowc = irowc + 1
-
-                  do ivar = icdof,nvar,ncdof
+                  val = sub%cnodes(icn)%matrix(icdof,ivar)
+                  if (val.gt.0_kr) then
                      inzc  = inzc  + 1
+                     ! check length
+                     if (inzc.gt.lc) then
+                        call error(routine_name,'out of bounds for matrix C', sub%isub)
+                     end if
 
                      i_c_sparse(inzc) = irowc
                      j_c_sparse(inzc) = sub%cnodes(icn)%ivsivn(ivar)
-                     c_sparse(inzc)   = 1._kr
-                  end do
-
-                  indrowc(irowc) = sub%cnodes(icn)%igcdof(icdof)
+                     c_sparse(inzc)   = val
+                  end if
                end do
-            else if ((sub%cnodes(icn)%itype .eq. 1) .and. &
-                     (sub%cnodes(icn)%adaptive .eqv. .true.)) then
-               ! use adaptive constraint on face
 
-               ! copy the matrix of constraints on glob into sparse triplet of subdomain matrix C
-               ! row by row
-               nvar      = sub%cnodes(icn)%nvar
-               lmatrix2  = sub%cnodes(icn)%lmatrix2
-               if (nvar.ne.lmatrix2) then
-                  write(*,*) 'DD_PREPARE_C: Matrix dimension does not match for subdomain', sub%isub
-                  call error_exit
-               end if
-
-               ncdof = sub%cnodes(icn)%ncdof
-               do icdof = 1,ncdof
-                  irowc = irowc + 1
-
-                  do ivar = 1,nvar
-                     inzc  = inzc  + 1
-
-                     i_c_sparse(inzc) = irowc
-                     j_c_sparse(inzc) = sub%cnodes(icn)%ivsivn(ivar)
-                     c_sparse(inzc)   = sub%cnodes(icn)%matrix(icdof,ivar)
-                  end do
-
-                  indrowc(irowc) = sub%cnodes(icn)%igcdof(icdof)
-               end do
-            else
-               continue
-            end if
-
-            ! check matrix bounds
-            if (inzc .gt. lc) then
-               write(*,*) 'DD_PREPARE_C: Too many entries in matrix C for subdomain', sub%isub
-               call error_exit
-            end if
+               indrowc(irowc) = sub%cnodes(icn)%igcdof(icdof)
+            end do
          end if
       end do
+      if (inzc.ne.nnzc) then
+         call info(routine_name,'nnzc =',nnzc)
+         call info(routine_name,'inzc =',inzc)
+         call error(routine_name,'some entries from matrix C are missing', sub%isub)
+      end if
 
       ! check matrix bounds
       if (inzc .ne. lc) then
-         write(*,*) 'DD_PREPARE_C: Dimension of matrix C mismatch for subdomain', sub%isub,'inzc =',inzc,'lc =',lc
-         call error_exit
+         call error(routine_name, 'Dimension of matrix C mismatch for subdomain', sub%isub)
       end if
       
       ! load the new matrix directly to the structure
@@ -3845,6 +3836,7 @@ subroutine dd_prepare_aug(sub,comm_self)
       integer,intent(in) :: comm_self
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_PREPARE_AUG'
       integer ::  nnzc, nnza, ndof, nconstr
       integer ::  nnzaaug, laaug, ndofaaug
       integer ::  i, iaaug
@@ -3857,12 +3849,10 @@ subroutine dd_prepare_aug(sub,comm_self)
          return
       end if
       if (.not.sub%is_matrix_loaded) then
-         write(*,*) 'DD_PREPARE_AUG: Matrix is not loaded for subdomain:', sub%isub
-         call error_exit
+         call error(routine_name,'Matrix is not loaded for subdomain:', sub%isub)
       end if
       if (.not.sub%is_c_loaded) then
-         write(*,*) 'DD_PREPARE_AUG: Matrix of constraints C not loaded for subdomain:', sub%isub
-         call error_exit
+         call error(routine_name,'Matrix of constraints C not loaded for subdomain:', sub%isub)
       end if
 
       ! if augmented system is already allocated, clear it - this can happen for adaptivity
@@ -3914,6 +3904,12 @@ subroutine dd_prepare_aug(sub,comm_self)
       do i = 1,nnzc
          iaaug = iaaug + 1
          icoli = sub%j_c_sparse(i)
+         if (icoli.gt.sub%ndofi) then
+            print *,'ndofi',sub%ndofi
+            print *,'icoli',icoli
+            print *,'j_c_sparse',sub%j_c_sparse
+            call error(routine_name,'out of bounds of interface for subdomain',sub%isub)
+         end if
          icol  = sub%iivsvn(icoli)
          sub%i_aaug_sparse(iaaug) = icol
          sub%j_aaug_sparse(iaaug) = sub%i_c_sparse(i) + ndof
@@ -3931,8 +3927,7 @@ subroutine dd_prepare_aug(sub,comm_self)
          end do
       end if
       if (iaaug.ne.nnzaaug) then
-         write(*,*) 'DD_PREPARE_AUG: Actual length of augmented matrix does not match for subdomain:', sub%isub
-         call error_exit
+         call error(routine_name,'Actual length of augmented matrix does not match for subdomain:', sub%isub)
       end if
       sub%nnzaaug = nnzaaug
       sub%laaug   = laaug
@@ -3951,8 +3946,7 @@ subroutine dd_prepare_aug(sub,comm_self)
          ! even if the original matrix is SPD:
          aaugmatrixtype = 2
       else 
-         write(*,*) 'DD_PREPARE_AUG: Matrixtype not set for subdomain:', sub%isub
-         call error_exit
+         call error(routine_name,'Matrixtype not set for subdomain:', sub%isub)
       end if
       call mumps_init(sub%mumps_aug,comm_self,aaugmatrixtype)
 
@@ -4912,8 +4906,6 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
       real(kr),allocatable ::  solo(:)
       integer ::              lg
       real(kr),allocatable ::  g(:)
-      integer ::              laux
-      real(kr),allocatable ::  aux(:)
 
       integer :: ndofi, ndofo, ndof
       integer :: i, isub_loc, isub
@@ -4954,6 +4946,7 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
          do i = 1,ndof
             rhs(i) = suba(isub_loc)%rhs(i)
          end do
+
          ! fix BC in aux2
          if (suba(isub_loc)%is_bc_present) then
             call sm_prepare_rhs(suba(isub_loc)%ifix,suba(isub_loc)%lifix,&
@@ -5001,21 +4994,12 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
          isub = indexsub(isub_loc)
 
          ndofi = suba(isub_loc)%ndofi
-         laux = ndofi
-         allocate(aux(laux))
 
          ! download contribution to g from my neighbours
-         call dd_comm_download(suba(isub_loc), aux,laux) 
-
-         ! sum the contributions
-         lg = suba(isub_loc)%lg
-         do i = 1,lg
-            suba(isub_loc)%g(i) = suba(isub_loc)%g(i) + aux(i)
-         end do
+         call dd_comm_download(suba(isub_loc), suba(isub_loc)%g,suba(isub_loc)%lg) 
 
          suba(isub_loc)%is_reduced_rhs_loaded = .true.
  
-         deallocate(aux)
       end do
 end subroutine
 
@@ -5119,12 +5103,6 @@ subroutine dd_prepare_reduced_rhs(sub,rhs,lrhs, solo,lsolo, g,lg)
       do i = 1,ndofi
          g(i) = rhs(sub%iivsvn(i)) - g(i) 
       end do
-      ! add eliminated BC to right hand side
-      if (sub%is_bc_nonzero) then
-         do i = 1,ndofi
-            g(i) = g(i) + sub%bc(sub%iivsvn(i))
-         end do
-      end if
 
 end subroutine
 
@@ -5160,6 +5138,55 @@ subroutine dd_get_reduced_rhs(sub, g,lg)
       do i = 1,lg
          g(i) = sub%g(i)
       end do
+
+end subroutine
+
+!***************************************
+subroutine dd_fix_reduced_rhs(sub, g,lg)
+!***************************************
+! Subroutine for fixing boundary conditions in reduced rhs
+      use module_sm
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+      ! reduced rhs
+      integer,intent(in) ::    lg
+      real(kr),intent(inout) :: g(lg)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_FIX_REDUCED_RHS'
+
+      integer :: ndof
+      integer ::              lrhs
+      real(kr), allocatable :: rhs(:)
+
+
+      ! check the prerequisities
+      if (.not.sub%is_bc_loaded) then
+         call error(routine_name,'BC is not loaded for subdomain:', sub%isub)
+      end if
+      ! check the size
+      if (lg .ne. sub%ndofi) then
+         call error(routine_name,'RHS size mismatch for subdomain:', sub%isub)
+      end if
+ 
+      if (sub%is_bc_present) then
+         ! fix nonhomogenous RHS
+         ndof = sub%ndof
+
+         lrhs = ndof
+         allocate(rhs(lrhs))
+         call zero(rhs,lrhs)
+
+         call dd_map_subi_to_sub(sub, g,lg, rhs,lrhs)
+
+         call sm_prepare_rhs(sub%ifix,sub%lifix,sub%bc,sub%lbc,rhs,lrhs)
+
+         call dd_map_sub_to_subi(sub, rhs,lrhs, g,lg)
+         deallocate(rhs)
+      end if
 
 end subroutine
 
@@ -7633,6 +7660,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          end do
          ! debug
          !print *,'kdofi',kdofi
+         !call flush(6)
 
          ! use nglobnodess as counter
          call zero(nglobnodess,lnglobnodess)
@@ -7908,6 +7936,229 @@ subroutine dd_create_pairs(suba,lsuba, indexsub,lindexsub, comm_all,&
 
 end subroutine
 
+!*****************************************************************
+subroutine dd_embed_cnodes(suba,lsuba, indexsub,lindexsub, comm_all,&
+                           nndfc,lnndfc)
+!*****************************************************************
+! Subroutine for embedding of local coarse nodes into global array while creating actual number of degrees of freedom at global nodes 
+! based on subdomain data
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+! array of sub structure for actual subdomains
+      integer,intent(in) ::                lsuba
+      type(subdomain_type),intent(inout) :: suba(lsuba)
+
+      integer,intent(in) :: lindexsub
+      integer,intent(in) ::  indexsub(lindexsub)
+      integer,intent(in) :: comm_all ! MPI communicator
+      ! number of DOF at nodes
+      integer,intent(in) :: lnndfc
+      integer,intent(out) :: nndfc(lnndfc)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GET_NNDFC'
+      integer :: isub_loc, isub
+      integer :: ncnodes
+      integer :: ncnodesw
+      integer :: iproc
+      integer :: ncnodes_loc, nvalues
+      integer :: ncnodesp, ncnodesp_proc, kcnodes
+      integer ::            lncnodespa
+      integer,allocatable :: ncnodespa(:)
+      integer :: i, icnodes, icnodesp
+
+      ! MPI related variables 
+      integer :: ierr, nproc, myid
+      integer :: stat(MPI_STATUS_SIZE)
+
+      integer ::             lglobal_cnode_number_loc
+      integer,allocatable ::  global_cnode_number_loc(:)
+      integer ::             lglobal_cnode_numberw
+      integer,allocatable ::  global_cnode_numberw(:)
+      integer ::             lnndfc_loc
+      integer,allocatable ::  nndfc_loc(:)
+      integer ::             lnndfcw
+      integer,allocatable ::  nndfcw(:)
+
+      integer ::             lkdofc
+      integer,allocatable ::  kdofc(:)
+      integer :: icnode, igcnode, indn, kcdof, ncdof
+
+! orient in communicator
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
+
+      ! find maximal size of local pairs
+      ncnodes_loc = 0
+      do isub_loc = 1,lindexsub
+         ! check prerequisites
+         if (.not. suba(isub_loc)%is_cnodes_loaded) then
+            call error(routine_name,'Coarse nodes not ready for subdomain',isub)
+         end if
+
+         ncnodes_loc = ncnodes_loc + suba(isub_loc)%ncnodes
+      end do
+
+      ! prepare local array for finding pairs
+      lglobal_cnode_number_loc = ncnodes_loc
+      allocate(global_cnode_number_loc(lglobal_cnode_number_loc))
+      lnndfc_loc               = ncnodes_loc
+      allocate(nndfc_loc(lnndfc_loc))
+
+      icnodesp = 0
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         ! load data
+         ncnodes   = suba(isub_loc)%ncnodes
+
+         ! loop over coarse nodes
+         do icnodes = 1,ncnodes
+            icnodesp = icnodesp + 1
+
+            ! check bounds
+            if (icnodesp.gt.ncnodes_loc) then
+               call error(routine_name,'not enough space for local nodes')
+            end if
+
+            global_cnode_number_loc(icnodesp) = suba(isub_loc)%cnodes(icnodes)%global_cnode_number
+            nndfc_loc(icnodesp)               = suba(isub_loc)%cnodes(icnodes)%ncdof
+         end do
+      end do
+      ncnodesp = icnodesp
+
+      ! Create global array of pairs
+      lncnodespa = nproc
+      allocate(ncnodespa(lncnodespa))
+!*****************************************************************MPI
+      call MPI_ALLGATHER(ncnodesp,1, MPI_INTEGER,ncnodespa,1, MPI_INTEGER, comm_all, ierr) 
+!*****************************************************************MPI
+
+      ncnodesw = sum(ncnodespa)
+
+      if (myid.eq.0) then
+
+         ! determine the global size of array of pair subdomains
+         lglobal_cnode_numberw = ncnodesw
+         allocate(global_cnode_numberw(lglobal_cnode_numberw))
+         lnndfcw = ncnodesw
+         allocate(nndfcw(lnndfcw))
+
+         ! first copy my own nndfc_loc into global array
+         kcnodes = 0
+         do i = 1,ncnodesp
+            global_cnode_numberw(kcnodes + i) = global_cnode_number_loc(i)
+            nndfcw(kcnodes + i)               = nndfc_loc(i)
+         end do
+         kcnodes = kcnodes + ncnodesp
+            
+         ! then receive data from others
+         do iproc = 1,nproc-1
+            ncnodesp_proc = ncnodespa(iproc+1)
+
+            if (ncnodesp_proc .gt.0) then
+               call MPI_RECV(global_cnode_numberw(kcnodes+1),ncnodesp_proc,MPI_INTEGER,iproc,iproc,comm_all,stat,ierr)
+               call MPI_RECV(nndfcw(kcnodes+1),ncnodesp_proc,MPI_INTEGER,iproc,iproc,comm_all,stat,ierr)
+            end if
+
+            kcnodes = kcnodes + ncnodesp_proc
+         end do
+
+      else
+         ! send my arrays to root
+         if (ncnodesp.gt.0) then
+            call MPI_SEND(global_cnode_number_loc,ncnodesp,MPI_INTEGER,0,myid,comm_all,ierr)
+            call MPI_SEND(nndfc_loc,ncnodesp,MPI_INTEGER,0,myid,comm_all,ierr)
+         end if
+      end if
+
+      deallocate(ncnodespa)
+      deallocate(global_cnode_number_loc)
+      deallocate(nndfc_loc)
+
+
+      ! now root sorts corners and remove duplicities
+      if (myid.eq.0) then
+
+         ! sort local array of corners before its send
+         call iquick_sort_simultaneous(global_cnode_numberw,lglobal_cnode_numberw,nndfcw,lnndfcw)
+         ! check what I got
+         do i = 1,ncnodesw-1
+            if (global_cnode_numberw(i).eq.global_cnode_numberw(i+1)) then
+               if (nndfcw(i) .ne. nndfcw(i+1)) then
+                  call error(routine_name,'different number of dof at a coarse node from different subdomains')
+               end if
+            end if
+         end do
+         call get_array_norepeat_simultaneous(global_cnode_numberw,lglobal_cnode_numberw,nndfcw,lnndfcw,nvalues)
+
+         ! check what I got
+         if (nvalues.ne.lnndfc) then
+            call error(routine_name,'number of global coarse nodes does not match')
+         end if
+         do i = 1,nvalues
+            if (global_cnode_numberw(i) .ne. i) then
+               call error(routine_name,'there is mismatch in global indices of coarse nodes')
+            end if
+         end do
+
+         ! if checks are OK, copy resulting array
+         do i = 1,nvalues
+            nndfc(i) = nndfcw(i)
+         end do
+
+         deallocate(global_cnode_numberw)
+         deallocate(nndfcw)
+      end if
+      ! root already has global array of pairs, populate it along communicator
+!*****************************************************************MPI
+      call MPI_BCAST(nndfc,lnndfc, MPI_INTEGER, 0, comm_all, ierr) 
+!*****************************************************************MPI
+      !print *,'myid =',myid,'nndfc',nndfc
+      !call flush(6)
+
+
+      ! create array of global coarse dof KDOFC(ncorner) with addresses before first global dof
+      lkdofc = lnndfc
+      allocate(kdofc(lkdofc))
+      kdofc(1) = 0
+      do indn = 2,lnndfc
+         kdofc(indn) = kdofc(indn-1) + nndfc(indn-1)
+      end do
+
+      ! Update embedding arrays
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         ncnodes =  suba(isub_loc)%ncnodes
+
+         do icnode = 1,ncnodes
+            ! number of coarse dof it contains
+            igcnode = suba(isub_loc)%cnodes(icnode)%global_cnode_number 
+            ncdof = nndfc(igcnode)
+            if (allocated(suba(isub_loc)%cnodes(icnode)%igcdof)) then
+               deallocate(suba(isub_loc)%cnodes(icnode)%igcdof)
+            end if
+
+            suba(isub_loc)%cnodes(icnode)%ncdof = ncdof
+            allocate(suba(isub_loc)%cnodes(icnode)%igcdof(ncdof))
+            ! fill coarse node dof
+            kcdof = kdofc(igcnode)
+            do i = 1,ncdof
+               suba(isub_loc)%cnodes(icnode)%igcdof(i) = kcdof + i
+            end do
+
+         end do
+         suba(isub_loc)%is_cnodes_embedded = .true.
+      end do
+
+      deallocate(kdofc)
+
+end subroutine
+
+
 !***************************************
 subroutine dd_comm_upload(sub, vec,lvec)
 !***************************************
@@ -8153,7 +8404,7 @@ end subroutine
 !*****************************************
 subroutine dd_comm_download(sub, vec,lvec)
 !*****************************************
-! Subroutine that downloads data from communication to subdomain vector VEC
+! Subroutine that downloads data from communication and add it to subdomain vector VEC
       use module_utils
       implicit none
 ! Subdomain structure
@@ -8201,8 +8452,7 @@ subroutine dd_comm_download(sub, vec,lvec)
       end do
 
       ! download vector at interface from communication vector COMMVEC_IN
-      ! summ up repeated entries
-      call zero(vec,lvec)
+      ! sum up repeated entries
       nadj  = sub%nadj
       kishnadj = 0
       indcommvec = 0
@@ -8230,9 +8480,9 @@ subroutine dd_comm_download(sub, vec,lvec)
 
 end subroutine
 
-!*****************************************************************************************
-subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, comm_all)
-!*****************************************************************************************
+!*******************************************************************************************************
+subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, comm_all, weights_type)
+!*******************************************************************************************************
 ! Subroutine for preparing weight at interface matrix
       use module_utils
       use module_pp, only : pp_get_proc_for_sub 
@@ -8248,8 +8498,14 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
       integer,intent(in) :: lindexsub
       integer,intent(in) ::  indexsub(lindexsub)
       integer,intent(in) :: comm_all ! MPI communicator
+      ! type of weights:
+      ! 0 - weights by cardinality
+      ! 1 - weights by diagonal stiffness
+      ! 2 - weights by Marta Certikova
+      integer,intent(in) :: weights_type 
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_WEIGHTS_PREPARE'
       integer :: isub_loc, i
       integer :: ndofi
 
@@ -8259,11 +8515,6 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
       integer ::             lwi
       real(kr),allocatable :: wi(:)
 
-      ! what kind of weights should be used?
-      ! choose only one
-      logical :: weight_by_cardinality = .false.
-      logical :: weight_by_stiffness   = .true.
-
       ! Prepare data for communication
       do isub_loc = 1,lindexsub
          ndofi = suba(isub_loc)%ndofi
@@ -8271,15 +8522,14 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          lrhoi = ndofi
          allocate(rhoi(lrhoi))
 
-         if (weight_by_cardinality) then
+         if (weights_type .eq. 0) then
             do i = 1,lrhoi
                rhoi(i) = 1._kr
             end do
-         else if (weight_by_stiffness) then
+         else if (weights_type .eq. 1) then
             call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
          else
-            write(*,*) 'DD_PREPARE_WEIGHTS: Type of weight not specified.'
-            call error_exit
+            call error(routine_name,'Type of weight not supported:',weights_type)
          end if
 
          call dd_comm_upload(suba(isub_loc), rhoi,lrhoi)
@@ -8300,13 +8550,14 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          lwi = ndofi
          allocate(wi(lwi))
 
+         call zero(rhoiaux,lrhoi)
          call dd_comm_download(suba(isub_loc), rhoiaux,lrhoi)
 
-         if (weight_by_cardinality) then
+         if (weights_type .eq. 0) then
             do i = 1,lrhoi
                rhoi(i) = 1._kr
             end do
-         else if (weight_by_stiffness) then
+         else if (weights_type .eq. 1) then
             call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
          end if
 
@@ -8321,6 +8572,7 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          do i = 1,lwi
             suba(isub_loc)%wi(i) = wi(i)
          end do
+         suba(isub_loc)%weights_type     = weights_type
          suba(isub_loc)%is_weights_ready = .true.
 
          deallocate(wi)

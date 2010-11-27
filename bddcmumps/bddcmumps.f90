@@ -42,14 +42,14 @@ integer,parameter:: averages_approach = 3
 ! 2 - weighted averaging - according to diagonal stiffness of original matrix
 !  for elasticity, use 2 - robust with respect to jumps in coefficients
 !  for Stokes, use 1 - matrix entries may be 0 on diagonal !
-integer,parameter:: weight_approach = 1
+integer,parameter:: weight_approach = 2
 
 ! Level of information from MUMPS package
 ! 0 - suppressed printing of all information
 ! 1 - only errors printed
 ! 2 - errors and global information printed
 ! 3 - errors, diagnostics, and global information printed
-integer,parameter:: mumpsinfo = 2
+integer,parameter:: mumpsinfo = 1
 
 ! Iterate on staticaly condensed problem on interface?
 logical,parameter:: iterate_on_reduced = .true.
@@ -151,7 +151,7 @@ logical :: is_this_the_first_run
 
 logical :: match_mask(2)
 
-logical :: parallel_analysis
+integer :: parallel_analysis
 
 character(100) :: filename, problemname
 
@@ -570,10 +570,10 @@ character(100) :: filename, problemname
             ! Level of information from MUMPS
             call mumps_set_info(schur_mumps,mumpsinfo)
             ! Load matrix to MUMPS
-            call mumps_load_triplet(schur_mumps,ndoft,nnz,i_sparse,j_sparse,a_sparse,la)
+            call mumps_load_triplet_distributed(schur_mumps,ndoft,nnz,i_sparse,j_sparse,a_sparse,la)
             ! Analyze matrix
             call bddc_time_start(comm)
-            parallel_analysis = .true.
+            parallel_analysis = 0
             call mumps_analyze(schur_mumps,parallel_analysis) 
             call bddc_time_end(comm,time)
             if (myid.eq.0.and.timeinfo.ge.1) then

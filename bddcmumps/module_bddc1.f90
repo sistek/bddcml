@@ -160,7 +160,7 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,use_preconditioner,
 
       real(kr) :: time
 
-      logical :: parallel_analysis
+      integer :: parallel_analysis
 
 ! Optional arguments
       if (present(idtrmain)) then
@@ -250,11 +250,11 @@ subroutine bddc_init(myid,comm,matrixtype,mumpsinfo,timeinfo,use_preconditioner,
 !      end do
 !      deallocate(testm)
 
-         call mumps_load_triplet(bddc_mumps,ndoft,nnz+nnz_transform+nnz_proj,i_sparse,j_sparse,a_sparse,la)
+         call mumps_load_triplet_distributed(bddc_mumps,ndoft,nnz+nnz_transform+nnz_proj,i_sparse,j_sparse,a_sparse,la)
 
 ! Analyze matrix
          call bddc_time_start(comm)
-         parallel_analysis = .true.
+         parallel_analysis = 0
          call mumps_analyze(bddc_mumps,parallel_analysis) 
          call bddc_time_end(comm,time)
          if (myid.eq.0.and.time_verbose.ge.1) then

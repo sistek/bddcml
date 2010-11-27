@@ -394,7 +394,7 @@ end subroutine
 subroutine get_array_norepeat(array,larray,nentries)
 !***************************************************
 ! Subroutine for removing repeated entries from SORTED array
-! shifting entries beginning, pad with zeros
+! shifting entries at beginning, pad with zeros
 ! Example
 ! input:  1 1 1 3 3 5 9
 ! output: 1 3 5 9 0 0 0
@@ -439,6 +439,65 @@ subroutine get_array_norepeat(array,larray,nentries)
       nentries = i
       do i = nentries + 1,larray
          array(i) = 0
+      end do
+end subroutine
+
+!*********************************************************************************
+subroutine get_array_norepeat_simultaneous(array1,larray1,array2,larray2,nentries)
+!*********************************************************************************
+! Subroutine for removing repeated entries from SORTED array ARRAY1
+! shifting entries in both ARRAYS at beginning, pad with zeros
+! Example
+! input:  1 1 1 3 3 5 9
+! output: 1 3 5 9 0 0 0
+! nentries  = 4
+      implicit none
+! input arrays
+      integer,intent(in) ::    larray1
+      integer,intent(inout) ::  array1(larray1)
+      integer,intent(in) ::    larray2
+      integer,intent(inout) ::  array2(larray2)
+! number of entries
+      integer,intent(out) ::   nentries
+
+! local vars
+      character(*),parameter:: routine_name = 'GET_ARRAY_NOREPEAT_SIMULTANEOUS'
+      integer :: i, j, ind
+
+! return if array has zero length
+      if (larray1 .eq. 0) then
+         nentries = 0
+         return
+      end if
+      ! check
+      if (larray1 .ne. larray2) then
+         call error(routine_name,'dimension mismatch')
+      end if
+
+      ! pack both arrays
+      i = 1
+      j = 1
+      ind = array1(i)
+      if (ind.eq.0) then
+         call error(routine_name, 'array1 starts with zero')
+      end if
+      do j = 2,larray1
+         if      (array1(j).gt.ind) then
+            i   = i + 1
+            ind = array1(j)
+            array1(i) = ind
+            array2(i) = array2(j)
+         else 
+            if (debug .and. array1(j).lt.ind) then
+               call error(routine_name, 'array1 supposed to be sorted')
+            end if
+         end if
+      end do
+      ! pad the rest
+      nentries = i
+      do i = nentries + 1,larray1
+         array1(i) = 0
+         array2(i) = 0
       end do
 end subroutine
 

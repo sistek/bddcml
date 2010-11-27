@@ -26,8 +26,8 @@ program test_module_adaptivity
       integer :: ndim, nsub, nelem, ndof, nnod, nnodc, linet
       integer :: nsub_loc
 
-      integer ::             lnndf_coarse
-      integer,allocatable ::  nndf_coarse(:)
+      integer ::             lnndfc
+      integer,allocatable ::  nndfc(:)
       integer :: ncnodes, nedge, nface, nglb
 
       integer ::             lnnglb
@@ -181,15 +181,8 @@ program test_module_adaptivity
       ncnodes = nnodc + nedge + nface
 
       ! prepare array of number of coarse dof in generalized coarse nodes
-      lnndf_coarse = ncnodes
-      allocate(nndf_coarse(lnndf_coarse))
-
-      nndf_coarse = 0
-      ! corners contain ndim coarse dof
-      nndf_coarse(1:nnodc) = ndim
-      ! edges contain ndim coarse dof
-      nndf_coarse(nnodc+1:nnodc+nedge) = ndim
-
+      lnndfc = ncnodes
+      allocate(nndfc(lnndfc))
 
       ! auxiliary routine, until reading directly the globs
       do isub_loc = 1,nsub_loc
@@ -202,9 +195,12 @@ program test_module_adaptivity
          call dd_load_arithmetic_constraints(subdomains(isub_loc),glob_type)
       end do
 
+      call dd_embed_cnodes(subdomains,lsubdomains, &
+                           indexsub,lindexsub,& 
+                           comm_all, nndfc,lnndfc)
+
       ! prepare matrix C
       do isub_loc = 1,nsub_loc
-         call dd_embed_cnodes(subdomains(isub_loc),nndf_coarse,lnndf_coarse)
          call dd_prepare_c(subdomains(isub_loc))
       end do
 
@@ -262,7 +258,6 @@ program test_module_adaptivity
       allocate(pair2proc(lpair2proc))
       call pp_distribute_linearly(npair,nproc,pair2proc,lpair2proc)
 
-      call adaptivity_assign_pairs(comm_all,pair2proc,lpair2proc)
       print *, 'I am processor ',myid,'pairs assigned.'
       call flush(6)
 
@@ -274,7 +269,7 @@ program test_module_adaptivity
 
       !print *,'nndf_coarse before update:'
       !print *,nndf_coarse
-      call adaptivity_update_ndof(nndf_coarse,lnndf_coarse,nnodc,nedge,nface)
+      !call adaptivity_update_ndof(nndf_coarse,lnndf_coarse,nnodc,nedge,nface)
       !print *,'nndf_coarse after update:'
       !print *,nndf_coarse
 
@@ -294,9 +289,12 @@ program test_module_adaptivity
       end if
 !*******************************************AUX
 
+      call dd_embed_cnodes(subdomains,lsubdomains, &
+                           indexsub,lindexsub,& 
+                           comm_all, nndfc,lnndfc)
+
       ! prepare matrix C for corners, arithmetic averages on edges and adaptive on faces
       do isub_loc = 1,nsub_loc
-         call dd_embed_cnodes(subdomains(isub_loc),nndf_coarse,lnndf_coarse)
          call dd_prepare_c(subdomains(isub_loc))
       end do
 !
@@ -322,7 +320,7 @@ program test_module_adaptivity
       deallocate(subdomains)
       deallocate(indexsub)
       deallocate(sub2proc)
-      deallocate(nndf_coarse)
+      deallocate(nndfc)
 
       ! close file with description of pairs
       if (myid.eq.0) then

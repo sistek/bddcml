@@ -183,7 +183,7 @@ contains
 !  1 - complement centralized at host
 !  2 - complement distributed - only lower triangle for symmetric case, whole matrix otherwise
 !  3 - complement distributed - whole matrix for both sym and unsym case
-      mumps%ICNTL(19) = 2
+      mumps%ICNTL(19) = 1
 
 ! Fill in the MUMPS structure
       ! Schur dimension
@@ -304,28 +304,39 @@ contains
             comm = mumps%COMM
             ! orient in the communicator
             call MPI_COMM_RANK(comm,myid,ierr)
-            ! if problem is can be solved by relaxing memory, do it, otherwise exit on error
-            if (mumps%INFO(1) .eq. -1) then
-               errproc = mumps%INFO(2)
-            else
-               errproc = myid
+            ! if problem can be solved by relaxing memory, do it, otherwise exit on error
+            ! set error process on root
+            if (myid.eq.0) then
+               if (mumps%INFO(1) .eq. -1) then
+                  errproc = mumps%INFO(2)
+               else
+                  errproc = myid
+               end if
+            end if
+            ! broadcast the ID of errorneous process
+            call MPI_BCAST(errproc, 1, MPI_INTEGER, 0, comm, ierr)
+            if (myid.eq.errproc) then
                errcode = mumps%INFO(1)
             end if
             ! broadcast the error code from errorneous process
             call MPI_BCAST(errcode, 1, MPI_INTEGER, errproc, comm, ierr)
             ! if the error is with local memory, try to rerun the factorization
             if (errcode.eq.-9) then
-               if (mumps%ICNTL(14) .ge. 0 .and. mumps%ICNTL(14) .lt. mem_relax_lim) then
-                  ! add 20% to relaxation parameter up to 100%
-                  mumps%ICNTL(14) = mumps%ICNTL(14) + 20
-                  ! rerun the factorization
-                  if (debug) then
-                     if (myid.eq.0) then
+               if (myid.eq.errproc) then 
+                  if (mumps%ICNTL(14) .lt. mem_relax_lim) then
+                     ! add 20% to relaxation parameter up to limit
+                     mumps%ICNTL(14) = mumps%ICNTL(14) + 20
+                     mumps%ICNTL(14) = min(mumps%ICNTL(14),mem_relax_lim)
+                     if (debug) then
                         call warning(routine_name,'Reruning factorization with memory relaxation % ',mumps%ICNTL(14))
                      end if
+                  else
+                     call error(routine_name,'unable to increase memory relaxation parameter for MUMPS factorization from ',&
+                                mumps%ICNTL(14))
                   end if
-                  goto 13
                end if
+               ! rerun the factorization
+               goto 13
             end if
          end if
          call error(routine_name,'MUMPS error',mumps%INFOG(1))

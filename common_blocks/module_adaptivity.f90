@@ -49,9 +49,9 @@ integer,parameter,private :: idbase = 100 ! basic unit to add myid for independe
 
 ! table of pairs of eigenproblems to compute
 ! structure:
-!  PROC | IGLOB | ISUB | JSUB | NADAPTIVE
+!  IGLOB | ISUB | JSUB 
 integer,private            :: lpair_subdomains1 
-integer,parameter,private  :: lpair_subdomains2 = 5
+integer,parameter,private  :: lpair_subdomains2 = 3
 integer,allocatable,private :: pair_subdomains(:,:)
 
 logical,private :: i_compute_pair
@@ -144,7 +144,7 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
       integer :: myid
       integer :: ierr
 
-      integer :: ipair, j, shift
+      integer :: ipair, j
       integer :: idthresh
       real(kr) :: threshold_file
 
@@ -157,10 +157,8 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
       call zero(pair_subdomains,lpair_subdomains1,lpair_subdomains2)
       do ipair = 1,npair
          ! first column is associated with processors - initialize it to -1 = no processor assigned
-         pair_subdomains(ipair,1) = -1
-         shift = 1
          do j = 1,3
-            pair_subdomains(ipair,j+shift) = pairs(ipair,j)
+            pair_subdomains(ipair,j) = pairs(ipair,j)
          end do
       end do
  
@@ -191,44 +189,6 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
          write(*,*) 'LOBPCG tolerance: ',  lobpcg_tol
          write(*,*) 'max number of computed eigenvectors: ', neigvecx
          write(*,*) 'END ADAPTIVITY SETUP================='
-      end if
-
-end subroutine
-
-!************************************************************
-subroutine adaptivity_assign_pairs(comm,pair2proc,lpair2proc)
-!************************************************************
-! Subroutine for distribution of load to processors
-      implicit none
-
-! communicator
-      integer,intent(in) :: comm
-! distribution of pairs among processors
-      integer,intent(in) :: lpair2proc
-      integer,intent(in) ::  pair2proc(lpair2proc)
-
-! local variables
-      integer :: iproc, ipair_loc, indpair, npair_loc
-      integer :: myid, nproc, ierr
-
-      ! orient in the communicator
-      call MPI_COMM_RANK(comm,myid,ierr)
-      call MPI_COMM_SIZE(comm,nproc,ierr)
-
-      do iproc = 0,nproc-1
-         npair_loc = pair2proc(iproc+2) - pair2proc(iproc+1)
-         do ipair_loc = 1,npair_loc
-            indpair = pair2proc(iproc+1) + ipair_loc - 1
-
-            pair_subdomains(indpair,1) = iproc
-         end do
-      end do
-
-      ! print what is loaded
-      if (debug) then
-         if (myid.eq.0) then
-            call adaptivity_print_pairs(myid)
-         end if
       end if
 
 end subroutine
@@ -276,29 +236,6 @@ subroutine adaptivity_get_active_pairs(iround,nproc,pair2proc,lpair2proc, active
          end if
       end do
 
-end subroutine
-
-!**********************************************************************
-subroutine adaptivity_get_my_pair(iround,myid,npair_locx,npair,my_pair)
-!**********************************************************************
-! Subroutine for getting number of pair to solve
-      implicit none
-
-! number of round 
-      integer,intent(in) :: iround
-! processor ID
-      integer,intent(in) :: myid
-! Maximal local number of eigenproblems at one processor
-      integer,intent(in) :: npair_locx
-! Global number of pairs to compute eigenproblems
-      integer,intent(in) :: npair
-! number of pair to solve
-      integer,intent(out) :: my_pair 
-
-      my_pair = (myid*npair_locx) + iround
-      if (my_pair.gt.npair) then
-         my_pair = -1
-      end if
 end subroutine
 
 !******************************************************************************************
@@ -413,9 +350,6 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       integer ::             lcadapt1, lcadapt2
       real(kr),allocatable :: cadapt(:,:)
 
-      integer ::            lnadaptivea
-      integer,allocatable :: nadaptivea(:)
-
       integer ::            ncommon_interface
       integer ::            lcommon_interface
       integer,allocatable :: common_interface(:)
@@ -506,9 +440,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
             call adaptivity_get_pair_data(my_pair,pair_data,lpair_data)
    
-            comm_mygglob = pair_data(2)
-            comm_myisub  = pair_data(3)
-            comm_myjsub  = pair_data(4)
+            comm_mygglob = pair_data(1)
+            comm_myisub  = pair_data(2)
+            comm_myjsub  = pair_data(3)
 
             ! where are these subdomains ?
             call pp_get_proc_for_sub(comm_myisub,comm,sub2proc,lsub2proc,comm_myplace1)
@@ -529,9 +463,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             
             if (indpair.gt.0) then
                call adaptivity_get_pair_data(indpair,pair_data,lpair_data)
-               gglob  = pair_data(2)
-               isub   = pair_data(3)
-               jsub   = pair_data(4)
+               gglob  = pair_data(1)
+               isub   = pair_data(2)
+               jsub   = pair_data(3)
 
                ! where are these subdomains ?
                call pp_get_proc_for_sub(isub,comm,sub2proc,lsub2proc,place1)
@@ -1742,8 +1676,6 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                call error(routine_name,'Number of valid constraints does not match for pair ',my_pair)
             end if
 
-            ! store the number to the pair
-            pair_subdomains(my_pair,5) = nvalid_i
          end if
 
          deallocate(lbufa)
@@ -1780,15 +1712,6 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             end if
          end if
       end do ! loop over rounds of eigenvalue pairs
-
-      ! globalize info on number of adaptive constraints
-      lnadaptivea = npair
-      allocate(nadaptivea(lnadaptivea))
-      if (npair.gt.0) then
-         call MPI_ALLREDUCE(pair_subdomains(1,5),nadaptivea,npair,MPI_INTEGER,MPI_SUM,comm,ierr)
-      end if
-      pair_subdomains(:,5) = nadaptivea
-      deallocate(nadaptivea)
 
       if (debug) then
          if (myid.eq.0) then
@@ -2316,7 +2239,7 @@ subroutine adaptivity_get_pair_data(idpair,pair_data,lpair_data)
          write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - processor not assigned.'
          call error_exit
       end if
-      if (any(pair_subdomains(idpair,2:4).eq.0)) then
+      if (any(pair_subdomains(idpair,1:lpair_subdomains2).eq.0)) then
          write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - zeros in subdomain data.'
          call error_exit
       end if
@@ -2324,47 +2247,6 @@ subroutine adaptivity_get_pair_data(idpair,pair_data,lpair_data)
       ! after checking, get info about pair from the global structure and load it
       do i = 1,lpair_data
          pair_data(i) = pair_subdomains(idpair,i)
-      end do
-
-end subroutine
-
-!****************************************************************************
-subroutine adaptivity_update_ndof(nndf_coarse,lnndf_coarse,nnodc,nedge,nface)
-!****************************************************************************
-! Subroutine for parallel solution of distributed eigenproblems
-      use module_utils
-      implicit none
-      include "mpif.h"
-
-! Number of dof at nodes
-      integer,intent(in) ::   lnndf_coarse
-      integer,intent(inout) :: nndf_coarse(lnndf_coarse)
-
-! Number of corners
-      integer,intent(in) :: nnodc
-! Number of edges
-      integer,intent(in) :: nedge
-! Number of faces
-      integer,intent(in) :: nface
-
-! local variables
-      integer :: indglb, nadaptive, i
-
-      ! check the length of vector for data
-      if (lnndf_coarse .ne. nnodc + nedge + nface) then
-         write(*,*) 'ADAPTIVITY_UPDATE_NDOF: Array size mismatch.'
-         call error_exit
-      end if
-      if (.not. allocated(pair_subdomains)) then
-         write(*,*) 'ADAPTIVITY_UPDATE_NDOF: Pair structure not allocated.'
-         call error_exit
-      end if
-
-      do i = 1,lpair_subdomains1
-         indglb = pair_subdomains(i,2)
-         nadaptive = pair_subdomains(i,5)
-
-         nndf_coarse(indglb) = nadaptive
       end do
 
 end subroutine

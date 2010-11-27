@@ -92,7 +92,7 @@ program test_module_dd
       call dd_create_neighbouring(subdomains,lsubdomains, sub2proc,lsub2proc, indexsub,lindexsub, comm_all)
 
       ! prepare weights
-      call dd_weights_prepare(subdomains,lsubdomains, sub2proc,lsub2proc, indexsub,lindexsub, comm_all)
+      call dd_weights_prepare(subdomains,lsubdomains, sub2proc,lsub2proc, indexsub,lindexsub, comm_all,0)
 
       do isub_loc = 1,nsub_loc
          isub = indexsub(isub_loc)

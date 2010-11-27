@@ -20,8 +20,8 @@ program test_module_dd2
       integer :: isub, isub_loc, nsub_loc
       logical :: remove_original, keep_global
 
-      integer ::             lnndf_coarse
-      integer,allocatable ::  nndf_coarse(:)
+      integer ::             lnndfc
+      integer,allocatable ::  nndfc(:)
       integer :: ncnodes, nedge, nface, nglb
 
       integer ::             lsub2proc
@@ -151,15 +151,8 @@ program test_module_dd2
       ncnodes = nnodc + nedge + nface
 
       ! prepare array of number of coarse dof in generalized coarse nodes
-      lnndf_coarse = ncnodes
-      allocate(nndf_coarse(lnndf_coarse))
-
-      nndf_coarse = 0
-      ! corners contain ndim coarse dof
-      nndf_coarse(1:nnodc) = ndim
-      ! edges contain ndim coarse dof
-      nndf_coarse(nnodc+1:nnodc+nedge) = ndim
-
+      lnndfc = ncnodes
+      allocate(nndfc(lnndfc))
 
       ! auxiliary routine, until reading directly the globs
       do isub_loc = 1,nsub_loc
@@ -172,9 +165,13 @@ program test_module_dd2
          call dd_load_arithmetic_constraints(subdomains(isub_loc),glob_type)
       end do
 
+      ! embed coarse nodes and create NNDFC array
+      call dd_embed_cnodes(subdomains,lsubdomains, &
+                           indexsub,lindexsub,& 
+                           comm_all, nndfc,lnndfc)
+
       ! prepare matrix C
       do isub_loc = 1,nsub_loc
-         call dd_embed_cnodes(subdomains(isub_loc),nndf_coarse,lnndf_coarse)
          call dd_prepare_c(subdomains(isub_loc))
       end do
 
@@ -207,7 +204,7 @@ program test_module_dd2
       end if
 !*******************************************AUX
    
-      deallocate(nndf_coarse)
+      deallocate(nndfc)
 
       ! MPI finalization
 !***************************************************************PARALLEL

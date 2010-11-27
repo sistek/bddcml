@@ -802,6 +802,9 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
       integer :: edgecut, ncornermin
       integer :: nsub_loc, isub_loc, nsub, glbtype, nglb, sub_start
 
+      ! type of weights
+      integer ::   weights_type
+
       !  division variables
       integer :: stat(MPI_STATUS_SIZE)
       integer:: nelem_loc, nelem_locx
@@ -932,8 +935,8 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
       real(kr) :: t_division, t_globs, t_matrix_import, t_adjacency, t_loc_mesh,&
                   t_loc_interface, t_loc_globs, t_loc_bc, t_loc_adjacency,&
                   t_matrix_assembly, t_schur_prepare, t_weights_prepare,&
-                  t_reduced_rhs_prepare,&
-                  t_standard_coarse_prepare, t_adaptive_coarse_prepare,&
+                  t_reduced_rhs_prepare, t_prepare_c, t_prepare_aug,&
+                  t_prepare_coarse, t_standard_coarse_prepare, t_adaptive_coarse_prepare,&
                   t_par_globs_search, t_construct_cnodes 
 
       if (.not.levels(ilevel-1)%is_level_prepared) then
@@ -1978,19 +1981,17 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
  111  continue
       ! IMPORTANT: at levels > 1, this routine must be run by all members of previous level
       if (ilevel.eq.1) then
-         if (load_division) then
-            ! if division was loaded, subdomain files with element matrices should be ready, load them
-            do isub_loc = 1,nsub_loc
-               call dd_read_matrix_from_file(levels(ilevel)%subdomains(isub_loc),matrixtype,trim(problemname))
-            end do
-         else
-            ! if division of first level was created in the solver, use global file for input of element matrices
-            call dd_read_matrix_by_root(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, comm_all,trim(problemname),&
-                                        levels(ilevel)%nsub,levels(ilevel)%nelem,matrixtype,&
-                                        levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
-                                        levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
-                                        levels(ilevel)%iets,levels(ilevel)%liets)
-         end if
+         ! uncomment this to use independent subdomain files
+         !do isub_loc = 1,nsub_loc
+         !   call dd_read_matrix_from_file(levels(ilevel)%subdomains(isub_loc),matrixtype,trim(problemname))
+         !end do
+         ! use global file for input of element matrices
+         call dd_read_matrix_by_root(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, comm_all,trim(problemname),&
+                                     levels(ilevel)%nsub,levels(ilevel)%nelem,matrixtype,&
+                                     levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                                     levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
+                                     levels(ilevel)%iets,levels(ilevel)%liets)
+         !end if
       else
          ! this is a tricky routine - it needs to be run at all processes at PREVIOUS level to properly distribute matrices
          ! prepare auxiliary arrays necessary by the routine
@@ -2113,10 +2114,18 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          call time_start
       end if
 !-----profile
+      ! set type of weights
+      if (matrixtype.eq.1) then
+         ! use diagonal stiffness for SPD problems
+         weights_type = 1
+      else
+         ! use simple cardinality for others
+         weights_type = 0
+      end if
       call dd_weights_prepare(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                               levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                               levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
-                              comm_all)
+                              comm_all, weights_type)
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
@@ -2156,36 +2165,13 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          call time_start
       end if
 !-----profile
-! prepare nndfc
-      ! in nndfc, nodes are ordered as corners - edges - faces
-      lnndfc   = nnodc
-      allocate (nndfc(lnndfc))
-
-      nndfc = 0
-      ! in corners, prescribe as many constraints as dimension
-      nndfc(1:ncorner) = ndim
-      if (use_arithmetic) then
-         ! on edges
-         nndfc(ncorner+1:ncorner+nedge) = ndim
-         ! on faces
-         if (use_adaptive) then
-            nndfc(ncorner+nedge+1:ncorner+nedge+nface) = 0
-         else
-            nndfc(ncorner+nedge+1:ncorner+nedge+nface) = ndim
-         end if
-      else
-         ! on edges
-         nndfc(ncorner+1:ncorner+nedge) = 0
-         ! on faces
-         nndfc(ncorner+nedge+1:ncorner+nedge+nface) = 0
-      end if
 
       ! BDDC data
-      if (ilevel.eq.1) then
-         keep_global = .false.
-      else
-         keep_global = .true.
-      end if
+      ! load arithmetic averages on corners
+      glbtype = 3
+      do isub_loc = 1,nsub_loc
+         call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+      end do
       do isub_loc = 1,nsub_loc
          ! load arithmetic averages on edges
          if (use_arithmetic) then
@@ -2197,16 +2183,80 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
             glbtype = 1
             call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
          end if
+      end do
 
-         ! prepare matrix C for corners and arithmetic averages on edges
-         call dd_embed_cnodes(levels(ilevel)%subdomains(isub_loc),nndfc,lnndfc)
-         ! prepare matrix C for corners and arithmetic averages on edges
+! prepare nndfc and embed cnodes and get array with numbers of constraints
+      ! in nndfc, nodes are ordered as corners - edges - faces
+      lnndfc   = nnodc
+      allocate (nndfc(lnndfc))
+      call zero(nndfc,lnndfc)
+      call dd_embed_cnodes(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                           levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
+                           comm_all, nndfc,lnndfc)
+
+      ! prepare matrix C for corners and arithmetic averages on edges
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+      do isub_loc = 1,nsub_loc
          call dd_prepare_c(levels(ilevel)%subdomains(isub_loc))
-         ! prepare augmented matrix for BDDC
+      end do
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_prepare_c)
+         if (myid.eq.0) then
+            call time_print('preparing C',t_prepare_c)
+         end if
+      end if
+!-----profile
+      ! prepare augmented matrix for BDDC
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+      do isub_loc = 1,nsub_loc
          call dd_prepare_aug(levels(ilevel)%subdomains(isub_loc),comm_self)
-         ! prepare coarse space basis functions for BDDC
+      end do
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_prepare_aug)
+         if (myid.eq.0) then
+            call time_print('preparing augmented problem',t_prepare_aug)
+         end if
+      end if
+!-----profile
+      ! prepare coarse space basis functions for BDDC
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+      if (ilevel.eq.1) then
+         keep_global = .false.
+      else
+         keep_global = .true.
+      end if
+!-----profile
+      do isub_loc = 1,nsub_loc
          call dd_prepare_coarse(levels(ilevel)%subdomains(isub_loc),keep_global)
       end do
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_prepare_coarse)
+         if (myid.eq.0) then
+            call time_print('preparing coarse probem matrices and shape functions ',t_prepare_coarse)
+         end if
+      end if
+!-----profile
+
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
@@ -2271,12 +2321,9 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          call adaptivity_init(comm_all,pairs,lpairs1,lpairs2, npair)
          deallocate(pairs)
 
-   
          lpair2proc = nproc + 1
          allocate(pair2proc(lpair2proc))
          call pp_distribute_linearly(npair,nproc,pair2proc,lpair2proc)
-
-         call adaptivity_assign_pairs(comm_all,pair2proc,lpair2proc)
 
          if (use_explicit_schurs) then
             do isub_loc = 1,nsub_loc
@@ -2288,24 +2335,23 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
                                             levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
                                             pair2proc,lpair2proc, comm_all, use_explicit_schurs,&
                                             levels(ilevel)%adaptivity_estimate)
+
          if (use_explicit_schurs) then
             do isub_loc = 1,nsub_loc
                call dd_destroy_explicit_schur(levels(ilevel)%subdomains(isub_loc))
             end do
          end if
 
-         ! update nndfc
-         call adaptivity_update_ndof(nndfc,lnndfc,ncorner,nedge,nface)
-   
          call adaptivity_finalize
-
          deallocate(pair2proc)
+
+         call dd_embed_cnodes(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                              levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
+                              comm_all, nndfc,lnndfc)
 
          ! prepare AGAIN BDDC data
          do isub_loc = 1,nsub_loc
-            ! prepare matrix C for corners and arithmetic averages on edges
-            call dd_embed_cnodes(levels(ilevel)%subdomains(isub_loc),nndfc,lnndfc)
-            ! prepare matrix C for corners and arithmetic averages on edges
+            ! prepare matrix C for and updated constraints on faces
             call dd_prepare_c(levels(ilevel)%subdomains(isub_loc))
             ! prepare augmented matrix for BDDC
             call dd_prepare_aug(levels(ilevel)%subdomains(isub_loc),comm_self)
@@ -2510,16 +2556,16 @@ subroutine levels_prepare_last_level(matrixtype)
 
 end subroutine
 
-!***************************************************
-subroutine levels_pc_apply(krylov_data,lkrylov_data)
-!***************************************************
+!*****************************************************************
+subroutine levels_pc_apply(common_krylov_data,lcommon_krylov_data)
+!*****************************************************************
 ! Apply last level coarse problem to array lvec
       use module_krylov_types_def
       use module_utils
       implicit none
 
-      integer,intent(in)         ::       lkrylov_data
-      type(pcg_data_type),intent(inout) :: krylov_data(lkrylov_data)
+      integer,intent(in)         ::                 lcommon_krylov_data
+      type(common_krylov_data_type),intent(inout) :: common_krylov_data(lcommon_krylov_data)
 
       ! local vars
       character(*),parameter:: routine_name = 'LEVELS_PC_APPLY'
@@ -2534,7 +2580,7 @@ subroutine levels_pc_apply(krylov_data,lkrylov_data)
       if (debug .and. myid.eq.0) then
          call info(routine_name,'Applying subdomain correction at level',iactive_level)
       end if
-      call levels_corsub_first_level(krylov_data,lkrylov_data)
+      call levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
 
 ! Sweep levels upwards - make coarse correction and produce coarse residual
       do iactive_level = 2,nlevels-1
@@ -2585,22 +2631,22 @@ subroutine levels_pc_apply(krylov_data,lkrylov_data)
       if (debug .and. myid.eq.0) then
          call info(routine_name,'Adding coarse correction at level',iactive_level)
       end if
-      call levels_add_first_level(krylov_data,lkrylov_data)
+      call levels_add_first_level(common_krylov_data,lcommon_krylov_data)
 
 end subroutine
 
 
-!*************************************************************
-subroutine levels_corsub_first_level(krylov_data,lkrylov_data)
-!*************************************************************
+!***************************************************************************
+subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
+!***************************************************************************
 ! Apply subdomain correction on first level and produce coarse resudual
       use module_krylov_types_def
       use module_utils
       implicit none
       include "mpif.h"
 
-      integer,intent(in)    ::            lkrylov_data
-      type(pcg_data_type),intent(inout) :: krylov_data(lkrylov_data)
+      integer,intent(in)    ::                      lcommon_krylov_data
+      type(common_krylov_data_type),intent(inout) :: common_krylov_data(lcommon_krylov_data)
 
 
       ! local vars
@@ -2645,7 +2691,7 @@ subroutine levels_corsub_first_level(krylov_data,lkrylov_data)
       ! get local number of subdomains
       nsub_loc = levels(ilevel)%nsub_loc
       ! check the length
-      if (lkrylov_data .ne. nsub_loc) then
+      if (lcommon_krylov_data .ne. nsub_loc) then
          call error(routine_name,'Inconsistent length of data.')
       end if
 
@@ -2658,10 +2704,10 @@ subroutine levels_corsub_first_level(krylov_data,lkrylov_data)
 
          call dd_get_coarse_size(levels(ilevel)%subdomains(isub_loc),ndofcs,nnodcs)
 
-         laux = krylov_data(isub_loc)%lresi
+         laux = common_krylov_data(isub_loc)%lvec_in
          allocate(aux(laux))
          do i = 1,laux
-            aux(i) = krylov_data(isub_loc)%resi(i)
+            aux(i) = common_krylov_data(isub_loc)%vec_in(i)
          end do
 
          ! aux = wi * resi
@@ -2692,9 +2738,9 @@ subroutine levels_corsub_first_level(krylov_data,lkrylov_data)
          call dd_solve_aug(levels(ilevel)%subdomains(isub_loc), aux2,laux2, nrhs)
 
          ! get interface part of the vector of preconditioned residual
-         call zero(krylov_data(isub_loc)%z,krylov_data(isub_loc)%lz)
+         call zero(common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
          call dd_map_sub_to_subi(levels(ilevel)%subdomains(isub_loc), aux2,ndofs, &
-                                 krylov_data(isub_loc)%z,krylov_data(isub_loc)%lz)
+                                 common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
 
          deallocate(aux2)
          deallocate(aux)
@@ -2910,7 +2956,6 @@ end subroutine
 subroutine levels_add_standard_level(ilevel)
 !*******************************************
 ! Collect residual on first level and produce coarse resudual
-      use module_krylov_types_def
       use module_utils
       implicit none
       include "mpif.h"
@@ -3096,17 +3141,18 @@ subroutine levels_add_standard_level(ilevel)
       deallocate(solaux)
 
 end subroutine
-!**********************************************************
-subroutine levels_add_first_level(krylov_data,lkrylov_data)
-!**********************************************************
+
+!************************************************************************
+subroutine levels_add_first_level(common_krylov_data,lcommon_krylov_data)
+!************************************************************************
 ! Collect residual on first level and produce coarse resudual
       use module_krylov_types_def
       use module_utils
       implicit none
       include "mpif.h"
 
-      integer,intent(in)    ::            lkrylov_data
-      type(pcg_data_type),intent(inout) :: krylov_data(lkrylov_data)
+      integer,intent(in)    ::                      lcommon_krylov_data
+      type(common_krylov_data_type),intent(inout) :: common_krylov_data(lcommon_krylov_data)
 
       ! local vars
       character(*),parameter:: routine_name = 'LEVELS_ADD_FIRST_LEVEL'
@@ -3116,7 +3162,7 @@ subroutine levels_add_first_level(krylov_data,lkrylov_data)
       real(kr),allocatable :: solcs(:)
 
       integer :: ndofcs, nnodcs
-      integer :: nsub_loc, isub_loc, i
+      integer :: nsub_loc, isub_loc
       integer :: ilevel
       logical :: transposed
 
@@ -3149,7 +3195,7 @@ subroutine levels_add_first_level(krylov_data,lkrylov_data)
       ! get local number of subdomains
       nsub_loc = levels(ilevel)%nsub_loc
       ! check the length
-      if (lkrylov_data .ne. nsub_loc) then
+      if (lcommon_krylov_data .ne. nsub_loc) then
          call error(routine_name,'Inconsistent length of data.')
       end if
 
@@ -3167,13 +3213,15 @@ subroutine levels_add_first_level(krylov_data,lkrylov_data)
          ! z_i = z_i + phis_i * uc_i
          transposed = .false.
          call dd_phisi_apply(levels(ilevel)%subdomains(isub_loc), transposed, solcs,lsolcs, &
-                             krylov_data(isub_loc)%z,krylov_data(isub_loc)%lz)
+                             common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
          ! apply weights
          ! z = wi * z
-         call dd_weightsi_apply(levels(ilevel)%subdomains(isub_loc), krylov_data(isub_loc)%z,krylov_data(isub_loc)%lz)
+         call dd_weightsi_apply(levels(ilevel)%subdomains(isub_loc), &
+                                common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
 
          ! load Z for communication
-         call dd_comm_upload(levels(ilevel)%subdomains(isub_loc), krylov_data(isub_loc)%z,krylov_data(isub_loc)%lz)
+         call dd_comm_upload(levels(ilevel)%subdomains(isub_loc), &
+                             common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
 
          deallocate(solcs)
       end do
@@ -3186,14 +3234,9 @@ subroutine levels_add_first_level(krylov_data,lkrylov_data)
       ! Download data
       do isub_loc = 1,nsub_loc
 
-         call zero(krylov_data(isub_loc)%zadj,krylov_data(isub_loc)%lz)
          ! get contibution from neigbours
-         call dd_comm_download(levels(ilevel)%subdomains(isub_loc), krylov_data(isub_loc)%zadj,krylov_data(isub_loc)%lz)
-         ! join data
-         do i = 1,krylov_data(isub_loc)%lz
-            krylov_data(isub_loc)%z(i) = krylov_data(isub_loc)%z(i) + krylov_data(isub_loc)%zadj(i)
-         end do
-
+         call dd_comm_download(levels(ilevel)%subdomains(isub_loc), &
+                               common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
       end do
 
 end subroutine
@@ -3223,28 +3266,27 @@ subroutine levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
 
 end subroutine
 
-!**************************************************************
-subroutine levels_prepare_krylov_data(krylov_data,lkrylov_data)
-!**************************************************************
-! Subroutine for initialization of data for Krylov iterative method
-! module for distributed Krylov data storage
-      use module_krylov_types_def
+!***********************************************************************************
+subroutine levels_prepare_interface_initial_data(isub_loc,solis,lsolis,resis,lresis)
+!***********************************************************************************
+! Subroutine for initialization of solution and residual at interface of subdomain
 ! module with utility routines
       use module_utils
 
       implicit none
 
-      integer,intent(in)               :: lkrylov_data
-      type (pcg_data_type),intent(out) ::  krylov_data(lkrylov_data)
+      integer,intent(in)   :: lsolis
+      real(kr),intent(out) ::  solis(lsolis)
+      integer,intent(in)   :: lresis
+      real(kr),intent(out) ::  resis(lresis)
 
 ! local vars
-      character(*),parameter:: routine_name = 'LEVELS_PREPARE_KRYLOV_DATA'
+      character(*),parameter:: routine_name = 'LEVELS_PREPARE_INTERFACE_INITIAL_DATA'
       ! for Krylov data, index of level is 1
       integer,parameter :: ilevel = 1
 
       integer :: isub_loc
       integer :: ndofs, nnods, nelems, ndofis, nnodis
-      integer :: lsolis, lresis, laps, lps, lzs
 
       integer ::             lsols
       real(kr),allocatable :: sols(:)
@@ -3254,111 +3296,44 @@ subroutine levels_prepare_krylov_data(krylov_data,lkrylov_data)
          call error(routine_name,'Level is not prepared.')
       end if
       ! check dimensions
-      if (lkrylov_data.ne.levels(ilevel)%nsub_loc) then
+      if (isub_loc.gt.levels(ilevel)%nsub_loc) then
          call error(routine_name,'Dimension mismatch.')
       end if
 
-      do isub_loc = 1,levels(ilevel)%nsub_loc
-         ! determine size of subdomain
-         call dd_get_size(levels(ilevel)%subdomains(isub_loc),ndofs,nnods,nelems)
-         call dd_get_interface_size(levels(ilevel)%subdomains(isub_loc),ndofis,nnodis)
+      ! determine size of subdomain
+      call dd_get_size(levels(ilevel)%subdomains(isub_loc),ndofs,nnods,nelems)
+      call dd_get_interface_size(levels(ilevel)%subdomains(isub_loc),ndofis,nnodis)
 
-         ! allocate local subdomain solution
-         lsols  = ndofs
-         allocate(sols(lsols))
+      ! allocate local subdomain solution
+      lsols  = ndofs
+      allocate(sols(lsols))
 
-         if (levels(ilevel)%use_initial_solution) then
-            ! set initial guess
-            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc),levels(ilevel)%sol,levels(ilevel)%lsol,sols,lsols)
-         else
-            ! set zero initial guess
-            ! u_0 = 0
-            call zero(sols,lsols)
-         end if
+      if (levels(ilevel)%use_initial_solution) then
+         ! set initial guess
+         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc),levels(ilevel)%sol,levels(ilevel)%lsol,sols,lsols)
+      else
+         ! set zero initial guess
+         ! u_0 = 0
+         call zero(sols,lsols)
+      end if
 
-         ! set initial guess to satisfy Dirichlet boundary conditions
-         call dd_fix_bc(levels(ilevel)%subdomains(isub_loc), sols,lsols)
+      ! set initial guess to satisfy Dirichlet boundary conditions
+      call dd_fix_bc(levels(ilevel)%subdomains(isub_loc), sols,lsols)
 
-         ! allocate vectors for Krylov method 
-         lsolis = ndofis
-         krylov_data(isub_loc)%lsoli = lsolis
-         allocate(krylov_data(isub_loc)%soli(lsolis))
-         call zero(krylov_data(isub_loc)%soli,lsolis)
-         lresis = ndofis
-         krylov_data(isub_loc)%lresi = lresis
-         allocate(krylov_data(isub_loc)%resi(lresis))
-         call zero(krylov_data(isub_loc)%resi,lresis)
+      ! restrict solution to interface
+      call zero(solis,lsolis)
+      call dd_map_sub_to_subi(levels(ilevel)%subdomains(isub_loc), sols,lsols, solis,lsolis)
+      deallocate(sols)
 
-         ! restrict solution to interface
-         call dd_map_sub_to_subi(levels(ilevel)%subdomains(isub_loc), sols,lsols, krylov_data(isub_loc)%soli,lsolis)
-         deallocate(sols)
-
-         ! set initial residual to RHS
-         ! res = g
-         call dd_get_reduced_rhs(levels(ilevel)%subdomains(isub_loc), krylov_data(isub_loc)%resi,lresis)
-
-         laps = ndofis
-         krylov_data(isub_loc)%lap = laps
-         allocate(krylov_data(isub_loc)%ap(laps))
-         allocate(krylov_data(isub_loc)%apadj(laps))
-
-         lps = ndofis
-         krylov_data(isub_loc)%lp = lps
-         allocate(krylov_data(isub_loc)%p(lps))
-         allocate(krylov_data(isub_loc)%padj(lps))
-
-         lresis = krylov_data(isub_loc)%lresi
-         allocate(krylov_data(isub_loc)%resiadj(lresis))
-
-         lzs = ndofis
-         krylov_data(isub_loc)%lz = lzs
-         allocate(krylov_data(isub_loc)%z(lzs))
-         allocate(krylov_data(isub_loc)%zadj(lzs))
-
-      end do
+      ! set initial residual to RHS
+      ! res = g
+      call dd_get_reduced_rhs(levels(ilevel)%subdomains(isub_loc), resis,lresis)
 
 end subroutine
 
-!****************************************************************
-subroutine levels_fix_bc_interface_dual(krylov_data,lkrylov_data)
-!****************************************************************
-! Subroutine for fixing boundary conditions in subdomain right hand sides 
-! module for distributed Krylov data storage
-      use module_krylov_types_def
-! module with utility routines
-      use module_utils
-
-      implicit none
-
-      integer,intent(in)                 :: lkrylov_data
-      type (pcg_data_type),intent(inout) ::  krylov_data(lkrylov_data)
-
-! local vars
-      character(*),parameter:: routine_name = 'LEVELS_FIX_BC_INTERFACE_DUAL'
-      ! for Krylov data, index of level is 1
-      integer,parameter :: ilevel = 1
-      integer :: isub_loc
-
-      ! check prerequisites
-      if (.not.levels(ilevel)%is_level_prepared) then
-         call error(routine_name,'Level is not prepared:',ilevel)
-      end if
-      ! check dimensions
-      if (lkrylov_data.ne.levels(ilevel)%nsub_loc) then
-         call error(routine_name,'Dimension mismatch.')
-      end if
-
-      do isub_loc = 1,levels(ilevel)%nsub_loc
-         ! determine size of subdomain
-         call dd_fix_bc_interface_dual(levels(ilevel)%subdomains(isub_loc), &
-                                       krylov_data(isub_loc)%resi,krylov_data(isub_loc)%lresi)
-      end do
-
-end subroutine
-
-!***************************************************
-subroutine levels_sm_apply(krylov_data,lkrylov_data)
-!***************************************************
+!*****************************************************************
+subroutine levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+!*****************************************************************
 ! Subroutine for multiplication of distributed vector by System Matrix
 ! module for distributed Krylov data storage
       use module_krylov_types_def
@@ -3367,16 +3342,16 @@ subroutine levels_sm_apply(krylov_data,lkrylov_data)
 
       implicit none
 
-      integer,intent(in)                 :: lkrylov_data
-      type (pcg_data_type),intent(inout) ::  krylov_data(lkrylov_data)
+      integer,intent(in)                           :: lcommon_krylov_data
+      type (common_krylov_data_type),intent(inout) ::  common_krylov_data(lcommon_krylov_data)
 
 ! local vars
       character(*),parameter:: routine_name = 'LEVELS_SM_APPLY'
       ! for Krylov data, index of level is 1
       integer,parameter :: ilevel = 1
-      integer :: i
 
       integer :: comm_all
+      integer :: ierr, myid
       integer :: isub_loc
 
       ! check prerequisites
@@ -3384,25 +3359,28 @@ subroutine levels_sm_apply(krylov_data,lkrylov_data)
          call error(routine_name,'Level is not prepared:',ilevel)
       end if
       ! check dimensions
-      if (lkrylov_data.ne.levels(ilevel)%nsub_loc) then
+      if (lcommon_krylov_data.ne.levels(ilevel)%nsub_loc) then
          call error(routine_name,'Dimension mismatch.')
       end if
 
       ! set communicator
       comm_all = levels(ilevel)%comm_all
+      call MPI_COMM_RANK(comm_all,myid,ierr)
 
-      ! ap = A*p
+      ! vec_out = A*vec_in
       ! Upload data
       do isub_loc = 1,levels(ilevel)%nsub_loc
 
-         call zero(krylov_data(isub_loc)%ap,krylov_data(isub_loc)%lap)
+         call zero(common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
 
          call dd_multiply_by_schur(levels(ilevel)%subdomains(isub_loc),&
-                                   krylov_data(isub_loc)%p,krylov_data(isub_loc)%lp, &
-                                   krylov_data(isub_loc)%ap,krylov_data(isub_loc)%lap)
+                                   common_krylov_data(isub_loc)%vec_in,common_krylov_data(isub_loc)%lvec_in, &
+                                   common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
 
-         call dd_comm_upload(levels(ilevel)%subdomains(isub_loc), krylov_data(isub_loc)%ap,krylov_data(isub_loc)%lap)
+         call dd_comm_upload(levels(ilevel)%subdomains(isub_loc), &
+                             common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
       end do
+
       ! Interchange data
       call dd_comm_swapdata(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains,&
                             levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&    
@@ -3411,13 +3389,9 @@ subroutine levels_sm_apply(krylov_data,lkrylov_data)
       ! Download data
       do isub_loc = 1,levels(ilevel)%nsub_loc
 
-         call zero(krylov_data(isub_loc)%apadj,krylov_data(isub_loc)%lap)
-         ! get contibution from neigbours
-         call dd_comm_download(levels(ilevel)%subdomains(isub_loc), krylov_data(isub_loc)%apadj,krylov_data(isub_loc)%lap)
-         ! join data
-         do i = 1,krylov_data(isub_loc)%lap
-            krylov_data(isub_loc)%ap(i) = krylov_data(isub_loc)%ap(i) + krylov_data(isub_loc)%apadj(i)
-         end do
+         ! add contibution from neigbours
+         call dd_comm_download(levels(ilevel)%subdomains(isub_loc), &
+                               common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
       end do
 end subroutine
 
@@ -3434,8 +3408,8 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
       implicit none
       include "mpif.h"
 
-      integer,intent(in)              :: lkrylov_data
-      type (pcg_data_type),intent(in) ::  krylov_data(lkrylov_data)
+      integer,intent(in)                        :: lkrylov_data
+      type (common_krylov_data_type),intent(in) ::  krylov_data(lkrylov_data)
       character(*),intent(in) :: problemname
       logical, intent(in) :: print_solution
       logical, intent(in) :: write_solution_by_root
@@ -3510,7 +3484,7 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
 
          ! resolve interior values
          call dd_resolve_interior(levels(ilevel)%subdomains(isub_loc), &
-                                  krylov_data(isub_loc)%soli,krylov_data(isub_loc)%lsoli, &
+                                  krylov_data(isub_loc)%vec_in,krylov_data(isub_loc)%lvec_in, &
                                   sols,lsols)
 
          ! write subdomain solution to independent disk files
@@ -3609,50 +3583,6 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
 
 end subroutine
 
-!**************************************************************
-subroutine levels_destroy_krylov_data(krylov_data,lkrylov_data)
-!**************************************************************
-! Subroutine for clearing data for Krylov iterative method
-! module for distributed Krylov data storage
-      use module_krylov_types_def
-! module with utility routines
-      use module_utils
-
-      implicit none
-
-      integer,intent(in)                 :: lkrylov_data
-      type (pcg_data_type),intent(inout) ::  krylov_data(lkrylov_data)
-
-! local vars
-      character(*),parameter:: routine_name = 'LEVELS_DESTROY_KRYLOV_DATA'
-      ! for Krylov data, index of level is 1
-      integer,parameter :: ilevel = 1
-
-      integer :: isub_loc
-
-      ! check prerequisites
-      if (.not.levels(ilevel)%is_level_prepared) then
-         call error(routine_name,'Level is not prepared:',ilevel)
-      end if
-      ! check dimensions
-      if (lkrylov_data.ne.levels(ilevel)%nsub_loc) then
-         call error(routine_name,'Dimension mismatch.')
-      end if
-
-      do isub_loc = 1,levels(ilevel)%nsub_loc
-         deallocate(krylov_data(isub_loc)%ap)
-         deallocate(krylov_data(isub_loc)%apadj)
-         deallocate(krylov_data(isub_loc)%p)
-         deallocate(krylov_data(isub_loc)%padj)
-         deallocate(krylov_data(isub_loc)%resiadj)
-         deallocate(krylov_data(isub_loc)%z)
-         deallocate(krylov_data(isub_loc)%zadj)
-         deallocate(krylov_data(isub_loc)%soli)
-         deallocate(krylov_data(isub_loc)%resi)
-      end do
-
-end subroutine
-
 !***********************************************************************************
 subroutine levels_dd_dotprod_local(ilevel,isub_loc, vec1,lvec1, vec2,lvec2, dotprod)
 !***********************************************************************************
@@ -3674,6 +3604,63 @@ subroutine levels_dd_dotprod_local(ilevel,isub_loc, vec1,lvec1, vec2,lvec2, dotp
 
       ! add data from module and call function from adaptive module
       call dd_dotprod_local(levels(ilevel)%subdomains(isub_loc), vec1,lvec1, vec2,lvec2, dotprod)
+
+end subroutine
+
+!***********************************************************************
+subroutine levels_dd_get_interface_size(ilevel,isub_loc, ndofis, nnodis)
+!***********************************************************************
+! Subroutine used for indirect access to DD data
+! obtain interface size of subdomain isub_loc at level ilevel
+      use module_utils
+      implicit none
+
+      ! length of vector
+      integer,intent(in) ::   ilevel 
+      integer,intent(in) ::   isub_loc 
+      
+      ! size of interface
+      integer, intent(out) :: ndofis
+      integer, intent(out) :: nnodis
+
+      ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_DD_GET_INTERFACE_SIZE'
+
+      ! check prerequisites
+      if (.not.levels(ilevel)%is_level_prepared) then
+         call error(routine_name,'Level is not prepared:',ilevel)
+      end if
+
+      ! call DD module function with data from module
+      call dd_get_interface_size(levels(ilevel)%subdomains(isub_loc),ndofis,nnodis)
+
+end subroutine
+
+!*********************************************************************
+subroutine levels_dd_fix_bc_interface_dual(ilevel,isub_loc,resi,lresi)
+!*********************************************************************
+! Subroutine used for indirect access to DD data
+! module for distributed Krylov data storage
+! module with utility routines
+      use module_utils
+
+      implicit none
+
+      integer,intent(in)     :: ilevel
+      integer,intent(in)     :: isub_loc
+      integer,intent(in)     :: lresi
+      real(kr),intent(inout) ::  resi(lresi)
+
+! local vars
+      character(*),parameter:: routine_name = 'LEVELS_DD_FIX_BC_INTERFACE_DUAL'
+
+      ! check prerequisites
+      if (.not.levels(ilevel)%is_level_prepared) then
+         call error(routine_name,'Level is not prepared:',ilevel)
+      end if
+
+      ! fix BC on subdomain
+      call dd_fix_bc_interface_dual(levels(ilevel)%subdomains(isub_loc), resi,lresi)
 
 end subroutine
 
