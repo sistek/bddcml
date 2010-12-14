@@ -1,4 +1,4 @@
-DIRS = lobpcg_driver common_blocks bddcpp bddcmumps mumps_adaptive bddcml 
+DIRS = common_blocks bddcpp bddcmumps mumps_adaptive bddcml 
 ##################################################################
 # Targets
 ##################################################################

@@ -292,9 +292,9 @@ subroutine levels_init(nl,nsublev,lnsublev,comm_init)
 end subroutine
 
 !***********************************************************************************
-subroutine levels_load_global_data(nelem,nnod,ndof,&
-                                   inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                   ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
+subroutine levels_upload_global_data(nelem,nnod,ndof,&
+                                     inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                     ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
 !***********************************************************************************
 ! Subroutine for loading global data as zero level
       use module_utils
@@ -3439,9 +3439,6 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
       integer :: stat(MPI_STATUS_SIZE)
       integer :: idsol
 
-      ! timing
-      real(kr) :: t_solution_postprocessing
-
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
          call error(routine_name,'Level is not prepared:',ilevel)
@@ -3455,13 +3452,6 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
       ! orient in the communicator
       call MPI_COMM_RANK(comm_all,myid,ierr)
       call MPI_COMM_SIZE(comm_all,nproc,ierr)
-
-!-----profile
-      if (profile) then
-         call MPI_BARRIER(comm_all,ierr)
-         call time_start
-      end if
-!-----profile
 
       if (write_solution_by_root .and. myid.eq.0) then
          ! prepare solution array on root
@@ -3571,15 +3561,6 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
 
          deallocate(sol)
       end if
-!-----profile
-      if (profile) then
-         call MPI_BARRIER(comm_all,ierr)
-         call time_end(t_solution_postprocessing)
-         if (myid.eq.0) then
-            call time_print('postprocessing of solution',t_solution_postprocessing)
-         end if
-      end if
-!-----profile
 
 end subroutine
 

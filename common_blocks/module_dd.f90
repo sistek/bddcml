@@ -3278,6 +3278,8 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,nvali
       integer :: ind_loc, lmatrix1, lmatrix2, nvarglb, ncdof
       integer :: i, j, indiv
       integer :: limit_loop
+      integer ::  nnz
+      real(kr) :: val
 
       ! check the prerequisities
       if (.not.allocated(sub%cnodes) .or. .not.sub%is_cnodes_loaded) then
@@ -3386,14 +3388,21 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,nvali
       sub%cnodes(ind_loc)%lmatrix1 = lmatrix1
       sub%cnodes(ind_loc)%lmatrix2 = lmatrix2
       allocate(sub%cnodes(ind_loc)%matrix(lmatrix1,lmatrix2))
+      call zero(sub%cnodes(ind_loc)%matrix,lmatrix1,lmatrix2)
       
+      nnz = 0
       do i = 1,nvalid
          do j = 1,nvarglb
 
-            sub%cnodes(ind_loc)%matrix(i,j) = avg(j,i)
+            val = avg(j,i)
+
+            if (abs(val).gt.0._kr) then
+               sub%cnodes(ind_loc)%matrix(i,j) = val
+               nnz = nnz + 1
+            end if
          end do
       end do
-      sub%cnodes(ind_loc)%nnz = lmatrix1*lmatrix2
+      sub%cnodes(ind_loc)%nnz = nnz
       sub%cnodes(ind_loc)%adaptive   = .true.
       sub%cnodes(ind_loc)%arithmetic = .false.
 
@@ -3718,7 +3727,7 @@ subroutine dd_prepare_c(sub)
 
                do ivar = 1,nvar
                   val = sub%cnodes(icn)%matrix(icdof,ivar)
-                  if (val.gt.0_kr) then
+                  if (abs(val).gt.0._kr) then
                      inzc  = inzc  + 1
                      ! check length
                      if (inzc.gt.lc) then

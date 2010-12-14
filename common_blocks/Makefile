@@ -2,7 +2,7 @@
 include ../make.inc
 
 # include files needed
-INC = $(INCMUMPS) $(INCPARMETIS)
+INC = $(INCMUMPS) $(INCPARMETIS) $(INCBLOPEX)
 # libraries needed
 LIBS = $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
        $(LIBLAPACK) $(LIBBLAS) $(LIBPORD) 
@@ -31,6 +31,7 @@ TESTS = \
 
 OBJ = \
    lobpcg_mvecmult_f.o \
+   module_krylov.o \
    module_krylov_types_def.o \
    module_adaptivity.o \
    module_dd.o \
@@ -42,14 +43,20 @@ OBJ = \
    module_parsing.o \
    module_sm.o \
    module_tecplot.o \
-   module_utils.o
+   module_utils.o \
+   lobpcg_driver.o \
+   bddcml_fortran_interface.o
+
+BDDCLIB=libbddcml.a
 
 all: \
-   modules tests
+   modules tests bddclib
 
 modules: $(OBJ)
 
 tests: $(TESTS)
+
+bddclib: $(BDDCLIB)
 
 
 # general rule s for compiling objects
@@ -81,6 +88,11 @@ module_levels.o: \
    module_parsing.o \
    module_krylov_types_def.o \
    module_utils.o 
+
+module_krylov.o: \
+   module_krylov_types_def.o \
+   module_levels.o \
+   module_utils.o
 
 module_mumps.o: \
    module_utils.o
@@ -210,7 +222,7 @@ test_module_adaptivity: \
    module_sm.o \
    module_utils.o \
    module_krylov_types_def.o \
-   ../lobpcg_driver/lobpcg_driver.o \
+   lobpcg_driver.o \
    lobpcg_mvecmult_f.o
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) $(BLOPEXLINK)
 
@@ -251,7 +263,7 @@ test_module_levels: \
    module_sm.o \
    module_utils.o \
    module_krylov_types_def.o \
-   ../lobpcg_driver/lobpcg_driver.o \
+   lobpcg_driver.o \
    lobpcg_mvecmult_f.o
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) $(BLOPEXLINK)
 
@@ -276,5 +288,10 @@ test_module_utils: \
    module_utils.o 
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
 
+# make modules into BDDCML archive library
+$(BDDCLIB): $(OBJ)
+	$(AR) $@ $^
+	$(RANLIB) $@
+
 clean:
-	-rm -f *.o *.mod $(TESTS)
+	-rm -f *.mod *.o $(OBJ) $(TESTS) $(BDDCLIB)

@@ -12,7 +12,7 @@ real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! threshold on eigenvalues to define an adaptive constraint
 ! eigenvectors for eigenvalues above this value are used for creation of constraints 
-real(kr),parameter,private :: threshold_eigval_default = 1.05_kr
+real(kr),parameter,private :: threshold_eigval_default = 1.001_kr
 logical,parameter,private  :: read_threshold_from_file = .false.
 ! LOBPCG related variables
 ! maximal number of LOBPCG iterations

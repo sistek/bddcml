@@ -6,6 +6,7 @@ include ../make.inc
 # libraries needed
 LIBS = $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
        $(LIBPORD) $(LIBLAPACK) $(LIBBLAS) $(BLOPEXLINK)
+LIBBDDCML = -L../common_blocks -lbddcml
 #$(LIBMPI) $(LIBPTHREAD)
 ##############################################################
 # GNU Make automatic variables:
@@ -23,34 +24,12 @@ all: \
 
 # module dependencies
 bddcml.o: \
-   ../common_blocks/module_krylov_types_def.o \
-   ../common_blocks/module_levels.o \
-   ../common_blocks/module_adaptivity.o \
-   ../common_blocks/module_pp.o \
-   ../common_blocks/module_graph.o \
-   ../common_blocks/module_parsing.o \
-   ../common_blocks/module_dd.o \
-   ../common_blocks/module_mumps.o \
-   ../common_blocks/module_sm.o \
-   ../common_blocks/module_utils.o
+   ../common_blocks/libbddcml.a
 
 # building binaries
 bddcml: \
-   bddcml.o \
-   ../common_blocks/module_krylov_types_def.o \
-   ../common_blocks/module_levels.o \
-   ../common_blocks/module_adaptivity.o \
-   ../common_blocks/module_pp.o \
-   ../common_blocks/pget_sub_neighbours.o \
-   ../common_blocks/module_graph.o \
-   ../common_blocks/module_parsing.o \
-   ../common_blocks/module_dd.o \
-   ../common_blocks/module_mumps.o \
-   ../common_blocks/module_sm.o \
-   ../common_blocks/module_utils.o \
-   ../lobpcg_driver/lobpcg_driver.o \
-   ../common_blocks/lobpcg_mvecmult_f.o
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) 
+   bddcml.o
+	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBBDDCML) $(LIBS) 
 
 clean:
 	-rm -f *.o *.mod bddcml

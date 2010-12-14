@@ -19,6 +19,8 @@ program test_module_utils
       integer           ::  nintersection, nunion
       integer,parameter :: larray3 = 7
       integer           :: array3(larray3) = (/1,1,1,3,3,5,9/)
+      integer,parameter :: larray4 = 30
+      integer           :: array4(larray4) = (/1,1,1,3,3,5,9,5,90,2,4,4,6,2,15,12,91,67,89,45,32,41,44,45,46,32,12,24,39,40/)
 
       real(kr) :: rnd
 
@@ -57,8 +59,19 @@ program test_module_utils
       ! searching index in array
       ivalue = 5
       call get_index(ivalue,array1,larray1,iindex)
-      print *,'Index of value ',ivalue,' in array'
+      print *,'Index of value ',ivalue,' in array' 
       print *,  array1
+      print *,'is ',iindex
+
+      call iquick_sort(array4,larray4)
+      call get_index_sorted(ivalue,array4,larray4,iindex)
+      print *,'Index of value ',ivalue,' in sorted array'
+      print *,  array4
+      print *,'is ',iindex
+      ivalue = 66
+      call get_index_sorted(ivalue,array4,larray4,iindex)
+      print *,'Index of value ',ivalue,' in sorted array'
+      print *,  array4
       print *,'is ',iindex
 
       ! test nonrepeated indices

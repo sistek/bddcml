@@ -70,7 +70,7 @@ subroutine rdline(idfile)
    80 line = 'EOF '
       return
    90 line = 'ERR '
-      call error('reading of line failed')
+      call parse_error('reading of line failed')
 end subroutine rdline
 
 subroutine stripline
@@ -130,7 +130,7 @@ subroutine getstring
       else if (lbracket.gt.-1.and.lspace.gt.-1) then
          lstring = min(lbracket,lspace)
       else
-         call error('Error in separating strings in',line)
+         call parse_error('Error in separating strings in',line)
       end if
       
       if (line(1:1).eq.'{') lstring = 1
@@ -186,8 +186,8 @@ subroutine lc2uc(input)
       end do
 end subroutine lc2uc
 
-subroutine error(message,problem)
-!********************************
+subroutine parse_error(message,problem)
+!**************************************
 ! Terminates the code and prints the reason from MESSAGE and prints FILELINE
       character(*):: message
       character(*),optional:: problem
@@ -197,7 +197,7 @@ subroutine error(message,problem)
          write(*,'(a,a,a,i6)') 'Error in input file: ',message,' , line ',fileline
       end if
       stop
-end subroutine error
+end subroutine parse_error
 
 end module module_parsing
 

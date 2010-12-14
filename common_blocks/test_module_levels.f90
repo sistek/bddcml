@@ -182,9 +182,9 @@ program test_module_levels
 
       write (*,*) 'myid = ',myid,': Initializing LEVELS.'
       call levels_init(nlevels,nsublev,lnsublev,comm_all)
-      call levels_load_global_data(nelem,nnod,ndof,&
-                                   inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                   ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
+      call levels_upload_global_data(nelem,nnod,ndof,&
+                                     inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                     ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
       deallocate(inet,nnet,nndf,xyz)
       deallocate(ifix,fixv)
       deallocate(rhs)

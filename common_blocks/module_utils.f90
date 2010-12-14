@@ -501,6 +501,73 @@ subroutine get_array_norepeat_simultaneous(array1,larray1,array2,larray2,nentrie
       end do
 end subroutine
 
+!**********************************************************************
+subroutine get_array_norepeat_2(array1,larray1,array2,larray2,nentries)
+!**********************************************************************
+! Subroutine for removing repeated pairs entries from SORTED arrays ARRAY1 and ARRAY2
+! shifting entries in both ARRAYS at beginning, pad with zeros
+! Example
+! input1:  1 1 1 3 3 5 9 9
+! input2:  1 2 2 1 2 1 1 1
+! output1: 1 1 3 3 5 9 0 0 
+! output2: 1 2 1 2 1 1 0 0 
+! nentries  = 6
+      implicit none
+! input arrays
+      integer,intent(in) ::    larray1
+      integer,intent(inout) ::  array1(larray1)
+      integer,intent(in) ::    larray2
+      integer,intent(inout) ::  array2(larray2)
+! number of entries
+      integer,intent(out) ::   nentries
+
+! local vars
+      character(*),parameter:: routine_name = 'GET_ARRAY_NOREPEAT_2'
+      integer :: i, j, ind1, ind2
+
+! return if array has zero length
+      if (larray1 .eq. 0) then
+         nentries = 0
+         return
+      end if
+      ! check
+      if (larray1 .ne. larray2) then
+         call error(routine_name,'dimension mismatch')
+      end if
+
+      ! pack both arrays
+      i = 1
+      j = 1
+      ind1 = array1(i)
+      ind2 = array2(i)
+      if (ind1.eq.0) then
+         call error(routine_name, 'array1 starts with zero')
+      end if
+      if (ind2.eq.0) then
+         call error(routine_name, 'array2 starts with zero')
+      end if
+      do j = 2,larray1
+         ! core part
+         if      (array1(j).gt.ind1 .or. array2(j).gt.ind2) then
+            i   = i + 1
+            ind1 = array1(j)
+            ind2 = array2(j)
+            array1(i) = ind1
+            array2(i) = ind2
+         else 
+            if (debug .and. array1(j).lt.ind1) then
+               call error(routine_name, 'array1 supposed to be sorted')
+            end if
+         end if
+      end do
+      ! pad the rest
+      nentries = i
+      do i = nentries + 1,larray1
+         array1(i) = 0
+         array2(i) = 0
+      end do
+end subroutine
+
 RECURSIVE SUBROUTINE iquick_sort(list,llist)
 
 ! Quick sort routine from:
@@ -682,6 +749,49 @@ END SUBROUTINE iinterchange_sort_simultaneous
 
 END SUBROUTINE iquick_sort_simultaneous
 
+subroutine iquick_sort_2(list1,llist1,list2,llist2)
+! routine to sort array of two columns first by first index and then by second index
+implicit none
+integer,intent(in) ::   llist1
+integer,intent(inout) :: list1(llist1)
+integer,intent(in) ::   llist2
+integer,intent(inout) :: list2(llist2)
+! local vars
+character(*),parameter:: routine_name = 'IQUICK_SORT_2'
+integer :: ibegin, iend, indbegin, indend
+integer :: nvals
+
+! check dimension
+if (llist1.ne.llist2) then
+   call error(routine_name,'dimension of arrays mismatch')
+end if
+
+! sort the array first by first index
+call iquick_sort_simultaneous(list1,llist1,list2,llist2)
+
+! Sort by second index
+ibegin = 1
+iend   = ibegin
+do while (iend.le.llist1)
+   indbegin = list1(ibegin)
+   indend   = list1(iend)
+   ! find the index of last same value
+   do while (indend.eq.indbegin)
+      iend = iend + 1
+      ! correction at the end of the array
+      if (iend.gt.llist1) exit
+      indend = list1(iend)
+   end do
+   iend = iend - 1
+      
+   nvals = iend-ibegin + 1
+   call iquick_sort(list2(ibegin:iend),nvals)
+      
+   ibegin = iend + 1
+   iend   = ibegin
+end do
+
+end subroutine iquick_sort_2
 
 RECURSIVE SUBROUTINE rquick_sort(list,llist1,llist2,indsort,istart,iend)
 
@@ -779,6 +889,66 @@ END DO
 END SUBROUTINE rinterchange_sort
 
 END SUBROUTINE rquick_sort
+
+!********************************************************
+subroutine get_index_sorted(ivalue,iarray,liarray,iindex)
+!********************************************************
+! Subroutine for returning first index of element in an array that equals prescribed value
+      implicit none
+! prescribed value
+      integer,intent(in) :: ivalue
+! input array
+      integer,intent(in) :: liarray
+      integer,intent(in) ::  iarray(liarray)
+! output index
+      integer,intent(out) ::  iindex
+! local vars
+      integer :: left_end, right_end
+
+      iindex = -1
+      left_end  = 1
+      right_end = liarray
+
+      call get_index_sorted_1
+
+      contains
+
+      recursive subroutine get_index_sorted_1
+      implicit none
+    
+      !     Local variables
+      character(*),parameter:: routine_name = 'GET_INDEX_SORTED_1'
+      integer             :: indnew, valref
+      integer, parameter  :: max_simple_search_size = 10 
+      integer :: iindex_loc
+    
+      if (right_end < left_end + max_simple_search_size) then
+        ! Use interchange sort for small lists
+        call get_index(ivalue,iarray(left_end:right_end),right_end - left_end + 1,iindex_loc)
+        if (iindex_loc.lt.0) then
+           print *,'left_end, right_end', left_end, right_end
+           print *,'iarray', iarray(left_end:right_end)
+           call warning(routine_name,'index does not appear to be in list')
+           iindex = -1
+        else
+           iindex = left_end + iindex_loc - 1
+        end if
+      else
+        ! Set new limits
+        indnew = (left_end + right_end)/2
+        valref = iarray(indnew)
+        if (ivalue.gt.valref) then
+           left_end = indnew
+        else if (ivalue.le.valref) then
+           right_end = indnew
+        else 
+           call error(routine_name,'unable to split interval')
+        end if
+      
+        call get_index_sorted_1
+      end if
+      end subroutine
+end subroutine
 
 !*************************************************
 subroutine get_index(ivalue,iarray,liarray,iindex)
