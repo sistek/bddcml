@@ -262,7 +262,8 @@ program test_module_adaptivity
       call flush(6)
 
       call adaptivity_solve_eigenvectors(subdomains,lsubdomains,sub2proc,lsub2proc,&
-                                         indexsub,lindexsub,pair2proc,lpair2proc, comm_all,use_explicit_schurs,&
+                                         indexsub,lindexsub,pair2proc,lpair2proc, comm_all,&
+                                         comm_self, use_explicit_schurs,matrixtype, &
                                          adaptivity_estimate)
       print *, 'I am processor ',myid,'eigenvectors solved.'
       call flush(6)

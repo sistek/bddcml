@@ -1,7 +1,9 @@
 module module_adaptivity
 !***********************
 ! Module for adaptive search of constraints for BDDC preconditioner
-! Jakub Sistek, Bologna, 11/2010
+! Jakub Sistek, Bologna, 11/2010, Praha 1/2011
+
+use module_dd
 
 !=================================================
 ! basic parameters related to adaptivity
@@ -18,7 +20,7 @@ logical,parameter,private  :: read_threshold_from_file = .false.
 ! maximal number of LOBPCG iterations
 integer,parameter,private ::  lobpcg_maxit = 50
 ! precision of LOBPCG solver - worst residual
-real(kr),parameter,private :: lobpcg_tol   = 1.e-5_kr
+real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-9_kr
 ! maximal number of eigenvectors per problem
 ! this number is used for sufficient size of problems 
 ! for small problems, size of glob is used
@@ -32,12 +34,16 @@ integer,parameter,private ::  lobpcg_verbosity = 0
 ! 0 - generate new random vectors in LOBCPCG - may have poor performance
 ! 1 - generate new random vectors in Fortran and pass these to LOBPCG - better behaviour
 integer,parameter,private ::  use_vec_values = 1
+! using preconditioner for LOBPCG
+! 0 - no preconditioning (default)
+! 1 - local BDDC preconditioner (!!! EXPERIMENTAL !!!)
+integer,parameter,private ::  lobpcg_preconditioner = 0
 ! loading computed eigenvectors
 ! T - compute new vectors
 ! F - load eigenvectors from file
 logical,parameter,private :: recompute_vectors = .true.
 ! debugging 
-logical,parameter,private :: debug = .false.
+logical,parameter,private :: debug = .true.
 
 ! maximal allowed length of file names
 integer,parameter,private :: lfnamex = 130
@@ -99,6 +105,12 @@ integer,private ::             lddij ! leading dimension
 integer,private ::              ldij1,ldij2
 real(kr),allocatable,private ::  dij(:,:)
 
+! matrix of local nullspace basis nullB
+logical ::                     is_nullB_ready = .false.
+integer,private ::             ldnullB ! leading dimension
+integer,private ::              lnullB1,lnullB2
+real(kr),allocatable,private ::  nullB(:,:)
+
 ! MPI related arrays and variables
 integer,private ::            lrequest
 integer,allocatable,private :: request(:)
@@ -112,9 +124,24 @@ integer,private ::             ltau
 real(kr),allocatable,private :: tau(:)
 integer,private ::             lwork
 real(kr),allocatable,private :: work(:)
+integer,private ::             ltau3
+real(kr),allocatable,private :: tau3(:)
+integer,private ::             lwork3
+real(kr),allocatable,private :: work3(:)
+
+! auxiliary subdomains for local BDDC - matrices C differ
+integer,private ::                           lsub_adapt    ! lenth of array of sub_adapt  (= ninstructions)
+type(subdomain_type), allocatable, private :: sub_adapt(:) ! array of subdomains for adaptivity
+! local coarse matrix
+integer,private ::             lcoarsem_adapt1
+integer,private ::             lcoarsem_adapt2
+real(kr),allocatable,private :: coarsem_adapt(:,:)
+integer,private ::              comm_lresc
+real(kr),allocatable,private :: comm_resc(:)
+real(kr),allocatable,private :: comm_resc_i(:)
+real(kr),allocatable,private :: comm_resc_j(:)
 
 ! auxiliary arrays (necessary in each LOBPCG iteration)
-
 integer ::             comm_lxaux
 real(kr),allocatable :: comm_xaux(:)
 integer ::             comm_lxaux2
@@ -186,8 +213,9 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
          write(*,*) 'ADAPTIVITY SETUP====================='
          write(*,*) 'threshold for selection: ', threshold_eigval
          write(*,*) 'max LOBPCG iterations: ',  lobpcg_maxit
-         write(*,*) 'LOBPCG tolerance: ',  lobpcg_tol
+         write(*,*) 'LOBPCG relative tolerance: ',  lobpcg_rel_tol
          write(*,*) 'max number of computed eigenvectors: ', neigvecx
+         write(*,*) 'LOBPCG preconditioner (0 = no,1 = BDDC): ', lobpcg_preconditioner
          write(*,*) 'END ADAPTIVITY SETUP================='
       end if
 
@@ -240,7 +268,8 @@ end subroutine
 
 !******************************************************************************************
 subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexsub,&
-                                         pair2proc,lpair2proc,comm,use_explicit_schurs,est)
+                                         pair2proc,lpair2proc,comm_all,comm_self,&
+                                         use_explicit_schurs,matrixtype, est)
 !******************************************************************************************
 ! Subroutine for parallel solution of distributed eigenproblems
       use module_dd
@@ -263,10 +292,14 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       integer,intent(in) :: lpair2proc
       integer,intent(in) ::  pair2proc(lpair2proc)
 
-! communicator
-      integer,intent(in) :: comm
+! communicator global
+      integer,intent(in) :: comm_all
+! communicator local
+      integer,intent(in) :: comm_self
 ! should explicit Schur complements be used and sent?
       logical,intent(in) :: use_explicit_schurs
+! type of matrix
+      integer,intent(in) :: matrixtype
 
 ! prediction of condition number
       real(kr),intent(out) :: est
@@ -291,6 +324,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                  neigvecf, problemsizef
       integer :: nvalid_i, nvalid_j, nvalid
       integer :: idmyunit
+
+      real(kr) :: trA, lobpcg_tol
 
       integer :: ndofi
       integer :: nnodi
@@ -347,6 +382,48 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       integer ::             lconstraints1, lconstraints2
       real(kr),allocatable :: constraints(:,:)
 
+      ! regularization of the problem
+      integer ::              lphisi1_i, lphisi2_i
+      real(kr),allocatable ::  phisi_i(:,:)
+      integer ::              lphisi1_j, lphisi2_j
+      real(kr),allocatable ::  phisi_j(:,:)
+      integer ::              lphisi1, lphisi2
+      real(kr),allocatable ::  phisi(:,:)
+      integer ::              lz1, lz2
+      real(kr),allocatable ::  z(:,:)
+      integer ::              shifti, shiftj
+      integer ::              lbz1, lbz2
+      real(kr),allocatable ::  bz(:,:)
+      integer ::              lzbz1, lzbz2
+      real(kr),allocatable ::  zbz(:,:)
+      integer ::              lzbzeigval
+      real(kr),allocatable ::  zbzeigval(:)
+      real(kr) ::              null_tol
+      integer ::               null_dim
+
+      ! local BDDC
+      integer :: pointibuf
+      integer ::            llibufa
+      integer,allocatable :: libufa(:)
+      integer ::            libuf
+      integer,allocatable :: ibuf(:)
+      integer :: nsub
+      integer :: nnzc_new
+      integer ::            lc_new
+      integer,allocatable :: i_c_sparse_new(:),j_c_sparse_new(:)
+      real(kr),allocatable ::  c_sparse_new(:)
+      integer :: ind_c_sparse_new, indr, indrowc_loc, irow
+      logical :: keep_global
+      integer ::              lcoarsem
+      real(kr),allocatable ::  coarsem(:)
+      integer ::              lcoarsem_i
+      real(kr),allocatable ::  coarsem_i(:)
+      integer ::              lcoarsem_j
+      real(kr),allocatable ::  coarsem_j(:)
+      integer ::              icoarsem
+      
+
+
       integer ::             lcadapt1, lcadapt2
       real(kr),allocatable :: cadapt(:,:)
 
@@ -392,8 +469,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       integer :: myid, nproc, ierr, ireq, nreq
 
       ! orient in the communicator
-      call MPI_COMM_RANK(comm,myid,ierr)
-      call MPI_COMM_SIZE(comm,nproc,ierr)
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
       
       ! find maximal number of pairs per proc
       npair_locx = maxval(pair2proc(2:nproc+1) - pair2proc(1:nproc))
@@ -445,8 +522,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             comm_myjsub  = pair_data(3)
 
             ! where are these subdomains ?
-            call pp_get_proc_for_sub(comm_myisub,comm,sub2proc,lsub2proc,comm_myplace1)
-            call pp_get_proc_for_sub(comm_myjsub,comm,sub2proc,lsub2proc,comm_myplace2)
+            call pp_get_proc_for_sub(comm_myisub,comm_all,sub2proc,lsub2proc,comm_myplace1)
+            call pp_get_proc_for_sub(comm_myjsub,comm_all,sub2proc,lsub2proc,comm_myplace2)
          else
             comm_myisub   = -1
             comm_myjsub   = -1
@@ -468,8 +545,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                jsub   = pair_data(3)
 
                ! where are these subdomains ?
-               call pp_get_proc_for_sub(isub,comm,sub2proc,lsub2proc,place1)
-               call pp_get_proc_for_sub(jsub,comm,sub2proc,lsub2proc,place2)
+               call pp_get_proc_for_sub(isub,comm_all,sub2proc,lsub2proc,place1)
+               call pp_get_proc_for_sub(jsub,comm_all,sub2proc,lsub2proc,place2)
 
                if (myid.eq.place1) then
                   ! add instruction
@@ -517,10 +594,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             ! receive sizes of interfaces of subdomains involved in my problem
 
             ireq = ireq + 1
-            call MPI_IRECV(ndofi_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(ndofi_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(ndofi_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(ndofi_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
          end if
          ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
@@ -530,7 +607,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
             call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
 
-            call MPI_SEND(ndofi,1,MPI_INTEGER,owner,isub,comm,ierr)
+            call MPI_SEND(ndofi,1,MPI_INTEGER,owner,isub,comm_all,ierr)
          end do
          nreq = ireq
          if (nreq.gt.0) then
@@ -548,10 +625,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             ! receive numbers of coarse nodes
 
             ireq = ireq + 1
-            call MPI_IRECV(lindrowc_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(lindrowc_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(lindrowc_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(lindrowc_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
          end if
          ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
@@ -561,7 +638,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
             call dd_get_number_of_crows(suba(isub_loc),lindrowc)
 
-            call MPI_SEND(lindrowc,1,MPI_INTEGER,owner,isub,comm,ierr)
+            call MPI_SEND(lindrowc,1,MPI_INTEGER,owner,isub,comm_all,ierr)
          end do
          nreq = ireq
          if (nreq.gt.0) then
@@ -580,10 +657,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             ! receive numbers of coarse nodes
 
             ireq = ireq + 1
-            call MPI_IRECV(nnzc_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(nnzc_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(nnzc_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(nnzc_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
          end if
          ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
@@ -593,7 +670,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
             call dd_get_number_of_cnnz(suba(isub_loc),nnzc)
 
-            call MPI_SEND(nnzc,1,MPI_INTEGER,owner,isub,comm,ierr)
+            call MPI_SEND(nnzc,1,MPI_INTEGER,owner,isub,comm_all,ierr)
          end do
          nreq = ireq
          if (nreq.gt.0) then
@@ -612,10 +689,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             ! receive numbers of interface nodes
 
             ireq = ireq + 1
-            call MPI_IRECV(nnodi_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(nnodi_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(nnodi_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(nnodi_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
          end if
          ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
@@ -625,7 +702,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
             call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
 
-            call MPI_SEND(nnodi,1,MPI_INTEGER,owner,isub,comm,ierr)
+            call MPI_SEND(nnodi,1,MPI_INTEGER,owner,isub,comm_all,ierr)
          end do
          nreq = ireq
          if (nreq.gt.0) then
@@ -669,10 +746,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             ! receive global numbers of coarse nodes
 
             ireq = ireq + 1
-            call MPI_IRECV(indrowc_i,lindrowc_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(indrowc_i,lindrowc_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(indrowc_j,lindrowc_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(indrowc_j,lindrowc_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
          end if
          ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
@@ -685,7 +762,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             allocate(indrowc(lindrowc))
             call dd_get_subdomain_crows(suba(isub_loc),indrowc,lindrowc)
 
-            call MPI_SEND(indrowc,lindrowc,MPI_INTEGER,owner,isub,comm,ierr)
+            call MPI_SEND(indrowc,lindrowc,MPI_INTEGER,owner,isub,comm_all,ierr)
             deallocate(indrowc)
          end do
          nreq = ireq
@@ -707,18 +784,18 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          ireq = 0
          if (my_pair.ge.0) then
             ireq = ireq + 1
-            call MPI_IRECV(i_c_sparse_i,lc_sparse_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(i_c_sparse_i,lc_sparse_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
             ireq = ireq + 1
-            call MPI_IRECV(j_c_sparse_i,lc_sparse_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(j_c_sparse_i,lc_sparse_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
             ireq = ireq + 1
-            call MPI_IRECV(c_sparse_i,lc_sparse_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(c_sparse_i,lc_sparse_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(i_c_sparse_j,lc_sparse_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(i_c_sparse_j,lc_sparse_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
             ireq = ireq + 1
-            call MPI_IRECV(j_c_sparse_j,lc_sparse_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(j_c_sparse_j,lc_sparse_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
             ireq = ireq + 1
-            call MPI_IRECV(c_sparse_j,lc_sparse_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(c_sparse_j,lc_sparse_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
          end if
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
@@ -731,9 +808,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse),c_sparse(lc_sparse))
             call dd_get_subdomain_c(suba(isub_loc),i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
 
-            call MPI_SEND(i_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm,ierr)
-            call MPI_SEND(j_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm,ierr)
-            call MPI_SEND(c_sparse,lc_sparse,MPI_DOUBLE_PRECISION,owner,isub,comm,ierr)
+            call MPI_SEND(i_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm_all,ierr)
+            call MPI_SEND(j_c_sparse,lc_sparse,MPI_INTEGER,owner,isub,comm_all,ierr)
+            call MPI_SEND(c_sparse,lc_sparse,MPI_DOUBLE_PRECISION,owner,isub,comm_all,ierr)
             deallocate(i_c_sparse,j_c_sparse,c_sparse)
          end do
          nreq = ireq
@@ -764,10 +841,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             ! receive global numbers of coarse nodes
 
             ireq = ireq + 1
-            call MPI_IRECV(nndfi_i,nnodi_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(nndfi_i,nnodi_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(nndfi_j,nnodi_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(nndfi_j,nnodi_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
          end if
          ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
@@ -781,7 +858,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             allocate(nndfi(lnndfi))
             call dd_get_subdomain_interface_nndf(suba(isub_loc),nndfi,lnndfi)
 
-            call MPI_SEND(nndfi,nnodi,MPI_INTEGER,owner,isub,comm,ierr)
+            call MPI_SEND(nndfi,nnodi,MPI_INTEGER,owner,isub,comm_all,ierr)
             deallocate(nndfi)
          end do
          nreq = ireq
@@ -888,10 +965,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          if (i_compute_pair) then
             ! receive diagonal entries
             ireq = ireq + 1
-            call MPI_IRECV(rhoi_i,ndofi_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(rhoi_i,ndofi_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(rhoi_j,ndofi_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(rhoi_j,ndofi_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
          end if
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
@@ -904,7 +981,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             allocate(rhoi(lrhoi))
             call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
 
-            call MPI_SEND(rhoi,ndofi,MPI_DOUBLE_PRECISION,owner,isub,comm,ierr)
+            call MPI_SEND(rhoi,ndofi,MPI_DOUBLE_PRECISION,owner,isub,comm_all,ierr)
 
             deallocate(rhoi)
          end do
@@ -928,10 +1005,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             ! receive mapping of interface nodes into global nodes
 
             ireq = ireq + 1
-            call MPI_IRECV(iingn_i,nnodi_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(iingn_i,nnodi_i,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(iingn_j,nnodi_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(iingn_j,nnodi_j,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
          end if
          ! send sizes of subdomains involved in problems
          do iinstr = 1,ninstructions
@@ -945,7 +1022,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             allocate(iingn(liingn))
             call dd_get_interface_global_numbers(suba(isub_loc),iingn,liingn)
 
-            call MPI_SEND(iingn,nnodi,MPI_INTEGER,owner,isub,comm,ierr)
+            call MPI_SEND(iingn,nnodi,MPI_INTEGER,owner,isub,comm_all,ierr)
             deallocate(iingn)
          end do
          nreq = ireq
@@ -960,6 +1037,12 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          !   write(idmyunit,*)'iingn_j'
          !   write(idmyunit,*) iingn_j
          !end if
+
+         ! compute trace of A
+         if (i_compute_pair) then
+            trA = sum(rhoi_i) + sum(rhoi_j)
+         end if
+
 
          ! find common intersection of interface nodes
          if (i_compute_pair) then
@@ -1036,6 +1119,140 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             !write(idmyunit,*) 'weight',weight
          end if
 
+         ! get data about coarse basis functions to regularize the eigenproblem
+         ireq = 0
+         if (i_compute_pair) then
+            ! receive global numbers of coarse nodes
+
+            ireq = ireq + 1
+            call MPI_IRECV(lphisi1_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
+            ireq = ireq + 1
+            call MPI_IRECV(lphisi2_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
+
+            ireq = ireq + 1
+            call MPI_IRECV(lphisi1_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
+            ireq = ireq + 1
+            call MPI_IRECV(lphisi2_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
+         end if
+         ! send sizes of subdomains involved in problems
+         do iinstr = 1,ninstructions
+            owner = instructions(iinstr,1)
+            isub  = instructions(iinstr,2)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_phisi_size(suba(isub_loc),lphisi1,lphisi2)
+
+            call MPI_SEND(lphisi1,1,MPI_INTEGER,owner,isub,comm_all,ierr)
+            call MPI_SEND(lphisi2,1,MPI_INTEGER,owner,isub,comm_all,ierr)
+         end do
+         nreq = ireq
+         if (nreq.gt.0) then
+            call MPI_WAITALL(nreq, request, statarray, ierr)
+         end if
+         ! debug
+         !call info(routine_name,'All messages in pack 10 received on proc',myid)
+         !if (i_compute_pair) then
+         !   write(*,*) 'lphisi1_i'
+         !   write(*,*)  lphisi1_i 
+         !   write(*,*) 'lphisi2_i'
+         !   write(*,*)  lphisi2_i 
+         !   write(*,*) 'lphisi1_j'
+         !   write(*,*)  lphisi1_j 
+         !   write(*,*) 'lphisi2_j'
+         !   write(*,*)  lphisi2_j 
+         !   call flush(6)
+         !end if
+
+         ! get data for matrices phisi of subdomains in pair
+         ireq = 0
+         if (i_compute_pair) then
+
+            ! prepare matrix Z as a superset of rigid body modes - based on
+            ! coarse basis functions of the subdomains
+            ! matriz Z = [ phisi_i     0    ]
+            !            [   0      phisi_j ]
+            allocate(phisi_i(lphisi1_i,lphisi2_i))
+            allocate(phisi_j(lphisi1_j,lphisi2_j))
+
+            ireq = ireq + 1
+            call MPI_IRECV(phisi_i,lphisi1_i*lphisi2_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
+            ireq = ireq + 1
+            call MPI_IRECV(phisi_j,lphisi1_j*lphisi2_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
+
+         end if
+         do iinstr = 1,ninstructions
+            owner = instructions(iinstr,1)
+            isub  = instructions(iinstr,2)
+            call get_index(isub,indexsub,lindexsub,isub_loc)
+
+            call dd_get_phisi_size(suba(isub_loc),lphisi1,lphisi2)
+
+            allocate(phisi(lphisi1,lphisi2))
+            call dd_get_phisi(suba(isub_loc),phisi, lphisi1,lphisi2)
+
+            call MPI_SEND(phisi,lphisi1*lphisi2,MPI_DOUBLE_PRECISION,owner,isub,comm_all,ierr)
+            deallocate(phisi)
+         end do
+         nreq = ireq
+         if (nreq.gt.0) then
+            call MPI_WAITALL(nreq, request, statarray, ierr)
+         end if
+         ! debug
+         !call info(routine_name,'All messages in pack 11 received on proc',myid)
+         !if (i_compute_pair) then
+         !   write(idmyunit,*) 'i_c_sparse_i'
+         !   write(idmyunit,*)  i_c_sparse_i
+         !   write(idmyunit,*) 'j_c_sparse_i'
+         !   write(idmyunit,*)  j_c_sparse_i
+         !   write(idmyunit,*) 'c_sparse_i'
+         !   write(idmyunit,*)  c_sparse_i
+         !   write(idmyunit,*) 'i_c_sparse_j'
+         !   write(idmyunit,*)  i_c_sparse_j
+         !   write(idmyunit,*) 'j_c_sparse_j'
+         !   write(idmyunit,*)  j_c_sparse_j
+         !   write(idmyunit,*) 'c_sparse_j'
+         !   write(idmyunit,*)  c_sparse_j
+         !   call flush(idmyunit)
+         !end if
+
+         ! get data for matrices phisi of subdomains in pair
+         ! find null(B) as Z*null(Z'BZ), where
+         ! null(B) subset of Range(Z)
+         ireq = 0
+         if (i_compute_pair) then
+
+            ! prepare matrix Z as a superset of rigid body modes - based on
+            ! coarse basis functions of the subdomains
+            ! matriz Z = [ phisi_i     0    ]
+            !            [   0      phisi_j ]
+            lz1 = lphisi1_i + lphisi1_j
+            lz2 = lphisi2_i + lphisi2_j
+
+            allocate(z(lz1,lz2))
+            call zero(z,lz1,lz2)
+
+            ! copy phisi_i into Z
+            do j = 1,lphisi2_i
+               do i = 1,lphisi1_i
+                  z(i,j) = phisi_i(i,j)
+               end do
+            end do
+            ! copy phisi_j into Z as block diagonal
+            shifti = lphisi1_i
+            shiftj = lphisi2_i
+            do j = 1,lphisi2_j
+               do i = 1,lphisi1_j
+                  z(shifti + i,shiftj + j) = phisi_j(i,j)
+               end do
+            end do
+
+            deallocate(phisi_i)
+            deallocate(phisi_j)
+
+            ! debug
+            ! print dense matrix Z
+            !call write_matrix(6,z,'e8.2')
+         end if
 
          ! prepare space for eigenvectors
          ireq = 0
@@ -1047,7 +1264,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             isub  = instructions(iinstr,2)
 
             ireq = ireq + 1
-            call MPI_IRECV(lbufa(iinstr),1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+            call MPI_IRECV(lbufa(iinstr),1,MPI_INTEGER,owner,isub,comm_all,request(ireq),ierr)
          end do
          if (i_compute_pair) then
             neigvec     = min(neigvecx,ndofcomm-ncommon_crows)
@@ -1066,16 +1283,16 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             allocate(bufsend_i(lbufsend_i),bufsend_j(lbufsend_j))
 
             ! distribute sizes of chunks of eigenvectors
-            call MPI_SEND(lbufsend_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm,ierr)
+            call MPI_SEND(lbufsend_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,ierr)
 
-            call MPI_SEND(lbufsend_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,ierr)
+            call MPI_SEND(lbufsend_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,ierr)
          end if
          nreq = ireq
          if (nreq.gt.0) then
             call MPI_WAITALL(nreq, request, statarray, ierr)
          end if
          ! debug
-         !call info(routine_name,'All messages in pack 10 received on proc',myid)
+         !call info(routine_name,'All messages in pack 12 received on proc',myid)
 
          ! prepare arrays kbufsend and 
          lkbufsend = ninstructions
@@ -1093,6 +1310,140 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          lbufrecv = lbufsend
          allocate(bufrecv(lbufrecv),bufsend(lbufsend))
 
+         ! now construct matrix B*Z
+         if (use_explicit_schurs) then
+            continue
+         else
+            comm_comm = comm_all
+            comm_myid = myid
+
+            if (i_compute_pair) then
+               ! prepare auxiliary space used in each iteration of eigensolver
+               comm_lxaux  = problemsize
+               comm_lxaux2 = problemsize
+               allocate(comm_xaux(comm_lxaux),comm_xaux2(comm_lxaux2))
+
+               lbz1 = lz1
+               lbz2 = lz2
+               allocate(bz(lbz1,lbz2))
+
+               ioper = 2 ! multiply by B
+               do j = 1,lz2
+                  call adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub,&
+                                           problemsize,z(1,j),&
+                                           problemsize,bz(1,j),problemsize,ioper)
+               end do
+            end if
+            call adaptivity_fake_lobpcg_driver
+         end if
+
+         if (i_compute_pair) then
+            ! debug
+            ! print dense matrix BZ
+            !call write_matrix(6,bz,'e8.2')
+            ! construct matrix zbz = Z'*B*Z = Z'*BZ
+            lzbz1 = lz2
+            lzbz2 = lz2
+            allocate(zbz(lzbz1,lzbz2))
+            ! use BLAS for the multiply
+            ! DGEMM - perform one of the matrix-matrix operations   C := alpha*op( A )*op( B ) + beta*C
+            call DGEMM('T', 'N', lz2, lz2, lz1, 1.0_kr, z(:,:), lz1, bz(:,:), lbz1, 0._kr, zbz(:,:), lzbz1)
+            !zbz = matmul(transpose(z),bz)
+            ! debug
+            ! print dense matrix ZBZ
+            !call write_matrix(6,zbz,'e8.2')
+
+            ! determine nullspace of ZBZ by eigenvalue decomposition
+            lzbzeigval = lzbz1
+            allocate(zbzeigval(lzbzeigval))
+            ! determine size of work array
+            lwork2 = 1
+            allocate(work2(lwork2))
+            lwork2 = -1
+            ! first call routine just to find optimal size of WORK2
+            call DSYEV( 'V', 'U', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
+            if (lapack_info.ne.0) then
+               call error(routine_name,'in LAPACK during finding size for eigenproblem solution:',lapack_info)
+            end if
+            lwork2 = int(work2(1))
+            deallocate(work2)
+            allocate(work2(lwork2))
+            ! now call LAPACK to solve the eigenproblem
+            call DSYEV( 'V', 'U', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
+            deallocate(work2)
+            if (lapack_info.ne.0) then
+               call error(routine_name,'in LAPACK during solving eigenproblems:',lapack_info)
+            end if
+
+            ! debug
+            ! print eigenvalues
+            !write(6,*) 'eigenvalues by LAPACK:'
+            !write(6,'(e8.2)') zbzeigval
+
+            ! set tolerance - inspired by Octave null() function, relaxing epsilon a bit: 
+            ! max (size (A)) * max (svd (A)) * eps
+            null_tol = lzbz1 * zbzeigval(lzbzeigval) * 2 * epsilon(zbzeigval) 
+            ! own way
+            !null_tol = 1.e-10_kr * (zbzeigval(1) + zbzeigval(lzbzeigval)) / 2._kr 
+
+            ! determine dimension of nullspace of Z'BZ
+            null_dim = count(zbzeigval .lt. null_tol)
+
+            ! if the largest eigenvalue is below tolerance, all values are in null_space
+            if (zbzeigval(lzbzeigval).lt.numerical_zero) then
+               null_dim = lzbzeigval
+            end if
+
+            call info(routine_name,'dimension of nullspace',null_dim)
+
+            ! find null(B) = Z*null(Z'BZ) store it in BZ
+            lnullB1 = lz1
+            lnullB2 = null_dim
+            ! leading dimension
+            ldnullB = lnullB1
+            allocate(nullB(lnullB1,lnullB2))
+            call DGEMM('N', 'N', lz1, null_dim, lz2, 1.0_kr, z(:,:), lz1, zbz(:,1:null_dim), lzbz1, &
+                       0._kr, nullB(:,:), ldnullB)
+            
+        ! Prepare projection onto complement of null(B) - orthogonalize null(B) -> get Q -> P = I-QQ'
+            ! QR decomposition of matrix Z*null(Z'BZ) - stored in BZ 
+            ! LAPACK arrays
+            ltau3 = null_dim
+            allocate(tau3(ltau3))
+            lwork3 = max(1,null_dim)
+            allocate(work3(lwork3))
+            call DGEQRF( lnullB1, lnullB2, nullB(:,:), ldnullB, tau3, work3, lwork3, lapack_info)
+            if (lapack_info.ne.0) then
+               call error(routine_name,' in LAPACK QR factorization of matrix null(B): ', lapack_info)
+            end if
+            ! in space of nullB are now stored factors R and Householder reflectors v
+            is_nullB_ready = .true.
+
+            deallocate(zbzeigval)
+            deallocate(z)
+            deallocate(bz)
+            deallocate(zbz)
+         end if
+         ! debug
+         ! check the nullspace
+         !if (i_compute_pair) then
+         !   ! prepare auxiliary space used in each iteration of eigensolver
+
+         !   ioper = 2 ! multiply by B
+         !   do j = 1,null_dim
+         !      call adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub,&
+         !                               problemsize,bz(1,j),&
+         !                               problemsize,z(1,j),problemsize,ioper)
+         !   end do
+         !end if
+         !call adaptivity_fake_lobpcg_driver
+         !if (i_compute_pair) then
+         !   if (null_dim.gt.0) then
+         !      call write_matrix(6,z(:,1:null_dim),'e8.2')
+         !      call flush(6)
+         !   end if
+         !end if
+
          ! All arrays are ready for solving eigenproblems
          if (use_explicit_schurs) then
             ireq = 0
@@ -1107,10 +1458,12 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
                ! receive Schur complements
                ireq = ireq + 1
-               call MPI_IRECV(schur_i,lschur1_i*lschur2_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+               call MPI_IRECV(schur_i,lschur1_i*lschur2_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_all,&
+                              request(ireq),ierr)
 
                ireq = ireq + 1
-               call MPI_IRECV(schur_j,lschur1_j*lschur2_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+               call MPI_IRECV(schur_j,lschur1_j*lschur2_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_all,&
+                              request(ireq),ierr)
             end if
             ! send local Schur complements
             do iinstr = 1,ninstructions
@@ -1125,7 +1478,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                allocate(schur(lschur1,lschur2))
                call dd_get_schur(suba(isub_loc),schur,lschur1,lschur2)
 
-               call MPI_SEND(schur,lschur1*lschur2,MPI_DOUBLE_PRECISION,owner,isub,comm,ierr)
+               call MPI_SEND(schur,lschur1*lschur2,MPI_DOUBLE_PRECISION,owner,isub,comm_all,ierr)
                deallocate(schur)
             end do
             nreq = ireq
@@ -1319,19 +1672,245 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                deallocate(matb)
             end if
          else
-            ! call LOBCPG
 
-            comm_comm = comm
-            comm_myid = myid
+            if (lobpcg_preconditioner .eq. 1) then
+               ! set up local BDDC preconditioner for LOBPCG
+
+               ! distribute common rows in C to slaves
+               ! prepare space for these data
+               ireq = 0
+               ! prepare memory
+               llibufa = ninstructions
+               allocate(libufa(llibufa))
+               do iinstr = 1,ninstructions
+                  owner = instructions(iinstr,1)
+                  isub  = instructions(iinstr,2)
+
+                  ireq = ireq + 1
+                  call MPI_IRECV(libufa(iinstr),1,MPI_INTEGER,owner,isub,comm_all,request(ireq),ierr)
+               end do
+               if (i_compute_pair) then
+
+                  ! distribute sizes of common_crows (with global indices of rows of C_i and C_j)
+                  call MPI_SEND(ncommon_crows,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,ierr)
+                  call MPI_SEND(ncommon_crows,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,ierr)
+               end if
+               nreq = ireq
+               if (nreq.gt.0) then
+                  call MPI_WAITALL(nreq, request, statarray, ierr)
+               end if
+               ! debug
+               !call info(routine_name,'All messages in pack 30.1 received on proc',myid)
+
+               ! prepare memory for obtained common rows of C
+               libuf = sum(libufa)
+               allocate(ibuf(libuf))
+
+               ireq = 0
+               pointibuf = 0
+               do iinstr = 1,ninstructions
+                  owner = instructions(iinstr,1)
+                  isub  = instructions(iinstr,2)
+
+
+                  ireq = ireq + 1
+                  call MPI_IRECV(ibuf(pointibuf + 1),libufa(iinstr),MPI_INTEGER,owner,isub,comm_all,request(ireq),ierr)
+
+                  pointibuf = pointibuf + libufa(iinstr)
+               end do
+               if (i_compute_pair) then
+
+                  ! distribute sizes of common_crows (with global indices of rows of C_i and C_j)
+                  call MPI_SEND(common_crows(1),ncommon_crows,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,ierr)
+                  call MPI_SEND(common_crows(1),ncommon_crows,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,ierr)
+               end if
+               nreq = ireq
+               if (nreq.gt.0) then
+                  call MPI_WAITALL(nreq, request, statarray, ierr)
+               end if
+               ! debug
+               !call info(routine_name,'All messages in pack 30.2 received on proc',myid)
+
+               ! create new array of DD structures to store local data for BDDC preconditioner
+               lsub_adapt = ninstructions
+               allocate(sub_adapt(lsub_adapt))
+
+               ireq = 0
+               if (i_compute_pair) then
+
+                  ! check type of matrix - for LOBPCG, any other than SPD is forbidden
+                  if (matrixtype.ne.1) then
+                     call error(routine_name,'adaptivity without explicit Schur complements not supported for non SPD matrices')
+                  end if
+
+                  ! prepare space for local coarse matrices
+                  ! since LOBPCG does not work for indefinite nor general matrices, symmetric storage is assumed
+                  lcoarsem_i = ((ncommon_crows+1) * ncommon_crows) /2
+                  lcoarsem_j = ((ncommon_crows+1) * ncommon_crows) /2
+
+                  allocate(coarsem_i(lcoarsem_i))
+                  allocate(coarsem_j(lcoarsem_j))
+
+                  ! distribute sizes of common_crows (with global indices of rows of C_i and C_j)
+                  ireq = ireq + 1
+                  call MPI_IRECV(coarsem_i,lcoarsem_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_all,&
+                                 request(ireq),ierr)
+                  ireq = ireq + 1
+                  call MPI_IRECV(coarsem_j,lcoarsem_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_all,&
+                                 request(ireq),ierr)
+               end if
+               nreq = ireq
+
+               pointibuf = 0
+               do iinstr = 1,ninstructions
+                  owner = instructions(iinstr,1)
+                  isub  = instructions(iinstr,2)
+                  
+                  call get_index(isub,indexsub,lindexsub,isub_loc)
+
+
+                  nsub = sub2proc(lsub2proc) - 1
+                  call dd_init(sub_adapt(iinstr),isub,nsub,comm_self)
+
+                  ! load local matrix - just set pointer to existing memory
+                  call dd_set_mirror_subdomain(suba(isub_loc),sub_adapt(iinstr))
+
+                  ! get old matrix C
+                  call dd_get_number_of_crows(suba(isub_loc),lindrowc)
+
+                  allocate(indrowc(lindrowc))
+                  call dd_get_subdomain_crows(suba(isub_loc),indrowc,lindrowc)
+
+                  call dd_get_number_of_cnnz(suba(isub_loc),nnzc)
+
+                  lc_sparse = nnzc
+                  allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse),c_sparse(lc_sparse))
+                  call dd_get_subdomain_c(suba(isub_loc),i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
+
+                  lc_new = nnzc
+                  allocate(i_c_sparse_new(lc_new),j_c_sparse_new(lc_new),c_sparse_new(lc_new))
+
+                  ! prepare new local matrix C
+                  ! loop through rows of matrix C
+                  ind_c_sparse_new = 0
+                  do irow = 1,libufa(iinstr)
+                     indr = ibuf(pointibuf + irow)
+
+                     call get_index(indr,indrowc,lindrowc,indrowc_loc)
+
+                     ! copy part of C for this row into new C
+                     do ic = 1,nnzc
+                        if (i_c_sparse(ic) .eq. indrowc_loc) then
+
+                           ind_c_sparse_new = ind_c_sparse_new + 1
+
+                           i_c_sparse_new(ind_c_sparse_new) = irow
+                           j_c_sparse_new(ind_c_sparse_new) = j_c_sparse(ic)
+                             c_sparse_new(ind_c_sparse_new) =   c_sparse(ic)
+                        end if
+                     end do
+                  end do
+                  nnzc_new = ind_c_sparse_new
+
+
+                  deallocate(indrowc)
+                  deallocate(i_c_sparse,j_c_sparse,c_sparse)
+
+                  ! load the new matrix directly to the structure
+                  call dd_load_c(sub_adapt(iinstr),libufa(iinstr),i_c_sparse_new, j_c_sparse_new, c_sparse_new, lc_new, nnzc_new, &
+                                 ibuf(pointibuf+1:pointibuf+libufa(iinstr)),libufa(iinstr))
+                  deallocate(i_c_sparse_new,j_c_sparse_new,c_sparse_new)
+
+                  ! prepare augmented system
+                  call dd_prepare_aug(sub_adapt(iinstr),comm_self)
+
+                  ! prepare coarse space basis functions for BDDC
+                  keep_global = .false.
+                  call dd_prepare_coarse(sub_adapt(iinstr),keep_global)
+
+
+                  ! extract the local coarse matrix and send it to master of pair
+                  call dd_get_coarsem_size(sub_adapt(iinstr),lcoarsem)
+
+                  allocate(coarsem(lcoarsem))
+                  call dd_get_coarsem(sub_adapt(iinstr),coarsem,lcoarsem)
+
+                  ! send the matrix
+                  call MPI_SEND(coarsem,lcoarsem,MPI_DOUBLE_PRECISION,owner,isub,comm_all,ierr)
+
+                  deallocate(coarsem)
+
+                  pointibuf = pointibuf + libufa(iinstr)
+               end do
+
+               deallocate(libufa)
+               deallocate(ibuf)
+
+               ! wait for local coarse matrices
+               if (nreq.gt.0) then
+                  call MPI_WAITALL(nreq, request, statarray, ierr)
+               end if
+               ! debug
+               !call info(routine_name,'All messages in pack 30.3 received on proc',myid)
+
+               if (i_compute_pair) then
+
+                  ! assemble global coarse matrix 
+                  lcoarsem_adapt1 = ncommon_crows
+                  lcoarsem_adapt2 = ncommon_crows
+                  allocate(coarsem_adapt(lcoarsem_adapt1,lcoarsem_adapt2))
+
+                  ! add matrices to coarsem_adapt while converting them from symmetric to full 
+                  ! K_C = K_C_i + K_C_j
+                  icoarsem = 0
+                  do j = 1,lcoarsem_adapt2
+                     do i = 1,j
+                        icoarsem = icoarsem + 1
+
+                        coarsem_adapt(i,j) = coarsem_i(icoarsem) + coarsem_j(icoarsem)
+                     end do
+                  end do
+
+                  deallocate(coarsem_i)
+                  deallocate(coarsem_j)
+
+                  ! debug
+                  ! print matrix
+                  !call write_matrix(6,coarsem_adapt,'e8.2')
+                  !call flush(6)
+
+                  ! factorize coarse matrix of pair by LAPACK
+                  call DPOTRF( 'Upper', lcoarsem_adapt1, coarsem_adapt, lcoarsem_adapt1, lapack_info )
+                  if (lapack_info.ne.0) then
+                     call error(routine_name,'in LAPACK during factorization of local coarse problem:',lapack_info)
+                  end if
+
+                  ! prepare memory for iterations
+                  comm_lresc = lcoarsem_adapt1
+                  allocate(comm_resc(comm_lresc))
+                  allocate(comm_resc_i(comm_lresc))
+                  allocate(comm_resc_j(comm_lresc))
+
+
+                  if (debug) then
+                     call info(routine_name,'local coarse matrix factorized for pair ',my_pair)
+                  end if
+
+
+               end if
+               ! end set-up local BDDC preconditioner
+            end if
+
+            ! call LOBCPG
             if (i_compute_pair) then
                if (use_vec_values .eq. 1) then
                  ! read initial guess of vectors
-                 ! write(*,*) 'neigvec =',neigvec,'problemsize =',problemsize
-                 ! open(unit = idmyunit,file='start_guess.txt')
-                 ! do i = 1,problemsize
-                 !    read(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
-                 ! end do
-                 ! close(idmyunit)
+                  !write(*,*) 'neigvec =',neigvec,'problemsize =',problemsize
+                  !open(unit = idmyunit,file='start_guess.txt')
+                  !do i = 1,problemsize
+                  !   read(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+                  !end do
+                  !close(idmyunit)
 
                   ! Initialize the array with own random number generator
                   !   reinitialize the random number sequence for each pair for reproducibility 
@@ -1345,20 +1924,22 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                ! set name of individual file for glob
                call getfname('pair',my_pair,'EIG',filename)
                   
-               ! prepare auxiliary space used in each iteration of eigensolver
-               comm_lxaux  = problemsize
-               comm_lxaux2 = problemsize
-               allocate(comm_xaux(comm_lxaux),comm_xaux2(comm_lxaux2))
                if (recompute_vectors) then
+                  ! set LOBPCG absolute tolerance based on some values of diagonal of A
+                  lobpcg_tol = lobpcg_rel_tol * trA / problemsize
+
                   ! compute eigenvectors and store them into file
                   if (debug) then
                      write(*,*) 'myid =',myid,', I am calling eigensolver for pair ',my_pair
+                     write(*,*) 'myid =',myid,', LOBPCG tolerance: ',lobpcg_tol
                   end if
                   call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,use_vec_values,&
+                                     lobpcg_preconditioner,&
                                      eigval,eigvec,lobpcg_iter,ierr)
                   if (ierr.ne.0) then
                      if (debug) then
                         call warning(routine_name,'LOBPCG exited with nonzero code for pair',my_pair)
+                        call warning(routine_name,'LOBPCG error code: ',ierr)
                      end if
                   end if
                   if (debug) then
@@ -1509,7 +2090,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          end if
 
          ! global communication
-         call MPI_ALLREDUCE(est_loc,est_round,1,MPI_DOUBLE_PRECISION,MPI_MAX,comm,ierr)
+         call MPI_ALLREDUCE(est_loc,est_round,1,MPI_DOUBLE_PRECISION,MPI_MAX,comm_all,ierr)
          !if (my_pair.ge.0) then
          !   write(*,*) 'Constraints to be added on pair ',my_pair
          !   do i = 1,problemsize
@@ -1532,7 +2113,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             isub  = instructions(iinstr,2)
 
             ireq = ireq + 1
-            call MPI_IRECV(lbufa(iinstr),1,MPI_INTEGER,owner,isub,comm,request(ireq),ierr)
+            call MPI_IRECV(lbufa(iinstr),1,MPI_INTEGER,owner,isub,comm_all,request(ireq),ierr)
          end do
          if (i_compute_pair) then
             ! prepare space for buffers
@@ -1541,15 +2122,15 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             allocate(bufsend_i(lbufsend_i),bufsend_j(lbufsend_j))
 
             ! distribute sizes of chunks of eigenvectors
-            call MPI_SEND(lbufsend_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm,ierr)
-            call MPI_SEND(lbufsend_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,ierr)
+            call MPI_SEND(lbufsend_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,ierr)
+            call MPI_SEND(lbufsend_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,ierr)
          end if
          nreq = ireq
          if (nreq.gt.0) then
             call MPI_WAITALL(nreq, request, statarray, ierr)
          end if
          ! debug
-         !call info(routine_name,'All messages in pack 11 received on proc',myid)
+         !call info(routine_name,'All messages in pack 13 received on proc',myid)
 
          ! prepare arrays kbufsend and 
          if (lkbufsend .gt. 0) then
@@ -1577,7 +2158,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
             if (lbufa(iinstr) .gt. 0) then
                ireq = ireq + 1
-               call MPI_IRECV(bufrecv(kbufsend(iinstr)),lbufa(iinstr),MPI_DOUBLE_PRECISION,owner,isub,comm,request(ireq),ierr)
+               call MPI_IRECV(bufrecv(kbufsend(iinstr)),lbufa(iinstr),MPI_DOUBLE_PRECISION,owner,isub,comm_all,request(ireq),ierr)
             end if
          end do
          if (i_compute_pair) then
@@ -1602,11 +2183,11 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
             ! distribute chunks of eigenvectors
             if (lbufsend_i .gt. 0) then
-               call MPI_SEND(bufsend_i,lbufsend_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm,ierr)
+               call MPI_SEND(bufsend_i,lbufsend_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_all,ierr)
             end if
 
             if (lbufsend_j .gt. 0) then
-               call MPI_SEND(bufsend_j,lbufsend_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm,ierr)
+               call MPI_SEND(bufsend_j,lbufsend_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_all,ierr)
             end if
          end if
          nreq = ireq
@@ -1614,7 +2195,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             call MPI_WAITALL(nreq, request, statarray, ierr)
          end if
          ! debug
-         !call info(routine_name,'All messages in pack 12 received on proc',myid)
+         !call info(routine_name,'All messages in pack 14 received on proc',myid)
 
          ! processors now own data of adaptively found constraints on their subdomains, they have to filter globs and load them into the structure
          ! gather back data about really loaded constraints
@@ -1623,10 +2204,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             ! receive mapping of interface nodes into global nodes
 
             ireq = ireq + 1
-            call MPI_IRECV(nvalid_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm,request(ireq),ierr)
+            call MPI_IRECV(nvalid_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
 
             ireq = ireq + 1
-            call MPI_IRECV(nvalid_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm,request(ireq),ierr)
+            call MPI_IRECV(nvalid_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
          end if
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
@@ -1659,7 +2240,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             ! load constraints into DD structure 
             call dd_load_adaptive_constraints(suba(isub_loc),gglob,cadapt,lcadapt1,lcadapt2, nvalid)
 
-            call MPI_SEND(nvalid,1,MPI_INTEGER,owner,isub,comm,ierr)
+            call MPI_SEND(nvalid,1,MPI_INTEGER,owner,isub,comm_all,ierr)
 
             deallocate(cadapt)
          end do
@@ -1668,7 +2249,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             call MPI_WAITALL(nreq, request, statarray, ierr)
          end if
          ! debug
-         !call info(routine_name,'All messages in pack 13 received on proc',myid)
+         !call info(routine_name,'All messages in pack 15 received on proc',myid)
 
          if (i_compute_pair) then
             ! check that number of loaded constraints left and write match
@@ -1681,6 +2262,12 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          deallocate(lbufa)
          deallocate(kbufsend) 
          deallocate(bufrecv,bufsend)
+         if (lobpcg_preconditioner .eq. 1) then
+            do isub = 1,lsub_adapt
+               call dd_finalize(sub_adapt(isub))
+            end do
+            deallocate(sub_adapt)
+         end if
          if (i_compute_pair) then
             deallocate(constraints)
             deallocate(eigvec,eigval)
@@ -1692,6 +2279,16 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             deallocate(rhoi_i,rhoi_j)
             deallocate(work)
             deallocate(tau)
+            deallocate(work3)
+            deallocate(tau3)
+            deallocate(nullB)
+            is_nullB_ready = .false.
+            if (lobpcg_preconditioner .eq. 1) then
+               deallocate(coarsem_adapt)
+               deallocate(comm_resc)
+               deallocate(comm_resc_i)
+               deallocate(comm_resc_j)
+            end if
             deallocate(kdofi_i,kdofi_j)
             deallocate(dij)
             deallocate(common_crows)
@@ -1782,25 +2379,32 @@ integer,intent(in) ::  ly
 real(kr),intent(out) :: y(ly)
 ! determine which matrix should be multiplied
 !  1 - A = P(I-RE)'S(I-RE)P
-!  2 - B = PSP
+!  2 - B = P_barPSPP_bar
 !  3 - not called from LOBPCG, called from fake looper - just perform demanded multiplications by S
 !  5 - preconditioning by local BDDC
 !  -3 - set on exit if iterational process should be stopped now
 integer,intent(inout) ::  idoper 
 
-! local
+! local vars
+character(*),parameter:: routine_name = 'ADAPTIVITY_MVECMULT'
 integer :: i
 integer :: iinstr, isub, isub_loc, owner, point1, point2, point, length, do_i_compute, is_active
 
 ! small BDDC related vars
-!integer ::             laux2
-!real(kr),allocatable :: aux2(:)
-!integer ::             lrescs
-!real(kr),allocatable :: rescs(:)
-!integer ::             nrhs, nnods, nelems, ndofs, ndofaaugs, ndofcs, ncnodess
-!logical :: transposed
+integer ::             laux2
+real(kr),allocatable :: aux2(:)
+integer ::             lrescs
+real(kr),allocatable :: rescs(:)
+integer ::             lsolis
+real(kr),allocatable :: solis(:)
+integer ::             nrhs, nnods, nelems, ndofs, ndofaaugs, lindrowc, ndofi, nnodi
+logical :: transposed
+integer :: lapack_info
+integer :: stat(MPI_STATUS_SIZE)
 
 logical :: i_am_slave, all_slaves
+
+logical :: suppress_preconditioning = .false.
 
 integer :: ireq, nreq, ierr
 
@@ -1869,31 +2473,25 @@ end do
 if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5 ) then
    ! check the dimensions
    if (n .ne. problemsize) then
-       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Vector size mismatch.'
-       call error_exit
+       call error(routine_name, 'Vector size mismatch.', n)
    end if
    if (lx .ne. ly) then
-       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Data size mismatch: lx,ly',lx,ly
-       call error_exit
+       call error(routine_name, 'Data size mismatch: lx =',lx)
    end if
    if (lx .ne. n) then
-       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Data size mismatch. lx, n', lx, n
-       call error_exit
+       call error(routine_name, 'Data size mismatch. lx = ', lx)
    end if
    ! are arrays allocated ?
    if (.not.allocated(comm_xaux) .or. .not.allocated(comm_xaux2)) then
-       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Auxiliary arrays not allocated.','idoper =',idoper
-       call error_exit
+       call error(routine_name, 'Auxiliary arrays not allocated. idoper =',idoper)
    end if
    ! correct size ?
    if (comm_lxaux .ne. comm_lxaux2) then
-       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Array size not match.'
-       call error_exit
+       call error(routine_name, 'Array size not match.',comm_lxaux2)
    end if
    ! correct size ?
    if (comm_lxaux .ne. lx) then
-       write(*,*) 'ADAPTIVITY_LOBPCG_MVECMULT: Array size not match.'
-       call error_exit
+       call error(routine_name, 'Array size not match.',comm_lxaux)
    end if
 
    ! make temporary copy
@@ -1901,10 +2499,16 @@ if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5 ) then
       comm_xaux(i) = x(i)
    end do
    
-   ! xaux = P xaux
-   if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.3) then
-      call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
+   ! xaux = P_bar xaux
+   if (idoper.eq.2) then
+      if (is_nullB_ready) then
+         call adaptivity_apply_complementary_projection(comm_xaux,comm_lxaux)
+      end if
    end if
+
+   ! apply projection Pi - to fulfill common constraints
+   ! xaux = P xaux (in all regimes)
+   call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
 
    if (idoper.eq.1) then
       ! make temporary copy
@@ -1923,12 +2527,6 @@ if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5 ) then
          comm_xaux(i) = comm_xaux(i) - comm_xaux2(i)
       end do
    end if
-   if (idoper.eq.5) then
-      ! preconditioning
-      ! D_P xaux
-      !  - apply weights
-      call adaptivity_apply_weights(weight,lweight,comm_xaux,comm_lxaux)
-   end if
 
    ! distribute sizes of chunks of eigenvectors
    point1 = 1
@@ -1942,6 +2540,16 @@ if (nreq.gt.0) then
    call MPI_WAITALL(nreq, request, statarray, ierr)
 end if
 
+! If I am preconditioning, get coarse residuals
+ireq = 0
+! Continue only of I was called from LOBPCG
+if (idoper.eq.5) then
+   ireq = ireq + 1
+   call MPI_IRECV(comm_resc_i,comm_lresc,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
+
+   ireq = ireq + 1
+   call MPI_IRECV(comm_resc_j,comm_lresc,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
+end if
 ! Multiply subdomain vectors by Schur complement
 do iinstr = 1,ninstructions
    owner     = instructions(iinstr,1)
@@ -1960,59 +2568,121 @@ do iinstr = 1,ninstructions
       point  = kbufsend(iinstr)
       length = lbufa(iinstr)
 
-      ! TODO: Apply BDDC preconditioner here
-      ! currently, plain copy
-      do i = 1,length
-         bufsend(point + i - 1) = bufrecv(point + i - 1)
-      end do
-
       ! SUBDOMAIN CORRECTION
       ! prepare array of augmented size
-      !call get_index(isub,indexsub,lindexsub,isub_loc)
-      !call dd_get_aug_size(suba(isub_loc), ndofaaugs)
-      !laux2 = ndofaaugs
-      !allocate(aux2(laux2))
-      !call zero(aux2,laux2)
-      !call dd_get_size(suba(isub_loc), ndofs,nnods,nelems)
-      !! truncate the vector for embedding - zeros at the end
-      !call dd_map_subi_to_sub(suba(isub_loc), bufrecv(point),length, aux2,ndofs)
+      call dd_get_aug_size(sub_adapt(iinstr), ndofaaugs)
+      laux2 = ndofaaugs
+      allocate(aux2(laux2))
+      call zero(aux2,laux2)
+      call dd_get_size(sub_adapt(iinstr), ndofs,nnods,nelems)
+      ! truncate the vector for embedding - zeros at the end
+      call dd_map_subi_to_sub(sub_adapt(iinstr), bufrecv(point),length, aux2,ndofs)
 
-      !nrhs = 1
-      !call dd_solve_aug(suba(isub_loc), aux2,laux2, nrhs)
+      nrhs = 1
+      call dd_solve_aug(sub_adapt(iinstr), aux2,laux2, nrhs)
 
-      !! get interface part of the vector of preconditioned residual
-      !call dd_get_coarse_size(suba(isub_loc),ndofcs,ncnodess)
+      ! get interface part of the vector of preconditioned residual
+      call dd_get_number_of_crows(sub_adapt(iinstr),lindrowc)
 
-      !lrescs = ndofcs
-      !allocate(rescs(lrescs))
-      !call zero(rescs,lrescs)
+      lrescs = lindrowc
+      allocate(rescs(lrescs))
+      call zero(rescs,lrescs)
 
-      !! rc = phis' * x
-      !transposed = .true.
-      !call dd_phisi_apply(suba(isub_loc), transposed, bufrecv(point),length, rescs,lrescs)
+      ! rc = phis' * x
+      transposed = .true.
+      call dd_phisi_apply(sub_adapt(iinstr), transposed, bufrecv(point),length, rescs,lrescs)
 
-      !! x_coarse = phis * phis' * x
-      !transposed = .false.
-      !call dd_phisi_apply(suba(isub_loc), transposed, rescs,lrescs, bufsend(point),length)
-      !deallocate(rescs)
+      call MPI_SEND(rescs,lrescs,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,ierr)
+      deallocate(rescs)
 
-      !!do i = 1,length
-      !!   bufsend(point-1+i) = bufrecv(point-1+i)
-      !!end do
+      call dd_map_sub_to_subi(sub_adapt(iinstr), aux2,ndofs, bufsend(point),length)
+      deallocate(aux2)
 
-      !call dd_map_sub_to_subi(suba(isub_loc), aux2,ndofs, bufsend(point),length)
-      !deallocate(aux2)
+   end if
+end do
+! Wait for all vectors reach their place
+nreq = ireq
+if (nreq.gt.0) then
+   call MPI_WAITALL(nreq, request, statarray, ierr)
+end if
 
-      ! debug copy
-      !do i = 1,length
-      !   bufsend(point-1+i) = bufrecv(point-1+i)
-      !end do
+! if I am in preconditioning and I own a pair, apply coarse correction of BDDC
+ireq = 0
+if (idoper.eq.5) then
+   ! add local residuals to single residual
+
+   do i = 1,comm_lresc
+      comm_resc(i) = comm_resc_i(i) + comm_resc_j(i)
+   end do
+
+   ! solve the local coarse problem by LAPACK
+   call DPOTRS( 'Upper', lcoarsem_adapt1, 1, coarsem_adapt, lcoarsem_adapt1, comm_resc, comm_lresc, lapack_info)
+   if (lapack_info.ne.0) then
+      call error(routine_name,'in LAPACK during solution of local coarse problem:',lapack_info)
+   end if
+
+   ! distribute coarse solution
+   ireq = ireq + 1
+   call MPI_ISEND(comm_resc,comm_lresc,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
+   ireq = ireq + 1
+   call MPI_ISEND(comm_resc,comm_lresc,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
+
+end if
+
+! Multiply subdomain vectors by Schur complement
+do iinstr = 1,ninstructions
+   owner     = instructions(iinstr,1)
+   isub      = instructions(iinstr,2)
+   is_active = instructions(iinstr,4)
+
+   if (is_active .eq. 2) then
+      point  = kbufsend(iinstr)
+      length = lbufa(iinstr)
+
+      ! receive coarse correction
+      ! get interface part of the vector of preconditioned residual
+      call dd_get_number_of_crows(sub_adapt(iinstr),lindrowc)
+
+      lrescs = lindrowc
+      allocate(rescs(lrescs))
+      call MPI_RECV(rescs,lrescs,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,stat,ierr)
+
+! COARSE CORRECTION
+      call dd_get_interface_size(sub_adapt(iinstr),ndofi,nnodi)
+      lsolis = ndofi
+      allocate(solis(lsolis))
+
+      ! z_i = z_i + phis_i * uc_i
+      transposed = .false.
+      call dd_phisi_apply(sub_adapt(iinstr), transposed, rescs,lrescs, solis,lsolis)
+      deallocate(rescs)
+
+      ! add coarse correction to already prepared subdomain correction
+      do i = 1,length
+         bufsend(point + i - 1) = bufsend(point + i - 1) + solis(i)
+      end do
+
+      deallocate(solis)
+
+      if (suppress_preconditioning) then
+         ! plain copy
+         do i = 1,length
+            bufsend(point + i - 1) = bufrecv(point + i - 1)
+         end do
+      end if
+
    end if
 end do
 
+! Wait for all vectors reach their place
+nreq = ireq
+if (nreq.gt.0) then
+   call MPI_WAITALL(nreq, request, statarray, ierr)
+end if
+
 ! distribute multiplied vectors
 ireq = 0
-! Continue only of I was called from LOBPCG
+! Continue only if I was called from LOBPCG
 if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
    ireq = ireq + 1
    point1 = 1
@@ -2037,6 +2707,7 @@ nreq = ireq
 if (nreq.gt.0) then
    call MPI_WAITALL(nreq, request, statarray, ierr)
 end if
+
 
 ! Continue only of I was called from LOBPCG
 if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
@@ -2065,16 +2736,16 @@ if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
          comm_xaux(i) = comm_xaux(i) - comm_xaux2(i)
       end do
    end if
-   if (idoper.eq.5) then
-      ! preconditioning
-      ! D_P xaux
-      !  - apply weights
-      call adaptivity_apply_weights(weight,lweight,comm_xaux,comm_lxaux)
-   end if
 
-   ! xaux = P xaux
-   if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.3) then
-      call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
+   ! apply projection Pi - to fulfill common constraints
+   ! xaux = P xaux (in all regimes)
+   call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
+
+   ! xaux = P_bar xaux
+   if (idoper.eq.2) then
+      if (is_nullB_ready) then
+         call adaptivity_apply_complementary_projection(comm_xaux,comm_lxaux)
+      end if
    end if
 
    ! copy result to y
@@ -2084,6 +2755,48 @@ if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
 
 end if
 
+end subroutine
+
+!*************************************************************
+subroutine adaptivity_apply_complementary_projection(vec,lvec)
+!*************************************************************
+! Subroutine for application of projection onto complement of null(B)
+! P = I - nullB (nullB' nullB) nullB' = I - Q_1Q_1'
+! where nullB = QR = [ Q_1 | Q_2 ] R, is the FULL QR decomposition of nullB, Q_1 has
+! n columns, which corresponds to number of columns in null(B) 
+      use module_utils, only: zero, error
+
+      implicit none
+      integer, intent(in) ::    lvec
+      real(kr), intent(inout) :: vec(lvec)
+
+! local variables
+      character(*),parameter:: routine_name = 'ADAPTIVITY_APPLY_COMPLEMENTARY_PROJECTION'
+      integer :: lapack_info
+
+      ! check dimension
+      if (lvec.ne.lnullB1 .or. lvec.ne.problemsize) then
+         call error(routine_name,'input dimension mismatch')
+      end if
+
+      ! apply prepared projection using LAPACK as P = (I-Q_1Q_1') as P = Q_2Q_2',
+      ! where Q
+      ! xaux = Q_2' * xaux
+      call DORMQR( 'Left', 'Transpose',     lvec, 1, lnullB2, nullB, ldnullB, &
+                   tau3, vec, lvec, &
+                   work3,lwork3, lapack_info)
+      if (lapack_info.ne.0) then
+         call error(routine_name,'in LAPACK during first application of Q',lapack_info)
+      end if
+      ! put zeros in first N positions of vec
+      call zero(vec,lnullB2)
+      ! xaux = Q_2 * xaux
+      call DORMQR( 'Left', 'Non-Transpose', lvec, 1, lnullB2, nullB, ldnullB, &
+                   tau3, vec, lvec, &
+                   work3,lwork3, lapack_info)
+      if (lapack_info.ne.0) then
+         call error(routine_name,'in LAPACK during second application of Q',lapack_info)
+      end if
 end subroutine
 
 !****************************************************
@@ -2100,11 +2813,10 @@ subroutine adaptivity_apply_null_projection(vec,lvec)
       real(kr), intent(inout) :: vec(lvec)
 
 ! local variables
-      integer :: lddij, ldvec, lapack_info
+      integer :: ldvec, lapack_info
 
       ! apply prepared projection using LAPACK as P = (I-Q_1Q_1') as P = Q_2Q_2',
       ! where Q
-      lddij = ldij1
       ldvec = problemsize
       ! xaux = Q_2' * xaux
       call DORMQR( 'Left', 'Transpose',     ldij1, 1, ldij2, dij, lddij, &

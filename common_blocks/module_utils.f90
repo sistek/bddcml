@@ -282,6 +282,54 @@ subroutine build_operator(op_routine,mat,lmat1,lmat2)
       deallocate(vec)
 end subroutine
 
+!***********************************************************
+subroutine write_matrix(idunit,mat,format_string,info,trans)
+!***********************************************************
+! write matrix to unit
+! arguments:
+! idunit        the unit to write to
+! mat           the matrix to write
+! format_string (optional) the format to use, e.g. 'E16.4'. default is E23.16
+! info          (optional) the exit status
+! trans         (optional) write transposed matrix
+implicit none
+integer,intent(in):: idunit
+real(kr),intent(in):: mat(:,:)
+character(*),intent(in),optional:: format_string
+integer,intent(out),optional:: info
+logical,intent(in),optional:: trans
+character(50):: tfmt
+logical:: ttrans
+integer:: ios
+integer:: i
+
+! setup format
+if (present(format_string)) then
+  tfmt = '(    (' // format_string //',1x))'
+else
+  tfmt = '(    (' // 'E23.16' //',1x))'
+end if
+ttrans = .false.
+if (present(trans)) ttrans = trans
+if (ttrans) then
+  write(tfmt(2:5),'(I4)') size(mat,1)
+  do i = 1,size(mat,1)
+    write(idunit,tfmt,iostat=ios) mat(:,i)
+    if (ios /= 0) exit
+  end do
+else
+  write(tfmt(2:5),'(I4)') size(mat,2)
+  do i = 1,size(mat,1)
+    write(idunit,tfmt,iostat=ios) mat(i,:)
+    if (ios /= 0) exit
+  end do
+end if
+if (present(info)) info = ios
+
+end subroutine
+
+
+
 !****************************************************************************
 subroutine get_array_union(array1,larray1,array2,larray2,union,lunion,nunion)
 !****************************************************************************

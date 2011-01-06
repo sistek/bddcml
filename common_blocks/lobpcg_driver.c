@@ -175,7 +175,7 @@ void mv_load_values (double * eigvec, int nvec, int size, serial_Multi_Vector * 
 /* Fortran callable subroutine arguments are passed by reference */
 #define lobpcg_driver \
     F_SYMBOL(lobpcg_driver,LOBPCG_DRIVER)
-extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSITY_LEVEL, int *USE_X_VALUES, real *lambda, real *vec, int *ITERATIONS, int *IERR) 
+extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSITY_LEVEL, int *USE_X_VALUES, int *LOBPCG_PRECONDITIONER, real *lambda, real *vec, int *ITERATIONS, int *IERR) 
 {
    int n=*N; 
    int nvec=*NVEC; 
@@ -183,6 +183,7 @@ extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSI
    int maxit=*MAXIT; 
    int verbosity_level=*VERBOSITY_LEVEL; 
    int use_x_values=*USE_X_VALUES; 
+   int lobpcg_preconditioner=*LOBPCG_PRECONDITIONER; 
 
  /* lobpcg data */
    serial_Multi_Vector * x;
@@ -193,6 +194,8 @@ extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSI
    mv_InterfaceInterpreter ii;
    lobpcg_BLASLAPACKFunctions blap_fn;
    int ierr;
+
+   void *precfun;
 
  /* prepare data for LOBPCG */
   /* create multivector */
@@ -214,6 +217,19 @@ extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSI
       printf("\nLOBPCG_DRIVER: unknown value of use supplied values as start %d \n",use_x_values);
    }
 
+  /* set correct pointer to preconditioner */
+   if (lobpcg_preconditioner == 1)
+   {
+      /* use BDDC */
+      precfun = mvecmultM;
+   }
+   else
+   {
+      /* use NULL */
+      precfun = NULL;
+   }
+
+
 /* get memory for eigenvalues, eigenvalue history, residual norms, residual norms history */
    /* memory is already prepared for eigenvalues */
 
@@ -234,13 +250,14 @@ extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSI
    blap_fn.dsygv = dsygv_gen;
 
    /* execute lobpcg */
-   ierr = lobpcg_solve( xx,
+   ierr = lobpcg_solve_double( 
+	  xx,
           NULL,
           mvecmultA,
           NULL,
           mvecmultB,
           NULL,
-	  NULL, /* for option with preconditioner, use mvecmultM here,*/
+	  precfun, /* precfun is set above: for option with preconditioner, use mvecmultM here, wihtout it, use NULL */
           NULL,
           blap_fn,
           lobpcg_tol,

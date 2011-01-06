@@ -63,21 +63,21 @@ module module_dd
          integer ::             ndof    ! number of degrees of freedom
          integer ::             ndim    ! dimension of the problem
          ! description of subdomain mesh
-         integer ::             linet    ! length of INET array 
-         integer,allocatable ::  inet(:) ! INET array - indices of nodes on elements
-         integer ::             lnnet    ! length of NNET array
-         integer,allocatable ::  nnet(:) ! NNET array - number of nodes on elements
-         integer ::             lnndf    ! length of NNDF array
-         integer,allocatable ::  nndf(:) ! NNDF array - number of nodal degrees of freedom
-         integer ::             lisngn   ! length of array ISNGN
-         integer,allocatable ::  isngn(:)! ISNGN array - indices of subdomain nodes in global numbering
-         integer ::             lisvgvn   ! length of array ISVGVN
-         integer,allocatable ::  isvgvn(:)! ISVGVN array - indices of subdomain variables in global variable numbering
-         integer ::             lisegn   ! length of array ISEGN
-         integer,allocatable ::  isegn(:)! ISEGN array - indices of subdomain elements in global numbering
-         integer ::             lxyz1    ! length of array of coordinates
-         integer ::             lxyz2    ! number of x,y,z vectors
-         real(kr),allocatable :: xyz(:,:)! array of coordinates
+         integer ::         linet    ! length of INET array 
+         integer,pointer ::  inet(:) ! INET array - indices of nodes on elements
+         integer ::         lnnet    ! length of NNET array
+         integer,pointer ::  nnet(:) ! NNET array - number of nodes on elements
+         integer ::         lnndf    ! length of NNDF array
+         integer,pointer ::  nndf(:) ! NNDF array - number of nodal degrees of freedom
+         integer ::         lisngn   ! length of array ISNGN
+         integer,pointer ::  isngn(:)! ISNGN array - indices of subdomain nodes in global numbering
+         integer ::         lisvgvn   ! length of array ISVGVN
+         integer,pointer ::  isvgvn(:)! ISVGVN array - indices of subdomain variables in global variable numbering
+         integer ::         lisegn   ! length of array ISEGN
+         integer,pointer ::  isegn(:)! ISEGN array - indices of subdomain elements in global numbering
+         integer ::         lxyz1    ! length of array of coordinates
+         integer ::         lxyz2    ! number of x,y,z vectors
+         real(kr),pointer :: xyz(:,:)! array of coordinates
       
          ! description of subdomain interface
          logical ::             is_interface_loaded = .false.
@@ -85,22 +85,22 @@ module module_dd
          integer ::             ndofi      ! number of dof on Iterface
          integer ::             ndofo      ! number of dof in iteriOr (ndof = ndofi + ndofo)
          integer ::             liin       ! length of IIN array 
-         integer,allocatable ::  iin(:)    ! IIN array - indices of interface nodes
-         integer ::             liivsvn    ! length of IIVSVN array 
-         integer,allocatable ::  iivsvn(:) ! IIVSVN array - indices of Interface variables in subdomain variable numbering
-         integer ::             liovsvn    ! length of IOVSVN array
-         integer,allocatable ::  iovsvn(:) ! IOVSVN array - indices of interiOr variables in subdomain variable numbering
+         integer,pointer ::  iin(:)    ! IIN array - indices of interface nodes
+         integer ::         liivsvn    ! length of IIVSVN array 
+         integer,pointer ::  iivsvn(:) ! IIVSVN array - indices of Interface variables in subdomain variable numbering
+         integer ::         liovsvn    ! length of IOVSVN array
+         integer,pointer ::  iovsvn(:) ! IOVSVN array - indices of interiOr variables in subdomain variable numbering
 
          ! boundary conditions
          logical ::             is_bc_present = .false. ! are some Dirichlet BC on subdomain?
          logical ::             is_bc_nonzero ! are some Dirichlet BC nonzero?
          logical ::             is_bc_loaded = .false. 
-         integer ::             lifix         ! length of IFIX array
-         integer,allocatable ::  ifix(:)      ! IFIX array - indices of fixed variables
-         integer ::             lfixv         ! length of FIXV array
-         real(kr),allocatable :: fixv(:)      ! FIXV array - fixed variables values
-         integer ::             lbc = 0       ! length of BC array
-         real(kr),allocatable :: bc(:)        ! BC array - eliminated entries of stiffness matrix multiplied by values of fixed variables 
+         integer ::         lifix         ! length of IFIX array
+         integer,pointer ::  ifix(:)      ! IFIX array - indices of fixed variables
+         integer ::         lfixv         ! length of FIXV array
+         real(kr),pointer :: fixv(:)      ! FIXV array - fixed variables values
+         integer ::         lbc = 0       ! length of BC array
+         real(kr),pointer :: bc(:)        ! BC array - eliminated entries of stiffness matrix multiplied by values of fixed variables 
 
          ! description of corners
          logical ::             is_corners_loaded = .false.
@@ -182,9 +182,9 @@ module module_dd
          logical :: is_triplet = .false.
          integer :: nnza
          integer :: la
-         integer,allocatable  :: i_a_sparse(:)
-         integer,allocatable  :: j_a_sparse(:)
-         real(kr),allocatable ::   a_sparse(:)
+         integer,pointer  :: i_a_sparse(:)
+         integer,pointer  :: j_a_sparse(:)
+         real(kr),pointer ::   a_sparse(:)
 
          ! Matrix blocks in IJA sparse format
          logical :: is_blocked = .false.
@@ -1308,6 +1308,94 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
       deallocate(elmp)
 
 end subroutine
+
+!*************************************************
+subroutine dd_set_mirror_subdomain(sub_in,sub_out)
+!*************************************************
+! Subroutine for mirroring data of sub_in in sub_out
+! mirroring = integers are copied, arrays are set as pointers
+      use module_utils
+      implicit none
+
+      type(subdomain_type),intent(in)    :: sub_in
+      type(subdomain_type),intent(inout) :: sub_out
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_SET_MIRROR_SUBDOMAIN'
+
+      ! check the prerequisities
+      if (.not.sub_in%is_initialized) then
+         call error(routine_name,'Subdomain not initialized:', sub_in%isub)
+      end if
+      if (.not.sub_in%is_interface_loaded) then
+         call error(routine_name,'Interface is not loaded for subdomain:', sub_in%isub)
+      end if
+      if (.not.sub_in%is_matrix_loaded) then
+         call error(routine_name,'Matrix is not loaded for subdomain:', sub_in%isub)
+      end if
+
+      ! if checks are OK, copy data and set pointers
+      sub_out%is_degenerated = sub_in%is_degenerated 
+
+      sub_out%nelem = sub_in%nelem   ! number of elements
+      sub_out%nnod  = sub_in%nnod    ! number of nodes
+      sub_out%ndof  = sub_in%ndof    ! number of degrees of freedom
+      sub_out%ndim  = sub_in%ndim    ! dimension of the problem
+      ! description of subdomain mesh
+      sub_out%linet   =  sub_in%linet   ! length of INET array 
+      sub_out%inet    => sub_in%inet    ! INET array - indices of nodes on elements
+      sub_out%lnnet   =  sub_in%lnnet   ! length of NNET array
+      sub_out%nnet    => sub_in%nnet    ! NNET array - number of nodes on elements
+      sub_out%lnndf   =  sub_in%lnndf   ! length of NNDF array
+      sub_out%nndf    => sub_in%nndf    ! NNDF array - number of nodal degrees of freedom
+      sub_out%lisngn  =  sub_in%lisngn  ! length of array ISNGN
+      sub_out%isngn   => sub_in%isngn   ! ISNGN array - indices of subdomain nodes in global numbering
+      sub_out%lisvgvn =  sub_in%lisvgvn ! length of array ISVGVN
+      sub_out%isvgvn  => sub_in%isvgvn  ! ISVGVN array - indices of subdomain variables in global variable numbering
+      sub_out%lisegn  =  sub_in%lisegn  ! length of array ISEGN
+      sub_out%isegn   => sub_in%isegn   ! ISEGN array - indices of subdomain elements in global numbering
+      sub_out%lxyz1   =  sub_in%lxyz1   ! length of array of coordinates
+      sub_out%lxyz2   =  sub_in%lxyz2   ! number of x,y,z vectors
+      sub_out%xyz     => sub_in%xyz     ! array of coordinates
+      sub_out%is_mesh_loaded = sub_in%is_mesh_loaded
+      
+      ! description of subdomain interface
+      sub_out%nnodi   =  sub_in%nnodi     ! number of nodes on interface
+      sub_out%ndofi   =  sub_in%ndofi     ! number of dof on Iterface
+      sub_out%ndofo   =  sub_in%ndofo     ! number of dof in iteriOr (ndof = ndofi + ndofo)
+      sub_out%liin    =  sub_in%liin      ! length of IIN array 
+      sub_out%iin     => sub_in%iin       ! IIN array - indices of interface nodes
+      sub_out%liivsvn =  sub_in%liivsvn   ! length of IIVSVN array 
+      sub_out%iivsvn  => sub_in%iivsvn    ! IIVSVN array - indices of Interface variables in subdomain variable numbering
+      sub_out%liovsvn =  sub_in%liovsvn   ! length of IOVSVN array
+      sub_out%iovsvn  => sub_in%iovsvn    ! IOVSVN array - indices of interiOr variables in subdomain variable numbering
+      sub_out%is_interface_loaded = sub_in%is_interface_loaded
+
+      ! boundary conditions
+      sub_out%lifix         =  sub_in%lifix         ! length of IFIX array
+      sub_out%ifix          => sub_in%ifix          ! IFIX array - indices of fixed variables
+      sub_out%lfixv         =  sub_in%lfixv         ! length of FIXV array
+      sub_out%fixv          => sub_in%fixv          ! FIXV array - fixed variables values
+      sub_out%lbc           =  sub_in%lbc           ! length of BC array
+      sub_out%bc            => sub_in%bc            ! BC array - eliminated entries of stiffness matrix multiplied by values of fixed variables 
+      sub_out%is_bc_present = sub_in%is_bc_present  ! are some Dirichlet BC on subdomain?
+      sub_out%is_bc_nonzero = sub_in%is_bc_nonzero  ! are some Dirichlet BC nonzero?
+      sub_out%is_bc_loaded  = sub_in%is_bc_loaded  
+
+      ! description of subdomain matrix
+      sub_out%matrixtype   =  sub_in%matrixtype  
+      sub_out%istorage     =  sub_in%istorage    
+      sub_out%is_assembled =  sub_in%is_assembled
+      sub_out%is_triplet   =  sub_in%is_triplet 
+      sub_out%nnza         =  sub_in%nnza       
+      sub_out%la           =  sub_in%la         
+      sub_out%i_a_sparse   => sub_in%i_a_sparse
+      sub_out%j_a_sparse   => sub_in%j_a_sparse
+      sub_out%a_sparse     => sub_in%a_sparse
+      sub_out%is_matrix_loaded = sub_in%is_matrix_loaded
+
+end subroutine
+
 
 !********************************************************************************
 subroutine dd_write_solution_to_file(problemname, isub, sol,lsol, print_solution)
@@ -3857,6 +3945,9 @@ subroutine dd_prepare_aug(sub,comm_self)
       if (sub%is_degenerated) then
          return
       end if
+      if (.not.sub%is_interface_loaded) then
+         call error(routine_name,'Interface not loaded for subdomain:', sub%isub)
+      end if
       if (.not.sub%is_matrix_loaded) then
          call error(routine_name,'Matrix is not loaded for subdomain:', sub%isub)
       end if
@@ -4114,24 +4205,23 @@ subroutine dd_prepare_coarse(sub,keep_global)
             end do
          end do
          sub%is_phis_prepared   = .true.
-      else
-         ! restrict vector phis to interface unknowns and load it to the structure
-         ndofi   = sub%ndofi
-         lphisi1 = ndofi
-         lphisi2 = nconstr
-         allocate(sub%phisi(lphisi1,lphisi2))
-         sub%lphisi1 = lphisi1
-         sub%lphisi2 = lphisi2
-         do i = 1,ndofi
-            indi = sub%iivsvn(i)
-            do j = 1,nconstr
-               indphis = (j-1)*ndofaaug + indi
-
-               sub%phisi(i,j) = phis(indphis)
-            end do
-         end do
-         sub%is_phisi_prepared   = .true.
       end if
+      ! restrict vector phis to interface unknowns and load it to the structure
+      ndofi   = sub%ndofi
+      lphisi1 = ndofi
+      lphisi2 = nconstr
+      allocate(sub%phisi(lphisi1,lphisi2))
+      sub%lphisi1 = lphisi1
+      sub%lphisi2 = lphisi2
+      do i = 1,ndofi
+         indi = sub%iivsvn(i)
+         do j = 1,nconstr
+            indphis = (j-1)*ndofaaug + indi
+
+            sub%phisi(i,j) = phis(indphis)
+         end do
+      end do
+      sub%is_phisi_prepared   = .true.
 
       ! load the coarse matrix to the structure in appropriate format
       matrixtype = sub%matrixtype
@@ -4260,6 +4350,82 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs)
       if (.not.sub%is_degenerated) then
          call mumps_resolve(sub%mumps_aug,vec,lvec,nrhs)
       end if
+
+end subroutine
+
+!**************************************************
+subroutine dd_get_phisi_size(sub, lphisi1, lphisi2)
+!**************************************************
+! Subroutine for getting size of PHISI matrix
+! phisi are coarse space basis functions on subdomain restricted to interface
+
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+
+      ! output size
+      integer,intent(out) :: lphisi1
+      integer,intent(out) :: lphisi2
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GET_PHISI_SIZE'
+
+      ! check the prerequisities
+      if (.not.sub%is_phisi_prepared) then
+         call error(routine_name, 'PHISI matrix not ready:', sub%isub)
+      end if
+
+      ! copy sizes
+      lphisi1 = sub%lphisi1
+      lphisi2 = sub%lphisi2
+
+end subroutine
+
+!***************************************************
+subroutine dd_get_phisi(sub, phisi, lphisi1,lphisi2)
+!***************************************************
+! Subroutine for getting PHISI matrix
+! phisi are coarse space basis functions on subdomain restricted to interface
+
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+
+      ! phisi size
+      integer,intent(in) :: lphisi1
+      integer,intent(in) :: lphisi2
+
+      ! output - dense matrix of coarse basis functions
+      real(kr),intent(out) :: phisi(lphisi1,lphisi2)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GET_PHISI'
+      integer :: i,j
+
+      ! check the prerequisities
+      if (.not.sub%is_phisi_prepared) then
+         call error(routine_name, 'PHISI matrix not ready:', sub%isub)
+      end if
+
+      ! check dimensions
+      if (lphisi1 .ne. sub%lphisi1) then
+         call error(routine_name, 'PHISI matrix first dimension mismatch:', sub%isub)
+      end if
+      if (lphisi2 .ne. sub%lphisi2) then
+         call error(routine_name, 'PHISI matrix second dimension mismatch:', sub%isub)
+      end if
+
+      ! checks OK, copy matrix
+      do j = 1,lphisi2
+         do i = 1,lphisi1
+            
+            phisi(i,j) = sub%phisi(i,j)
+         end do
+      end do
 
 end subroutine
 
@@ -4416,6 +4582,68 @@ subroutine dd_phis_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
 
 end subroutine
 
+!*******************************************
+subroutine dd_get_coarsem_size(sub,lcoarsem)
+!*******************************************
+! Subroutine for obtaining SIZE of coarse matrix of subdomain
+      use module_utils
+      implicit none
+
+! sub structure for actual subdomain
+      type(subdomain_type),intent(in) :: sub
+
+      ! coarse matrix length
+      integer,intent(out)  :: lcoarsem
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GET_COARSEM_SIZE'
+
+      ! check the prerequisities
+      if (.not.sub%is_coarse_prepared) then
+         call error(routine_name, 'Coarse matrix not ready:', sub%isub)
+      end if
+
+      ! if checks are OK, copy data
+      lcoarsem = sub%lcoarsem
+
+end subroutine
+      
+!**********************************************
+subroutine dd_get_coarsem(sub,coarsem,lcoarsem)
+!**********************************************
+! Subroutine for obtaining coarse matrix of subdomain
+      use module_utils
+      implicit none
+
+! sub structure for actual subdomain
+      type(subdomain_type),intent(in) :: sub
+
+      ! coarse matrix length
+      integer,intent(in)  :: lcoarsem
+      ! coarse matrix 
+      real(kr),intent(out) :: coarsem(lcoarsem)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GET_COARSEM'
+      integer :: i
+
+      ! check the prerequisities
+      if (.not.sub%is_coarse_prepared) then
+         call error(routine_name, 'Coarse matrix not ready:', sub%isub)
+      end if
+
+      ! check dimensions
+      if (lcoarsem .ne. sub%lcoarsem) then
+         call error(routine_name, 'coarse matrix dimension mismatch:', sub%isub)
+      end if
+
+      ! if checks are OK, copy data
+      do i = 1,lcoarsem
+         coarsem(i) = sub%coarsem(i)
+      end do
+
+end subroutine
+      
 !********************************************************************
 subroutine dd_get_my_coarsem_length(suba,lsuba,indexsub,lindexsub,la)
 !********************************************************************
@@ -8939,44 +9167,44 @@ subroutine dd_finalize(sub)
       ! local variables
       integer :: j
 
-      if (allocated(sub%inet)) then
-         deallocate(sub%inet)
+      if (associated(sub%inet)) then
+         nullify(sub%inet)
       end if
-      if (allocated(sub%nnet)) then
-         deallocate(sub%nnet)
+      if (associated(sub%nnet)) then
+         nullify(sub%nnet)
       end if
-      if (allocated(sub%nndf)) then
-         deallocate(sub%nndf)
+      if (associated(sub%nndf)) then
+         nullify(sub%nndf)
       end if
-      if (allocated(sub%isngn)) then
-         deallocate(sub%isngn)
+      if (associated(sub%isngn)) then
+         nullify(sub%isngn)
       end if
-      if (allocated(sub%isvgvn)) then
-         deallocate(sub%isvgvn)
+      if (associated(sub%isvgvn)) then
+         nullify(sub%isvgvn)
       end if
-      if (allocated(sub%isegn)) then
-         deallocate(sub%isegn)
+      if (associated(sub%isegn)) then
+         nullify(sub%isegn)
       end if
-      if (allocated(sub%xyz)) then
-         deallocate(sub%xyz)
+      if (associated(sub%xyz)) then
+         nullify(sub%xyz)
       end if
-      if (allocated(sub%iin)) then
-         deallocate(sub%iin)
+      if (associated(sub%iin)) then
+         nullify(sub%iin)
       end if
-      if (allocated(sub%iivsvn)) then
-         deallocate(sub%iivsvn)
+      if (associated(sub%iivsvn)) then
+         nullify(sub%iivsvn)
       end if
-      if (allocated(sub%iovsvn)) then
-         deallocate(sub%iovsvn)
+      if (associated(sub%iovsvn)) then
+         nullify(sub%iovsvn)
       end if
-      if (allocated(sub%ifix)) then
-         deallocate(sub%ifix)
+      if (associated(sub%ifix)) then
+         nullify(sub%ifix)
       end if
-      if (allocated(sub%fixv)) then
-         deallocate(sub%fixv)
+      if (associated(sub%fixv)) then
+         nullify(sub%fixv)
       end if
-      if (allocated(sub%bc)) then
-         deallocate(sub%bc)
+      if (associated(sub%bc)) then
+         nullify(sub%bc)
       end if
       ! corners and globs
       if (allocated(sub%global_corner_number)) then
@@ -9044,14 +9272,14 @@ subroutine dd_finalize(sub)
          end do
          deallocate(sub%cnodes)
       end if
-      if (allocated(sub%i_a_sparse)) then
-         deallocate(sub%i_a_sparse)
+      if (associated(sub%i_a_sparse)) then
+         nullify(sub%i_a_sparse)
       end if
-      if (allocated(sub%j_a_sparse)) then
-         deallocate(sub%j_a_sparse)
+      if (associated(sub%j_a_sparse)) then
+         nullify(sub%j_a_sparse)
       end if
-      if (allocated(sub%a_sparse)) then
-         deallocate(sub%a_sparse)
+      if (associated(sub%a_sparse)) then
+         nullify(sub%a_sparse)
       end if
       if (allocated(sub%i_a11_sparse)) then
          deallocate(sub%i_a11_sparse)

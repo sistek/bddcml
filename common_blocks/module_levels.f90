@@ -1991,7 +1991,6 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
                                      levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                                      levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
                                      levels(ilevel)%iets,levels(ilevel)%liets)
-         !end if
       else
          ! this is a tricky routine - it needs to be run at all processes at PREVIOUS level to properly distribute matrices
          ! prepare auxiliary arrays necessary by the routine
@@ -2333,8 +2332,8 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          call adaptivity_solve_eigenvectors(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                                             levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                                             levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
-                                            pair2proc,lpair2proc, comm_all, use_explicit_schurs,&
-                                            levels(ilevel)%adaptivity_estimate)
+                                            pair2proc,lpair2proc, comm_all, comm_self, use_explicit_schurs,&
+                                            matrixtype, levels(ilevel)%adaptivity_estimate)
 
          if (use_explicit_schurs) then
             do isub_loc = 1,nsub_loc
