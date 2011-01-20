@@ -1279,5 +1279,27 @@ timems=(v(8)+1000*(v(7)+60*(v(6)+60*(v(5)+24*(v(3))))))
 t= timems / 1000._kr
 end subroutine wall_time
 
+!************************************
+subroutine logical2integer(tf_int,tf)
+!************************************
+! translates C-like logical value as integer 0 = false, 1 = true into Fortran logical type
+!************************************
+implicit none
+integer, intent(in) :: tf_int
+logical, intent(out) :: tf
+
+! local vars
+character(*),parameter:: routine_name = 'LOGICAL2INTEGER'
+
+if      (tf_int.eq.0) then
+   tf = .false.
+else if (tf_int.eq.1) then
+   tf = .true.
+else
+   call error(routine_name, 'Illegal value of integer true/false type - not 0 nor 1')
+end if
+
+end subroutine
+
 end module module_utils
 

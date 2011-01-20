@@ -1997,9 +1997,9 @@ subroutine dd_load_eliminated_bc(sub, bc,lbc)
       end if
 
       ! load eliminated boundary conditions if they are present
+      sub%lbc = lbc
+      allocate(sub%bc(lbc))
       if (lbc .gt. 0) then
-         sub%lbc = lbc
-         allocate(sub%bc(lbc))
          do i = 1,lbc
             sub%bc(i) = bc(i)
          end do
@@ -2312,17 +2312,22 @@ subroutine dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
       ! boundary conditions
       if (import_bc) then
          sub%lifix = lifix
-         allocate(sub%ifix(lifix))
+         sub%lfixv = lfixv
+      else
+         sub%lifix = 0
+         sub%lfixv = 0
+      end if
+
+      allocate(sub%ifix(sub%lifix))
+      allocate(sub%fixv(sub%lfixv))
+
+      if (import_bc) then
          do i = 1,lifix
             sub%ifix(i) = ifix(i)
          end do
-   
-         sub%lfixv = lfixv
-         allocate(sub%fixv(lfixv))
          do i = 1,lfixv
             sub%fixv(i) = fixv(i)
          end do
-
       end if
 
       sub%is_bc_loaded = .true.
@@ -9168,43 +9173,43 @@ subroutine dd_finalize(sub)
       integer :: j
 
       if (associated(sub%inet)) then
-         nullify(sub%inet)
+         deallocate(sub%inet)
       end if
       if (associated(sub%nnet)) then
-         nullify(sub%nnet)
+         deallocate(sub%nnet)
       end if
       if (associated(sub%nndf)) then
-         nullify(sub%nndf)
+         deallocate(sub%nndf)
       end if
       if (associated(sub%isngn)) then
-         nullify(sub%isngn)
+         deallocate(sub%isngn)
       end if
       if (associated(sub%isvgvn)) then
-         nullify(sub%isvgvn)
+         deallocate(sub%isvgvn)
       end if
       if (associated(sub%isegn)) then
-         nullify(sub%isegn)
+         deallocate(sub%isegn)
       end if
       if (associated(sub%xyz)) then
-         nullify(sub%xyz)
+         deallocate(sub%xyz)
       end if
       if (associated(sub%iin)) then
-         nullify(sub%iin)
+         deallocate(sub%iin)
       end if
       if (associated(sub%iivsvn)) then
-         nullify(sub%iivsvn)
+         deallocate(sub%iivsvn)
       end if
       if (associated(sub%iovsvn)) then
-         nullify(sub%iovsvn)
+         deallocate(sub%iovsvn)
       end if
       if (associated(sub%ifix)) then
-         nullify(sub%ifix)
+         deallocate(sub%ifix)
       end if
       if (associated(sub%fixv)) then
-         nullify(sub%fixv)
+         deallocate(sub%fixv)
       end if
       if (associated(sub%bc)) then
-         nullify(sub%bc)
+         deallocate(sub%bc)
       end if
       ! corners and globs
       if (allocated(sub%global_corner_number)) then
@@ -9273,13 +9278,13 @@ subroutine dd_finalize(sub)
          deallocate(sub%cnodes)
       end if
       if (associated(sub%i_a_sparse)) then
-         nullify(sub%i_a_sparse)
+         deallocate(sub%i_a_sparse)
       end if
       if (associated(sub%j_a_sparse)) then
-         nullify(sub%j_a_sparse)
+         deallocate(sub%j_a_sparse)
       end if
       if (associated(sub%a_sparse)) then
-         nullify(sub%a_sparse)
+         deallocate(sub%a_sparse)
       end if
       if (allocated(sub%i_a11_sparse)) then
          deallocate(sub%i_a11_sparse)

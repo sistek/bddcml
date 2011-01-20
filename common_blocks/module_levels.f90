@@ -100,7 +100,9 @@ module module_levels
 
          real(kr) :: adaptivity_estimate ! estimate of condition number on given level
 
-         logical :: is_level_prepared = .false. ! level prepared
+         logical :: is_basics_loaded  = .false. ! subdomain mesh, subdomain - for local data loading
+
+         logical :: is_level_prepared = .false. ! whole level prepared
 
       end type levels_type
 
@@ -319,7 +321,7 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       real(kr), intent(in):: sol(lsol)
 
       ! local vars 
-      character(*),parameter:: routine_name = 'LEVELS_LOAD_GLOBAL_DATA'
+      character(*),parameter:: routine_name = 'LEVELS_UPLOAD_GLOBAL_DATA'
       integer :: i,j
 
       ! set active level to zero
@@ -385,6 +387,86 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       end if
 
       levels(iactive_level)%is_level_prepared = .true.
+end subroutine
+
+!***********************************************************************************
+subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
+                                    isub, nelems, nnods, ndofs, &
+                                    inet,linet, nnet,lnnet, nndf,lnndf, &
+                                    isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
+                                    xyz,lxyz1,lxyz2, &
+                                    ifix,lifix, fixv,lfixv, &
+                                    rhs,lrhs, &
+                                    nadj, iadj,liadj)
+!***********************************************************************************
+! Subroutine for loading LOCAL data at first level
+! currently only allows loading one subdomain for each processor
+      use module_utils
+      implicit none
+
+      integer, intent(in):: nelem, nnod, ndof, ndim
+      integer, intent(in):: isub, nelems, nnods, ndofs
+      integer, intent(in):: linet
+      integer, intent(in)::  inet(linet)
+      integer, intent(in):: lnnet
+      integer, intent(in)::  nnet(lnnet)
+      integer, intent(in):: lnndf
+      integer, intent(in)::  nndf(lnndf)
+      integer, intent(in):: lisngn
+      integer, intent(in)::  isngn(lisngn)
+      integer, intent(in):: lisvgvn
+      integer, intent(in)::  isvgvn(lisvgvn)
+      integer, intent(in):: lisegn
+      integer, intent(in)::  isegn(lisegn)
+      integer, intent(in):: lxyz1, lxyz2
+      real(kr), intent(in):: xyz(lxyz1,lxyz2)
+      integer, intent(in):: lifix
+      integer, intent(in)::  ifix(lifix)
+      integer, intent(in):: lfixv
+      real(kr), intent(in):: fixv(lfixv)
+      integer, intent(in):: lrhs
+      real(kr), intent(in):: rhs(lrhs)
+      integer, intent(in):: nadj
+      integer, intent(in):: liadj
+      integer, intent(in)::  iadj(liadj)
+
+      ! local vars 
+      character(*),parameter:: routine_name = 'LEVELS_UPLOAD_LOCAL_DATA'
+
+      ! set active level to one
+      iactive_level = 1
+
+! initialize zero level
+      levels(iactive_level)%nelem  = nelem
+      levels(iactive_level)%nnod   = nnod
+      levels(iactive_level)%ndof   = ndof
+
+! check that there is one and only one active subdomain
+      if (levels(iactive_level)%nsub_loc.ne.1) then
+         call error(routine_name,'There is not one subdomain activated at level (currently not supported). Activated: ',&
+                    levels(iactive_level)%nsub_loc)
+      end if
+      if (levels(iactive_level)%lsubdomains .ne. 1) then
+         call error(routine_name,'Inproper size of array SUBDOMAINS for sub',isub)
+      end if
+      if (.not. allocated(levels(iactive_level)%subdomains)) then
+         call error(routine_name,'memory for subdomain not prepared for sub',isub)
+      end if
+
+      call dd_upload_sub_mesh(levels(iactive_level)%subdomains(1), nelems, nnods, ndofs, ndim, &
+                              nndf,lnndf, nnet,lnnet, inet,linet, &
+                              isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
+                              xyz,lxyz1,lxyz2)
+      call dd_upload_bc(levels(iactive_level)%subdomains(1), ifix,lifix, fixv,lfixv)
+      call dd_upload_rhs(levels(iactive_level)%subdomains(1), rhs,lrhs)
+      call dd_upload_sub_adj(levels(iactive_level)%subdomains(1), nadj, iadj,liadj)
+
+      ! TODO: Allow loading initial approximation of solution
+
+      levels(iactive_level)%use_initial_solution = .false.
+
+      levels(iactive_level)%is_basics_loaded = .true.
+
 end subroutine
 
 !*************************************************************************************
@@ -987,6 +1069,11 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
       nnod      = levels(ilevel)%nnod
       nelem     = levels(ilevel)%nelem
 
+      ! if basic data are loaded for each subdomain, jump to seraching globs
+      if (levels(iactive_level)%is_basics_loaded) then
+         goto 1234
+      end if
+
       ! make division into subdomains
       graphtype = 0 ! not weighted
       levels(ilevel)%liets = levels(ilevel)%nelem
@@ -1565,6 +1652,9 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          end if
       end if
 !-----profile
+
+      ! get here if distributed data were loaded
+ 1234 continue
 
 !-----profile 
       if (profile) then
@@ -2332,7 +2422,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          call adaptivity_solve_eigenvectors(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                                             levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                                             levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
-                                            pair2proc,lpair2proc, comm_all, comm_self, use_explicit_schurs,&
+                                            pair2proc,lpair2proc, comm_all, use_explicit_schurs,&
                                             matrixtype, levels(ilevel)%adaptivity_estimate)
 
          if (use_explicit_schurs) then

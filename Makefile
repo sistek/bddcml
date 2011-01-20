@@ -1,4 +1,4 @@
-DIRS = common_blocks bddcpp bddcmumps mumps_adaptive bddcml 
+DIRS = common_blocks bddcpp bddcmumps mumps_adaptive bddcml ppbddcml
 ##################################################################
 # Targets
 ##################################################################

@@ -37,13 +37,15 @@ integer,parameter,private ::  use_vec_values = 1
 ! using preconditioner for LOBPCG
 ! 0 - no preconditioning (default)
 ! 1 - local BDDC preconditioner (!!! EXPERIMENTAL !!!)
-integer,parameter,private ::  lobpcg_preconditioner = 0
+integer,parameter,private ::  lobpcg_preconditioner = 1
+! if using preconditioner and it fails, try again without preconditioner?
+logical,parameter,private ::  try_harder = .false.
 ! loading computed eigenvectors
 ! T - compute new vectors
 ! F - load eigenvectors from file
 logical,parameter,private :: recompute_vectors = .true.
 ! debugging 
-logical,parameter,private :: debug = .true.
+logical,parameter,private :: debug = .false.
 
 ! maximal allowed length of file names
 integer,parameter,private :: lfnamex = 130
@@ -72,6 +74,8 @@ integer,private :: neigvec, problemsize
 integer,private :: ndofi_i, ndofi_j
 integer,private :: lindrowc_i, lindrowc_j
 integer,private :: nnodi_i,nnodi_j
+integer ::            lindrowc_adapt_i,   lindrowc_adapt_j
+integer,allocatable :: indrowc_adapt_i(:), indrowc_adapt_j(:)
 
 integer,private :: comm_myplace1, comm_myplace2 
 integer,private :: comm_myisub, comm_myjsub 
@@ -129,13 +133,12 @@ real(kr),allocatable,private :: tau3(:)
 integer,private ::             lwork3
 real(kr),allocatable,private :: work3(:)
 
-! auxiliary subdomains for local BDDC - matrices C differ
-integer,private ::                           lsub_adapt    ! lenth of array of sub_adapt  (= ninstructions)
-type(subdomain_type), allocatable, private :: sub_adapt(:) ! array of subdomains for adaptivity
 ! local coarse matrix
 integer,private ::             lcoarsem_adapt1
 integer,private ::             lcoarsem_adapt2
 real(kr),allocatable,private :: coarsem_adapt(:,:)
+integer,private ::             lkceigval
+real(kr),allocatable,private :: kceigval(:)
 integer,private ::              comm_lresc
 real(kr),allocatable,private :: comm_resc(:)
 real(kr),allocatable,private :: comm_resc_i(:)
@@ -268,7 +271,7 @@ end subroutine
 
 !******************************************************************************************
 subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexsub,&
-                                         pair2proc,lpair2proc,comm_all,comm_self,&
+                                         pair2proc,lpair2proc,comm_all,&
                                          use_explicit_schurs,matrixtype, est)
 !******************************************************************************************
 ! Subroutine for parallel solution of distributed eigenproblems
@@ -294,8 +297,6 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
 ! communicator global
       integer,intent(in) :: comm_all
-! communicator local
-      integer,intent(in) :: comm_self
 ! should explicit Schur complements be used and sent?
       logical,intent(in) :: use_explicit_schurs
 ! type of matrix
@@ -402,18 +403,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       integer ::               null_dim
 
       ! local BDDC
-      integer :: pointibuf
-      integer ::            llibufa
-      integer,allocatable :: libufa(:)
-      integer ::            libuf
-      integer,allocatable :: ibuf(:)
-      integer :: nsub
-      integer :: nnzc_new
-      integer ::            lc_new
-      integer,allocatable :: i_c_sparse_new(:),j_c_sparse_new(:)
-      real(kr),allocatable ::  c_sparse_new(:)
-      integer :: ind_c_sparse_new, indr, indrowc_loc, irow
-      logical :: keep_global
+      integer :: irow, jcol
       integer ::              lcoarsem
       real(kr),allocatable ::  coarsem(:)
       integer ::              lcoarsem_i
@@ -421,7 +411,11 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       integer ::              lcoarsem_j
       real(kr),allocatable ::  coarsem_j(:)
       integer ::              icoarsem
-      
+      integer :: i_loc, indg
+      integer ::            lcoarsem_embed
+      integer,allocatable :: coarsem_embed(:)
+      integer :: i_upp, j_upp, indc_loc
+      integer :: no_prec
 
 
       integer ::             lcadapt1, lcadapt2
@@ -448,7 +442,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       real(kr),allocatable :: xaux(:)
       integer ::             lxaux2
       real(kr),allocatable :: xaux2(:)
-      integer :: jcol, jrcol
+      integer :: jrcol
 
       real(kr),external :: ddot
 
@@ -1361,18 +1355,18 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             allocate(work2(lwork2))
             lwork2 = -1
             ! first call routine just to find optimal size of WORK2
-            call DSYEV( 'V', 'U', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
+            call DSYEV( 'Vectors', 'Upper', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
             if (lapack_info.ne.0) then
-               call error(routine_name,'in LAPACK during finding size for eigenproblem solution:',lapack_info)
+               call error(routine_name,'in LAPACK during finding size for nullspace eigenproblem solution:',lapack_info)
             end if
             lwork2 = int(work2(1))
             deallocate(work2)
             allocate(work2(lwork2))
             ! now call LAPACK to solve the eigenproblem
-            call DSYEV( 'V', 'U', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
+            call DSYEV( 'Vectors', 'Upper', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
             deallocate(work2)
             if (lapack_info.ne.0) then
-               call error(routine_name,'in LAPACK during solving eigenproblems:',lapack_info)
+               call error(routine_name,'in LAPACK during solving nullspace eigenproblems:',lapack_info)
             end if
 
             ! debug
@@ -1394,7 +1388,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                null_dim = lzbzeigval
             end if
 
-            call info(routine_name,'dimension of nullspace',null_dim)
+            if (debug) then
+               call info(routine_name,'dimension of nullspace',null_dim)
+            end if
 
             ! find null(B) = Z*null(Z'BZ) store it in BZ
             lnullB1 = lz1
@@ -1674,66 +1670,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          else
 
             if (lobpcg_preconditioner .eq. 1) then
-               ! set up local BDDC preconditioner for LOBPCG
-
-               ! distribute common rows in C to slaves
-               ! prepare space for these data
-               ireq = 0
-               ! prepare memory
-               llibufa = ninstructions
-               allocate(libufa(llibufa))
-               do iinstr = 1,ninstructions
-                  owner = instructions(iinstr,1)
-                  isub  = instructions(iinstr,2)
-
-                  ireq = ireq + 1
-                  call MPI_IRECV(libufa(iinstr),1,MPI_INTEGER,owner,isub,comm_all,request(ireq),ierr)
-               end do
-               if (i_compute_pair) then
-
-                  ! distribute sizes of common_crows (with global indices of rows of C_i and C_j)
-                  call MPI_SEND(ncommon_crows,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,ierr)
-                  call MPI_SEND(ncommon_crows,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,ierr)
-               end if
-               nreq = ireq
-               if (nreq.gt.0) then
-                  call MPI_WAITALL(nreq, request, statarray, ierr)
-               end if
-               ! debug
-               !call info(routine_name,'All messages in pack 30.1 received on proc',myid)
-
-               ! prepare memory for obtained common rows of C
-               libuf = sum(libufa)
-               allocate(ibuf(libuf))
-
-               ireq = 0
-               pointibuf = 0
-               do iinstr = 1,ninstructions
-                  owner = instructions(iinstr,1)
-                  isub  = instructions(iinstr,2)
-
-
-                  ireq = ireq + 1
-                  call MPI_IRECV(ibuf(pointibuf + 1),libufa(iinstr),MPI_INTEGER,owner,isub,comm_all,request(ireq),ierr)
-
-                  pointibuf = pointibuf + libufa(iinstr)
-               end do
-               if (i_compute_pair) then
-
-                  ! distribute sizes of common_crows (with global indices of rows of C_i and C_j)
-                  call MPI_SEND(common_crows(1),ncommon_crows,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,ierr)
-                  call MPI_SEND(common_crows(1),ncommon_crows,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,ierr)
-               end if
-               nreq = ireq
-               if (nreq.gt.0) then
-                  call MPI_WAITALL(nreq, request, statarray, ierr)
-               end if
-               ! debug
-               !call info(routine_name,'All messages in pack 30.2 received on proc',myid)
-
-               ! create new array of DD structures to store local data for BDDC preconditioner
-               lsub_adapt = ninstructions
-               allocate(sub_adapt(lsub_adapt))
+               ! set up local BDDC preconditioner for LOBPCG from existing data
 
                ireq = 0
                if (i_compute_pair) then
@@ -1743,10 +1680,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                      call error(routine_name,'adaptivity without explicit Schur complements not supported for non SPD matrices')
                   end if
 
-                  ! prepare space for local coarse matrices
+                  ! prepare space for local coarse matrices of slaves
                   ! since LOBPCG does not work for indefinite nor general matrices, symmetric storage is assumed
-                  lcoarsem_i = ((ncommon_crows+1) * ncommon_crows) /2
-                  lcoarsem_j = ((ncommon_crows+1) * ncommon_crows) /2
+                  lcoarsem_i = ((lindrowc_i+1) * lindrowc_i) /2
+                  lcoarsem_j = ((lindrowc_j+1) * lindrowc_j) /2
 
                   allocate(coarsem_i(lcoarsem_i))
                   allocate(coarsem_j(lcoarsem_j))
@@ -1761,90 +1698,23 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                end if
                nreq = ireq
 
-               pointibuf = 0
                do iinstr = 1,ninstructions
                   owner = instructions(iinstr,1)
                   isub  = instructions(iinstr,2)
                   
                   call get_index(isub,indexsub,lindexsub,isub_loc)
 
-
-                  nsub = sub2proc(lsub2proc) - 1
-                  call dd_init(sub_adapt(iinstr),isub,nsub,comm_self)
-
-                  ! load local matrix - just set pointer to existing memory
-                  call dd_set_mirror_subdomain(suba(isub_loc),sub_adapt(iinstr))
-
-                  ! get old matrix C
-                  call dd_get_number_of_crows(suba(isub_loc),lindrowc)
-
-                  allocate(indrowc(lindrowc))
-                  call dd_get_subdomain_crows(suba(isub_loc),indrowc,lindrowc)
-
-                  call dd_get_number_of_cnnz(suba(isub_loc),nnzc)
-
-                  lc_sparse = nnzc
-                  allocate(i_c_sparse(lc_sparse),j_c_sparse(lc_sparse),c_sparse(lc_sparse))
-                  call dd_get_subdomain_c(suba(isub_loc),i_c_sparse,j_c_sparse,c_sparse,lc_sparse)
-
-                  lc_new = nnzc
-                  allocate(i_c_sparse_new(lc_new),j_c_sparse_new(lc_new),c_sparse_new(lc_new))
-
-                  ! prepare new local matrix C
-                  ! loop through rows of matrix C
-                  ind_c_sparse_new = 0
-                  do irow = 1,libufa(iinstr)
-                     indr = ibuf(pointibuf + irow)
-
-                     call get_index(indr,indrowc,lindrowc,indrowc_loc)
-
-                     ! copy part of C for this row into new C
-                     do ic = 1,nnzc
-                        if (i_c_sparse(ic) .eq. indrowc_loc) then
-
-                           ind_c_sparse_new = ind_c_sparse_new + 1
-
-                           i_c_sparse_new(ind_c_sparse_new) = irow
-                           j_c_sparse_new(ind_c_sparse_new) = j_c_sparse(ic)
-                             c_sparse_new(ind_c_sparse_new) =   c_sparse(ic)
-                        end if
-                     end do
-                  end do
-                  nnzc_new = ind_c_sparse_new
-
-
-                  deallocate(indrowc)
-                  deallocate(i_c_sparse,j_c_sparse,c_sparse)
-
-                  ! load the new matrix directly to the structure
-                  call dd_load_c(sub_adapt(iinstr),libufa(iinstr),i_c_sparse_new, j_c_sparse_new, c_sparse_new, lc_new, nnzc_new, &
-                                 ibuf(pointibuf+1:pointibuf+libufa(iinstr)),libufa(iinstr))
-                  deallocate(i_c_sparse_new,j_c_sparse_new,c_sparse_new)
-
-                  ! prepare augmented system
-                  call dd_prepare_aug(sub_adapt(iinstr),comm_self)
-
-                  ! prepare coarse space basis functions for BDDC
-                  keep_global = .false.
-                  call dd_prepare_coarse(sub_adapt(iinstr),keep_global)
-
-
                   ! extract the local coarse matrix and send it to master of pair
-                  call dd_get_coarsem_size(sub_adapt(iinstr),lcoarsem)
+                  call dd_get_coarsem_size(suba(isub_loc),lcoarsem)
 
                   allocate(coarsem(lcoarsem))
-                  call dd_get_coarsem(sub_adapt(iinstr),coarsem,lcoarsem)
+                  call dd_get_coarsem(suba(isub_loc),coarsem,lcoarsem)
 
                   ! send the matrix
                   call MPI_SEND(coarsem,lcoarsem,MPI_DOUBLE_PRECISION,owner,isub,comm_all,ierr)
 
                   deallocate(coarsem)
-
-                  pointibuf = pointibuf + libufa(iinstr)
                end do
-
-               deallocate(libufa)
-               deallocate(ibuf)
 
                ! wait for local coarse matrices
                if (nreq.gt.0) then
@@ -1856,21 +1726,130 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                if (i_compute_pair) then
 
                   ! assemble global coarse matrix 
-                  lcoarsem_adapt1 = ncommon_crows
-                  lcoarsem_adapt2 = ncommon_crows
+                  ! determine length
+                  lcoarsem_adapt1 = lindrowc_i + lindrowc_j - ncommon_crows
+                  lcoarsem_adapt2 = lcoarsem_adapt1
                   allocate(coarsem_adapt(lcoarsem_adapt1,lcoarsem_adapt2))
+                  call zero(coarsem_adapt,lcoarsem_adapt1,lcoarsem_adapt2)
 
-                  ! add matrices to coarsem_adapt while converting them from symmetric to full 
-                  ! K_C = K_C_i + K_C_j
+                  ! construct embedding of local coarse matrices to coarse matrix of the pair
+                  ! order unknowns as:  unique_i   |   unique_j   | common_crows
+                  lcoarsem_embed = lcoarsem_adapt1
+                  allocate(coarsem_embed(lcoarsem_embed))
+
+                  ! debug
+                  !print *, 'indrowc_i',indrowc_i
+                  !print *, 'indrowc_j',indrowc_j
+                  !print *, 'ncommon_crows',ncommon_crows
+
+                  i_loc = 0
+                  ! global coarse dof unique to i
+                  do i = 1,lindrowc_i
+                     indg = indrowc_i(i)
+
+                     if (.not. any(common_crows(1:ncommon_crows) .eq. indg)) then
+                        i_loc = i_loc + 1
+
+                        coarsem_embed(i_loc) = indg
+                     end if
+                  end do
+                  ! global coarse dof unique to j
+                  do i = 1,lindrowc_j
+                     indg = indrowc_j(i)
+
+                     if (.not. any(common_crows(1:ncommon_crows) .eq. indg)) then
+                        i_loc = i_loc + 1
+
+                        coarsem_embed(i_loc) = indg
+                     end if
+                  end do
+                  ! global coarse dof common to i and j
+                  do i = 1,ncommon_crows
+                     indg = common_crows(i)
+
+                     i_loc = i_loc + 1
+                     coarsem_embed(i_loc) = indg
+                  end do
+                  ! debug
+                  !print *, 'coarsem_embed',coarsem_embed
+
+                  ! prepare local versions of indrowc_ij arrays
+                  lindrowc_adapt_i = lindrowc_i
+                  lindrowc_adapt_j = lindrowc_j
+                  allocate(indrowc_adapt_i(lindrowc_adapt_i))
+                  allocate(indrowc_adapt_j(lindrowc_adapt_j))
+
+                  do i = 1,lindrowc_i
+                     indg = indrowc_i(i)
+                     
+                     call get_index(indg,coarsem_embed,lcoarsem_embed,indc_loc)
+                     if (indc_loc .eq. -1) then
+                        call error(routine_name,'Index of coarse dof not found.', indg)
+                     end if
+
+                     indrowc_adapt_i(i) = indc_loc
+                  end do
+                  do i = 1,lindrowc_j
+                     indg = indrowc_j(i)
+                     
+                     call get_index(indg,coarsem_embed,lcoarsem_embed,indc_loc)
+                     if (indc_loc .eq. -1) then
+                        call error(routine_name,'Index of coarse dof not found.', indg)
+                     end if
+
+                     indrowc_adapt_j(i) = indc_loc
+                  end do
+                  ! debug
+                  !print *, 'indrowc_adapt_i',indrowc_adapt_i
+                  !print *, 'indrowc_adapt_j',indrowc_adapt_j
+
+                  ! assemble matrices to coarsem_adapt while storing them in upper triangle of new 2D array
+                  ! K_C = [ K_C_i  0     x        ] with overlapping common global coarse dof 
+                  !       [  0    K_C_j  x        ]
+                  !       [  x     x   K_C_common ]
+
+                  ! add K_C_i
                   icoarsem = 0
-                  do j = 1,lcoarsem_adapt2
+                  do j = 1,lindrowc_i
+                     jcol = indrowc_adapt_i(j)
                      do i = 1,j
+                        irow = indrowc_adapt_i(i)
+
                         icoarsem = icoarsem + 1
 
-                        coarsem_adapt(i,j) = coarsem_i(icoarsem) + coarsem_j(icoarsem)
+                        if (irow.gt.jcol) then
+                           i_upp = jcol
+                           j_upp = irow
+                        else
+                           i_upp = irow
+                           j_upp = jcol
+                        end if
+
+                        coarsem_adapt(i_upp,j_upp) = coarsem_adapt(i_upp,j_upp) + coarsem_i(icoarsem)
+                     end do
+                  end do
+                  ! add K_C_j
+                  icoarsem = 0
+                  do j = 1,lindrowc_j
+                     jcol = indrowc_adapt_j(j)
+                     do i = 1,j
+                        irow = indrowc_adapt_j(i)
+
+                        icoarsem = icoarsem + 1
+
+                        if (irow.gt.jcol) then
+                           i_upp = jcol
+                           j_upp = irow
+                        else
+                           i_upp = irow
+                           j_upp = jcol
+                        end if
+
+                        coarsem_adapt(i_upp,j_upp) = coarsem_adapt(i_upp,j_upp) + coarsem_j(icoarsem)
                      end do
                   end do
 
+                  deallocate(coarsem_embed)
                   deallocate(coarsem_i)
                   deallocate(coarsem_j)
 
@@ -1879,11 +1858,57 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   !call write_matrix(6,coarsem_adapt,'e8.2')
                   !call flush(6)
 
-                  ! factorize coarse matrix of pair by LAPACK
-                  call DPOTRF( 'Upper', lcoarsem_adapt1, coarsem_adapt, lcoarsem_adapt1, lapack_info )
+                  ! prepare eigendecomposition of the coarse matrix of the pair by LAPACK
+                  ! eigenvalue decomposition of local coarse matrix K_C_loc
+                  lkceigval = lcoarsem_adapt1
+                  allocate(kceigval(lkceigval))
+
+                  ! determine size of work array
+                  lwork2 = 1
+                  allocate(work2(lwork2))
+                  lwork2 = -1
+                  ! first call routine just to find optimal size of WORK2
+                  call DSYEV( 'Vectors', 'Upper', lcoarsem_adapt1, coarsem_adapt(:,:), lcoarsem_adapt1, &
+                              kceigval, work2, lwork2, lapack_info )
                   if (lapack_info.ne.0) then
-                     call error(routine_name,'in LAPACK during factorization of local coarse problem:',lapack_info)
+                     call error(routine_name,'in LAPACK during finding size for eigendecomposition of local coarse matrix:',&
+                                lapack_info)
                   end if
+                  lwork2 = int(work2(1))
+                  deallocate(work2)
+                  allocate(work2(lwork2))
+                  ! now call LAPACK to solve the eigenproblem
+                  call DSYEV( 'Vectors', 'Upper', lcoarsem_adapt1, coarsem_adapt(:,:), lcoarsem_adapt1, &
+                              kceigval, work2, lwork2, lapack_info )
+                  deallocate(work2)
+                  if (lapack_info.ne.0) then
+                     call error(routine_name,'in LAPACK during eigendecomposition of local coarse matrix:',lapack_info)
+                  end if
+
+                  ! debug
+                  ! print eigenvalues
+                  !write(6,*) 'eigenvalues by LAPACK:'
+                  !write(6,'(e8.2)') kceigval
+
+                  ! set tolerance - inspired by Octave null() function, relaxing epsilon a bit: 
+                  ! max (size (A)) * max (svd (A)) * eps
+                  null_tol = lcoarsem_adapt1 * kceigval(lkceigval) * 2 * epsilon(kceigval) 
+                  ! own way
+                  !null_tol = 1.e-10_kr * (zbzeigval(1) + zbzeigval(lzbzeigval)) / 2._kr 
+
+                  ! determine dimension of nullspace of K_C
+                  null_dim = count(kceigval .lt. null_tol)
+                  if (debug) then
+                     call warning(routine_name,'nullspace dimension of local coarse matrix',null_dim)
+                  end if
+
+                  ! compute inverse of Lambda for nonsingular eigenvalues
+                  do i = 1,null_dim
+                     kceigval(i) = 0._kr
+                  end do
+                  do i = null_dim + 1,lcoarsem_adapt1
+                     kceigval(i) = 1._kr / kceigval(i)
+                  end do
 
                   ! prepare memory for iterations
                   comm_lresc = lcoarsem_adapt1
@@ -1896,21 +1921,14 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                      call info(routine_name,'local coarse matrix factorized for pair ',my_pair)
                   end if
 
-
                end if
+
                ! end set-up local BDDC preconditioner
             end if
 
             ! call LOBCPG
             if (i_compute_pair) then
                if (use_vec_values .eq. 1) then
-                 ! read initial guess of vectors
-                  !write(*,*) 'neigvec =',neigvec,'problemsize =',problemsize
-                  !open(unit = idmyunit,file='start_guess.txt')
-                  !do i = 1,problemsize
-                  !   read(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
-                  !end do
-                  !close(idmyunit)
 
                   ! Initialize the array with own random number generator
                   !   reinitialize the random number sequence for each pair for reproducibility 
@@ -1919,6 +1937,15 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   do i = 1,neigvec*problemsize
                      call get_random_number(eigvec(i))
                   end do
+
+                  ! debug
+                  ! read initial guess of vectors
+                  !write(*,*) 'neigvec =',neigvec,'problemsize =',problemsize
+                  !open(unit = idmyunit,file='start_guess.txt')
+                  !do i = 1,problemsize
+                  !   read(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+                  !end do
+                  !close(idmyunit)
                end if
 
                ! set name of individual file for glob
@@ -1937,9 +1964,17 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                                      lobpcg_preconditioner,&
                                      eigval,eigvec,lobpcg_iter,ierr)
                   if (ierr.ne.0) then
+                     call warning(routine_name,'LOBPCG exited with nonzero code for pair',my_pair)
                      if (debug) then
-                        call warning(routine_name,'LOBPCG exited with nonzero code for pair',my_pair)
                         call warning(routine_name,'LOBPCG error code: ',ierr)
+                     end if
+                     ! if problems with preconditioner are detected, try it without preconditioner
+                     if (ierr.eq.-1 .and. lobpcg_preconditioner .ne. 0 .and. try_harder) then
+                        call warning(routine_name,'trying without preconditioner for pair',my_pair)
+                        no_prec = 0
+                        call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,use_vec_values,&
+                                           no_prec,&
+                                           eigval,eigvec,lobpcg_iter,ierr)
                      end if
                   end if
                   if (debug) then
@@ -2262,12 +2297,6 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          deallocate(lbufa)
          deallocate(kbufsend) 
          deallocate(bufrecv,bufsend)
-         if (lobpcg_preconditioner .eq. 1) then
-            do isub = 1,lsub_adapt
-               call dd_finalize(sub_adapt(isub))
-            end do
-            deallocate(sub_adapt)
-         end if
          if (i_compute_pair) then
             deallocate(constraints)
             deallocate(eigvec,eigval)
@@ -2284,6 +2313,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             deallocate(nullB)
             is_nullB_ready = .false.
             if (lobpcg_preconditioner .eq. 1) then
+               deallocate(indrowc_adapt_i)
+               deallocate(indrowc_adapt_j)
+               deallocate(kceigval)
                deallocate(coarsem_adapt)
                deallocate(comm_resc)
                deallocate(comm_resc_i)
@@ -2399,8 +2431,9 @@ integer ::             lsolis
 real(kr),allocatable :: solis(:)
 integer ::             nrhs, nnods, nelems, ndofs, ndofaaugs, lindrowc, ndofi, nnodi
 logical :: transposed
-integer :: lapack_info
 integer :: stat(MPI_STATUS_SIZE)
+
+integer :: indc
 
 logical :: i_am_slave, all_slaves
 
@@ -2494,11 +2527,18 @@ if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5 ) then
        call error(routine_name, 'Array size not match.',comm_lxaux)
    end if
 
+
    ! make temporary copy
    do i = 1,lx
       comm_xaux(i) = x(i)
    end do
    
+   ! debug
+   !if (idoper.eq.5) then
+   !   print *, 'comm_xaux before'
+   !   print '(f9.3)',comm_xaux
+   !end if
+
    ! xaux = P_bar xaux
    if (idoper.eq.2) then
       if (is_nullB_ready) then
@@ -2570,19 +2610,20 @@ do iinstr = 1,ninstructions
 
       ! SUBDOMAIN CORRECTION
       ! prepare array of augmented size
-      call dd_get_aug_size(sub_adapt(iinstr), ndofaaugs)
+      call get_index(isub,indexsub,lindexsub,isub_loc)
+      call dd_get_aug_size(suba(isub_loc), ndofaaugs)
       laux2 = ndofaaugs
       allocate(aux2(laux2))
       call zero(aux2,laux2)
-      call dd_get_size(sub_adapt(iinstr), ndofs,nnods,nelems)
+      call dd_get_size(suba(isub_loc), ndofs,nnods,nelems)
       ! truncate the vector for embedding - zeros at the end
-      call dd_map_subi_to_sub(sub_adapt(iinstr), bufrecv(point),length, aux2,ndofs)
+      call dd_map_subi_to_sub(suba(isub_loc), bufrecv(point),length, aux2,ndofs)
 
       nrhs = 1
-      call dd_solve_aug(sub_adapt(iinstr), aux2,laux2, nrhs)
+      call dd_solve_aug(suba(isub_loc), aux2,laux2, nrhs)
 
       ! get interface part of the vector of preconditioned residual
-      call dd_get_number_of_crows(sub_adapt(iinstr),lindrowc)
+      call dd_get_number_of_crows(suba(isub_loc),lindrowc)
 
       lrescs = lindrowc
       allocate(rescs(lrescs))
@@ -2590,12 +2631,12 @@ do iinstr = 1,ninstructions
 
       ! rc = phis' * x
       transposed = .true.
-      call dd_phisi_apply(sub_adapt(iinstr), transposed, bufrecv(point),length, rescs,lrescs)
+      call dd_phisi_apply(suba(isub_loc), transposed, bufrecv(point),length, rescs,lrescs)
 
       call MPI_SEND(rescs,lrescs,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,ierr)
       deallocate(rescs)
 
-      call dd_map_sub_to_subi(sub_adapt(iinstr), aux2,ndofs, bufsend(point),length)
+      call dd_map_sub_to_subi(suba(isub_loc), aux2,ndofs, bufsend(point),length)
       deallocate(aux2)
 
    end if
@@ -2609,27 +2650,64 @@ end if
 ! if I am in preconditioning and I own a pair, apply coarse correction of BDDC
 ireq = 0
 if (idoper.eq.5) then
-   ! add local residuals to single residual
 
-   do i = 1,comm_lresc
-      comm_resc(i) = comm_resc_i(i) + comm_resc_j(i)
+   ! assemble local residuals to single residual
+   call zero(comm_resc,comm_lresc)
+   do i = 1,lindrowc_adapt_i
+      indc = indrowc_adapt_i(i)
+
+      comm_resc(indc) = comm_resc(indc) + comm_resc_i(i)
+   end do
+   do i = 1,lindrowc_adapt_j
+      indc = indrowc_adapt_j(i)
+
+      comm_resc(indc) = comm_resc(indc) + comm_resc_j(i)
    end do
 
-   ! solve the local coarse problem by LAPACK
-   call DPOTRS( 'Upper', lcoarsem_adapt1, 1, coarsem_adapt, lcoarsem_adapt1, comm_resc, comm_lresc, lapack_info)
-   if (lapack_info.ne.0) then
-      call error(routine_name,'in LAPACK during solution of local coarse problem:',lapack_info)
-   end if
+   ! debug
+   !print *, 'resc before'
+   !comm_resc = 1._kr
+   !print '(f9.3)',comm_resc
+
+   ! solve the local coarse problem by BLAS
+   ! u = V * Lambda^-1 * V' f
+   laux2 = comm_lresc
+   allocate(aux2(laux2))
+   ! apply V'
+   call DGEMV('Transpose',lcoarsem_adapt1,lcoarsem_adapt2,1._kr,coarsem_adapt,lcoarsem_adapt1,comm_resc,1,0._kr,aux2,1)
+   ! apply Lambda^-1
+   do i = 1,laux2
+      aux2(i) = kceigval(i) * aux2(i)
+   end do
+   ! apply V
+   call DGEMV('Non-transpose',lcoarsem_adapt1,lcoarsem_adapt2,1._kr,coarsem_adapt,lcoarsem_adapt1,aux2,1,0._kr,comm_resc,1)
+   deallocate(aux2)
+
+   ! debug
+   !print *, 'resc after'
+   !print '(e15.6)',comm_resc
+
+   ! pick local solutions
+   do i = 1,lindrowc_adapt_i
+      indc = indrowc_adapt_i(i)
+
+      comm_resc_i(i) = comm_resc(indc)
+   end do
+   do i = 1,lindrowc_adapt_j
+      indc = indrowc_adapt_j(i)
+
+      comm_resc_j(i) = comm_resc(indc)
+   end do
 
    ! distribute coarse solution
    ireq = ireq + 1
-   call MPI_ISEND(comm_resc,comm_lresc,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
+   call MPI_ISEND(comm_resc_i,lindrowc_adapt_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
    ireq = ireq + 1
-   call MPI_ISEND(comm_resc,comm_lresc,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
+   call MPI_ISEND(comm_resc_j,lindrowc_adapt_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
 
 end if
 
-! Multiply subdomain vectors by Schur complement
+! Apply corrections at subdomain level
 do iinstr = 1,ninstructions
    owner     = instructions(iinstr,1)
    isub      = instructions(iinstr,2)
@@ -2639,22 +2717,29 @@ do iinstr = 1,ninstructions
       point  = kbufsend(iinstr)
       length = lbufa(iinstr)
 
+      call get_index(isub,indexsub,lindexsub,isub_loc)
+
       ! receive coarse correction
       ! get interface part of the vector of preconditioned residual
-      call dd_get_number_of_crows(sub_adapt(iinstr),lindrowc)
+      call dd_get_number_of_crows(suba(isub_loc),lindrowc)
 
       lrescs = lindrowc
       allocate(rescs(lrescs))
       call MPI_RECV(rescs,lrescs,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,stat,ierr)
 
 ! COARSE CORRECTION
-      call dd_get_interface_size(sub_adapt(iinstr),ndofi,nnodi)
+      call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
+      if (ndofi.ne.length) then
+         call error(routine_name,'Interface size mismatch')
+      end if
+
       lsolis = ndofi
       allocate(solis(lsolis))
+      call zero(solis,lsolis)
 
       ! z_i = z_i + phis_i * uc_i
       transposed = .false.
-      call dd_phisi_apply(sub_adapt(iinstr), transposed, rescs,lrescs, solis,lsolis)
+      call dd_phisi_apply(suba(isub_loc), transposed, rescs,lrescs, solis,lsolis)
       deallocate(rescs)
 
       ! add coarse correction to already prepared subdomain correction
@@ -2752,6 +2837,13 @@ if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
    do i = 1,lx
       y(i) = comm_xaux(i)
    end do
+
+   ! debug
+   !if (idoper.eq.5) then
+   !   print *, 'ly',ly
+   !   print *, 'y after'
+   !   print '(e16.3)',y
+   !end if
 
 end if
 
