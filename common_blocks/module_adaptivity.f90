@@ -14,11 +14,11 @@ real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 
 ! threshold on eigenvalues to define an adaptive constraint
 ! eigenvectors for eigenvalues above this value are used for creation of constraints 
-real(kr),parameter,private :: threshold_eigval_default = 1.001_kr
+real(kr),parameter,private :: threshold_eigval_default = 1.5_kr
 logical,parameter,private  :: read_threshold_from_file = .false.
 ! LOBPCG related variables
 ! maximal number of LOBPCG iterations
-integer,parameter,private ::  lobpcg_maxit = 50
+integer,parameter,private ::  lobpcg_maxit = 15
 ! precision of LOBPCG solver - worst residual
 real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-9_kr
 ! maximal number of eigenvectors per problem
@@ -38,6 +38,8 @@ integer,parameter,private ::  use_vec_values = 1
 ! 0 - no preconditioning (default)
 ! 1 - local BDDC preconditioner (!!! EXPERIMENTAL !!!)
 integer,parameter,private ::  lobpcg_preconditioner = 1
+! using nullspace projection for eigenproblems - may improve robustness but can increase time dramatically
+logical,parameter,private ::  apply_null_projection = .false.
 ! if using preconditioner and it fails, try again without preconditioner?
 logical,parameter,private ::  try_harder = .false.
 ! loading computed eigenvectors
@@ -46,6 +48,7 @@ logical,parameter,private ::  try_harder = .false.
 logical,parameter,private :: recompute_vectors = .true.
 ! debugging 
 logical,parameter,private :: debug = .false.
+logical,parameter,private :: profile = .true.
 
 ! maximal allowed length of file names
 integer,parameter,private :: lfnamex = 130
@@ -462,6 +465,16 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       ! MPI related variables
       integer :: myid, nproc, ierr, ireq, nreq
 
+      ! time vars
+      real(kr) :: time, &
+                  time_obtain_accu = 0._kr, &
+                  time_null_prep_accu = 0._kr, &
+                  time_null_mult_accu = 0._kr, &
+                  time_null_comp_accu = 0._kr, &
+                  time_precond_accu = 0._kr, &
+                  time_solve_accu = 0._kr, &
+                  time_postp_accu = 0._kr
+
       ! orient in the communicator
       call MPI_COMM_RANK(comm_all,myid,ierr)
       call MPI_COMM_SIZE(comm_all,nproc,ierr)
@@ -581,6 +594,12 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          !end do
          !call flush(idmyunit)
 
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
          ! build the local matrix of projection on common globs for active pair
          !  get sizes of interface of subdomains in my problem
          ireq = 0
@@ -1113,139 +1132,142 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             !write(idmyunit,*) 'weight',weight
          end if
 
-         ! get data about coarse basis functions to regularize the eigenproblem
-         ireq = 0
-         if (i_compute_pair) then
-            ! receive global numbers of coarse nodes
+         if (apply_null_projection) then
+            ! get data about coarse basis functions to regularize the eigenproblem
+            ireq = 0
+            if (i_compute_pair) then
+               ! receive global numbers of coarse nodes
 
-            ireq = ireq + 1
-            call MPI_IRECV(lphisi1_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
-            ireq = ireq + 1
-            call MPI_IRECV(lphisi2_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
+               ireq = ireq + 1
+               call MPI_IRECV(lphisi1_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
+               ireq = ireq + 1
+               call MPI_IRECV(lphisi2_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
 
-            ireq = ireq + 1
-            call MPI_IRECV(lphisi1_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
-            ireq = ireq + 1
-            call MPI_IRECV(lphisi2_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
+               ireq = ireq + 1
+               call MPI_IRECV(lphisi1_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
+               ireq = ireq + 1
+               call MPI_IRECV(lphisi2_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
+            end if
+            ! send sizes of subdomains involved in problems
+            do iinstr = 1,ninstructions
+               owner = instructions(iinstr,1)
+               isub  = instructions(iinstr,2)
+               call get_index(isub,indexsub,lindexsub,isub_loc)
+
+               call dd_get_phisi_size(suba(isub_loc),lphisi1,lphisi2)
+
+               call MPI_SEND(lphisi1,1,MPI_INTEGER,owner,isub,comm_all,ierr)
+               call MPI_SEND(lphisi2,1,MPI_INTEGER,owner,isub,comm_all,ierr)
+            end do
+            nreq = ireq
+            if (nreq.gt.0) then
+               call MPI_WAITALL(nreq, request, statarray, ierr)
+            end if
+            ! debug
+            !call info(routine_name,'All messages in pack 10 received on proc',myid)
+            !if (i_compute_pair) then
+            !   write(*,*) 'lphisi1_i'
+            !   write(*,*)  lphisi1_i 
+            !   write(*,*) 'lphisi2_i'
+            !   write(*,*)  lphisi2_i 
+            !   write(*,*) 'lphisi1_j'
+            !   write(*,*)  lphisi1_j 
+            !   write(*,*) 'lphisi2_j'
+            !   write(*,*)  lphisi2_j 
+            !   call flush(6)
+            !end if
+
+            ! get data for matrices phisi of subdomains in pair
+            ireq = 0
+            if (i_compute_pair) then
+
+               ! prepare matrix Z as a superset of rigid body modes - based on
+               ! coarse basis functions of the subdomains
+               ! matriz Z = [ phisi_i     0    ]
+               !            [   0      phisi_j ]
+               allocate(phisi_i(lphisi1_i,lphisi2_i))
+               allocate(phisi_j(lphisi1_j,lphisi2_j))
+
+               ireq = ireq + 1
+               call MPI_IRECV(phisi_i,lphisi1_i*lphisi2_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,&
+                              comm_all,request(ireq),ierr)
+               ireq = ireq + 1
+               call MPI_IRECV(phisi_j,lphisi1_j*lphisi2_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,&
+                              comm_all,request(ireq),ierr)
+
+            end if
+            do iinstr = 1,ninstructions
+               owner = instructions(iinstr,1)
+               isub  = instructions(iinstr,2)
+               call get_index(isub,indexsub,lindexsub,isub_loc)
+
+               call dd_get_phisi_size(suba(isub_loc),lphisi1,lphisi2)
+
+               allocate(phisi(lphisi1,lphisi2))
+               call dd_get_phisi(suba(isub_loc),phisi, lphisi1,lphisi2)
+
+               call MPI_SEND(phisi,lphisi1*lphisi2,MPI_DOUBLE_PRECISION,owner,isub,comm_all,ierr)
+               deallocate(phisi)
+            end do
+            nreq = ireq
+            if (nreq.gt.0) then
+               call MPI_WAITALL(nreq, request, statarray, ierr)
+            end if
+            ! debug
+            !call info(routine_name,'All messages in pack 11 received on proc',myid)
          end if
-         ! send sizes of subdomains involved in problems
-         do iinstr = 1,ninstructions
-            owner = instructions(iinstr,1)
-            isub  = instructions(iinstr,2)
-            call get_index(isub,indexsub,lindexsub,isub_loc)
-
-            call dd_get_phisi_size(suba(isub_loc),lphisi1,lphisi2)
-
-            call MPI_SEND(lphisi1,1,MPI_INTEGER,owner,isub,comm_all,ierr)
-            call MPI_SEND(lphisi2,1,MPI_INTEGER,owner,isub,comm_all,ierr)
-         end do
-         nreq = ireq
-         if (nreq.gt.0) then
-            call MPI_WAITALL(nreq, request, statarray, ierr)
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(time)
+            time_obtain_accu = time_obtain_accu + time
          end if
-         ! debug
-         !call info(routine_name,'All messages in pack 10 received on proc',myid)
-         !if (i_compute_pair) then
-         !   write(*,*) 'lphisi1_i'
-         !   write(*,*)  lphisi1_i 
-         !   write(*,*) 'lphisi2_i'
-         !   write(*,*)  lphisi2_i 
-         !   write(*,*) 'lphisi1_j'
-         !   write(*,*)  lphisi1_j 
-         !   write(*,*) 'lphisi2_j'
-         !   write(*,*)  lphisi2_j 
-         !   call flush(6)
-         !end if
-
-         ! get data for matrices phisi of subdomains in pair
-         ireq = 0
-         if (i_compute_pair) then
-
-            ! prepare matrix Z as a superset of rigid body modes - based on
-            ! coarse basis functions of the subdomains
-            ! matriz Z = [ phisi_i     0    ]
-            !            [   0      phisi_j ]
-            allocate(phisi_i(lphisi1_i,lphisi2_i))
-            allocate(phisi_j(lphisi1_j,lphisi2_j))
-
-            ireq = ireq + 1
-            call MPI_IRECV(phisi_i,lphisi1_i*lphisi2_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
-            ireq = ireq + 1
-            call MPI_IRECV(phisi_j,lphisi1_j*lphisi2_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
-
-         end if
-         do iinstr = 1,ninstructions
-            owner = instructions(iinstr,1)
-            isub  = instructions(iinstr,2)
-            call get_index(isub,indexsub,lindexsub,isub_loc)
-
-            call dd_get_phisi_size(suba(isub_loc),lphisi1,lphisi2)
-
-            allocate(phisi(lphisi1,lphisi2))
-            call dd_get_phisi(suba(isub_loc),phisi, lphisi1,lphisi2)
-
-            call MPI_SEND(phisi,lphisi1*lphisi2,MPI_DOUBLE_PRECISION,owner,isub,comm_all,ierr)
-            deallocate(phisi)
-         end do
-         nreq = ireq
-         if (nreq.gt.0) then
-            call MPI_WAITALL(nreq, request, statarray, ierr)
-         end if
-         ! debug
-         !call info(routine_name,'All messages in pack 11 received on proc',myid)
-         !if (i_compute_pair) then
-         !   write(idmyunit,*) 'i_c_sparse_i'
-         !   write(idmyunit,*)  i_c_sparse_i
-         !   write(idmyunit,*) 'j_c_sparse_i'
-         !   write(idmyunit,*)  j_c_sparse_i
-         !   write(idmyunit,*) 'c_sparse_i'
-         !   write(idmyunit,*)  c_sparse_i
-         !   write(idmyunit,*) 'i_c_sparse_j'
-         !   write(idmyunit,*)  i_c_sparse_j
-         !   write(idmyunit,*) 'j_c_sparse_j'
-         !   write(idmyunit,*)  j_c_sparse_j
-         !   write(idmyunit,*) 'c_sparse_j'
-         !   write(idmyunit,*)  c_sparse_j
-         !   call flush(idmyunit)
-         !end if
+!-----profile
 
          ! get data for matrices phisi of subdomains in pair
          ! find null(B) as Z*null(Z'BZ), where
          ! null(B) subset of Range(Z)
-         ireq = 0
-         if (i_compute_pair) then
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
+         if (apply_null_projection) then
+            if (i_compute_pair) then
 
-            ! prepare matrix Z as a superset of rigid body modes - based on
-            ! coarse basis functions of the subdomains
-            ! matriz Z = [ phisi_i     0    ]
-            !            [   0      phisi_j ]
-            lz1 = lphisi1_i + lphisi1_j
-            lz2 = lphisi2_i + lphisi2_j
+               ! prepare matrix Z as a superset of rigid body modes - based on
+               ! coarse basis functions of the subdomains
+               ! matriz Z = [ phisi_i     0    ]
+               !            [   0      phisi_j ]
+               lz1 = lphisi1_i + lphisi1_j
+               lz2 = lphisi2_i + lphisi2_j
 
-            allocate(z(lz1,lz2))
-            call zero(z,lz1,lz2)
+               allocate(z(lz1,lz2))
+               call zero(z,lz1,lz2)
 
-            ! copy phisi_i into Z
-            do j = 1,lphisi2_i
-               do i = 1,lphisi1_i
-                  z(i,j) = phisi_i(i,j)
+               ! copy phisi_i into Z
+               do j = 1,lphisi2_i
+                  do i = 1,lphisi1_i
+                     z(i,j) = phisi_i(i,j)
+                  end do
                end do
-            end do
-            ! copy phisi_j into Z as block diagonal
-            shifti = lphisi1_i
-            shiftj = lphisi2_i
-            do j = 1,lphisi2_j
-               do i = 1,lphisi1_j
-                  z(shifti + i,shiftj + j) = phisi_j(i,j)
+               ! copy phisi_j into Z as block diagonal
+               shifti = lphisi1_i
+               shiftj = lphisi2_i
+               do j = 1,lphisi2_j
+                  do i = 1,lphisi1_j
+                     z(shifti + i,shiftj + j) = phisi_j(i,j)
+                  end do
                end do
-            end do
 
-            deallocate(phisi_i)
-            deallocate(phisi_j)
+               deallocate(phisi_i)
+               deallocate(phisi_j)
 
-            ! debug
-            ! print dense matrix Z
-            !call write_matrix(6,z,'e8.2')
+               ! debug
+               ! print dense matrix Z
+               !call write_matrix(6,z,'e8.2')
+            end if
          end if
 
          ! prepare space for eigenvectors
@@ -1288,7 +1310,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          ! debug
          !call info(routine_name,'All messages in pack 12 received on proc',myid)
 
-         ! prepare arrays kbufsend and 
+         ! prepare arrays kbufsend 
          lkbufsend = ninstructions
          allocate(kbufsend(lkbufsend))
          if (lkbufsend.gt.0) then
@@ -1304,122 +1326,169 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          lbufrecv = lbufsend
          allocate(bufrecv(lbufrecv),bufsend(lbufsend))
 
-         ! now construct matrix B*Z
+         ! set communicators
+         comm_comm = comm_all
+         comm_myid = myid
+
          if (use_explicit_schurs) then
             continue
          else
-            comm_comm = comm_all
-            comm_myid = myid
-
             if (i_compute_pair) then
                ! prepare auxiliary space used in each iteration of eigensolver
                comm_lxaux  = problemsize
                comm_lxaux2 = problemsize
                allocate(comm_xaux(comm_lxaux),comm_xaux2(comm_lxaux2))
-
-               lbz1 = lz1
-               lbz2 = lz2
-               allocate(bz(lbz1,lbz2))
-
-               ioper = 2 ! multiply by B
-               do j = 1,lz2
-                  call adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub,&
-                                           problemsize,z(1,j),&
-                                           problemsize,bz(1,j),problemsize,ioper)
-               end do
             end if
-            call adaptivity_fake_lobpcg_driver
          end if
 
-         if (i_compute_pair) then
-            ! debug
-            ! print dense matrix BZ
-            !call write_matrix(6,bz,'e8.2')
-            ! construct matrix zbz = Z'*B*Z = Z'*BZ
-            lzbz1 = lz2
-            lzbz2 = lz2
-            allocate(zbz(lzbz1,lzbz2))
-            ! use BLAS for the multiply
-            ! DGEMM - perform one of the matrix-matrix operations   C := alpha*op( A )*op( B ) + beta*C
-            call DGEMM('T', 'N', lz2, lz2, lz1, 1.0_kr, z(:,:), lz1, bz(:,:), lbz1, 0._kr, zbz(:,:), lzbz1)
-            !zbz = matmul(transpose(z),bz)
-            ! debug
-            ! print dense matrix ZBZ
-            !call write_matrix(6,zbz,'e8.2')
 
-            ! determine nullspace of ZBZ by eigenvalue decomposition
-            lzbzeigval = lzbz1
-            allocate(zbzeigval(lzbzeigval))
-            ! determine size of work array
-            lwork2 = 1
-            allocate(work2(lwork2))
-            lwork2 = -1
-            ! first call routine just to find optimal size of WORK2
-            call DSYEV( 'Vectors', 'Upper', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
-            if (lapack_info.ne.0) then
-               call error(routine_name,'in LAPACK during finding size for nullspace eigenproblem solution:',lapack_info)
-            end if
-            lwork2 = int(work2(1))
-            deallocate(work2)
-            allocate(work2(lwork2))
-            ! now call LAPACK to solve the eigenproblem
-            call DSYEV( 'Vectors', 'Upper', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
-            deallocate(work2)
-            if (lapack_info.ne.0) then
-               call error(routine_name,'in LAPACK during solving nullspace eigenproblems:',lapack_info)
-            end if
-
-            ! debug
-            ! print eigenvalues
-            !write(6,*) 'eigenvalues by LAPACK:'
-            !write(6,'(e8.2)') zbzeigval
-
-            ! set tolerance - inspired by Octave null() function, relaxing epsilon a bit: 
-            ! max (size (A)) * max (svd (A)) * eps
-            null_tol = lzbz1 * zbzeigval(lzbzeigval) * 2 * epsilon(zbzeigval) 
-            ! own way
-            !null_tol = 1.e-10_kr * (zbzeigval(1) + zbzeigval(lzbzeigval)) / 2._kr 
-
-            ! determine dimension of nullspace of Z'BZ
-            null_dim = count(zbzeigval .lt. null_tol)
-
-            ! if the largest eigenvalue is below tolerance, all values are in null_space
-            if (zbzeigval(lzbzeigval).lt.numerical_zero) then
-               null_dim = lzbzeigval
-            end if
-
-            if (debug) then
-               call info(routine_name,'dimension of nullspace',null_dim)
-            end if
-
-            ! find null(B) = Z*null(Z'BZ) store it in BZ
-            lnullB1 = lz1
-            lnullB2 = null_dim
-            ! leading dimension
-            ldnullB = lnullB1
-            allocate(nullB(lnullB1,lnullB2))
-            call DGEMM('N', 'N', lz1, null_dim, lz2, 1.0_kr, z(:,:), lz1, zbz(:,1:null_dim), lzbz1, &
-                       0._kr, nullB(:,:), ldnullB)
-            
-        ! Prepare projection onto complement of null(B) - orthogonalize null(B) -> get Q -> P = I-QQ'
-            ! QR decomposition of matrix Z*null(Z'BZ) - stored in BZ 
-            ! LAPACK arrays
-            ltau3 = null_dim
-            allocate(tau3(ltau3))
-            lwork3 = max(1,null_dim)
-            allocate(work3(lwork3))
-            call DGEQRF( lnullB1, lnullB2, nullB(:,:), ldnullB, tau3, work3, lwork3, lapack_info)
-            if (lapack_info.ne.0) then
-               call error(routine_name,' in LAPACK QR factorization of matrix null(B): ', lapack_info)
-            end if
-            ! in space of nullB are now stored factors R and Householder reflectors v
-            is_nullB_ready = .true.
-
-            deallocate(zbzeigval)
-            deallocate(z)
-            deallocate(bz)
-            deallocate(zbz)
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(time)
+            time_null_prep_accu = time_null_prep_accu + time
          end if
+!-----profile
+
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
+         ! now construct matrix B*Z
+         if (apply_null_projection) then
+            if (use_explicit_schurs) then
+               continue
+            else
+               if (i_compute_pair) then
+
+                  lbz1 = lz1
+                  lbz2 = lz2
+                  allocate(bz(lbz1,lbz2))
+
+                  ioper = 2 ! multiply by B
+                  do j = 1,lz2
+                     call adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub,&
+                                              problemsize,z(1,j),&
+                                              problemsize,bz(1,j),problemsize,ioper)
+                  end do
+               end if
+               call adaptivity_fake_lobpcg_driver
+            end if
+         end if
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(time)
+            time_null_mult_accu = time_null_mult_accu + time
+         end if
+!-----profile
+
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
+         if (apply_null_projection) then
+            if (i_compute_pair) then
+               ! debug
+               ! print dense matrix BZ
+               !call write_matrix(6,bz,'e8.2')
+               ! construct matrix zbz = Z'*B*Z = Z'*BZ
+               lzbz1 = lz2
+               lzbz2 = lz2
+               allocate(zbz(lzbz1,lzbz2))
+               ! use BLAS for the multiply
+               ! DGEMM - perform one of the matrix-matrix operations   C := alpha*op( A )*op( B ) + beta*C
+               call DGEMM('T', 'N', lz2, lz2, lz1, 1.0_kr, z(:,:), lz1, bz(:,:), lbz1, 0._kr, zbz(:,:), lzbz1)
+               !zbz = matmul(transpose(z),bz)
+               ! debug
+               ! print dense matrix ZBZ
+               !call write_matrix(6,zbz,'e8.2')
+
+               ! determine nullspace of ZBZ by eigenvalue decomposition
+               lzbzeigval = lzbz1
+               allocate(zbzeigval(lzbzeigval))
+               ! determine size of work array
+               lwork2 = 1
+               allocate(work2(lwork2))
+               lwork2 = -1
+               ! first call routine just to find optimal size of WORK2
+               call DSYEV( 'Vectors', 'Upper', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
+               if (lapack_info.ne.0) then
+                  call error(routine_name,'in LAPACK during finding size for nullspace eigenproblem solution:',lapack_info)
+               end if
+               lwork2 = int(work2(1))
+               deallocate(work2)
+               allocate(work2(lwork2))
+               ! now call LAPACK to solve the eigenproblem
+               call DSYEV( 'Vectors', 'Upper', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
+               deallocate(work2)
+               if (lapack_info.ne.0) then
+                  call error(routine_name,'in LAPACK during solving nullspace eigenproblems:',lapack_info)
+               end if
+
+               ! debug
+               ! print eigenvalues
+               !write(6,*) 'eigenvalues by LAPACK:'
+               !write(6,'(e8.2)') zbzeigval
+
+               ! set tolerance - inspired by Octave null() function, relaxing epsilon a bit: 
+               ! max (size (A)) * max (svd (A)) * eps
+               null_tol = lzbz1 * zbzeigval(lzbzeigval) * 4 * epsilon(zbzeigval) 
+               ! own way
+               !null_tol = 1.e-10_kr * (zbzeigval(1) + zbzeigval(lzbzeigval)) / 2._kr 
+
+               ! determine dimension of nullspace of Z'BZ
+               null_dim = count(zbzeigval .lt. null_tol)
+
+               ! if the largest eigenvalue is below tolerance, all values are in null_space
+               if (zbzeigval(lzbzeigval).lt.numerical_zero) then
+                  null_dim = lzbzeigval
+               end if
+
+               if (debug) then
+                  call info(routine_name,'dimension of nullspace',null_dim)
+               end if
+
+               ! find null(B) = Z*null(Z'BZ) store it in BZ
+               lnullB1 = lz1
+               lnullB2 = null_dim
+               ! leading dimension
+               ldnullB = lnullB1
+               allocate(nullB(lnullB1,lnullB2))
+               call DGEMM('N', 'N', lz1, null_dim, lz2, 1.0_kr, z(:,:), lz1, zbz(:,1:null_dim), lzbz1, &
+                          0._kr, nullB(:,:), ldnullB)
+               
+            ! Prepare projection onto complement of null(B) - orthogonalize null(B) -> get Q -> P = I-QQ'
+               ! QR decomposition of matrix Z*null(Z'BZ) - stored in BZ 
+               ! LAPACK arrays
+               ltau3 = null_dim
+               allocate(tau3(ltau3))
+               lwork3 = max(1,null_dim)
+               allocate(work3(lwork3))
+               call DGEQRF( lnullB1, lnullB2, nullB(:,:), ldnullB, tau3, work3, lwork3, lapack_info)
+               if (lapack_info.ne.0) then
+                  call error(routine_name,' in LAPACK QR factorization of matrix null(B): ', lapack_info)
+               end if
+               ! in space of nullB are now stored factors R and Householder reflectors v
+               is_nullB_ready = .true.
+
+               deallocate(zbzeigval)
+               deallocate(z)
+               deallocate(bz)
+               deallocate(zbz)
+            end if
+         end if
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(time)
+            time_null_comp_accu = time_null_comp_accu + time
+         end if
+!-----profile
          ! debug
          ! check the nullspace
          !if (i_compute_pair) then
@@ -1669,6 +1738,12 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             end if
          else
 
+!-----profile
+            if (profile) then
+               call MPI_BARRIER(comm_all,ierr)
+               call time_start
+            end if
+!-----profile
             if (lobpcg_preconditioner .eq. 1) then
                ! set up local BDDC preconditioner for LOBPCG from existing data
 
@@ -1892,7 +1967,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
                   ! set tolerance - inspired by Octave null() function, relaxing epsilon a bit: 
                   ! max (size (A)) * max (svd (A)) * eps
-                  null_tol = lcoarsem_adapt1 * kceigval(lkceigval) * 2 * epsilon(kceigval) 
+                  null_tol = lcoarsem_adapt1 * kceigval(lkceigval) * 4 * epsilon(kceigval) 
                   ! own way
                   !null_tol = 1.e-10_kr * (zbzeigval(1) + zbzeigval(lzbzeigval)) / 2._kr 
 
@@ -1925,7 +2000,21 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
                ! end set-up local BDDC preconditioner
             end if
+!-----profile
+            if (profile) then
+               call MPI_BARRIER(comm_all,ierr)
+               call time_end(time)
+               time_precond_accu = time_precond_accu + time
+            end if
+!-----profile
 
+
+!-----profile
+            if (profile) then
+               call MPI_BARRIER(comm_all,ierr)
+               call time_start
+            end if
+!-----profile
             ! call LOBCPG
             if (i_compute_pair) then
                if (use_vec_values .eq. 1) then
@@ -1977,9 +2066,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                                            eigval,eigvec,lobpcg_iter,ierr)
                      end if
                   end if
-                  if (debug) then
-                     write(*,*) 'myid =',myid,', LOBPCG finished in ',lobpcg_iter,' iterations.'
-                  end if
+                  write(*,*) 'myid =',myid,', LOBPCG finished in ',lobpcg_iter,' iterations for pair ',my_pair
 
                   ! turn around the eigenvalues to be the largest
                   eigval = -eigval
@@ -2023,8 +2110,22 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                end if
             end if
             call adaptivity_fake_lobpcg_driver
+!-----profile
+            if (profile) then
+               call MPI_BARRIER(comm_all,ierr)
+               call time_end(time)
+               time_solve_accu = time_solve_accu + time
+            end if
+!-----profile
          end if
 
+
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
          ! select eigenvectors of eigenvalues exceeding threshold
          est_loc = 0._kr
          if (i_compute_pair) then
@@ -2294,6 +2395,13 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
          end if
 
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(time)
+            time_postp_accu = time_postp_accu + time
+         end if
+!-----profile
          deallocate(lbufa)
          deallocate(kbufsend) 
          deallocate(bufrecv,bufsend)
@@ -2308,10 +2416,12 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             deallocate(rhoi_i,rhoi_j)
             deallocate(work)
             deallocate(tau)
-            deallocate(work3)
-            deallocate(tau3)
-            deallocate(nullB)
-            is_nullB_ready = .false.
+            if (apply_null_projection) then
+               deallocate(work3)
+               deallocate(tau3)
+               deallocate(nullB)
+               is_nullB_ready = .false.
+            end if
             if (lobpcg_preconditioner .eq. 1) then
                deallocate(indrowc_adapt_i)
                deallocate(indrowc_adapt_j)
@@ -2341,6 +2451,18 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             end if
          end if
       end do ! loop over rounds of eigenvalue pairs
+
+      if (profile) then
+         if (myid.eq.0) then
+            call time_print('obtaining data',time_obtain_accu)
+            call time_print('computing preparations in nullspace',time_null_prep_accu)
+            call time_print('computing multiplies in nullspace',time_null_mult_accu)
+            call time_print('computing nullspace by eig decomposition',time_null_comp_accu)
+            call time_print('preconditioner setup',time_precond_accu)
+            call time_print('eigenproblems solution',time_solve_accu)
+            call time_print('postprocessing constraints',time_postp_accu)
+         end if
+      end if
 
       if (debug) then
          if (myid.eq.0) then

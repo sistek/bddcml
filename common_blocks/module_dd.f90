@@ -6654,11 +6654,13 @@ end subroutine
 
 !*******************************************************************************************************
 subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, comm_all, remove_bc_nodes,&
+                           damp_corners, problemname, ilevel, &
                            ncorner, nedge, nface)
 !*******************************************************************************************************
 ! Subroutine for finding corners in BDDC
 ! based on subdomain data
       use module_utils
+      use module_graph
       implicit none
       include "mpif.h"
 
@@ -6673,6 +6675,10 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       integer,intent(in) :: comm_all ! MPI communicator
 ! should nodes on Dirichlet BC be removed?
       logical,intent(in) :: remove_bc_nodes
+! for damping corners
+      logical,intent(in) :: damp_corners
+      character(*),intent(in) :: problemname
+      integer,intent(in) :: ilevel
       ! basic properties of the coarse problem
       integer,intent(out) :: ncorner
       integer,intent(out) :: nedge
@@ -6703,6 +6709,32 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       integer :: indedges, indfaces
       real(kr):: x1, y1, z1, x2, y2, z2, xish, yish, zish
       logical :: we_share_a_face
+
+      ! check continuity
+      integer             :: lnetn,  lietn,  lkietn,   lkinet
+      integer, allocatable :: netn(:),ietn(:),kietn(:), kinet(:)
+
+      integer ::            lietin,   liinterfnet
+      integer,allocatable :: ietin(:), iinterfnet(:)
+
+      integer ::            lonerow,   lonerowweig
+      integer,allocatable :: onerow(:), onerowweig(:)
+      integer ::            lorin, lorout
+      integer ::            ind, indinterfnode, indstart, neighbouring, ninonerow
+
+      integer ::            lxadj,   ladjncy,   ladjwgt
+      integer,allocatable :: xadj(:), adjncy(:), adjwgt(:)
+      integer ::            indadjncy, ladjncy_used, graphtype
+
+      integer ::            lcomponents
+      integer,allocatable :: components(:)
+      integer ::             ncomponents
+      integer ::            lcompind
+      integer,allocatable :: compind(:)
+      integer ::             incomp, indcomp
+      integer ::             componentsize, icomponent
+
+      integer :: indelemn, indietin, ielemn, nelemn, netin, pointietn, indshsub
 
       ! MPI related variables 
       integer :: ierr, nproc, myid
@@ -6773,6 +6805,8 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       real(kr),allocatable:: xyzbase(:)
       integer ::             inodcf(3)
       integer ::             indaux(1)
+
+      integer :: idcn
 
       type sub_aux_type
          integer ::             nglobs
@@ -6977,6 +7011,23 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          ! where nsubnode is 1, there is a face
          where (nsubnode.eq.1) globtypes = 1
 
+         ! prepare kinet
+         lkinet = suba(isub_loc)%nelem
+         allocate(kinet(lkinet))
+         kinet(1) = 0
+         do i = 2,lkinet
+            kinet(i) = kinet(i-1) + suba(isub_loc)%nnet(i-1)
+         end do
+
+         ! prepare dual mesh
+         lnetn  = suba(isub_loc)%nnod
+         lietn  = suba(isub_loc)%linet
+         lkietn = suba(isub_loc)%nnod
+         allocate(netn(lnetn),ietn(lietn),kietn(lkietn))
+         call graph_get_dual_mesh(suba(isub_loc)%nelem,suba(isub_loc)%nnod,&
+                                  suba(isub_loc)%inet,suba(isub_loc)%linet,suba(isub_loc)%nnet,suba(isub_loc)%lnnet,&
+                                  netn,lnetn,ietn,lietn,kietn,lkietn)
+
          ! now with subdomains sharing a face, run the corner selecting algorithm
          kishnadj  = 0
          do ia = 1,nadj
@@ -6998,142 +7049,318 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
             end do
 
             if (we_share_a_face) then
-               ! prepare coordinates of common interface
-               lxyzsh1 = nshn
-               lxyzsh2 = ndim
-               ! localize coordinates of shared nodes
-               allocate(xyzsh(lxyzsh1,lxyzsh2))
+
+               ! check components of interface among pair
+               lietin = nshn * maxval(netn)
+               allocate(ietin(lietin))
+               call zero(ietin,lietin)
+               liinterfnet = nshn * maxval(netn)
+               allocate(iinterfnet(liinterfnet))
+
+               indietin = 0
+
+               ! first create subgraph
                do ishn = 1,nshn
-                  indni = suba(isub_loc)%ishnadj(kishnadj + ishn)
-                  indn  = suba(isub_loc)%iin(indni)
-                  xyzsh(ishn,1:ndim) = suba(isub_loc)%xyz(indn,1:ndim)
+                  ! index of shared node in interface numbering
+                  indshn   = suba(isub_loc)%ishnadj(kishnadj + ishn)
+
+                  ! index of shared node in subdomain numbering
+                  indshsub = suba(isub_loc)%iin(indshn)
+
+                  nelemn    = netn(indshsub)
+                  pointietn = kietn(indshsub)
+                  ! for selected node, go through elements at node
+                  do ielemn = 1,nelemn
+                     indelemn = ietn(pointietn + ielemn)
+
+                     indietin = indietin + 1
+
+                     ietin(indietin)      = indelemn
+                     iinterfnet(indietin) = ishn
+
+                  end do
+
                end do
 
+               netin = indietin
 
-               ! search an optimal triangle
-               inodcf = 0
-               if (nshn.eq.0) then
-                  call error(routine_name,'There appears that there are zero shared nodes for subdomain:',isub)
-               end if
-               if (nshn.gt.0) then
-                  lxyzbase = ndim
-                  allocate(xyzbase(lxyzbase))
-                  ! make it the most remote node to the first interface node
-                  inodshaux = 1
-                  xyzbase(1:ndim) = xyzsh(inodshaux,1:ndim)
-               
-                  ! Find second corner by maximizing the distance of the first shared node
-                  ldist = nshn
-                  allocate(dist(ldist))
-                  do ishn = 1,nshn
-                     dist(ishn) = sum((xyzsh(ishn,1:ndim) - xyzbase(1:ndim))**2)
+               !print *,'arrays before sorting'
+               !print *, ietin(1:netin)
+               !print *, iinterfnet(1:netin)
+
+               ! sort arrays
+               call iquick_sort_simultaneous(ietin,netin,iinterfnet,netin)
+
+               !print *,'arrays after sorting'
+               !print *, ietin(1:netin)
+               !print *, iinterfnet(1:netin)
+
+               lonerow = maxval(netn) * maxval(suba(isub_loc)%nnet)
+               lonerowweig = lonerow
+               allocate(onerow(lonerow))
+               allocate(onerowweig(lonerowweig))
+
+               lxadj = nshn+1
+               allocate(xadj(lxadj))
+               xadj(1) = 1
+
+               ladjncy = nshn * maxval(netn) * maxval(suba(isub_loc)%nnet)
+               allocate(adjncy(ladjncy))
+               call zero(adjncy,ladjncy)
+               indadjncy = 0
+
+
+               do ishn = 1,nshn
+                  ! index of shared node in interface numbering
+                  indshn   = suba(isub_loc)%ishnadj(kishnadj + ishn)
+
+                  ! index of shared node in subdomain numbering
+                  indshsub = suba(isub_loc)%iin(indshn)
+
+
+                  ! zero onerow
+                  call zero(onerow,lonerow)
+                  ninonerow = 0
+
+                  nelemn    = netn(indshsub)
+                  pointietn = kietn(indshsub)
+                  ! for selected node, go through elements at node
+                  do ielemn = 1,nelemn
+                     indelemn = ietn(pointietn + ielemn)
+
+                     call get_index_sorted(indelemn,ietin,netin,indstart)
+                     if (indstart.le.0) then
+                        call error(routine_name,' Index of element not found for element ',indelemn)
+                     end if
+
+                     ind = indstart
+
+                     do while (ietin(ind) .eq. indelemn)
+                        
+                        indinterfnode = iinterfnet(ind)
+
+                        ! add the node to onerow
+                        ninonerow = ninonerow + 1
+                        onerow(ninonerow) = indinterfnode
+
+                        ind = ind + 1
+
+                     end do
+
                   end do
-                  indaux  = maxloc(dist)
 
-                  ! set index of first new corner
-                  inodcf(1) = indaux(1)
+                  ! parse onerow
+                  neighbouring = 1
+                  lorin       = ninonerow
+                  call graph_parse_onerow(ishn,neighbouring,onerow,onerowweig,lorin,lorout)
 
-                  deallocate(xyzbase)
-                  deallocate(dist)
-               end if
-               if (nshn.gt.1) then
-                  lxyzbase = ndim
-                  allocate(xyzbase(lxyzbase))
-                  ! one corner is already selected, select the second
-                  xyzbase(1:ndim) = xyzsh(inodcf(1),1:ndim)
-               
-                  ! Find second corner by maximizing the distance from the first one
-                  ldist = nshn
-                  allocate(dist(ldist))
-                  do ishn = 1,nshn
-                     dist(ishn) = sum((xyzsh(ishn,1:ndim) - xyzbase(1:ndim))**2)
+                  !print *,'onerow:'
+                  !print *,onerow(1:lorout)
+
+                  xadj(ishn+1) = xadj(ishn) + lorout
+
+                  ! copy parsed row of sparse graph into adjncy
+                  do i = 1,lorout
+                     indadjncy = indadjncy + 1
+                     adjncy(indadjncy) = onerow(i)
                   end do
-                  indaux  = maxloc(dist)
+               end do
 
-                  ! set index of second new corner
-                  inodcf(2) = indaux(1)
+               deallocate(onerow)
+               deallocate(onerowweig)
 
-                  if (inodcf(2).eq.inodcf(1)) then
-                     print *,'dist:',dist
-                     call flush(6)
-                     call error(routine_name, 'Problem finding second corner on subdomain - same as first.',inodcf(2))
-                  end if
+               deallocate(ietin)
+               deallocate(iinterfnet)
 
-                  deallocate(xyzbase)
-                  deallocate(dist)
+               ladjncy_used = indadjncy
+
+               graphtype = 0
+               ladjwgt = 0
+               call graph_check(nshn,graphtype, xadj,lxadj, adjncy,ladjncy_used, adjwgt,ladjwgt)
+
+               ! check components of graph
+
+               lcomponents = nshn
+               allocate(components(lcomponents))
+
+               call graph_components(nshn,xadj,lxadj,adjncy,ladjncy_used,components,lcomponents,ncomponents)
+               ! debug
+               components = 1
+               ncomponents = 1
+               if (ncomponents.gt.1) then
+                  call info(routine_name,'disconnected interface - number of components:',ncomponents)
                end if
-               ! play with meshdim if necessary for selection of the third corner if necessary
-               if (ndim.gt.2.and.nshn.gt.2) then
-               ! two corners are already set, select the third
-                  x1 = xyzsh(inodcf(1),1)
-                  y1 = xyzsh(inodcf(1),2)
-                  z1 = xyzsh(inodcf(1),3)
-                  x2 = xyzsh(inodcf(2),1)
-                  y2 = xyzsh(inodcf(2),2)
-                  z2 = xyzsh(inodcf(2),3)
-               
-                  ! Find third corner as the one maximizing area of triangle
-                  larea = nshn
-                  allocate(area(larea))
+
+               ! perform the triangle check for each component
+               do icomponent = 1,ncomponents
+
+                  ! initialize array
+                  inodcf = 0
+
+                  componentsize = count(components .eq. icomponent)
+
+                  lcompind = componentsize
+                  allocate(compind(lcompind))
+                  
+                  indcomp = 0
                   do ishn = 1,nshn
-                     xish = xyzsh(ishn,1)
-                     yish = xyzsh(ishn,2)
-                     zish = xyzsh(ishn,3)
-                     area(ishn) = ((y2-y1)*(zish-z1) - (yish-y1)*(z2-z1))**2 &
-                                + ((x2-x1)*(zish-z1) - (xish-x1)*(z2-z1))**2 &
-                                + ((x2-x1)*(yish-y1) - (xish-x1)*(y2-y1))**2 
-                  end do
-                  ! find maximum in the area array
-                  ! if my subdomain index is smaller that neighbour, search maximum from beginning, otherwise from the end
-                  if (isub.lt.isubadj) then
-                     start  = 1
-                     finish = larea
-                     step   = 1
-                  else if (isub.gt.isubadj) then
-                     start  = larea
-                     finish = 1
-                     step   = -1
-                  else
-                     call error(routine_name,'subdomain index mismatch - apperars same')
-                  end if
-                  ! search maximum
-                  maxv = 0._kr
-                  maxl = 0
-                  do i = start,finish,step
-                     if (area(i).gt.maxv) then
-                        maxv = area(i)
-                        maxl = i
+                     if (components(ishn) .eq. icomponent) then
+                        indcomp = indcomp + 1
+
+                        compind(indcomp) = ishn
                      end if
                   end do
-                  indaux(1) = maxl
-                  !indaux  = maxloc(area)
+                  if (indcomp.ne.lcompind) then
+                     call error(routine_name,'dimension mismatch in component size',indcomp)
+                  end if
+               
 
-                  ! set index of the third new corner
-                  inodcf(3) = indaux(1)
-                  if (inodcf(3).eq.inodcf(1).or.inodcf(3).eq.inodcf(2)) then
-                     print *,'area:',area
-                     call flush(6)
-                     call error(routine_name, 'Problem finding third corner on subdomain - same as first or second.',inodcf(3))
+                  ! prepare coordinates of common interface
+                  lxyzsh1 = componentsize
+                  lxyzsh2 = ndim
+                  ! localize coordinates of shared nodes
+                  allocate(xyzsh(lxyzsh1,lxyzsh2))
+                  do incomp = 1,componentsize
+                     ishn  = compind(incomp)
+                     indni = suba(isub_loc)%ishnadj(kishnadj + ishn)
+                     indn  = suba(isub_loc)%iin(indni)
+                     xyzsh(incomp,1:ndim) = suba(isub_loc)%xyz(indn,1:ndim)
+                  end do
+
+
+                  ! search an optimal triangle
+                  inodcf = 0
+                  if (componentsize.eq.0) then
+                     call error(routine_name,'There appears that there are zero shared nodes for subdomain:',isub)
+                  end if
+                  if (componentsize.gt.0) then
+                     lxyzbase = ndim
+                     allocate(xyzbase(lxyzbase))
+                     ! make it the most remote node to the first interface node
+                     inodshaux = 1
+                     xyzbase(1:ndim) = xyzsh(inodshaux,1:ndim)
+                  
+                     ! Find second corner by maximizing the distance of the first shared node
+                     ldist = componentsize
+                     allocate(dist(ldist))
+                     do incomp = 1,componentsize
+                        dist(incomp) = sum((xyzsh(incomp,1:ndim) - xyzbase(1:ndim))**2)
+                     end do
+                     indaux  = maxloc(dist)
+
+                     ! set index of first new corner
+                     inodcf(1) = indaux(1)
+
+                     deallocate(xyzbase)
+                     deallocate(dist)
+                  end if
+                  if (componentsize.gt.1) then
+                     lxyzbase = ndim
+                     allocate(xyzbase(lxyzbase))
+                     ! one corner is already selected, select the second
+                     xyzbase(1:ndim) = xyzsh(inodcf(1),1:ndim)
+                  
+                     ! Find second corner by maximizing the distance from the first one
+                     ldist = componentsize
+                     allocate(dist(ldist))
+                     do incomp = 1,componentsize
+                        dist(incomp) = sum((xyzsh(incomp,1:ndim) - xyzbase(1:ndim))**2)
+                     end do
+                     indaux  = maxloc(dist)
+
+                     ! set index of second new corner
+                     inodcf(2) = indaux(1)
+
+                     if (inodcf(2).eq.inodcf(1)) then
+                        print *,'dist:',dist
+                        call flush(6)
+                        call error(routine_name, 'Problem finding second corner on subdomain - same as first.',inodcf(2))
+                     end if
+
+                     deallocate(xyzbase)
+                     deallocate(dist)
+                  end if
+                  ! play with meshdim if necessary for selection of the third corner if necessary
+                  if (ndim.gt.2.and.componentsize.gt.2) then
+                  ! two corners are already set, select the third
+                     x1 = xyzsh(inodcf(1),1)
+                     y1 = xyzsh(inodcf(1),2)
+                     z1 = xyzsh(inodcf(1),3)
+                     x2 = xyzsh(inodcf(2),1)
+                     y2 = xyzsh(inodcf(2),2)
+                     z2 = xyzsh(inodcf(2),3)
+                  
+                     ! Find third corner as the one maximizing area of triangle
+                     larea = componentsize
+                     allocate(area(larea))
+                     do incomp = 1,componentsize
+                        xish = xyzsh(incomp,1)
+                        yish = xyzsh(incomp,2)
+                        zish = xyzsh(incomp,3)
+                        area(incomp) = ((y2-y1)*(zish-z1) - (yish-y1)*(z2-z1))**2 &
+                                     + ((x2-x1)*(zish-z1) - (xish-x1)*(z2-z1))**2 &
+                                     + ((x2-x1)*(yish-y1) - (xish-x1)*(y2-y1))**2 
+                     end do
+                     ! find maximum in the area array
+                     ! if my subdomain index is smaller that neighbour, search maximum from beginning, otherwise from the end
+                     if (isub.lt.isubadj) then
+                        start  = 1
+                        finish = larea
+                        step   = 1
+                     else if (isub.gt.isubadj) then
+                        start  = larea
+                        finish = 1
+                        step   = -1
+                     else
+                        call error(routine_name,'subdomain index mismatch - apperars same')
+                     end if
+                     ! search maximum
+                     maxv = 0._kr
+                     maxl = 0
+                     do i = start,finish,step
+                        if (area(i).gt.maxv) then
+                           maxv = area(i)
+                           maxl = i
+                        end if
+                     end do
+                     indaux(1) = maxl
+                     !indaux  = maxloc(area)
+
+                     ! set index of the third new corner
+                     inodcf(3) = indaux(1)
+                     if (inodcf(3).eq.inodcf(1).or.inodcf(3).eq.inodcf(2)) then
+                        print *,'area:',area
+                        call flush(6)
+                        call error(routine_name, 'Problem finding third corner on subdomain - same as first or second.',inodcf(3))
+                     end if
+
+                     deallocate(area)
                   end if
 
-                  deallocate(area)
-               end if
+                  ! mark corner in subdomain interface
+                  !print *,'inodcf',suba(isub_loc)%isngn(suba(isub_loc)%iin(suba(isub_loc)%ishnadj(kishnadj + inodcf)))
+                  do i = 1,3
+                     if (inodcf(i).ne.0) then
 
-               ! mark corner in subdomain interface
-               !print *,'inodcf',suba(isub_loc)%isngn(suba(isub_loc)%iin(suba(isub_loc)%ishnadj(kishnadj + inodcf)))
-               do i = 1,3
-                  if (inodcf(i).ne.0) then
+                        indni = suba(isub_loc)%ishnadj(kishnadj + compind(inodcf(i)))
 
-                     indni = suba(isub_loc)%ishnadj(kishnadj + inodcf(i))
+                        globtypes(indni) = 3
+                     end if
+                  end do
 
-                     globtypes(indni) = 3
-                  end if
+                  deallocate(xyzsh)
+                  deallocate(compind)
                end do
 
-               deallocate(xyzsh)
+
+               deallocate(xadj)
+               deallocate(adjncy)
+               deallocate(components)
 
                ! TODO: add local pair
             end if
+
+
    
             kishnadj = kishnadj + nshn
          end do
@@ -7142,6 +7369,9 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
          ! determine size of corner data local to processor
          ncornerp = ncornerp + ncorners
+
+         deallocate(netn,ietn,kietn)
+         deallocate(kinet)
 
          nullify(globtypes)
          nullify(kglobs)
@@ -7295,7 +7525,18 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       call MPI_BCAST(inodc,linodc, MPI_INTEGER, 0, comm_all, ierr) 
 !*****************************************************************MPI
       !print *,'myid =',myid,'inodc:',inodc
-      !call flush(6)
+      if (damp_corners .and. ilevel.eq.1) then
+         if (myid.eq.0) then
+            call allocate_unit(idcn)
+            open (unit=idcn,file=trim(problemname)//'.CN',status='replace',form='formatted')
+            rewind idcn
+
+            write(idcn,*) ncorner
+            write(idcn,*) inodc
+
+            close(idcn)
+         end if
+      end if
 
       ! now all processes has global array of corners available, perform
       ! correction of globs

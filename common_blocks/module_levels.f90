@@ -21,7 +21,7 @@ module module_levels
 ! damping division
       logical,parameter,private :: damp_division = .false.
 ! damping selected corners  
-      logical,parameter,private :: damp_corners = .false.
+      logical,parameter,private :: damp_corners = .true.
 ! maximal allowed length of file names
       integer,parameter,private :: lfnamex = 130
 ! adjustable parameters ############################
@@ -1069,7 +1069,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
       nnod      = levels(ilevel)%nnod
       nelem     = levels(ilevel)%nelem
 
-      ! if basic data are loaded for each subdomain, jump to seraching globs
+      ! if basic data are loaded for each subdomain, jump to searching globs
       if (levels(iactive_level)%is_basics_loaded) then
          goto 1234
       end if
@@ -1785,7 +1785,9 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          call dd_create_globs(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains,&
                               levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                               levels(ilevel)%indexsub,levels(ilevel)%lindexsub, &
-                              comm_all,remove_bc_nodes, ncorner,nedge,nface)
+                              comm_all,remove_bc_nodes, &
+                              damp_corners, trim(problemname), ilevel, &
+                              ncorner,nedge,nface)
          nnodc = ncorner + nedge + nface
 !-----profile
          if (profile) then
@@ -3487,7 +3489,7 @@ end subroutine
 !*****************************************************************************************************************
 subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,print_solution,write_solution_by_root)
 !*****************************************************************************************************************
-! Subroutine for postprocessong of data by Krylov iterative method
+! Subroutine for postprocessing of data by Krylov iterative method
 ! module for distributed Krylov data storage
       use module_krylov_types_def
 ! module for handling subdomain data
