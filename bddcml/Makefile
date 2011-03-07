@@ -2,10 +2,10 @@
 include ../make.inc
 
 # include files needed
- INC = $(INCMUMPS) -I../common_blocks/
+ INC = $(INCMUMPS) $(INCMPI) -I../common_blocks/ 
 # libraries needed
 LIBS = $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
-       $(LIBPORD) $(LIBLAPACK) $(LIBBLAS) $(BLOPEXLINK)
+       $(LIBPORD) $(LIBLAPACK) $(LIBBLAS) $(BLOPEXLINK) $(LIBOTHERS)
 LIBBDDCML = -L../common_blocks -lbddcml
 EXAMPLES = bddcml_global bddcml_local
 ##############################################################

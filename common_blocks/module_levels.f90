@@ -397,7 +397,8 @@ subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
                                     xyz,lxyz1,lxyz2, &
                                     ifix,lifix, fixv,lfixv, &
                                     rhs,lrhs, &
-                                    nadj, iadj,liadj)
+                                    nadj, iadj,liadj, &
+                                    matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
 !***********************************************************************************
 ! Subroutine for loading LOCAL data at first level
 ! currently only allows loading one subdomain for each processor
@@ -429,17 +430,50 @@ subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
       integer, intent(in):: nadj
       integer, intent(in):: liadj
       integer, intent(in)::  iadj(liadj)
+      ! LOCAL matrix triplet i, j, a(i,j) 
+      integer, intent(in)::  matrixtype    ! type of matrix (MUMPS-like)
+      integer, intent(in)::  i_sparse(la)  ! array of row indices
+      integer, intent(in)::  j_sparse(la)  ! array of column indices
+      real(kr), intent(in):: a_sparse(la)  ! array of values
+      integer, intent(in)::  la            ! length of previous arrays (= number of nonzeros for assembled matrix)
+      logical, intent(in)::  is_assembled  ! is the array assembled? 
+                                           !  FALSE = no, it can contain repeated entries
+                                           !  TRUE  = yes, it is sorted and doesn't contain repeated index pairs
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_LOCAL_DATA'
+
+      ! set active level to zero
+      iactive_level = 0
+
+      ! initialize zero level
+      levels(iactive_level)%nsub  = nelem
+      levels(iactive_level)%nnodc = nnod
+      levels(iactive_level)%ndofc = ndof
+
+      levels(iactive_level)%lnnetc = nelem  
+      levels(iactive_level)%lnndfc = nnod 
+      levels(iactive_level)%lxyzc1 = nnod  
+      levels(iactive_level)%lxyzc2 = ndim  
+      levels(iactive_level)%lifixc = ndof
+      levels(iactive_level)%lfixvc = ndof
+      levels(iactive_level)%lrhsc  = ndof
+
+      levels(iactive_level)%lsolc  = ndof
+      allocate(levels(iactive_level)%solc(levels(iactive_level)%lsolc))
+      levels(iactive_level)%solc = 0
+
+      ! mark 0th level as ready
+      levels(iactive_level)%is_level_prepared = .true.
+
 
       ! set active level to one
       iactive_level = 1
 
 ! initialize zero level
       levels(iactive_level)%nelem  = nelem
-      levels(iactive_level)%nnod   = nnod
-      levels(iactive_level)%ndof   = ndof
+      levels(iactive_level)%nnodc   = nnod
+      levels(iactive_level)%ndofc   = ndof
 
 ! check that there is one and only one active subdomain
       if (levels(iactive_level)%nsub_loc.ne.1) then
@@ -461,10 +495,19 @@ subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
       call dd_upload_rhs(levels(iactive_level)%subdomains(1), rhs,lrhs)
       call dd_upload_sub_adj(levels(iactive_level)%subdomains(1), nadj, iadj,liadj)
 
+      ! load matrix to our structure
+      call dd_load_matrix_triplet(levels(iactive_level)%subdomains(1), matrixtype, &
+                                  i_sparse,j_sparse,a_sparse,la,la,is_assembled)
+      ! assembly it if needed
+      if (.not. is_assembled) then
+         call dd_assembly_local_matrix(levels(iactive_level)%subdomains(1))
+      end if
+
       ! TODO: Allow loading initial approximation of solution
 
       levels(iactive_level)%use_initial_solution = .false.
 
+      ! mark that basics are loaded on 1st level
       levels(iactive_level)%is_basics_loaded = .true.
 
 end subroutine
@@ -2064,6 +2107,9 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
       end if
 
       ! Get matrix
+      if (levels(iactive_level)%is_basics_loaded) then
+         goto 1235
+      end if
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
@@ -2153,6 +2199,15 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          end if
       end if
 !-----profile
+
+!-----for local data input, continue here (matrices are loaded by user)
+ 1235 continue
+
+      if (ilevel.eq.1) then
+         call dd_fix_constraints(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, comm_all,&
+                                 levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                                 levels(ilevel)%indexsub,levels(ilevel)%lindexsub)
+      end if
 
       ! Assembly matrix for each subdomain
 !-----profile

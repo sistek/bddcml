@@ -85,7 +85,8 @@ subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
                                     xyz,lxyz1,lxyz2, &
                                     ifix,lifix, fixv,lfixv, &
                                     rhs,lrhs, &
-                                    nadj, iadj,liadj)
+                                    nadj, iadj,liadj, &
+                                    matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
 ! Only one subdomain is allowed to be loaded at each processor
@@ -165,6 +166,26 @@ subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
       integer, intent(in):: liadj
       integer, intent(in)::  iadj(liadj)
 
+      ! LOCAL matrix triplet i, j, a(i,j) 
+      ! Type of the matrix
+      ! 0 - unsymmetric
+      ! 1 - symmetric positive definite
+      ! 2 - general symmetric
+      integer, intent(in)::  matrixtype 
+      integer, intent(in)::  i_sparse(la)  ! array of row indices
+      integer, intent(in)::  j_sparse(la)  ! array of column indices
+      real(kr), intent(in):: a_sparse(la)  ! array of values
+      integer, intent(in)::  la            ! length of previous arrays (= number of nonzeros for assembled matrix)
+      integer, intent(in)::  is_assembled_int  ! is the array assembled? 
+                                               !  0 = no, it can contain repeated entries
+                                               !  1 = yes, it is sorted and doesn't contain repeated index pairs
+
+
+      ! local vars
+      logical :: is_assembled
+
+      ! translate integer to logical
+      call logical2integer(is_assembled_int,is_assembled)
 
       call levels_upload_local_data(nelem, nnod, ndof, ndim, &
                                     isub, nelems, nnods, ndofs, &
@@ -173,7 +194,8 @@ subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
                                     xyz,lxyz1,lxyz2, &
                                     ifix,lifix, fixv,lfixv, &
                                     rhs,lrhs, &
-                                    nadj, iadj,liadj)
+                                    nadj, iadj,liadj, &
+                                    matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
 
 end subroutine
 

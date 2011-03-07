@@ -719,10 +719,9 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
       character(*),parameter:: routine_name = 'DD_READ_MATRIX_BY_ROOT'
       integer :: myid, nproc, ierr
       integer :: stat(MPI_STATUS_SIZE)
-      integer :: idelm, nelems, nnods, ndofs, ndofis
+      integer :: idelm, nelems, nnods
       integer :: nevax_sub, nevax_loc, nevax, lelmx, lelm
       real(kr),allocatable :: elm(:)
-      logical :: is_bc_present_loc, is_bc_present
 
 !     Matrix in IJA sparse format - triplet
       integer::  la
@@ -738,12 +737,6 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
 !     locsubnumber array of local numbers subdomains for processors
       integer::              llocsubnumber
       integer,allocatable  :: locsubnumber(:)
-
-!     BC arrays
-      integer::              lbc
-      real(kr),allocatable :: bc(:)
-      integer::              lbci
-      real(kr),allocatable :: bci(:)
 
       integer :: i, ie, iproc, inods, isub, isub_loc, ios
 
@@ -926,6 +919,44 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
 
       ! free memory
       deallocate(elm)
+      deallocate(locsubnumber)
+      deallocate(subp)
+
+end subroutine
+
+!*****************************************************************************************
+subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,lindexsub)
+!*****************************************************************************************
+! Subroutine for eliminating constraints from RHS and fixing them in the matrix
+      use module_sm
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+! array of sub structure
+      integer,intent(in) ::                lsuba
+      type(subdomain_type),intent(inout) :: suba(lsuba)
+! communicator
+      integer,intent(in) :: comm_all
+! division of subdomains to processors
+      integer,intent(in) :: lsub2proc
+      integer,intent(in) ::  sub2proc(lsub2proc)
+! global indices of local subdomains
+      integer,intent(in) :: lindexsub
+      integer,intent(in) ::  indexsub(lindexsub)
+
+! local variables
+      character(*),parameter:: routine_name = 'DD_FIX_CONSTRAINTS'
+      integer :: ierr
+      logical :: is_bc_present_loc, is_bc_present
+
+!     BC arrays
+      integer::              lbc
+      real(kr),allocatable :: bc(:)
+      integer::              lbci
+      real(kr),allocatable :: bci(:)
+
+      integer :: isub, isub_loc, la, ndofs, ndofis
 
       ! find if any nonzero BC is present
       is_bc_present_loc = .false.
@@ -938,13 +969,9 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
       call MPI_ALLREDUCE(is_bc_present_loc,is_bc_present,1, MPI_LOGICAL, MPI_LOR, comm_all, ierr) 
 !*****************************************************************MPI
 
-      ! finalize input of sparse matrix at each subdomain
+      ! eliminate constraints if they are present
       do isub_loc = 1,lindexsub
          isub = indexsub(isub_loc)
-
-         if (subp(isub).ne.myid) then
-            cycle
-         end if
 
          la = suba(isub_loc)%la
 
@@ -1008,8 +1035,6 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
          end do
       end if
 
-      deallocate(locsubnumber)
-      deallocate(subp)
 
 end subroutine
 
@@ -7184,9 +7209,6 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                allocate(components(lcomponents))
 
                call graph_components(nshn,xadj,lxadj,adjncy,ladjncy_used,components,lcomponents,ncomponents)
-               ! debug
-               components = 1
-               ncomponents = 1
                if (ncomponents.gt.1) then
                   call info(routine_name,'disconnected interface - number of components:',ncomponents)
                end if
