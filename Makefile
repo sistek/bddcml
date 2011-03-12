@@ -22,5 +22,5 @@ clean:
             (cd $$i &&  $(MAKE) $@); \
           fi; \
         done
-	rm -f lib/libbddcml.a
+	rm -f -r lib/
 

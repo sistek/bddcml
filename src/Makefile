@@ -47,7 +47,8 @@ OBJ = \
    lobpcg_driver.o \
    bddcml_fortran_interface.o
 
-BDDCLIB=../lib/libbddcml.a
+BDDCLIBDIR=../lib
+BDDCLIB=$(BDDCLIBDIR)/libbddcml.a
 
 all: \
    modules tests bddclib
@@ -290,6 +291,7 @@ test_module_utils: \
 
 # make modules into BDDCML archive library
 $(BDDCLIB): $(OBJ)
+	mkdir -p $(BDDCLIBDIR)
 	$(AR) $@ $^
 	$(RANLIB) $@
 
