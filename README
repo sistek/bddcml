@@ -1,0 +1,29 @@
+Multilevel BDDC solver library 
+==============================
+
+version 1.0
+
+Install notes: 
+--------------
+
+1. Create a make.inc within the main directory - can be done by editing make.inc.example
+   make sure all necessary external libraries are available:
+   These include: 
+   BLOPEX ( http://code.google.com/p/blopex ) 
+   MUMPS  ( http://graal.ens-lyon.fr/MUMPS )  
+   LAPACK ( http://www.netlib.org/lapack ) 
+   BLAS ( http://www.netlib.org/blas )
+    ( LAPACK and BLAS are often included in numerical libraries such as MKL )
+
+2. type make 
+   This should first compile object and modules of src/ folder, 
+   create library libbddcml.a in lib/ folder,
+   and finally compile example solvers in examples/ solver.
+
+The library provides a simple interface callable from Fortran and C. The solution proces is
+operated by several routines consequently called. 
+
+Two different modes ara possible for input 
+- user can either provide information about global mesh and a file with element matrices, or
+- user can provide division into subdomains on the first level and pass 
+  subdomain matrices for each subdomain to the routine

@@ -1,4 +1,4 @@
-DIRS = common_blocks bddcpp bddcmumps mumps_adaptive bddcml ppbddcml
+DIRS = src examples
 ##################################################################
 # Targets
 ##################################################################
@@ -22,4 +22,5 @@ clean:
             (cd $$i &&  $(MAKE) $@); \
           fi; \
         done
+	rm -f lib/libbddcml.a
 
