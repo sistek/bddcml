@@ -81,22 +81,21 @@ program bddcml_local
 ! should parallel search of globs be used? (some corrections on globs may not be available)
       integer,parameter :: parallel_globs = 1
 ! are you debugging the code?
-      integer,parameter :: debug = 1
+      logical,parameter :: debug = .true.
 ! maximal length of problemname
       integer,parameter:: lproblemnamex = 100
 ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
       integer,parameter:: lfilenamex = 130
+
 ! print solution on screen?
-      integer,parameter :: print_solution = 0
-! write solution to a single file instead of distributed files?
-      integer,parameter :: write_solution_by_root = 1
+      logical,parameter :: print_solution = .false.
 
 !######### END OF PARAMETERS TO SET
-      character(*),parameter:: routine_name = 'BDDCML'
+      character(*),parameter:: routine_name = 'BDDCML_LOCAL'
 
       !  parallel variables
       integer :: myid, comm_all, comm_self, nproc, ierr
-      integer :: idpar, idml, idgmi, idfvs, idrhs, idelm, ides
+      integer :: idpar, idml, idgmi, idfvs, idrhs, idelm, ides, idsols
 
       integer :: ndim, nsub, nelem, ndof, nnod, linet
       integer :: maxit, ndecrmax
@@ -126,7 +125,7 @@ program bddcml_local
       integer,allocatable::  kdof(:)
 
       ! local data
-      integer :: nelems, ndofs, nnods, nadjs
+      integer :: nelems, ndofs, nnods
       integer ::           linets,   lnnets,   lnndfs
       integer,allocatable:: inets(:), nnets(:), nndfs(:)
       integer ::           lxyzs1,   lxyzs2
@@ -141,10 +140,6 @@ program bddcml_local
       real(kr),allocatable:: sols(:)
       integer ::           lisegns,   lisngns,   lisvgvns
       integer,allocatable:: isegns(:), isngns(:), isvgvns(:)
-      integer ::            lkadjsub
-      integer,allocatable::  kadjsub(:)
-      integer ::            liadjs
-      integer,allocatable::  iadjs(:)
       integer ::            lkdofs
       integer,allocatable::  kdofs(:)
 
@@ -163,7 +158,7 @@ program bddcml_local
       character(lfilenamex)    :: filename
 
       ! small variables - indices, etc.
-      integer :: ie, idofn, ind, indn, indvg, ia, i, indvs, inod, inods, isub, j, ndofn
+      integer :: ie, idofn, ind, indn, indvg, i, indvs, inod, inods, isub, j, ndofn
       integer :: is_assembled_int
 
       ! time variables
@@ -190,6 +185,7 @@ program bddcml_local
          write(*,'(a)') '| |_|  | |_/  | |_/  | \__/ | |   | | |____ '
          write(*,'(a)') '|_____/|_____/|_____/ \____/|_|   |_|______|'
          write(*,'(a)') '===========multilevel BDDC solver==========='
+         write(*,'(a)') '==================LOCAL====================='
       end if
 
 ! Name of the problem
@@ -464,6 +460,7 @@ program bddcml_local
       allocate(i_sparse(la), j_sparse(la), a_sparse(la))
 ! ELMS - element stiffness matrices of subdomain - structure:
       call getfname(problemname(1:lproblemname),isub,'ELM',filename)
+      call allocate_unit(idelm)
       open(unit=idelm,file=filename,status='old',form='unformatted')
       call sm_pmd_load(idelm,nelems,inets,linets,nnets,lnnets,nndfs,lnndfs,kdofs,lkdofs,&
                        i_sparse, j_sparse, a_sparse, la)
@@ -495,26 +492,6 @@ program bddcml_local
          read (*,*) neighbouring
       end if
 
-      lkadjsub = nsub * nsub
-      allocate(kadjsub(lkadjsub))
-      kadjsub = 0
-      call pp_get_sub_neighbours(1,nelem,nnod,nsub, &
-                                 inet,linet,nnet,lnnet,iets,liets,&
-                                 kadjsub,lkadjsub)
-      ! parse kadjsub
-      nadjs = count(kadjsub((isub-1)*nsub + 1 : isub*nsub).eq.1)
-      liadjs = nadjs
-      allocate(iadjs(liadjs))
-      ia = 0
-      do i = 1,nsub
-         if (kadjsub((isub-1)*nsub + i).eq.1) then
-            ia = ia + 1
-
-            iadjs(ia) = i
-         end if
-      end do
-      deallocate(kadjsub)
-
       call bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
                                     isub, nelems, nnods, ndofs, &
                                     inets,linets, nnets,lnnets, nndfs,lnndfs, &
@@ -522,7 +499,6 @@ program bddcml_local
                                     xyzs,lxyzs1,lxyzs2, &
                                     ifixs,lifixs, fixvs,lfixvs, &
                                     rhss,lrhss, &
-                                    nadjs, iadjs,liadjs, &
                                     matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_load)
@@ -543,7 +519,6 @@ program bddcml_local
       deallocate(isvgvns)
       deallocate(isngns)
       deallocate(isegns)
-      deallocate(iadjs)
       deallocate(i_sparse, j_sparse, a_sparse)
 
 ! Broadcast basic properties of the problem
@@ -574,14 +549,36 @@ program bddcml_local
       call MPI_BARRIER(comm_all,ierr)
       call time_start
       ! call with setting of iterative properties
-      call bddcml_solve(problemname(1:lproblemname), comm_all,&
-                        print_solution, write_solution_by_root, &
-                        krylov_method, tol,maxit,ndecrmax)
+      call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pcg)
 
-
       deallocate(nsublev)
+
+      ! download local solution
+      lsols = ndofs
+      allocate(sols(lsols))
+      call bddcml_download_local_solution(sols,lsols)
+
+      ! write solution to separate file
+      ! open subdomain SOLS file for solution
+      call getfname(problemname(1:lproblemname),isub,'SOLS',filename)
+      if (debug) then
+         call info(routine_name,' Opening file fname: '//trim(filename))
+      end if
+      call allocate_unit(idsols)
+      open (unit=idsols,file=trim(filename),status='replace',form='unformatted')
+
+      rewind idsols
+      write(idsols) (sols(i),i=1,lsols)
+      
+      if (print_solution) then
+         write(*,*) 'isub =',isub,' solution: '
+         write(*,'(e15.7)') sols
+      end if
+      close(idsols)
+
+      deallocate(sols)
 
       if (myid.eq.0) then
          write (*,'(a)') 'Finalizing LEVELS ...'

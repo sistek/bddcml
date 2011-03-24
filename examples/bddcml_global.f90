@@ -85,16 +85,16 @@ program bddcml_global
 ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
       integer,parameter:: lfilenamex = 130
 ! print solution on screen?
-      integer,parameter :: print_solution = 0
-! write solution to a single file instead of distributed files?
-      integer,parameter :: write_solution_by_root = 1
+      logical,parameter :: print_solution = .false.
 
 !######### END OF PARAMETERS TO SET
-      character(*),parameter:: routine_name = 'BDDCML'
+      character(*),parameter:: routine_name = 'BDDCML_GLOBAL'
 
       !  parallel variables
       integer :: myid, comm_all, comm_self, nproc, ierr
-      integer :: idpar, idml, idgmi, idfvs, idrhs
+      integer :: idpar, idml, idgmi, idfvs, idrhs, idsol
+
+      integer :: i
 
       integer :: ndim, nsub, nelem, ndof, nnod, linet
       integer :: maxit, ndecrmax
@@ -151,6 +151,7 @@ program bddcml_global
          write(*,'(a)') '| |_|  | |_/  | |_/  | \__/ | |   | | |____ '
          write(*,'(a)') '|_____/|_____/|_____/ \____/|_|   |_|______|'
          write(*,'(a)') '===========multilevel BDDC solver==========='
+         write(*,'(a)') '==================GLOBAL===================='
       end if
 
 ! Name of the problem
@@ -356,14 +357,43 @@ program bddcml_global
       call MPI_BARRIER(comm_all,ierr)
       call time_start
       ! call with setting of iterative properties
-      call bddcml_solve(problemname(1:lproblemname), comm_all,&
-                        print_solution, write_solution_by_root, &
-                        krylov_method, tol,maxit,ndecrmax)
+      call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pcg)
 
-
       deallocate(nsublev)
+
+      if (myid.eq.0) then
+         lsol = ndof
+         allocate(sol(lsol))
+      end if
+
+      ! download global solution - all processors have to call this
+      call bddcml_download_global_solution(sol,lsol)
+
+      if (myid.eq.0) then
+        ! solution is ready, write it to SOL file
+         call allocate_unit(idsol)
+         open (unit=idsol,file=trim(problemname)//'.SOL',status='replace',form='unformatted')
+         rewind idsol
+      
+         write(idsol) (sol(i), i = 1,lsol)
+! Nonsense writing in place where postprocessor expect reactions
+         write(idsol) (sol(i), i = 1,lsol), 0.0D0, 0.0D0, 0.0D0
+         write(*,*) 'Solution has been written into file ',trim(problemname)//'.SOL'
+         write(*,*) 'Warning: At the moment solver does not ',&
+                    'resolve reaction forces. Record of these does not',&
+                    ' make sense and is present only to make ',&
+                    'postprocessor str3 happy with input data.'
+         close(idsol)
+
+         if (print_solution) then
+            write(*,*) ' solution: '
+            write(*,'(e15.7)') sol
+         end if
+
+         deallocate(sol)
+      end if
 
       if (myid.eq.0) then
          write (*,'(a)') 'Finalizing LEVELS ...'

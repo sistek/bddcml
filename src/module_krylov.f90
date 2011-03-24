@@ -31,10 +31,9 @@ module module_krylov
 
       contains
 
-!*****************************************************************************
-      subroutine krylov_bddcpcg(problemname, comm_all,tol,maxit,ndecrmax,&
-                                print_solution, write_solution_by_root)
-!*****************************************************************************
+!***********************************************************
+      subroutine krylov_bddcpcg(comm_all,tol,maxit,ndecrmax)
+!***********************************************************
 ! subroutine realizing PCG algorithm with vectors distributed by subdomains
 
 ! module for distributed Krylov data storage
@@ -48,9 +47,6 @@ module module_krylov
       
       include "mpif.h"
 
-      ! name of the problem
-      character(*),intent(in) :: problemname
-
       ! parallel variables
       integer,intent(in) :: comm_all 
 
@@ -62,12 +58,6 @@ module module_krylov
 
       ! desired accuracy of relative residual
       real(kr),intent(in) :: tol
-
-      ! print solution on screen?
-      logical, intent(in) :: print_solution
-
-      ! write solution to a single file instead of distributed files?
-      logical, intent(in) :: write_solution_by_root
 
       ! local vars
       character(*),parameter:: routine_name = 'KRYLOV_BDDCPCG'
@@ -481,8 +471,7 @@ module module_krylov
          common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lsoli
          common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%soli
       end do
-      call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data,problemname,&
-                                       print_solution,write_solution_by_root)
+      call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
       call time_end(t_postproc)
       if (myid.eq.0) then
          call time_print('postprocessing of solution',t_postproc)
@@ -505,10 +494,9 @@ module module_krylov
 
       end subroutine
 
-!****************************************************************************
-      subroutine krylov_bddcbicgstab(problemname, comm_all,tol,maxit,ndecrmax,&
-                                     print_solution, write_solution_by_root)
-!****************************************************************************
+!****************************************************************
+      subroutine krylov_bddcbicgstab(comm_all,tol,maxit,ndecrmax)
+!****************************************************************
 ! subroutine realizing BICGSTAB algorithm with vectors distributed by subdomains
 
 ! module for distributed Krylov data storage
@@ -522,9 +510,6 @@ module module_krylov
       
       include "mpif.h"
 
-      ! name of the problem
-      character(*),intent(in) :: problemname
-
       ! parallel variables
       integer,intent(in) :: comm_all 
 
@@ -536,12 +521,6 @@ module module_krylov
 
       ! desired accuracy of relative residual
       real(kr),intent(in) :: tol
-
-      ! print solution on screen?
-      logical, intent(in) :: print_solution
-
-      ! write solution to a single file instead of distributed files?
-      logical, intent(in) :: write_solution_by_root
 
       ! local vars
       character(*),parameter:: routine_name = 'KRYLOV_BDDCBICGSTAB'
@@ -1010,8 +989,7 @@ module module_krylov
          common_krylov_data(isub_loc)%lvec_in  = bicgstab_data(isub_loc)%lsoli
          common_krylov_data(isub_loc)%vec_in  => bicgstab_data(isub_loc)%soli
       end do
-      call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data,problemname,&
-                                       print_solution,write_solution_by_root)
+      call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
       call time_end(t_postproc)
       if (myid.eq.0) then
          call time_print('postprocessing of solution',t_postproc)

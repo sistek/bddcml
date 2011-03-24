@@ -102,7 +102,6 @@ subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
                                     xyz,lxyz1,lxyz2, &
                                     ifix,lifix, fixv,lfixv, &
                                     rhs,lrhs, &
-                                    nadj, iadj,liadj, &
                                     matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
@@ -176,13 +175,6 @@ subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
       !integer, intent(in):: lsol
       !real(kr), intent(in):: sol(lsol)
 
-      ! LOCAL Number of ADJacent subdomains of the subdomain
-      integer, intent(in):: nadj
-
-      ! LOCAL Indices of ADJacent subdomains
-      integer, intent(in):: liadj
-      integer, intent(in)::  iadj(liadj)
-
       ! LOCAL matrix triplet i, j, a(i,j) 
       ! Type of the matrix
       ! 0 - unsymmetric
@@ -211,7 +203,6 @@ subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
                                     xyz,lxyz1,lxyz2, &
                                     ifix,lifix, fixv,lfixv, &
                                     rhs,lrhs, &
-                                    nadj, iadj,liadj, &
                                     matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
 
 end subroutine
@@ -342,28 +333,17 @@ subroutine bddcml_setup_preconditioner(problemname, matrixtype, ndim, meshdim, n
 end subroutine
 
 
-!*****************************************************************
-subroutine bddcml_solve(problemname, comm_all,&
-                        print_solution_int, write_solution_by_root_int, &
-                        method,tol,maxit,ndecrmax)
-!*****************************************************************
+!**********************************************************
+subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax)
+!**********************************************************
 ! solution of problem by a Krylov subspace iterative method
       use module_krylov
       use module_utils
       implicit none
       integer,parameter :: kr = kind(1.D0)
 
-      ! name of the problem
-      character(*),intent(in) :: problemname
-
       ! parallel variables
       integer,intent(in) :: comm_all 
-
-      ! print solution on screen?
-      integer, intent(in) :: print_solution_int
-
-      ! write solution to a single file instead of distributed files?
-      integer, intent(in) :: write_solution_by_root_int
 
       ! optional paramaters - use either none or all of them
       ! preferable Krylov method
@@ -391,12 +371,6 @@ subroutine bddcml_solve(problemname, comm_all,&
       integer ::  krylov_ndecrmax = 30
       ! ######################################
       character(*),parameter:: routine_name = 'BDDCML_SOLVE'
-      logical :: print_solution
-      logical :: write_solution_by_root
-
-      ! convert logical parameters (entered as integers for C compatibility)
-      call logical2integer(print_solution_int,print_solution)
-      call logical2integer(write_solution_by_root_int,write_solution_by_root)
 
       ! determine Krylov method and parameters
       if (method .ne. -1) then
@@ -410,15 +384,49 @@ subroutine bddcml_solve(problemname, comm_all,&
 
       if (krylov_method.eq.0) then 
          ! use PCG 
-         call krylov_bddcpcg(trim(problemname), comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax,&
-                             print_solution, write_solution_by_root)
+         call krylov_bddcpcg(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax)
       else if (krylov_method.eq.1) then 
          ! use BICGSTAB 
-         call krylov_bddcbicgstab(trim(problemname), comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax,&
-                                  print_solution, write_solution_by_root)
+         call krylov_bddcbicgstab(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax)
       else
          call error(routine_name,'unknown iterative method',krylov_method)
       end if
+
+end subroutine
+
+!*****************************************************
+subroutine bddcml_download_local_solution(sols, lsols)
+!*****************************************************
+! Subroutine for getting local solution,
+! i.e. restriction of solution vector to subdomain (no weights are applied)
+! Only one subdomain is allowed to be at each processor
+      use module_levels
+      use module_utils
+      implicit none
+      integer,parameter :: kr = kind(1.D0)
+
+      ! LOCAL solution 
+      integer, intent(in)::  lsols
+      real(kr), intent(out):: sols(lsols)
+
+      call levels_dd_download_solution(sols,lsols)
+
+end subroutine
+
+!****************************************************
+subroutine bddcml_download_global_solution(sol, lsol)
+!****************************************************
+! Subroutine for getting global solution at root process
+      use module_levels
+      use module_utils
+      implicit none
+      integer,parameter :: kr = kind(1.D0)
+
+      ! GLOBAL solution - required to be allocated only at root
+      integer, intent(in)::  lsol
+      real(kr), intent(out):: sol(lsol)
+
+      call levels_get_global_solution(sol,lsol)
 
 end subroutine
 

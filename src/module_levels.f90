@@ -17,7 +17,7 @@
 module module_levels
 !*******************
 ! Module for handling levels in multilevel BDDC 
-! Jakub Sistek, Praha 2/2010
+! Jakub Sistek, Bologna 11/2010
 
 !     definition of MUMPS structure
       use dmumps_struc_def
@@ -413,7 +413,6 @@ subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
                                     xyz,lxyz1,lxyz2, &
                                     ifix,lifix, fixv,lfixv, &
                                     rhs,lrhs, &
-                                    nadj, iadj,liadj, &
                                     matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
 !***********************************************************************************
 ! Subroutine for loading LOCAL data at first level
@@ -443,9 +442,6 @@ subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
       real(kr), intent(in):: fixv(lfixv)
       integer, intent(in):: lrhs
       real(kr), intent(in):: rhs(lrhs)
-      integer, intent(in):: nadj
-      integer, intent(in):: liadj
-      integer, intent(in)::  iadj(liadj)
       ! LOCAL matrix triplet i, j, a(i,j) 
       integer, intent(in)::  matrixtype    ! type of matrix (MUMPS-like)
       integer, intent(in)::  i_sparse(la)  ! array of row indices
@@ -509,7 +505,6 @@ subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
                               xyz,lxyz1,lxyz2)
       call dd_upload_bc(levels(iactive_level)%subdomains(1), ifix,lifix, fixv,lfixv)
       call dd_upload_rhs(levels(iactive_level)%subdomains(1), rhs,lrhs)
-      call dd_upload_sub_adj(levels(iactive_level)%subdomains(1), nadj, iadj,liadj)
 
       ! load matrix to our structure
       call dd_load_matrix_triplet(levels(iactive_level)%subdomains(1), matrixtype, &
@@ -1474,6 +1469,9 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
       end if
 !-----profile
 
+      ! get here if distributed data were loaded
+ 1234 continue
+
       ! for communication, any shared nodes are considered
 !-----profile 
       if (profile) then
@@ -1711,9 +1709,6 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          end if
       end if
 !-----profile
-
-      ! get here if distributed data were loaded
- 1234 continue
 
 !-----profile 
       if (profile) then
@@ -3557,10 +3552,11 @@ subroutine levels_sm_apply(common_krylov_data,lcommon_krylov_data)
       end do
 end subroutine
 
-!*****************************************************************************************************************
-subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,print_solution,write_solution_by_root)
-!*****************************************************************************************************************
-! Subroutine for postprocessing of data by Krylov iterative method
+!***************************************************************
+subroutine levels_postprocess_solution(krylov_data,lkrylov_data)
+!***************************************************************
+! Subroutine for postprocessing of data by Krylov iterative method and storing
+! solution into DD structure
 ! module for distributed Krylov data storage
       use module_krylov_types_def
 ! module for handling subdomain data
@@ -3572,9 +3568,6 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
 
       integer,intent(in)                        :: lkrylov_data
       type (common_krylov_data_type),intent(in) ::  krylov_data(lkrylov_data)
-      character(*),intent(in) :: problemname
-      logical, intent(in) :: print_solution
-      logical, intent(in) :: write_solution_by_root
 
 ! local vars
       character(*),parameter:: routine_name = 'LEVELS_POSTPROCESS_SOLUTION'
@@ -3586,20 +3579,6 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
       integer ::             lsols
       real(kr),allocatable :: sols(:)
 
-      integer ::             lisvgvn
-      integer,allocatable ::  isvgvn(:)
-
-      integer ::             lacceptedp
-      integer,allocatable ::  acceptedp(:)
-
-      integer ::             lsol
-      real(kr),allocatable :: sol(:)
-
-      ! MPI variables
-      integer :: ierr, myid, nproc, iproc, comm_all
-      integer :: i, indv, nsub_locp
-      integer :: stat(MPI_STATUS_SIZE)
-      integer :: idsol
 
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
@@ -3610,17 +3589,6 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
          call error(routine_name,'Dimension mismatch.')
       end if
 
-      comm_all = levels(ilevel)%comm_all
-      ! orient in the communicator
-      call MPI_COMM_RANK(comm_all,myid,ierr)
-      call MPI_COMM_SIZE(comm_all,nproc,ierr)
-
-      if (write_solution_by_root .and. myid.eq.0) then
-         ! prepare solution array on root
-         lsol = levels(ilevel)%ndof
-         allocate(sol(lsol))
-         call zero(sol,lsol)
-      end if
       do isub_loc = 1,levels(ilevel)%nsub_loc
          isub = levels(ilevel)%indexsub(isub_loc)
 
@@ -3639,40 +3607,134 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
                                   krylov_data(isub_loc)%vec_in,krylov_data(isub_loc)%lvec_in, &
                                   sols,lsols)
 
-         ! write subdomain solution to independent disk files
-         if (write_solution_by_root) then
-            ! send solution to root
-            lisvgvn = ndofs
-            allocate(isvgvn(lisvgvn))
-            call dd_get_subdomain_isvgvn(levels(ilevel)%subdomains(isub_loc),isvgvn,lisvgvn)
-            if (myid.ne.0) then
-               ! now send the data to root
-               call MPI_SEND(ndofs,1,MPI_INTEGER,0,isub,comm_all,ierr)
-               call MPI_SEND(isvgvn,lisvgvn,MPI_INTEGER,0,isub,comm_all,ierr)
-               call MPI_SEND(sols,lsols,MPI_DOUBLE_PRECISION,0,isub,comm_all,ierr)
-            else
-               ! as root, first write my solution, then process others
-               do i = 1,ndofs
-                  indv = isvgvn(i)
-                  sol(indv) = sols(i)
-               end do
-            end if
-            deallocate(isvgvn)
-         else
-            call dd_write_solution_to_file(trim(problemname),isub,sols,lsols,print_solution)
-         end if
+         ! upload solution to DD structure
+         call dd_upload_solution(levels(ilevel)%subdomains(isub_loc), sols,lsols)
 
          deallocate(sols)
       end do
 
-      if (write_solution_by_root .and. myid.eq.0) then
+end subroutine
+
+!*************************************************
+subroutine levels_dd_download_solution(sols,lsols)
+!*************************************************
+! Subroutine for obtaining LOCAL solution from DD structure.
+! Only calls the function from DD module.
+! module for handling subdomain data
+      use module_dd
+! module with utility routines
+      use module_utils
+
+      implicit none
+
+      ! local solution 
+      integer, intent(in) ::  lsols
+      real(kr), intent(out) :: sols(lsols)
+
+! local vars
+      character(*),parameter:: routine_name = 'LEVELS_DD_DOWNLOAD_SOLUTION'
+      ! for Krylov data, index of level is 1
+      integer,parameter :: ilevel = 1
+
+      ! obtain solution from DD structure
+      call dd_download_solution(levels(ilevel)%subdomains(1), sols,lsols)
+
+end subroutine
+
+!**********************************************
+subroutine levels_get_global_solution(sol,lsol)
+!**********************************************
+! Subroutine for obtaining local solution from LEVELS and gathering global
+! solution on root.
+! It downloads it from the DD structures
+! module for handling subdomain data
+      use module_dd
+! module with utility routines
+      use module_utils
+
+      implicit none
+      include "mpif.h"
+
+      ! global solution - allocated only at root
+      integer, intent(in) ::  lsol
+      real(kr), intent(out) :: sol(lsol)
+
+! local vars
+      character(*),parameter:: routine_name = 'LEVELS_GET_GLOBAL_SOLUTION'
+      ! for Krylov data, index of level is 1
+      integer,parameter :: ilevel = 1
+
+      ! subdomain solution
+      integer ::              lsols
+      real(kr), allocatable :: sols(:)
+
+      integer ::             lisvgvn
+      integer,allocatable ::  isvgvn(:)
+
+      integer ::             lacceptedp
+      integer,allocatable ::  acceptedp(:)
+
+      integer :: ndofs, nnods, nelems, isub, isub_loc
+
+      ! MPI variables
+      integer :: ierr, myid, nproc, iproc, comm_all
+      integer :: i, indv, nsub_locp
+      integer :: stat(MPI_STATUS_SIZE)
+
+      ! orient in communicators
+      comm_all  = levels(ilevel)%comm_all
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
+
+      ! check that array is properly allocated at root
+      if (myid.eq.0) then
+         if (lsol.ne.levels(ilevel)%ndof) then
+            call error( routine_name, 'Space for global solution not properly allocated on root.')
+         end if
+         call zero(sol,lsol)
+      end if
+
+      do isub_loc = 1,levels(ilevel)%nsub_loc
+         isub = levels(ilevel)%indexsub(isub_loc)
+
+         ! determine size of subdomain
+         call dd_get_size(levels(ilevel)%subdomains(isub_loc),ndofs,nnods,nelems)
+
+         ! allocate local subdomain solution
+         lsols  = ndofs
+         allocate(sols(lsols))
+
+         ! obtain solution from DD structure
+         call dd_download_solution(levels(ilevel)%subdomains(isub_loc), sols,lsols)
+
+         ! send solution to root
+         lisvgvn = ndofs
+         allocate(isvgvn(lisvgvn))
+         call dd_get_subdomain_isvgvn(levels(ilevel)%subdomains(isub_loc),isvgvn,lisvgvn)
+         if (myid.ne.0) then
+            ! now send the data to root
+            call MPI_SEND(ndofs,1,MPI_INTEGER,0,isub,comm_all,ierr)
+            call MPI_SEND(isvgvn,lisvgvn,MPI_INTEGER,0,isub,comm_all,ierr)
+            call MPI_SEND(sols,lsols,MPI_DOUBLE_PRECISION,0,isub,comm_all,ierr)
+         else
+            ! as root, first write my solution, then process others
+            do i = 1,ndofs
+               indv = isvgvn(i)
+               sol(indv) = sols(i)
+            end do
+         end if
+         deallocate(isvgvn)
+         deallocate(sols)
+      end do
+
+      ! construct solution at root
+      if (myid.eq.0) then
          lacceptedp = nproc
          allocate(acceptedp(lacceptedp))
          call zero(acceptedp,lacceptedp)
          acceptedp(1) = levels(ilevel)%nsub_loc
          ! get solutions from others 
          do 
-
             do iproc = 1,nproc-1
                nsub_locp = levels(ilevel)%sub2proc(iproc+2) - levels(ilevel)%sub2proc(iproc+1)
                if (acceptedp(iproc+1).lt.nsub_locp) then
@@ -3705,23 +3767,6 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data,problemname,prin
             end if
          end do
          deallocate(acceptedp)
-
-         ! solution is ready, write it to SOL file
-         call allocate_unit(idsol)
-         open (unit=idsol,file=trim(problemname)//'.SOL',status='replace',form='unformatted')
-         rewind idsol
-      
-         write(idsol) (sol(i), i = 1,lsol)
-! Nonsense writing in place where postprocessor expect reactions
-         write(idsol) (sol(i), i = 1,lsol), 0.0D0, 0.0D0, 0.0D0
-         write(*,*) 'Solution has been written into file ',trim(problemname)//'.SOL'
-         write(*,*) 'Warning: At the moment solver does not ',&
-                    'resolve reaction forces. Record of these does not',&
-                    ' make sense and is present only to make ',&
-                    'postprocessor str3 happy with input data.'
-         close(idsol)
-
-         deallocate(sol)
       end if
 
 end subroutine

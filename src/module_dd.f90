@@ -289,10 +289,9 @@ module module_dd
          integer ::             lsolo
          real(kr),allocatable :: solo(:)     ! array of solution at interior of subdomain
 
+         logical :: is_solution_loaded = .false.
          integer ::             lsol         
          real(kr),allocatable :: sol(:)      ! array of solution restricted to subdomain
-         integer ::             lsoli
-         real(kr),allocatable :: soli(:)     ! array of solution at interface
 
       end type subdomain_type
 
@@ -2455,6 +2454,88 @@ subroutine dd_upload_interior_solution(sub, solo,lsolo)
 
       sub%is_interior_solution_loaded = .true.
    
+end subroutine
+
+!*******************************************
+subroutine dd_upload_solution(sub, sol,lsol)
+!*******************************************
+! Subroutine for uploading solution to subdomain structure
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+      integer,intent(in) :: lsol
+      real(kr),intent(in)::  sol(lsol)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_UPLOAD_SOLUTION'
+      integer :: i
+      integer :: ndof
+
+      ! check prerequisites
+      if (.not. sub%is_initialized) then
+         call error( routine_name,'Not initialized subdomain: ',sub%isub)
+      end if
+
+      ndof = sub%ndof
+      ! check dimension
+      if (lsol.ne.ndof) then
+         call error(routine_name,'Array SOL dimension mismatch.')
+      end if
+
+      ! is array allocated?
+      if (.not.allocated(sub%sol)) then
+         ! if not, allocate it
+         sub%lsol = lsol
+         allocate(sub%sol(lsol))
+      else
+         ! if yes, check that it is allocated to correct dimension
+         if (lsol.ne.sub%lsol) then
+            call error(routine_name,'Dimension of subdomain SOL mismatch for subdomain:',sub%isub)
+         end if
+      end if
+      do i = 1,lsol
+         sub%sol(i) = sol(i)
+      end do
+
+      sub%is_solution_loaded = .true.
+   
+end subroutine
+
+!*********************************************
+subroutine dd_download_solution(sub, sol,lsol)
+!*********************************************
+! Subroutine for downloading solution from subdomain structure
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+! Subdomain solution
+      integer,intent(in) ::  lsol
+      real(kr),intent(out)::  sol(lsol)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_DOWNLOAD_SOLUTION'
+      integer :: i
+      integer :: ndof
+
+      ! check prerequisites
+      if (.not. sub%is_solution_loaded) then
+         call error( routine_name,'Solution is not loaded for subdomain: ',sub%isub)
+      end if
+
+      ndof = sub%ndof
+      ! check dimension
+      if (lsol.ne.ndof) then
+         call error(routine_name,'Array SOL dimension mismatch.')
+      end if
+
+      do i = 1,lsol
+         sol(i) = sub%sol(i)
+      end do
+
 end subroutine
 
 !*************************************************
@@ -9656,9 +9737,6 @@ subroutine dd_finalize(sub)
 !     Krylov vectors on subdomain
       if (allocated(sub%sol)) then
          deallocate(sub%sol)
-      end if
-      if (allocated(sub%soli)) then
-         deallocate(sub%soli)
       end if
 
       sub%is_mesh_loaded          = .false.
