@@ -66,6 +66,9 @@ program bddcml_local
 !                    | faces: arith. | faces: -      |
 !----------------------------------------------------- 
 
+! beginning index of arrays ( 0 for C, 1 for Fortran )
+      integer, parameter :: numbase = 1
+
 ! use prepared division into subdomains on first level in file *.ES?
       integer,parameter :: load_division = 1
 ! use prepared selection of corners in file *.CN and description of globs for first level in file *.GLB?
@@ -494,7 +497,7 @@ program bddcml_local
 
       call bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
                                     isub, nelems, nnods, ndofs, &
-                                    inets,linets, nnets,lnnets, nndfs,lnndfs, &
+                                    numbase, inets,linets, nnets,lnnets, nndfs,lnndfs, &
                                     isngns,lisngns, isvgvns,lisvgvns, isegns,lisegns, &
                                     xyzs,lxyzs1,lxyzs2, &
                                     ifixs,lifixs, fixvs,lfixvs, &

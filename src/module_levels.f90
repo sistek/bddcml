@@ -311,7 +311,7 @@ end subroutine
 
 !***********************************************************************************
 subroutine levels_upload_global_data(nelem,nnod,ndof,&
-                                     inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                     numbase,inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                                      ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
 !***********************************************************************************
 ! Subroutine for loading global data as zero level
@@ -319,6 +319,7 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       implicit none
 
       integer, intent(in):: nelem, nnod, ndof
+      integer, intent(in):: numbase
       integer, intent(in):: linet
       integer, intent(in)::  inet(linet)
       integer, intent(in):: lnnet
@@ -339,9 +340,13 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_GLOBAL_DATA'
       integer :: i,j
+      integer :: numshift
 
       ! set active level to zero
       iactive_level = 0
+
+      ! set numerical shift for C/Fortran
+      numshift = 1 - numbase
 
       ! check number of elements
       if (levels(1)%nsub.gt.nelem) then
@@ -356,7 +361,7 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       levels(iactive_level)%linetc = linet  
       allocate(levels(iactive_level)%inetc(levels(iactive_level)%linetc))
       do i = 1,levels(iactive_level)%linetc
-         levels(iactive_level)%inetc(i) = inet(i)
+         levels(iactive_level)%inetc(i) = inet(i) + numshift
       end do
       levels(iactive_level)%lnnetc = lnnet  
       allocate(levels(iactive_level)%nnetc(levels(iactive_level)%lnnetc))
@@ -408,7 +413,7 @@ end subroutine
 !***********************************************************************************
 subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
                                     isub, nelems, nnods, ndofs, &
-                                    inet,linet, nnet,lnnet, nndf,lnndf, &
+                                    numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
                                     isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
                                     xyz,lxyz1,lxyz2, &
                                     ifix,lifix, fixv,lfixv, &
@@ -422,6 +427,7 @@ subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
 
       integer, intent(in):: nelem, nnod, ndof, ndim
       integer, intent(in):: isub, nelems, nnods, ndofs
+      integer, intent(in):: numbase
       integer, intent(in):: linet
       integer, intent(in)::  inet(linet)
       integer, intent(in):: lnnet
@@ -454,9 +460,13 @@ subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_LOCAL_DATA'
+      integer :: numshift
 
       ! set active level to zero
       iactive_level = 0
+
+      ! set numerical shift for C/Fortran
+      numshift = 1 - numbase
 
       ! initialize zero level
       levels(iactive_level)%nsub  = nelem
@@ -500,14 +510,14 @@ subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
       end if
 
       call dd_upload_sub_mesh(levels(iactive_level)%subdomains(1), nelems, nnods, ndofs, ndim, &
-                              nndf,lnndf, nnet,lnnet, inet,linet, &
+                              nndf,lnndf, nnet,lnnet, numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
                               xyz,lxyz1,lxyz2)
       call dd_upload_bc(levels(iactive_level)%subdomains(1), ifix,lifix, fixv,lfixv)
       call dd_upload_rhs(levels(iactive_level)%subdomains(1), rhs,lrhs)
 
       ! load matrix to our structure
-      call dd_load_matrix_triplet(levels(iactive_level)%subdomains(1), matrixtype, &
+      call dd_load_matrix_triplet(levels(iactive_level)%subdomains(1), matrixtype, numshift, &
                                   i_sparse,j_sparse,a_sparse,la,la,is_assembled)
       ! assembly it if needed
       if (.not. is_assembled) then

@@ -51,6 +51,8 @@ program test_module_levels
       integer,parameter :: neighbouring = 4
       ! should parallel search of globs be used? (some corrections on globs may not be available)
       logical,parameter :: parallel_globs = .true.
+      ! what is the base for array indexing ( 1 in Fortran )
+      integer,parameter :: numbase = 1
       ! end of parameters to set ######################
 
 
@@ -199,7 +201,7 @@ program test_module_levels
       write (*,*) 'myid = ',myid,': Initializing LEVELS.'
       call levels_init(nlevels,nsublev,lnsublev,comm_all)
       call levels_upload_global_data(nelem,nnod,ndof,&
-                                     inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                     numbase, inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                                      ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
       deallocate(inet,nnet,nndf,xyz)
       deallocate(ifix,fixv)

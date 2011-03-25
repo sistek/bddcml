@@ -516,7 +516,7 @@ subroutine dd_read_mesh_from_file(sub,problemname)
 
       ! load data to structure
       call dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
-                              nndf,lnndf, nnet,lnnet, inet,linet, &
+                              nndf,lnndf, nnet,lnnet, 0, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
                               xyz,lxyz1,lxyz2)
       call dd_upload_sub_adj(sub, nadj, iadj,liadj)
@@ -679,7 +679,7 @@ subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
       ! load matrix to our structure
       nnza = la
       is_assembled = .false.
-      call dd_load_matrix_triplet(sub, matrixtype, &
+      call dd_load_matrix_triplet(sub, matrixtype, 0, &
                                   i_sparse,j_sparse,a_sparse,la,nnza,is_assembled)
 
 
@@ -1617,7 +1617,7 @@ subroutine dd_localize_mesh(sub,isub,ndim,nelem,nnod,&
       end do
 
       call dd_upload_sub_mesh(sub, nelems, nnods, ndofs, ndim, &
-                              nndfs,lnndfs, nnets,lnnets, inets,linets, isngns,lisngns, &
+                              nndfs,lnndfs, nnets,lnnets, 0, inets,linets, isngns,lisngns, &
                               isvgvns,lisvgvns, isegns,lisegns,&
                               xyzs,lxyzs1,lxyzs2) 
 
@@ -1958,7 +1958,7 @@ subroutine dd_localize_cornersglobs(sub,ncorner,inodc,linodc,&
 end subroutine
 
 !*********************************************************************************
-subroutine dd_load_matrix_triplet(sub, matrixtype, &
+subroutine dd_load_matrix_triplet(sub, matrixtype, numshift,&
                                   i_sparse,j_sparse,a_sparse,la,nnza,is_assembled)
 !*********************************************************************************
 ! Subroutine for loading sparse triplet to sub structure
@@ -1973,6 +1973,8 @@ subroutine dd_load_matrix_triplet(sub, matrixtype, &
 ! 2 - general symmetric
       integer,intent(in) :: matrixtype
 
+! shift of entries ( 1 for C arrays, 0 for Fortran )
+      integer,intent(in) :: numshift
       ! Matrix in IJA sparse format
       integer,intent(in)  :: la
       integer,intent(in)  :: nnza
@@ -1997,11 +1999,11 @@ subroutine dd_load_matrix_triplet(sub, matrixtype, &
       sub%is_assembled = is_assembled
       allocate(sub%i_a_sparse(la))
       do i = 1,la
-         sub%i_a_sparse(i) = i_sparse(i)
+         sub%i_a_sparse(i) = i_sparse(i) + numshift
       end do
       allocate(sub%j_a_sparse(la))
       do i = 1,la
-         sub%j_a_sparse(i) = j_sparse(i)
+         sub%j_a_sparse(i) = j_sparse(i) + numshift
       end do
       allocate(sub%a_sparse(la))
       do i = 1,la
@@ -2049,7 +2051,7 @@ end subroutine
 
 !*********************************************************************************
 subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
-                              nndf,lnndf, nnet,lnnet, inet,linet, &
+                              nndf,lnndf, nnet,lnnet, numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
                               xyz,lxyz1,lxyz2)
 !*********************************************************************************
@@ -2061,6 +2063,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       type(subdomain_type),intent(inout) :: sub
       ! mesh
       integer,intent(in) :: nelem, nnod, ndof, ndim
+      integer,intent(in) :: numshift
       integer,intent(in) :: lnndf,       lnnet,       linet
       integer,intent(in) ::  nndf(lnndf), nnet(lnnet), inet(linet)
       integer,intent(in) :: lisngn
@@ -2089,7 +2092,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       sub%linet   = linet
       allocate(sub%inet(linet))
       do i = 1,linet
-         sub%inet(i) = inet(i)
+         sub%inet(i) = inet(i) + numshift
       end do
 
       sub%lnnet   = lnnet
@@ -2107,19 +2110,19 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       sub%lisngn   = lisngn
       allocate(sub%isngn(lisngn))
       do i = 1,lisngn
-         sub%isngn(i) = isngn(i)
+         sub%isngn(i) = isngn(i) + numshift
       end do
 
       sub%lisvgvn   = lisvgvn
       allocate(sub%isvgvn(lisvgvn))
       do i = 1,lisvgvn
-         sub%isvgvn(i) = isvgvn(i)
+         sub%isvgvn(i) = isvgvn(i) + numshift
       end do
 
       sub%lisegn   = lisegn
       allocate(sub%isegn(lisegn))
       do i = 1,lisegn
-         sub%isegn(i) = isegn(i)
+         sub%isegn(i) = isegn(i) + numshift
       end do
 
       sub%lxyz1   = lxyz1

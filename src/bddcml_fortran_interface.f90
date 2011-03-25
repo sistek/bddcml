@@ -40,7 +40,7 @@ end subroutine
 
 !**************************************************************************************
 subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
-                                     inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                     numbase, inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                                      ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
@@ -55,6 +55,9 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
       integer, intent(in):: nnod
       ! GLOBAL number of degrees of freedom
       integer, intent(in):: ndof
+
+      ! beginning index of nodes ( 0 for C, 1 for Fortran )
+      integer, intent(in) :: numbase
 
       ! GLOBAL Indices of Nodes on ElemenTs
       integer, intent(in):: linet
@@ -89,7 +92,7 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
       real(kr), intent(in):: sol(lsol)
 
       call levels_upload_global_data(nelem,nnod,ndof,&
-                                     inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                     numbase, inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                                      ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
 
 end subroutine
@@ -97,7 +100,7 @@ end subroutine
 !**************************************************************************************
 subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
                                     isub, nelems, nnods, ndofs, &
-                                    inet,linet, nnet,lnnet, nndf,lnndf, &
+                                    numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
                                     isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
                                     xyz,lxyz1,lxyz2, &
                                     ifix,lifix, fixv,lfixv, &
@@ -128,6 +131,9 @@ subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
       integer, intent(in):: nnods
       ! LOCAL number of degrees of freedom
       integer, intent(in):: ndofs
+
+      ! beginning index of nodes ( 0 for C, 1 for Fortran )
+      integer, intent(in) :: numbase
 
       ! LOCAL Indices of Nodes on ElemenTs
       integer, intent(in):: linet
@@ -198,7 +204,7 @@ subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
 
       call levels_upload_local_data(nelem, nnod, ndof, ndim, &
                                     isub, nelems, nnods, ndofs, &
-                                    inet,linet, nnet,lnnet, nndf,lnndf, &
+                                    numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
                                     isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
                                     xyz,lxyz1,lxyz2, &
                                     ifix,lifix, fixv,lfixv, &

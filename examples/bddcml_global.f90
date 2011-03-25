@@ -64,6 +64,9 @@ program bddcml_global
 !                    | faces: arith. | faces: -      |
 !----------------------------------------------------- 
 
+! beginning index of arrays ( 0 for C, 1 for Fortran )
+      integer, parameter :: numbase = 1
+
 ! use prepared division into subdomains on first level in file *.ES?
       integer,parameter :: load_division = 1
 ! use prepared selection of corners in file *.CN and description of globs for first level in file *.GLB?
@@ -310,7 +313,7 @@ program bddcml_global
          call flush(6)
       end if
       call time_start
-      call bddcml_upload_global_data(nelem,nnod,ndof,&
+      call bddcml_upload_global_data(nelem,nnod,ndof,numbase,&
                                      inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                                      ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
       call MPI_BARRIER(comm_all,ierr)
