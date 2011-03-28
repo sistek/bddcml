@@ -252,9 +252,9 @@ integer, intent(in) :: graphtype
 integer, intent(in) :: lxadj
 integer, intent(in) ::  xadj(lxadj)
 integer, intent(in) :: ladjncy
-integer, intent(out) :: adjncy(ladjncy)
+integer, intent(in) ::  adjncy(ladjncy)
 integer, intent(in) :: ladjwgt
-integer, intent(out) :: adjwgt(ladjwgt)
+integer, intent(in) ::  adjwgt(ladjwgt)
 
 ! local variables
 integer :: iadjelm, indadjelm, iadjelmadj, indadjelmadj, ivertex, nadjelm, nadjelmadj
@@ -321,9 +321,9 @@ integer, intent(in) :: graphtype
 integer, intent(in) :: lxadj
 integer, intent(in) ::  xadj(lxadj)
 integer, intent(in) :: ladjncy
-integer, intent(out) :: adjncy(ladjncy)
+integer, intent(in) ::  adjncy(ladjncy)
 integer, intent(in) :: ladjwgt
-integer, intent(out) :: adjwgt(ladjwgt)
+integer, intent(in) ::  adjwgt(ladjwgt)
 
 ! local variables
 integer :: ie, nadje, j
