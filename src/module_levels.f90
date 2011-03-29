@@ -37,7 +37,7 @@ module module_levels
 ! damping division
       logical,parameter,private :: damp_division = .false.
 ! damping selected corners  
-      logical,parameter,private :: damp_corners = .true.
+      logical,parameter,private :: damp_corners = .false.
 ! maximal allowed length of file names
       integer,parameter,private :: lfnamex = 130
 ! adjustable parameters ############################
