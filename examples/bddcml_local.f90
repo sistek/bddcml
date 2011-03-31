@@ -83,8 +83,6 @@ program bddcml_local
       integer,parameter :: parallel_neighbouring = 1
 ! should parallel search of globs be used? (some corrections on globs may not be available)
       integer,parameter :: parallel_globs = 1
-! are you debugging the code?
-      logical,parameter :: debug = .true.
 ! maximal length of problemname
       integer,parameter:: lproblemnamex = 100
 ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
@@ -465,7 +463,7 @@ program bddcml_local
       call getfname(problemname(1:lproblemname),isub,'ELM',filename)
       call allocate_unit(idelm)
       open(unit=idelm,file=filename,status='old',form='unformatted')
-      call sm_pmd_load(idelm,nelems,inets,linets,nnets,lnnets,nndfs,lnndfs,kdofs,lkdofs,&
+      call sm_pmd_load(matrixtype,idelm,nelems,inets,linets,nnets,lnnets,nndfs,lnndfs,kdofs,lkdofs,&
                        i_sparse, j_sparse, a_sparse, la)
 
 
@@ -566,9 +564,7 @@ program bddcml_local
       ! write solution to separate file
       ! open subdomain SOLS file for solution
       call getfname(problemname(1:lproblemname),isub,'SOLS',filename)
-      if (debug) then
-         call info(routine_name,' Opening file fname: '//trim(filename))
-      end if
+      call info(routine_name,' Opening file fname: '//trim(filename))
       call allocate_unit(idsols)
       open (unit=idsols,file=trim(filename),status='replace',form='unformatted')
 

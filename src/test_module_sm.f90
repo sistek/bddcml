@@ -120,7 +120,7 @@ program test_module_sm
 ! Prepare memory for sparse matrix
       allocate(i_sparse(la), j_sparse(la), a_sparse(la))
 ! Load sparse matrix
-      call sm_pmd_load(idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
+      call sm_pmd_load(matrixtype,idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
                        i_sparse, j_sparse, a_sparse, la)
       close(idelm)
 
@@ -185,7 +185,7 @@ program test_module_sm
 
 ! Apply boundary conditions 
       fixv = 1.0_kr
-      call sm_apply_bc(ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_sparse,nnz,bc,lbc) 
+      call sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_sparse,nnz,bc,lbc) 
       write(*,*) 'Matrix after application of BC...'
       call sm_print(6, i_sparse, j_sparse, a_sparse, la, nnz)
 

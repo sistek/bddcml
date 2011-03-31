@@ -36,7 +36,7 @@ program bddcml_global
 !     0 - general (full storage)
 !     1 - symmetric positive definite (only triangle stored)
 !     2 - symmetric general (only triangle stored)
-      integer :: matrixtype = 1  
+      integer :: matrixtype = 1 
 ! Krylov subspace iterative method to be used
 !     -1 - use solver defaults
 !     0 - PCG
@@ -81,8 +81,6 @@ program bddcml_global
       integer,parameter :: parallel_neighbouring = 1
 ! should parallel search of globs be used? (some corrections on globs may not be available)
       integer,parameter :: parallel_globs = 1
-! are you debugging the code?
-      integer,parameter :: debug = 1
 ! maximal length of problemname
       integer,parameter:: lproblemnamex = 100
 ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices

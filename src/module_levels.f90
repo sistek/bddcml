@@ -31,7 +31,7 @@ module module_levels
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! debugging 
-      logical,parameter,private :: debug = .true.
+      logical,parameter,private :: debug = .false.
 ! profiling 
       logical,parameter,private :: profile = .true.
 ! damping division
@@ -2263,7 +2263,6 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          call dd_matrix_tri2blocktri(levels(ilevel)%subdomains(isub_loc),remove_original)
          call dd_prepare_schur(levels(ilevel)%subdomains(isub_loc),comm_self)
       end do
-!      call dd_print_sub(myid)
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)

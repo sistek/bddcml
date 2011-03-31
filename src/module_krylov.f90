@@ -24,7 +24,7 @@ module module_krylov
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! debugging 
-      logical,parameter,private :: debug = .true.
+      logical,parameter,private :: debug = .false.
 ! profiling 
       logical,parameter,private :: profile = .true.
 ! adjustable parameters ############################

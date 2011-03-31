@@ -165,13 +165,21 @@ subroutine sm_pmd_get_length_quart(matrixtype,nelem,inet,linet,nnet,lnnet,nndf,l
 end subroutine
 
 !*******************************************************************************
-subroutine sm_pmd_load(idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
-                       i_sparse, j_sparse, a_sparse, la)
+subroutine sm_pmd_load(matrixtype, idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,&
+                       kdof,lkdof, i_sparse, j_sparse, a_sparse, la)
 !*******************************************************************************
 ! Subroutine for reading element matrices in PMD format and storing them in IJA
 ! sparse format with repeated entries (without assembly), stores element by element
+! element matrices are read column-by-column, for symmetric storage only up to
+! the diagonal
 
       implicit none
+
+! Type of matrix - determine its storage
+! 0 - unsymmetric                 -> full element matrices
+! 1 - symmetric positive definite -> only upper triangle of element matrix
+! 2 - symmetric general           -> only upper triangle of element matrix
+      integer,intent(in) :: matrixtype
 
 ! unit associated with file with element matrices, number of elements
       integer,intent(in) :: idelm, nelem
@@ -196,21 +204,27 @@ subroutine sm_pmd_load(idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
       end do
 
       ! Prepare numbering of element matrices
-      call sm_pmd_make_element_numbering(nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
+      call sm_pmd_make_element_numbering(matrixtype,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
                                          i_sparse, j_sparse, la)
 
       return
 end subroutine
 
 !**************************************************************************************
-subroutine sm_pmd_load_masked(idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
-                              isegn,lisegn, i_sparse, j_sparse, a_sparse, la)
+subroutine sm_pmd_load_masked(matrixtype, idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,&
+                              kdof,lkdof, isegn,lisegn, i_sparse, j_sparse, a_sparse, la)
 !**************************************************************************************
 ! Subroutine for reading element matrices in PMD format and storing them in IJA
 ! sparse format with repeated entries (without assembly), stores element by element
 ! selects elements from global file according to ISEGN array
 
       implicit none
+
+! Type of matrix - determine its storage
+! 0 - unsymmetric                 -> full element matrices
+! 1 - symmetric positive definite -> only upper triangle of element matrix
+! 2 - symmetric general           -> only upper triangle of element matrix
+      integer,intent(in) :: matrixtype
 
 ! unit associated with file with element matrices, number of elements
       integer,intent(in) :: idelm, nelem
@@ -246,20 +260,27 @@ subroutine sm_pmd_load_masked(idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,
       end do
 
       ! Prepare numbering of element matrices
-      call sm_pmd_make_element_numbering(nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
+      call sm_pmd_make_element_numbering(matrixtype,nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
                                          i_sparse, j_sparse, la)
 
       return
 end subroutine
 
 !*******************************************************************************************
-subroutine sm_pmd_make_element_numbering(nelem,inet,linet,nnet,lnnet,nndf,lnndf,kdof,lkdof,&
-                                         i_sparse, j_sparse, la)
+subroutine sm_pmd_make_element_numbering(matrixtype,nelem,inet,linet,nnet,lnnet,nndf,lnndf,&
+                                         kdof,lkdof, i_sparse, j_sparse, la)
 !*******************************************************************************************
 ! Subroutine for reading element matrices in PMD format and storing them in IJA
 ! sparse format with repeated entries (without assembly), stores element by element
 
+      use module_utils, only: error
       implicit none
+
+! Type of matrix - determine its storage
+! 0 - unsymmetric                 -> full element matrices
+! 1 - symmetric positive definite -> only upper triangle of element matrix
+! 2 - symmetric general           -> only upper triangle of element matrix
+      integer,intent(in) :: matrixtype
 
 ! number of elements
       integer,intent(in) :: nelem
@@ -273,9 +294,11 @@ subroutine sm_pmd_make_element_numbering(nelem,inet,linet,nnet,lnnet,nndf,lnndf,
       integer,intent(out)  :: i_sparse(la), j_sparse(la)
 
 ! Local variables
+      character(*),parameter:: routine_name = 'SM_PMD_MAKE_ELEMENT_NUMBERING'
       integer,allocatable :: kdofe(:)
       integer:: inddof, idofn, ndofn, ive, jve, inda, nevab, nevax, ie, iinet, &
                 inod, inodg, nve, nne
+      integer:: uppbound
 
 ! Find the maximum dimension of element matrix NEVAX
       iinet = 0
@@ -320,16 +343,28 @@ subroutine sm_pmd_make_element_numbering(nelem,inet,linet,nnet,lnnet,nndf,lnndf,
 
          ! Distribute the indices of entries
          do jve = 1,nve
-            do ive = 1,jve 
+            ! set proper end for the row loop
+            if (matrixtype.eq.1.or.matrixtype.eq.2) then
+               ! symmetric case
+               uppbound = jve
+            else if (matrixtype.eq.0) then
+               ! unsymmetric case
+               uppbound = nve
+            else
+               call error(routine_name, 'Unknown type of matrix: ',matrixtype)
+            end if
+            do ive = 1,uppbound 
 
                ! Move in the main matrix array
                inda = inda + 1
 
                ! Fill in the indices of entries
-               if (kdofe(ive).le.kdofe(jve)) then
+               if (matrixtype .eq.0 .or. ( kdofe(ive).le.kdofe(jve) ) ) then
+                  ! in nonsymmetric storage or case of upper triangular entry, standard position
                   i_sparse(inda) = kdofe(ive)
                   j_sparse(inda) = kdofe(jve)
                else
+                  ! in symmetric storage and case of entry bellow diagonal, mirror index along diagonal
                   i_sparse(inda) = kdofe(jve)
                   j_sparse(inda) = kdofe(ive)
                end if
@@ -343,9 +378,9 @@ subroutine sm_pmd_make_element_numbering(nelem,inet,linet,nnet,lnnet,nndf,lnndf,
       return
 end subroutine
 
-!*********************************************************************************
-subroutine sm_apply_bc(ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_sparse,la,bc,lbc)
-!*********************************************************************************
+!********************************************************************************************
+subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_sparse,la,bc,lbc)
+!********************************************************************************************
 ! Subroutine for application of Dirichlet boudary conditions on a sparse matrix
 ! using PMD arrays
 ! Eliminate boundary conditions from right hand side, put zeros to the row and
@@ -353,6 +388,12 @@ subroutine sm_apply_bc(ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_sparse,la,bc,lb
 ! The value of fixed variable put in RHS.
 
       implicit none
+
+! Type of matrix - determine its storage
+! 0 - unsymmetric                 -> full element matrices
+! 1 - symmetric positive definite -> only upper triangle of element matrix
+! 2 - symmetric general           -> only upper triangle of element matrix
+      integer,intent(in) :: matrixtype
 
 ! indices of fixed variables
       integer,intent(in) :: lifix
@@ -390,14 +431,18 @@ subroutine sm_apply_bc(ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_sparse,la,bc,lb
 
          ! off-diagonal entries
          if (indi.ne.indj) then
-            ! fixed row
-            if (ifix(indi).ne.0) then
-               fixval = fixv(indi)
-               aval   = a_sparse(ia)
-               if (fixval.ne.0.0_kr.and.aval.ne.0.0_kr) then
-                  value = aval*fixval
-                  if (ifix(indj).eq.0) then
-                     bc(indj) = bc(indj) - value
+            ! do this only in the case of symmetric storage
+
+            if (matrixtype.ne.0) then
+               ! fixed row
+               if (ifix(indi).ne.0) then
+                  fixval = fixv(indi)
+                  aval   = a_sparse(ia)
+                  if (fixval.ne.0.0_kr.and.aval.ne.0.0_kr) then
+                     value = aval*fixval
+                     if (ifix(indj).eq.0) then
+                        bc(indj) = bc(indj) - value
+                     end if
                   end if
                end if
             end if

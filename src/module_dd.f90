@@ -634,7 +634,7 @@ subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
       open (unit=idelm,file=trim(fname),status='old',form='unformatted',iostat=ios)
       if (ios.eq.0) then
          ! the subdomain file should exist, try reading it
-         call sm_pmd_load(idelm,nelem,sub%inet,sub%linet,&
+         call sm_pmd_load(matrixtype,idelm,nelem,sub%inet,sub%linet,&
                           sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
                           kdof,lkdof,&
                           i_sparse, j_sparse, a_sparse, la)
@@ -646,7 +646,7 @@ subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
          ! use global filename
          fname = trim(problemname)//'.ELM'
          open (unit=idelm,file=trim(fname),status='old',form='unformatted')
-         call sm_pmd_load_masked(idelm,nelem,sub%inet,sub%linet,&
+         call sm_pmd_load_masked(matrixtype,idelm,nelem,sub%inet,sub%linet,&
                                  sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
                                  kdof,lkdof,sub%isegn,sub%lisegn,&
                                  i_sparse, j_sparse, a_sparse, la)
@@ -667,7 +667,7 @@ subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
          end if
 
          ! eliminate natural BC
-         call sm_apply_bc(sub%ifix,sub%lifix,sub%fixv,sub%lfixv,&
+         call sm_apply_bc(matrixtype,sub%ifix,sub%lifix,sub%fixv,sub%lfixv,&
                           i_sparse,j_sparse,a_sparse,la, bc,lbc)
          if (sub%is_bc_nonzero) then
             call dd_load_eliminated_bc(sub, bc,lbc)
@@ -847,7 +847,7 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
             end do
          end if
          ! Prepare numbering of element matrices
-         call sm_pmd_make_element_numbering(nelems,suba(isub_loc)%inet,suba(isub_loc)%linet,&
+         call sm_pmd_make_element_numbering(matrixtype,nelems,suba(isub_loc)%inet,suba(isub_loc)%linet,&
                                             suba(isub_loc)%nnet,suba(isub_loc)%lnnet,&
                                             suba(isub_loc)%nndf,suba(isub_loc)%lnndf,&
                                             kdof,lkdof,&
@@ -932,6 +932,15 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
          close(idelm)
       end if
 
+      ! set proper flags after matrix is loaded
+      do isub_loc = 1,lindexsub
+
+         suba(isub_loc)%is_matrix_loaded = .true.
+         suba(isub_loc)%is_triplet       = .true.
+         suba(isub_loc)%is_assembled     = .false.
+
+      end do
+
       ! free memory
       deallocate(elm)
       deallocate(locsubnumber)
@@ -992,10 +1001,7 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
 
          suba(isub_loc)%is_assembled = .false.
 
-         suba(isub_loc)%is_matrix_loaded = .true.
-         suba(isub_loc)%is_triplet       = .true.
-
-      ! eliminate boundary conditions
+         ! eliminate boundary conditions
          ndofs =  suba(isub_loc)%ndof
 
          if (is_bc_present) then
@@ -1006,7 +1012,8 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
 
          ! eliminate natural BC
          if (suba(isub_loc)%is_bc_present) then
-            call sm_apply_bc(suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
+            call sm_apply_bc(suba(isub_loc)%matrixtype,&
+                             suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
                              suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc)
          end if
 
@@ -1225,7 +1232,7 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
             kdof(inods) = kdof(inods-1) + suba(isub_loc)%nndf(inods-1)
          end do
          ! Prepare numbering of element matrices
-         call sm_pmd_make_element_numbering(nelems,suba(isub_loc)%inet,suba(isub_loc)%linet,&
+         call sm_pmd_make_element_numbering(matrixtype,nelems,suba(isub_loc)%inet,suba(isub_loc)%linet,&
                                             suba(isub_loc)%nnet,suba(isub_loc)%lnnet,&
                                             suba(isub_loc)%nndf,suba(isub_loc)%lnndf,&
                                             kdof,lkdof,&
@@ -1327,7 +1334,7 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
             end if
 
             ! eliminate natural BC
-            call sm_apply_bc(suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
+            call sm_apply_bc(matrixtype,suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
                              suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc)
             if (suba(isub_loc)%is_bc_nonzero) then
                call dd_load_eliminated_bc(suba(isub_loc), bc,lbc)
@@ -2599,7 +2606,6 @@ subroutine dd_fix_bc(sub, vec,lvec)
       end if
       ! check size
       if (sub%lifix .gt. 0 .and. sub%lifix .ne. lvec) then
-         print *,'lifix',sub%lifix, 'lvec',lvec
          write(*,*) 'DD_FIX_BC: Vector size mismatch for subdomain ',sub%isub
          call error_exit
       end if
@@ -3131,6 +3137,7 @@ subroutine dd_matrix_tri2blocktri(sub,remove_original)
 !*****************************************************
 ! Subroutine for conversion of sparse triplet into block format A11, A12, A21, A22
       use module_utils
+      use module_sm
       implicit none
 
 ! Subdomain structure
@@ -7394,7 +7401,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                      inodcf(2) = indaux(1)
 
                      if (inodcf(2).eq.inodcf(1)) then
-                        print *,'dist:',dist
+                        write(*,*) 'dist:',dist
                         call flush(6)
                         call error(routine_name, 'Problem finding second corner on subdomain - same as first.',inodcf(2))
                      end if
@@ -7451,7 +7458,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                      ! set index of the third new corner
                      inodcf(3) = indaux(1)
                      if (inodcf(3).eq.inodcf(1).or.inodcf(3).eq.inodcf(2)) then
-                        print *,'area:',area
+                        write(*,*) 'area:',area
                         call flush(6)
                         call error(routine_name, 'Problem finding third corner on subdomain - same as first or second.',inodcf(3))
                      end if
@@ -8209,8 +8216,8 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
             ! search for this glob in the list
             call get_index(indg,inodf,linodf,indfg)
             if (indfg .eq. -1) then
-               print *,'inodi',inodi
-               print *,'indglb',indglb
+               write(*,*) 'inodi',inodi
+               write(*,*) 'indglb',indglb
                call error(routine_name,'Global index of face not found for node ', indg)
             end if
 
@@ -9423,9 +9430,11 @@ subroutine dd_print_sub(sub)
       write(*,*) '*** COARSE NODES INFO :       '
       write(*,*) '     coarse nodes ready:      ', sub%is_cnodes_loaded
       write(*,*) '     number of coarse nodes:  ', sub%ncnodes
-      do i = 1,sub%ncnodes
-         call dd_print_cnode(sub,i)
-      end do
+      if (sub%is_cnodes_loaded) then
+         do i = 1,sub%ncnodes
+            call dd_print_cnode(sub,i)
+         end do
+      end if
       write(*,*) '*** MATRIX INFO :             '
       write(*,*) '     matrix loaded:           ', sub%is_matrix_loaded
       write(*,*) '     matrix blocked:          ', sub%is_blocked
@@ -9514,7 +9523,7 @@ subroutine dd_print_cnode(sub,icnode)
       write(*,*) '****** where it maps to? '
       write(*,*) '     global coarse node number:', sub%cnodes(icnode)%global_cnode_number
       write(*,*) '     number of coarse degrees of freedom:', sub%cnodes(icnode)%ncdof
-      write(*,*) '     indices of coarse dof:', sub%cnodes(icnode)%igcdof
+!      write(*,*) '     indices of coarse dof:', sub%cnodes(icnode)%igcdof
 !      write(*,*) '****** where it maps from? '
 !      write(*,*) '     number of nodes it contains:', sub%cnodes(icnode)%nnod
 !      write(*,*) '     indices of nodes on subdomain int:', sub%cnodes(icnode)%insin
