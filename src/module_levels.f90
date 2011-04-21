@@ -114,6 +114,8 @@ module module_levels
          real(kr),allocatable :: solc(:) ! coarse residual/solution at level
          logical :: use_initial_solution = .false. ! should some initial solution be used for iterations?
 
+         integer ::             idelm    ! unit with opened Fortran unformatted file with element matrices
+
          real(kr) :: adaptivity_estimate ! estimate of condition number on given level
 
          logical :: is_basics_loaded  = .false. ! subdomain mesh, subdomain - for local data loading
@@ -312,7 +314,7 @@ end subroutine
 !***********************************************************************************
 subroutine levels_upload_global_data(nelem,nnod,ndof,&
                                      numbase,inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                     ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
+                                     ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol, idelm)
 !***********************************************************************************
 ! Subroutine for loading global data as zero level
       use module_utils
@@ -336,11 +338,16 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       real(kr), intent(in):: rhs(lrhs)
       integer, intent(in):: lsol
       real(kr), intent(in):: sol(lsol)
+      integer,intent(in) :: idelm  
+
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_GLOBAL_DATA'
       integer :: i,j
       integer :: numshift
+
+      ! store unit of file with element matrices at first level
+      levels(1)%idelm = idelm
 
       ! set active level to zero
       iactive_level = 0
@@ -406,6 +413,7 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       else
          levels(iactive_level)%use_initial_solution = .false.
       end if
+
 
       levels(iactive_level)%is_level_prepared = .true.
 end subroutine
@@ -534,7 +542,7 @@ subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
 end subroutine
 
 !*************************************************************************************
-subroutine levels_pc_setup(problemname,load_division,load_globs,load_pairs,&
+subroutine levels_pc_setup(load_division,load_globs,load_pairs,&
                            parallel_division,correct_division,&
                            parallel_neighbouring, neighbouring, parallel_globs, &
                            matrixtype,ndim, meshdim, use_arithmetic, use_adaptive)
@@ -545,8 +553,6 @@ subroutine levels_pc_setup(problemname,load_division,load_globs,load_pairs,&
       implicit none
       include "mpif.h"
 
-! name of problem
-      character(*),intent(in) :: problemname
 ! use prepared division into subdomains?
       logical,intent(in) :: load_division
 ! use prepared selected corners and globs?
@@ -597,7 +603,7 @@ subroutine levels_pc_setup(problemname,load_division,load_globs,load_pairs,&
             if (debug .and. myid.eq.0) then
                call info(routine_name,'Preparing level',iactive_level)
             end if
-            call levels_prepare_standard_level(problemname,load_division,load_globs,load_pairs, &
+            call levels_prepare_standard_level(load_division,load_globs,load_pairs, &
                                                parallel_division,correct_division,&
                                                parallel_neighbouring, neighbouring,&
                                                parallel_globs, matrixtype,ndim,meshdim,iactive_level,&
@@ -749,16 +755,14 @@ subroutine levels_read_level_from_file(problemname,comm,ndim,ilevel)
 
 end subroutine
 
-!*************************************************************
-subroutine levels_damp_division(problemname,ilevel,iets,liets)
-!*************************************************************
+!*************************************************
+subroutine levels_damp_division(ilevel,iets,liets)
+!*************************************************
 ! Subroutine for damping division into subdomains at level to file
 
       use module_utils
       implicit none
 
-! name of problem
-      character(*),intent(in) :: problemname
 ! index of level to import
       integer,intent(in) :: ilevel
 ! division into subdomains
@@ -776,7 +780,7 @@ subroutine levels_damp_division(problemname,ilevel,iets,liets)
       else
          call error(routine_name,'Index of level too large for reading from file:',ilevel)
       end if
-      filename = trim(problemname)//'_L'//levelstring//'.ES'
+      filename = 'partition_l'//levelstring//'.ES'
       if (debug) then
          call info(routine_name,' Damping division to file '//trim(filename))
       end if
@@ -788,16 +792,14 @@ subroutine levels_damp_division(problemname,ilevel,iets,liets)
       close(idlevel)
 end subroutine
 
-!**************************************************************
-subroutine levels_damp_corners(problemname,ilevel,inodc,linodc)
-!**************************************************************
+!**************************************************
+subroutine levels_damp_corners(ilevel,inodc,linodc)
+!**************************************************
 ! Subroutine for damping corners at level to file
 
       use module_utils
       implicit none
 
-! name of problem
-      character(*),intent(in) :: problemname
 ! index of level to import
       integer,intent(in) :: ilevel
 ! global indices of corners
@@ -815,7 +817,7 @@ subroutine levels_damp_corners(problemname,ilevel,inodc,linodc)
       else
          call error(routine_name,'Index of level too large for reading from file:',ilevel)
       end if
-      filename = trim(problemname)//'_L'//levelstring//'.CN'
+      filename = 'corners_l'//levelstring//'.CN'
       if (debug) then
          call info(routine_name,' Damping division to file '//trim(filename))
       end if
@@ -901,14 +903,14 @@ subroutine levels_upload_level_mesh(ilevel,ncorner,nedge,nface,nnodc,ndofc,&
 
 end subroutine
 
-!*****************************************************************************************
-subroutine levels_prepare_standard_level(problemname,load_division,load_globs,load_pairs, &
+!*******************************************************************************
+subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
                                          parallel_division,correct_division,&
                                          parallel_neighbouring, neighbouring,&
                                          parallel_globs, &
                                          matrixtype,ndim,meshdim,ilevel,&
                                          use_arithmetic,use_adaptive)
-!*****************************************************************************************
+!*******************************************************************************
 ! Subroutine for building the standard level
       use module_pp
       use module_adaptivity
@@ -917,7 +919,6 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
       implicit none
       include "mpif.h"
 
-      character(*),intent(in) :: problemname
       logical,intent(in) :: load_division
       logical,intent(in) :: load_globs
       logical,intent(in) :: load_pairs ! should pairs be loaded from  PAIR file?
@@ -1152,7 +1153,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
       if (ilevel.eq.1 .and. load_division) then
          ! read the division from file *.ES
          if (myid.eq.0) then
-            filename = trim(problemname)//'.ES'
+            filename = 'partition_l1.ES'
             call allocate_unit(ides)
             open (unit=ides,file=filename,status='old',form='formatted')
             rewind ides
@@ -1381,7 +1382,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          end if 
          if (damp_division) then
             if (myid.eq.0) then
-               call levels_damp_division(trim(problemname),ilevel,levels(ilevel)%iets,levels(ilevel)%liets)
+               call levels_damp_division(ilevel,levels(ilevel)%iets,levels(ilevel)%liets)
             end if
          end if
 !-----profile
@@ -1748,7 +1749,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          ! read list of globs from *.GLB file
 
          if (myid.eq.0) then
-            filename = trim(problemname)//'.CN'
+            filename = 'corners_l1.CN'
             call allocate_unit(idcn)
             open (unit=idcn,file=filename,status='old',form='formatted')
             rewind idcn
@@ -1774,7 +1775,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          end if
 
          if (myid.eq.0) then
-            filename = trim(problemname)//'.GLB'
+            filename = 'globs_l1.GLB'
             call allocate_unit(idglb)
             open (unit=idglb,file=filename,status='old',form='formatted')
             rewind idglb
@@ -1850,7 +1851,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
                               levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                               levels(ilevel)%indexsub,levels(ilevel)%lindexsub, &
                               comm_all,remove_bc_nodes, &
-                              damp_corners, trim(problemname), ilevel, &
+                              damp_corners, ilevel, &
                               ncorner,nedge,nface)
          nnodc = ncorner + nedge + nface
 !-----profile
@@ -1917,7 +1918,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          end do
          if (damp_corners) then
             if (myid.eq.0) then
-               call levels_damp_corners(trim(problemname),ilevel,inodc,linodc)
+               call levels_damp_corners(ilevel,inodc,linodc)
             end if
          end if
          ! arrays NNGLB and INGLB
@@ -2145,7 +2146,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          !   call dd_read_matrix_from_file(levels(ilevel)%subdomains(isub_loc),matrixtype,trim(problemname))
          !end do
          ! use global file for input of element matrices
-         call dd_read_matrix_by_root(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, comm_all,trim(problemname),&
+         call dd_read_matrix_by_root(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, comm_all,levels(ilevel)%idelm,&
                                      levels(ilevel)%nsub,levels(ilevel)%nelem,matrixtype,&
                                      levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                                      levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
@@ -2443,7 +2444,7 @@ subroutine levels_prepare_standard_level(problemname,load_division,load_globs,lo
          if (ilevel.eq.1 .and. load_pairs) then
             ! read pairs from *.PAIR file
             if (myid.eq.0) then
-               filename = trim(problemname)//'.PAIR'
+               filename = 'pairs_l1.PAIR'
                call allocate_unit(idpair)
                open (unit=idpair,file=filename,status='old',form='formatted')
             end if

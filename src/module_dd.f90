@@ -696,7 +696,7 @@ subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
 end subroutine
 
 !****************************************************************************************
-subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,matrixtype,&
+subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,idelm,nsub,nelem,matrixtype,&
                                   sub2proc,lsub2proc,indexsub,lindexsub,iets,liets)
 !****************************************************************************************
 ! Subroutine for reading matrix from global *.ELM file and distribution of
@@ -712,8 +712,8 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
       type(subdomain_type),intent(inout) :: suba(lsuba)
 ! communicator
       integer,intent(in) :: comm_all
-! name of problem
-      character(*),intent(in) :: problemname
+! Fortran unit with attached file with element matrices
+      integer,intent(in) :: idelm
 ! number of subdomains
       integer,intent(in) :: nsub
 ! number of elements
@@ -734,7 +734,7 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
       character(*),parameter:: routine_name = 'DD_READ_MATRIX_BY_ROOT'
       integer :: myid, nproc, ierr
       integer :: stat(MPI_STATUS_SIZE)
-      integer :: idelm, nelems, nnods
+      integer :: nelems, nnods
       integer :: nevax_sub, nevax_loc, nevax, lelmx, lelm
       real(kr),allocatable :: elm(:)
 
@@ -753,7 +753,9 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
       integer::              llocsubnumber
       integer,allocatable  :: locsubnumber(:)
 
-      integer :: i, ie, iproc, inods, isub, isub_loc, ios
+      integer :: i, ie, iproc, inods, isub, isub_loc 
+      logical        :: is_opened 
+      character :: is_readable
 
 
 ! check dimension
@@ -880,13 +882,13 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
       end if
       allocate(elm(lelmx))
 
-      ! open ELM file on root processor
+      ! check that ELM file is opened on root processor
       if (myid.eq.0) then
          ! ELM - element stiffness matrices - structure:
-         call allocate_unit(idelm)
-         open(unit=idelm,file=trim(problemname)//'.ELM',status='old',form='unformatted',iostat=ios)
-         if (ios.ne.0) then
-            call error(routine_name,'Problem opening file '//trim(problemname)//'.ELM')
+         inquire (idelm, opened=is_opened, read=is_readable )
+         if (.not. is_opened .or. trim(is_readable) .eq. 'N' ) then
+            print *, is_opened, is_readable
+            call error(routine_name,'Cannot access file with element matrices, unit IDELM.')
          end if
          rewind idelm
       end if
@@ -927,11 +929,6 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,problemname,nsub,nelem,ma
          end if
       end do
       
-      ! close *.ELM file
-      if (myid.eq.0) then
-         close(idelm)
-      end if
-
       ! set proper flags after matrix is loaded
       do isub_loc = 1,lindexsub
 
@@ -6786,7 +6783,7 @@ end subroutine
 
 !*******************************************************************************************************
 subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, comm_all, remove_bc_nodes,&
-                           damp_corners, problemname, ilevel, &
+                           damp_corners, ilevel, &
                            ncorner, nedge, nface)
 !*******************************************************************************************************
 ! Subroutine for finding corners in BDDC
@@ -6809,7 +6806,6 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       logical,intent(in) :: remove_bc_nodes
 ! for damping corners
       logical,intent(in) :: damp_corners
-      character(*),intent(in) :: problemname
       integer,intent(in) :: ilevel
       ! basic properties of the coarse problem
       integer,intent(out) :: ncorner
@@ -7657,7 +7653,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       if (damp_corners .and. ilevel.eq.1) then
          if (myid.eq.0) then
             call allocate_unit(idcn)
-            open (unit=idcn,file=trim(problemname)//'.CN',status='replace',form='formatted')
+            open (unit=idcn,file='corners_l1.CN',status='replace',form='formatted')
             rewind idcn
 
             write(idcn,*) ncorner

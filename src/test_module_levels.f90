@@ -72,6 +72,8 @@ program test_module_levels
       integer :: maxit, ndecrmax, meshdim
       real(kr):: tol
 
+      integer :: idelm, ios
+
       integer ::                    lnnet,   lnndf
       integer,allocatable:: inet(:), nnet(:), nndf(:)
       integer ::           lxyz1,   lxyz2
@@ -198,11 +200,23 @@ program test_module_levels
       allocate(sol(lsol))
       sol = 0._kr
 
+      ! attach file with element matrices
+      if (myid.eq.0) then
+         ! ELM - element stiffness matrices - structure:
+         call allocate_unit(idelm)
+         open(unit=idelm,file=trim(problemname)//'.ELM',status='old',form='unformatted',iostat=ios)
+         if (ios.ne.0) then
+            call error('TEST_MODULE_LEVELS','Problem opening file '//trim(problemname)//'.ELM')
+         end if
+         rewind idelm
+      end if
+
+
       write (*,*) 'myid = ',myid,': Initializing LEVELS.'
       call levels_init(nlevels,nsublev,lnsublev,comm_all)
       call levels_upload_global_data(nelem,nnod,ndof,&
                                      numbase, inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                     ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
+                                     ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol,idelm)
       deallocate(inet,nnet,nndf,xyz)
       deallocate(ifix,fixv)
       deallocate(rhs)
@@ -223,8 +237,7 @@ program test_module_levels
 !      call levels_prepare_standard_level(ilevel,nsub,1,nsub)
 !
 !      call levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,ndim,problemname)
-      call levels_pc_setup(problemname(1:lproblemname),&
-                           load_division,load_globs,load_pairs,parallel_division,correct_division,&
+      call levels_pc_setup(load_division,load_globs,load_pairs,parallel_division,correct_division,&
                            parallel_neighbouring, neighbouring, parallel_globs,&
                            matrixtype,ndim,meshdim,use_arithmetic, use_adaptive)
       deallocate(nsublev)

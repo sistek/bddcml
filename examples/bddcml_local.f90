@@ -337,7 +337,7 @@ program bddcml_local
       liets = nelem
       allocate(iets(liets))
       if (myid.eq.0) then
-         filename = trim(problemname)//'.ES'
+         filename = 'partition_l1.ES'
          call allocate_unit(ides)
          open (unit=ides,file=filename,status='old',form='formatted')
          rewind ides
@@ -534,7 +534,7 @@ program bddcml_local
 ! PRECONDITIONER SETUP
       call MPI_BARRIER(comm_all,ierr)
       call time_start
-      call bddcml_setup_preconditioner(problemname(1:lproblemname), matrixtype, ndim, meshdim, neighbouring, &
+      call bddcml_setup_preconditioner(matrixtype, ndim, meshdim, neighbouring, &
                                        use_preconditioner_defaults, load_division,&
                                        parallel_division,correct_division,parallel_neighbouring,&
                                        parallel_globs,use_arithmetic,use_adaptive)

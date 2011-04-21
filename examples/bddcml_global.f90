@@ -97,6 +97,8 @@ program bddcml_global
 
       integer :: i
 
+      integer :: idelm, ios
+
       integer :: ndim, nsub, nelem, ndof, nnod, linet
       integer :: maxit, ndecrmax
       real(kr) :: tol
@@ -298,6 +300,18 @@ program bddcml_global
          call flush(6)
       end if
 
+      ! attach file with element matrices
+      if (myid.eq.0) then
+         ! ELM - element stiffness matrices - structure:
+         call allocate_unit(idelm)
+         open(unit=idelm,file=problemname(1:lproblemname)//'.ELM',status='old',form='unformatted',iostat=ios)
+         if (ios.ne.0) then
+            call error(routine_name,'Problem opening file '//trim(problemname)//'.ELM')
+         end if
+         rewind idelm
+      end if
+
+
       call time_start
       call bddcml_init(nlevels,nsublev,lnsublev,comm_all)
       call MPI_BARRIER(comm_all,ierr)
@@ -313,7 +327,7 @@ program bddcml_global
       call time_start
       call bddcml_upload_global_data(nelem,nnod,ndof,numbase,&
                                      inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                     ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
+                                     ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol, idelm)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_load)
       if (myid.eq.0) then
@@ -339,10 +353,11 @@ program bddcml_global
          write (*,'(a)') 'Preconditioner SETUP ...'
          call flush(6)
       end if
+
 ! PRECONDITIONER SETUP
       call MPI_BARRIER(comm_all,ierr)
       call time_start
-      call bddcml_setup_preconditioner(problemname(1:lproblemname), matrixtype, ndim, meshdim, neighbouring, &
+      call bddcml_setup_preconditioner(matrixtype, ndim, meshdim, neighbouring, &
                                        use_preconditioner_defaults, load_division,&
                                        parallel_division,correct_division,parallel_neighbouring,&
                                        parallel_globs,use_arithmetic,use_adaptive)
@@ -420,6 +435,11 @@ program bddcml_global
          write(*,'(a,f11.3,a)') '  Krylov method     ',t_pcg, ' s'
          write(*,'(a)')         '  ______________________________'
          write(*,'(a,f11.3,a)') '  total             ',t_total,    ' s'
+      end if
+
+      ! close *.ELM file
+      if (myid.eq.0) then
+         close(idelm)
       end if
 
       ! MPI finalization

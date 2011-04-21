@@ -41,7 +41,7 @@ end subroutine
 !**************************************************************************************
 subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
                                      numbase, inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                     ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
+                                     ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol, idelm)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
       use module_levels
@@ -91,9 +91,12 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
       integer, intent(in):: lsol
       real(kr), intent(in):: sol(lsol)
 
+      ! opened unit with unformatted file with element matrices
+      integer,intent(in) :: idelm  
+
       call levels_upload_global_data(nelem,nnod,ndof,&
                                      numbase, inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                     ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol)
+                                     ifix,lifix,fixv,lfixv,rhs,lrhs, sol,lsol, idelm)
 
 end subroutine
 
@@ -214,7 +217,7 @@ subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
 end subroutine
 
 !************************************************************************************************
-subroutine bddcml_setup_preconditioner(problemname, matrixtype, ndim, meshdim, neighbouring, &
+subroutine bddcml_setup_preconditioner(matrixtype, ndim, meshdim, neighbouring, &
                                        use_defaults_int, load_division_int,&
                                        parallel_division_int,correct_division_int,parallel_neighbouring_int,&
                                        parallel_globs_int,use_arithmetic_int,use_adaptive_int)
@@ -224,9 +227,6 @@ subroutine bddcml_setup_preconditioner(problemname, matrixtype, ndim, meshdim, n
       use module_utils
 
       implicit none
-
-      ! name of the problem
-      character(*),intent(in) :: problemname
 
       ! numerical properties of the matrix (MUMPS-like notation)
       !  0 - general
@@ -332,7 +332,7 @@ subroutine bddcml_setup_preconditioner(problemname, matrixtype, ndim, meshdim, n
       end if
 
       ! setup preconditioner
-      call levels_pc_setup(trim(problemname),levels_load_division,levels_load_globs,levels_load_pairs,&
+      call levels_pc_setup(levels_load_division,levels_load_globs,levels_load_pairs,&
                            levels_parallel_division,levels_correct_division,levels_parallel_neighbouring,neighbouring,&
                            levels_parallel_globs,matrixtype,ndim,meshdim,levels_use_arithmetic,levels_use_adaptive)
 
