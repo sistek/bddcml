@@ -45,7 +45,7 @@ OBJ = \
    module_tecplot.o \
    module_utils.o \
    lobpcg_driver.o \
-   bddcml_fortran_interface.o
+   bddcml_interface_fortran.o
 
 BDDCLIBDIR=../lib
 BDDCLIB=$(BDDCLIBDIR)/libbddcml.a
