@@ -31,9 +31,9 @@ module module_krylov
 
       contains
 
-!***********************************************************
-      subroutine krylov_bddcpcg(comm_all,tol,maxit,ndecrmax)
-!***********************************************************
+!*********************************************************************************************
+      subroutine krylov_bddcpcg(comm_all,tol,maxit,ndecrmax, num_iter, converged_reason, cond)
+!*********************************************************************************************
 ! subroutine realizing PCG algorithm with vectors distributed by subdomains
 
 ! module for distributed Krylov data storage
@@ -58,6 +58,18 @@ module module_krylov
 
       ! desired accuracy of relative residual
       real(kr),intent(in) :: tol
+
+      ! resulting number of iterations
+      integer,intent(out) :: num_iter
+
+      ! convergence reason
+      !  =  0 - converged relative residual
+      !  = -1 - reached limit on number of iterations
+      !  = -2 - reached limit on number of iterations with nondecreasing residual
+      integer,intent(out) :: converged_reason
+
+      ! estimated condition number
+      real(kr),intent(out) :: cond
 
       ! local vars
       character(*),parameter:: routine_name = 'KRYLOV_BDDCPCG'
@@ -93,7 +105,6 @@ module module_krylov
       real(kr),allocatable :: diag(:)
       real(kr),allocatable :: subdiag(:)
       integer :: nw, ldiag, lsubdiag
-      real(kr) :: cond
 
       ! time variables
       real(kr) :: t_sm_apply, t_pc_apply
@@ -353,6 +364,8 @@ module module_krylov
             if (myid.eq.0) then
                call info(routine_name,'Number of PCG iterations:',iter)
             end if
+            num_iter = iter
+            converged_reason = 0
             exit
          end if
 
@@ -362,6 +375,8 @@ module module_krylov
             if (myid.eq.0) then
                call warning(routine_name,'Maximal number of iterations reached, precision not achieved.')
             end if
+            num_iter = iter
+            converged_reason = -1
             exit
          end if
 
@@ -372,8 +387,11 @@ module module_krylov
             ndecr = ndecr + 1
             if (ndecr.ge.ndecrmax) then
                if (myid.eq.0) then
-                  call error(routine_name,'Residual did not decrease for maximal number of iterations:',ndecrmax)
+                  call warning(routine_name,'Residual did not decrease for maximal number of iterations:',ndecrmax)
                end if
+               num_iter = iter
+               converged_reason = -2
+               exit
             end if
          end if
          lastres = relres
@@ -494,9 +512,9 @@ module module_krylov
 
       end subroutine
 
-!****************************************************************
-      subroutine krylov_bddcbicgstab(comm_all,tol,maxit,ndecrmax)
-!****************************************************************
+!*******************************************************************************************
+      subroutine krylov_bddcbicgstab(comm_all,tol,maxit,ndecrmax, num_iter,converged_reason)
+!*******************************************************************************************
 ! subroutine realizing BICGSTAB algorithm with vectors distributed by subdomains
 
 ! module for distributed Krylov data storage
@@ -520,7 +538,16 @@ module module_krylov
       integer,intent(in) :: ndecrmax
 
       ! desired accuracy of relative residual
-      real(kr),intent(in) :: tol
+      real(kr),intent(out) :: tol
+
+      ! resulting number of iterations
+      integer,intent(out) :: num_iter
+
+      ! convergence reason
+      !  =  0 - converged relative residual
+      !  = -1 - reached limit on number of iterations
+      !  = -2 - reached limit on number of iterations with nondecreasing residual
+      integer,intent(out) :: converged_reason
 
       ! local vars
       character(*),parameter:: routine_name = 'KRYLOV_BDDCBICGSTAB'
@@ -817,6 +844,8 @@ module module_krylov
             if (myid.eq.0) then
                write(*,'(a,a,i5,a)') routine_name,': Number of BICGSTAB iterations: ',iter-1,'.5'
             end if
+            num_iter = iter
+            converged_reason = 0
             exit
          end if
 
@@ -952,6 +981,8 @@ module module_krylov
             if (myid.eq.0) then
                write(*,'(a,a,i5)') routine_name,': Number of BICGSTAB iterations: ',iter
             end if
+            num_iter = iter
+            converged_reason = 0
             exit
          end if
 
@@ -960,6 +991,8 @@ module module_krylov
             if (myid.eq.0) then
                call warning(routine_name,'Maximal number of iterations reached, precision not achieved.')
             end if
+            num_iter = iter
+            converged_reason = -1
             exit
          end if
 
@@ -970,8 +1003,11 @@ module module_krylov
             ndecr = ndecr + 1
             if (ndecr.ge.ndecrmax) then
                if (myid.eq.0) then
-                  call error(routine_name,'Residual did not decrease for maximal number of iterations:',ndecrmax)
+                  call warning(routine_name,'Residual did not decrease for maximal number of iterations:',ndecrmax)
                end if
+               num_iter = iter
+               converged_reason = -2
+               exit
             end if
          end if
          lastres = relres

@@ -44,10 +44,11 @@ void bddcml_setup_preconditioner( int *matrixtype, int *ndim, int *meshdim, int 
                                   int *parallel_globs_int, int *use_arithmetic_int, int *use_adaptive_int );
 
 #define bddcml_solve F_SYMBOL(bddcml_solve, BDDCML_SOLVE)
-void bddcml_solve( int *comm_all, int *method, double *tol, int *maxit, int *ndecrmax );
+void bddcml_solve( int *comm_all, int *method, double *tol, int *maxit, int *ndecrmax, 
+                   int *num_iter, int *converged_reason, double *condition_number);
 
 #define bddcml_download_local_solution F_SYMBOL(bddcml_download_local_solution, BDDCML_DOWNLOAD_LOCAL_SOLUTION)
-void bddcml_download_local_solution( double *sols, int *lsols );
+void bddcml_download_local_solution( double *sols, int *lsols, double *norm_sol );
 
 #define bddcml_download_global_solution F_SYMBOL(bddcml_download_global_solution, BDDCML_DOWNLOAD_GLOBAL_SOLUTION)
 void bddcml_download_global_solution( double *sol, int *lsol );

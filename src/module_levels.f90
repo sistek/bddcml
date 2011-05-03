@@ -1641,7 +1641,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
          deallocate(iets_linear)
  124     continue
       else
-         lkadjsub = nsub*nsub
+         lkadjsub = max(nsub*nsub,1)
          allocate(kadjsub(lkadjsub))
          kadjsub = 0
          if (myid.eq.0) then
@@ -2656,8 +2656,9 @@ subroutine levels_prepare_last_level(matrixtype)
 ! Assembly entries in matrix
       call sm_assembly(i_sparse,j_sparse,a_sparse,la,nnz)
 
-      !write(*,*) 'myid =',myid,'la =',la
+      !write(*,*) 'myid =',myid,'la =',la,'nnz =',nnz
       !call sm_print(6, i_sparse, j_sparse, a_sparse, la, nnz)
+      !call flush(6)
 
 ! Initialize MUMPS
       call mumps_init(mumps_coarse,comm_all,matrixtype)
@@ -3625,9 +3626,9 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data)
 
 end subroutine
 
-!*************************************************
-subroutine levels_dd_download_solution(sols,lsols)
-!*************************************************
+!**********************************************************
+subroutine levels_dd_download_solution(sols,lsols,norm_sol)
+!**********************************************************
 ! Subroutine for obtaining LOCAL solution from DD structure.
 ! Only calls the function from DD module.
 ! module for handling subdomain data
@@ -3636,18 +3637,49 @@ subroutine levels_dd_download_solution(sols,lsols)
       use module_utils
 
       implicit none
+      include "mpif.h"
 
       ! local solution 
       integer, intent(in) ::  lsols
       real(kr), intent(out) :: sols(lsols)
+      real(kr), intent(out) :: norm_sol
 
 ! local vars
       character(*),parameter:: routine_name = 'LEVELS_DD_DOWNLOAD_SOLUTION'
       ! for Krylov data, index of level is 1
       integer,parameter :: ilevel = 1
 
+      integer ::             lsols_aux
+      real(kr),allocatable :: sols_aux(:)
+
+      real(kr) :: normsol2_loc, normsol2_sub, normsol2
+      integer :: ierr
+
+      normsol2_loc = 0
+
       ! obtain solution from DD structure
       call dd_download_solution(levels(ilevel)%subdomains(1), sols,lsols)
+
+      ! compute norm of global solution vector
+      lsols_aux = lsols
+      allocate(sols_aux(lsols_aux))
+
+      ! copy array
+      sols_aux = sols
+      call dd_weights_apply(levels(ilevel)%subdomains(1),sols_aux,lsols_aux)
+
+      normsol2_sub = dot_product(sols_aux,sols)
+      normsol2_loc = normsol2_loc + normsol2_sub
+
+!***************************************************************PARALLEL
+      call MPI_ALLREDUCE(normsol2_loc,normsol2, 1, MPI_DOUBLE_PRECISION,&
+                         MPI_SUM, levels(ilevel)%comm_all, ierr) 
+!***************************************************************PARALLEL
+
+      ! fill the global norm
+      norm_sol = sqrt(normsol2)
+
+      deallocate(sols_aux)
 
 end subroutine
 

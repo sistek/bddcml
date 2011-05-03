@@ -827,7 +827,7 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,idelm,nsub,nelem,matrixty
          else if (matrixtype.eq.1 .or. matrixtype.eq.2) then
             suba(isub_loc)%istorage   = 2
          else
-            call error(routine_name,'strange type of matrix:',suba(isub_loc)%istorage)
+            call error(routine_name,'strange type of matrix:',matrixtype)
          end if
          suba(isub_loc)%la       = la
          allocate(suba(isub_loc)%i_a_sparse(la))
@@ -1987,17 +1987,23 @@ subroutine dd_load_matrix_triplet(sub, matrixtype, numshift,&
       logical,intent(in)  :: is_assembled
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_LOAD_MATRIX_TRIPLET'
       integer :: i
 
       ! check that matrix is not loaded
       if (sub%is_matrix_loaded) then
-         write(*,*) 'DD_LOAD_MATRIX_TRIPLET: Matrix already loaded for subdomain: ',sub%isub
-         call error_exit
+         call error(routine_name,' Matrix already loaded for subdomain: ',sub%isub )
       end if
 
       ! load data
       sub%matrixtype = matrixtype
-      sub%istorage = 2
+      if (matrixtype.eq.0) then
+         sub%istorage   = 1
+      else if (matrixtype.eq.1 .or. matrixtype.eq.2) then
+         sub%istorage   = 2
+      else
+         call error(routine_name,'strange type of matrix:', matrixtype)
+      end if
       sub%nnza     = nnza
       sub%la       = la
       sub%is_assembled = is_assembled

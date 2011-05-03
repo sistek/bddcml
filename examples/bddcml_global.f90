@@ -130,6 +130,10 @@ program bddcml_global
       character(lproblemnamex) :: problemname 
       character(lfilenamex)    :: filename
 
+      ! data about resulting convergence
+      integer :: num_iter, converged_reason 
+      real(kr) :: condition_number
+
       ! time variables
       real(kr) :: t_total, t_import, t_distribute, t_init, t_load, t_pc_setup, t_pcg
 
@@ -373,7 +377,15 @@ program bddcml_global
       call MPI_BARRIER(comm_all,ierr)
       call time_start
       ! call with setting of iterative properties
-      call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax)
+      call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax, &
+                        num_iter, converged_reason, condition_number)
+      if (myid.eq.0) then
+          write(*,*) 'Number of iterations: ', num_iter
+          write(*,*) 'Convergence reason: ', converged_reason
+          if ( condition_number .ge. 0._kr ) then 
+             write(*,*) 'Condition number: ', condition_number
+          end if
+      end if
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pcg)
 

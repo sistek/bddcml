@@ -339,9 +339,10 @@ subroutine bddcml_setup_preconditioner(matrixtype, ndim, meshdim, neighbouring, 
 end subroutine
 
 
-!**********************************************************
-subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax)
-!**********************************************************
+!******************************************************************
+subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
+                        num_iter,converged_reason,condition_number)
+!******************************************************************
 ! solution of problem by a Krylov subspace iterative method
       use module_krylov
       use module_utils
@@ -367,6 +368,19 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax)
       ! limit on iterations with increasing residual
       integer, intent(in) :: ndecrmax
 
+
+      ! resulting number of iterations
+      integer,intent(out) :: num_iter
+
+      ! convergence reason
+      !  =  0 - converged relative residual
+      !  = -1 - reached limit on number of iterations
+      !  = -2 - reached limit on number of iterations with nondecreasing residual
+      integer,intent(out) :: converged_reason
+
+      ! estimated condition number ( for PCG only )
+      real(kr),intent(out) :: condition_number
+
       ! local variables
       ! ######################################
       ! default values of krylov parameters
@@ -390,19 +404,22 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax)
 
       if (krylov_method.eq.0) then 
          ! use PCG 
-         call krylov_bddcpcg(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax)
+         call krylov_bddcpcg(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
+                             num_iter, converged_reason, condition_number)
       else if (krylov_method.eq.1) then 
          ! use BICGSTAB 
-         call krylov_bddcbicgstab(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax)
+         call krylov_bddcbicgstab(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
+                                  num_iter, converged_reason)
+         condition_number = -1._kr ! condition number is not computed for BICGSTAB
       else
          call error(routine_name,'unknown iterative method',krylov_method)
       end if
 
 end subroutine
 
-!*****************************************************
-subroutine bddcml_download_local_solution(sols, lsols)
-!*****************************************************
+!***************************************************************
+subroutine bddcml_download_local_solution(sols, lsols, norm_sol)
+!***************************************************************
 ! Subroutine for getting local solution,
 ! i.e. restriction of solution vector to subdomain (no weights are applied)
 ! Only one subdomain is allowed to be at each processor
@@ -414,8 +431,9 @@ subroutine bddcml_download_local_solution(sols, lsols)
       ! LOCAL solution 
       integer, intent(in)::  lsols
       real(kr), intent(out):: sols(lsols)
+      real(kr), intent(out):: norm_sol
 
-      call levels_dd_download_solution(sols,lsols)
+      call levels_dd_download_solution(sols,lsols, norm_sol)
 
 end subroutine
 
