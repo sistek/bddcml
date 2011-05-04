@@ -213,7 +213,7 @@ program test_module_levels
 
 
       write (*,*) 'myid = ',myid,': Initializing LEVELS.'
-      call levels_init(nlevels,nsublev,lnsublev,comm_all)
+      call levels_init(nlevels,nsublev,lnsublev,comm_all,1)
       call levels_upload_global_data(nelem,nnod,ndof,&
                                      numbase, inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                                      ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol,idelm)

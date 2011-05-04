@@ -26,7 +26,7 @@ module module_krylov
 ! debugging 
       logical,parameter,private :: debug = .false.
 ! profiling 
-      logical,parameter,private :: profile = .true.
+      logical,private :: profile = .false.
 ! adjustable parameters ############################
 
       contains
@@ -356,7 +356,8 @@ module module_krylov
          relres = normres/normrhs
             
          if (myid.eq.0) then
-            write(*,'(a,i5,a,f25.18)') 'iteration: ',iter,', relative residual: ',relres
+            call info (routine_name, 'iteration: ',iter)
+            call info (routine_name, '          relative residual: ',relres)
          end if
 
          if (relres.lt.tol) then
@@ -474,10 +475,10 @@ module module_krylov
 ! Condition number estimation on root processor
       call condsparse(nw,diag,nw,subdiag,nw-1, cond)
       if (myid.eq.0) then
-         write(*,*) '================================================'
-         write(*,*) 'ESTIMATION OF CONDITION NUMBER BY LANCZOS METHOD'
-         write(*,*) 'Condition number cond = ',cond
-         write(*,*) '================================================'
+         call info(routine_name, '================================================')
+         call info(routine_name, 'ESTIMATION OF CONDITION NUMBER BY LANCZOS METHOD')
+         call info(routine_name, 'Condition number cond = ',cond                   )
+         call info(routine_name, '================================================')
       end if
       deallocate(diag)
       deallocate(subdiag)
@@ -491,7 +492,7 @@ module module_krylov
       end do
       call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
       call time_end(t_postproc)
-      if (myid.eq.0) then
+      if (myid.eq.0 .and. profile) then
          call time_print('postprocessing of solution',t_postproc)
       end if
 
@@ -835,14 +836,15 @@ module module_krylov
 
 ! Print residual to screen
          if (myid.eq.0) then
-            write(*,'(a,i5,a,f25.18)') 'iteration: ',iter-1,'.5, relative residual: ',relres
+             call info (routine_name, 'iteration: ',dble(iter-0.5) )
+            call info (routine_name, '          relative residual: ',relres)
          end if
 
 ! Check convergence in the half step
 !  relres < tol
          if (relres.lt.tol) then
             if (myid.eq.0) then
-               write(*,'(a,a,i5,a)') routine_name,': Number of BICGSTAB iterations: ',iter-1,'.5'
+               call info (routine_name, ': Number of BICGSTAB iterations: ',dble(iter-0.5) )
             end if
             num_iter = iter
             converged_reason = 0
@@ -972,14 +974,15 @@ module module_krylov
             
 ! Print residual to screen
          if (myid.eq.0) then
-            write(*,'(a,i5,a,f25.18)') 'iteration: ',iter,', relative residual: ',relres
+            call info (routine_name, 'iteration: ',dble(iter))
+            call info (routine_name, '          relative residual: ',relres)
          end if
 
 ! Check convergence
 !  relres < tol
          if (relres.lt.tol) then
             if (myid.eq.0) then
-               write(*,'(a,a,i5)') routine_name,': Number of BICGSTAB iterations: ',iter
+               call info (routine_name, ': Number of BICGSTAB iterations: ',dble(iter) )
             end if
             num_iter = iter
             converged_reason = 0
@@ -1027,7 +1030,7 @@ module module_krylov
       end do
       call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
       call time_end(t_postproc)
-      if (myid.eq.0) then
+      if (myid.eq.0 .and. profile) then
          call time_print('postprocessing of solution',t_postproc)
       end if
 
@@ -1050,6 +1053,20 @@ module module_krylov
       end do
       deallocate(bicgstab_data)
 
+      end subroutine
+
+      !*******************************
+      subroutine krylov_set_profile_on
+      !*******************************
+      ! auxiliary routine to switch profiling flag on
+      profile = .true.
+      end subroutine
+      
+      !********************************
+      subroutine krylov_set_profile_off
+      !********************************
+      ! auxiliary routine to switch profiling flag off
+      profile = .false.
       end subroutine
 
 end module

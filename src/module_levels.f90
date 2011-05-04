@@ -33,7 +33,7 @@ module module_levels
 ! debugging 
       logical,parameter,private :: debug = .false.
 ! profiling 
-      logical,parameter,private :: profile = .true.
+      logical,private :: profile = .false.
 ! damping division
       logical,parameter,private :: damp_division = .false.
 ! damping selected corners  
@@ -134,9 +134,9 @@ module module_levels
 
 contains
 
-!****************************************************
-subroutine levels_init(nl,nsublev,lnsublev,comm_init)
-!****************************************************
+!******************************************************************
+subroutine levels_init(nl,nsublev,lnsublev,comm_init,verbose_level)
+!******************************************************************
 ! Subroutine for initialization of levels data and creating communicators
       ! NOTE:
       ! although the code supports reducing communicators, some routines require
@@ -160,6 +160,7 @@ subroutine levels_init(nl,nsublev,lnsublev,comm_init)
       integer,intent(in) ::  nsublev(lnsublev)
 
       integer, intent(in):: comm_init ! initial global communicator (possibly MPI_COMM_WORLD)
+      integer, intent(in):: verbose_level ! verbosity level
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_INIT'
@@ -180,6 +181,11 @@ subroutine levels_init(nl,nsublev,lnsublev,comm_init)
       end if
       if (any(nsublev(2:nl).gt.nsublev(1:nl-1))) then
          call error(routine_name,'Number of subdomains must decrease monotonically with increasing level.')
+      end if
+
+! set verbosity
+      if (verbose_level .eq. 2 ) then
+         call levels_set_profile_on
       end if
 
 ! initialize basic structure
@@ -4053,6 +4059,20 @@ subroutine levels_finalize
       end if
 
 
+end subroutine
+
+!*******************************
+subroutine levels_set_profile_on
+!*******************************
+! auxiliary routine to switch profiling flag on
+profile = .true.
+end subroutine
+
+!********************************
+subroutine levels_set_profile_off
+!********************************
+! auxiliary routine to switch profiling flag off
+profile = .false.
 end subroutine
 
 end module module_levels

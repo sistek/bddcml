@@ -88,6 +88,9 @@ program bddcml_local
 ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
       integer,parameter:: lfilenamex = 130
 
+! verbosity ( 0 - only fatal errors, 1 - mild output, 2 - detailed output )
+      integer,parameter:: verbose_level = 1
+
 ! print solution on screen?
       logical,parameter :: print_solution = .false.
 
@@ -478,7 +481,7 @@ program bddcml_local
       end if
 
       call time_start
-      call bddcml_init(nlevels,nsublev,lnsublev,comm_all)
+      call bddcml_init(nlevels,nsublev,lnsublev,comm_all,verbose_level)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_init)
       if (myid.eq.0) then

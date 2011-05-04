@@ -63,13 +63,13 @@ void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind,
 
   MPI_Comm_rank(*comm,&myid);
 
-  if (debug) {
+  if (*debug) {
      if (myid == 0) {
         printf("   calling Mesh2Dual to get dual graph ...");
      }
   }
   ParMETIS_V3_Mesh2Dual(elmdist, eptr, eind, numflag, ncommonnodes, &xadj, &adjncy, comm);
-  if (debug) {
+  if (*debug) {
      if (myid == 0) {
         printf(" done. \n");
 	fflush(stdout);
@@ -82,7 +82,7 @@ void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind,
 
 
   nver_loc = elmdist[myid+1] - elmdist[myid];
-  if (debug) {
+  if (*debug) {
      printf("myid = %d , nver_loc = %d \n",myid,nver_loc);
   }
   for (ivl = 0; ivl < nver_loc; ivl++) {

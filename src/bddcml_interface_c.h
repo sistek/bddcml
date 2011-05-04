@@ -19,7 +19,7 @@
 # endif
 
 #define bddcml_init F_SYMBOL(bddcml_init, BDDCML_INIT)
-void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *comm_init );
+void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *comm_init, int *verbose_level );
 
 #define bddcml_upload_global_data F_SYMBOL(bddcml_upload_global_data, BDDCML_UPLOAD_GLOBAL_DATA)
 void bddcml_upload_global_data( int *nelem, int *nnod, int *ndof,

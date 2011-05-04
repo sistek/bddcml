@@ -173,7 +173,7 @@ integer :: ierr
          end if
          options(3) = 15 ! seed for random number generator
 
-         if (myid.eq.0) then
+         if (myid.eq.0 .and. debug) then
             write(*,'(a,i6,a)') 'Calling ParMETIS to divide into ',nsub,' subdomains...'
             call flush(6)
          end if
@@ -181,7 +181,7 @@ integer :: ierr
          call ParMETIS_V3_PartMeshKway(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, tpwgts, ubvec, options,&
                                        ec, part_loc, comm)
          edgecut = ec
-         if (myid.eq.0) then
+         if (myid.eq.0 .and. debug) then
             write(*,'(a)') ' ..done.'
             call flush(6)
          end if
@@ -313,7 +313,7 @@ integer :: ierr
          ! NCOMMONNODES - number of nodes to call elements adjacent
          ncommonnodes = neighbouring
 
-         if (myid.eq.0) then
+         if (myid.eq.0 .and. debug) then
             write(*,'(a,i6,a)') 'Calling PGET_SUB_NEIGBOURS_C routine to find neigbours for ',nsub,' subdomains...'
             call flush(6)
          end if
@@ -328,7 +328,7 @@ integer :: ierr
 
          call pget_sub_neighbours_c(elmdist,eptr,inet_loc,numflag,ncommonnodes,iets,liets, nsub, nsub_loc, sub_start,&
                                     kadjsub,lkadjsub, numdebug, comm)
-         if (myid.eq.0) then
+         if (myid.eq.0 .and. debug) then
             write(*,'(a)') ' ..done.'
             call flush(6)
          end if

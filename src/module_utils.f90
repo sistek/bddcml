@@ -24,6 +24,7 @@ real(kr),parameter,private :: numerical_zero = 1.e-14
 logical,parameter,private :: debug = .false.
 
 ! standard UNIX units
+logical,private :: suppress_output = .false.
 integer,parameter,private:: unit_err    = 0 ! stderr
 integer,parameter,private:: unit_stdout = 6 ! stdout
 
@@ -188,50 +189,72 @@ do
 end do
 end subroutine
 
+subroutine suppress_output_on
+! set output suppressing flag on
+suppress_output = .true.
+end subroutine suppress_output_on
+
+subroutine suppress_output_off
+! set output suppressing flag off
+suppress_output = .false.
+end subroutine suppress_output_off
+
 subroutine info_plain(mname,msg)
 character(*),intent(in):: mname,msg
 character(*),parameter:: info_fmt = '(a,": ",a)'
-write(unit_stdout,info_fmt) mname,msg
-call flush(unit_stdout)
+if ( .not. suppress_output ) then
+   write(unit_stdout,info_fmt) mname,msg
+   call flush(unit_stdout)
+end if
 end subroutine
 
 subroutine info_with_number_int(mname,msg,inumber)
 character(*),intent(in):: mname,msg
 integer,intent(in) :: inumber
 character(*),parameter:: info_fmt = '(a,": ",a,X,i10)'
-write(unit_stdout,info_fmt) mname,msg,inumber
-call flush(unit_stdout)
+if ( .not. suppress_output ) then
+   write(unit_stdout,info_fmt) mname,msg,inumber
+   call flush(unit_stdout)
+end if
 end subroutine
 
 subroutine info_with_number_rp(mname,msg,rnumber)
 character(*),intent(in):: mname,msg
 real(kr),intent(in) :: rnumber
 character(*),parameter:: info_fmt = '(a,": ",a,X,e17.9)'
-write(unit_stdout,info_fmt) mname,msg,rnumber
-call flush(unit_stdout)
+if ( .not. suppress_output ) then
+   write(unit_stdout,info_fmt) mname,msg,rnumber
+   call flush(unit_stdout)
+end if
 end subroutine
 
 subroutine warning_plain(mname,msg)
 character(*),intent(in):: mname,msg
 character(*),parameter:: wrn_fmt = '("WARNING in ",a,": ",a)'
-write(unit_stdout,wrn_fmt) mname,msg
-call flush(unit_stdout)
+if ( .not. suppress_output ) then
+   write(unit_stdout,wrn_fmt) mname,msg
+   call flush(unit_stdout)
+end if
 end subroutine
 
 subroutine warning_with_number_int(mname,msg,inumber)
 character(*),intent(in):: mname,msg
 integer,intent(in) :: inumber
 character(*),parameter:: wrn_fmt = '("WARNING in ",a,": ",a,X,i10)'
-write(unit_stdout,wrn_fmt) mname,msg,inumber
-call flush(unit_stdout)
+if ( .not. suppress_output ) then
+   write(unit_stdout,wrn_fmt) mname,msg,inumber
+   call flush(unit_stdout)
+end if
 end subroutine
 
 subroutine warning_with_number_rp(mname,msg,rnumber)
 character(*),intent(in):: mname,msg
 real(kr),intent(in) :: rnumber
 character(*),parameter:: wrn_fmt = '("WARNING in ",a,": ",a,X,e17.9)'
-write(unit_stdout,wrn_fmt) mname,msg,rnumber
-call flush(unit_stdout)
+if ( .not. suppress_output ) then
+   write(unit_stdout,wrn_fmt) mname,msg,rnumber
+   call flush(unit_stdout)
+end if
 end subroutine
 
 subroutine error_plain(mname,msg)
@@ -1272,10 +1295,12 @@ implicit none
 character(*),intent(in):: msg
 real(kr),intent(in)    :: time
 character(*),parameter:: info_fmt = '("Time of ",a,": ",f13.3," s")'
-write(unit_stdout,'(a)') '****PROFILING*****************************'
-write(unit_stdout,info_fmt) msg,time
-write(unit_stdout,'(a)') '****PROFILING*****************************'
-call flush(unit_stdout)
+if ( .not. suppress_output ) then
+   write(unit_stdout,'(a)') '****PROFILING*****************************'
+   write(unit_stdout,info_fmt) msg,time
+   write(unit_stdout,'(a)') '****PROFILING*****************************'
+   call flush(unit_stdout)
+end if
 end subroutine
 
 !***********************************************************************

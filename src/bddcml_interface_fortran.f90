@@ -19,11 +19,13 @@
 ! to exploit multilevel adaptive BDDC solver 
 ! Jakub Sistek, Praha 12/2010
 
-!****************************************************
-subroutine bddcml_init(nl,nsublev,lnsublev,comm_init)
-!****************************************************
+!******************************************************************
+subroutine bddcml_init(nl,nsublev,lnsublev,comm_init,verbose_level)
+!******************************************************************
 ! initialization of LEVELS module
       use module_levels
+      use module_utils , only : suppress_output_on
+      use module_krylov , only : krylov_set_profile_on
       implicit none
 
 ! given number of levels
@@ -33,8 +35,23 @@ subroutine bddcml_init(nl,nsublev,lnsublev,comm_init)
       integer,intent(in) ::  nsublev(lnsublev)
 ! initial global communicator (possibly MPI_COMM_WORLD)
       integer, intent(in):: comm_init 
+! level of verbosity
+!     0 - only errors printed
+!     1 - some output
+!     2 - detailed output
+      integer, intent(in):: verbose_level 
 
-      call levels_init(nl,nsublev,lnsublev,comm_init)
+      call levels_init(nl,nsublev,lnsublev,comm_init,verbose_level)
+
+      select case ( verbose_level )
+      case (0)
+          call suppress_output_on
+      case (1)
+          continue ! default behaviour
+      case (2)
+          call krylov_set_profile_on
+      end select
+
 
 end subroutine
 

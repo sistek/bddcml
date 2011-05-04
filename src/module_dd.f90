@@ -8332,11 +8332,10 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
       ! root print the summary of selection of globs
       if (myid.eq.0) then
-         write(*,*) '   The following globs were recognized: '
-         write(*,'(a,i8)') '    nface   = ',nface
-         write(*,'(a,i8)') '    nedge   = ',nedge
-         write(*,'(a,i8)') '    ncorner = ',ncorner
-         call flush(6)
+         call info( routine_name, '   The following globs were recognized: ' )
+         call info( routine_name, '    nface   = ',nface )
+         call info( routine_name, '    nedge   = ',nedge )
+         call info( routine_name, '    ncorner = ',ncorner )
       end if
 
       ! clear auxiliary structure
