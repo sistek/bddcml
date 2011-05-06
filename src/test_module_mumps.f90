@@ -16,10 +16,10 @@
 
 program test_module_mumps
 ! Tester of module_mumps
-      use dmumps_struc_def
       use module_mumps
       implicit none
       include "mpif.h"
+      include "dmumps_struc.h"
 ! Use this structure of MUMPS for routines from mumps
       type(DMUMPS_STRUC) :: test_mumps
 

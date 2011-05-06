@@ -20,8 +20,8 @@ module module_dd
 ! Jakub Sistek, Denver, 4/2009, Praha 1/2010
 
 !     definition of MUMPS structure
-      use dmumps_struc_def
       implicit none
+      include "dmumps_struc.h"
 
 ! type of real variables
       integer,parameter,private :: kr = kind(1.D0)

@@ -25,9 +25,7 @@ TESTS = \
    test_module_levels \
    test_module_mumps \
    test_module_mumps2 \
-   test_module_sm \
-   test_module_bddc \
-   test_module_bddc2
+   test_module_sm 
 
 OBJ = \
    lobpcg_mvecmult_f.o \
@@ -180,32 +178,6 @@ test_module_mumps2: \
 
 test_module_sm: \
    test_module_sm.o \
-   module_sm.o \
-   module_utils.o
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
-
-test_module_bddc: \
-   test_module_bddc.o \
-   module_bddc.o \
-   module_dd.o \
-   module_pp.o \
-   pget_sub_neighbours.o \
-   module_graph.o \
-   module_parsing.o \
-   module_mumps.o \
-   module_sm.o \
-   module_utils.o
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
-
-test_module_bddc2: \
-   test_module_bddc2.o \
-   module_bddc.o \
-   module_dd.o \
-   module_pp.o \
-   pget_sub_neighbours.o \
-   module_graph.o \
-   module_parsing.o \
-   module_mumps.o \
    module_sm.o \
    module_utils.o
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)

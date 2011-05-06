@@ -20,7 +20,6 @@ module module_levels
 ! Jakub Sistek, Bologna 11/2010
 
 !     definition of MUMPS structure
-      use dmumps_struc_def
       use module_dd
 
       implicit none
