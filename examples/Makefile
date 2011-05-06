@@ -2,7 +2,7 @@
 include ../make.inc
 
 # include files needed
- INC = $(INCMUMPS) $(INCMPI) -I../src 
+INC = $(INCMUMPS) $(INCMPI) -I../src 
 # libraries needed
 LIBS = $(LIBBDDCML) $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
        $(LIBPORD) $(LIBLAPACK) $(LIBBLAS) $(BLOPEXLINK) $(LIBOTHERS)
@@ -21,11 +21,13 @@ all: $(EXAMPLES)
 
 # building binaries
 bddcml_global: \
-   bddcml_global.o
+   bddcml_global.o \
+   ../lib/libbddcml.a
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBBDDCML) $(LIBS) 
 
 bddcml_local: \
-   bddcml_local.o
+   bddcml_local.o \
+   ../lib/libbddcml.a
 	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBBDDCML) $(LIBS) 
 clean:
 	-rm -f *.o *.mod $(EXAMPLES)

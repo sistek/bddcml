@@ -32,7 +32,7 @@ module module_levels
 ! debugging 
       logical,parameter,private :: debug = .false.
 ! profiling 
-      logical,private :: profile = .false.
+      logical,private :: profile = .true.
 ! damping division
       logical,parameter,private :: damp_division = .false.
 ! damping selected corners  
@@ -44,8 +44,8 @@ module module_levels
 ! type for data about levels
       type levels_type
 
-         logical :: i_am_active_in_this_level ! this is a flag for switching processors at levels
-         logical :: is_new_comm_created       ! this is a flag to remember, if a new communicator was created for this level
+         logical :: i_am_active_in_this_level = .false.! this is a flag for switching processors at levels
+         logical :: is_new_comm_created       = .false.! this is a flag to remember, if a new communicator was created for this level
          integer :: comm_all  ! global communicator for the level
          integer :: comm_self ! local communicator for the level
          
@@ -4037,6 +4037,7 @@ subroutine levels_finalize
 ! destroy MUMPS structure of the last level
       if (is_mumps_coarse_ready) then
          call mumps_finalize(mumps_coarse)
+         is_mumps_coarse_ready = .false.
       end if
 
 ! deallocate basic structure
@@ -4056,6 +4057,9 @@ subroutine levels_finalize
 
          deallocate (levels)
       end if
+      llevels = 0
+      nlevels = 0
+      iactive_level = 0
 
 
 end subroutine

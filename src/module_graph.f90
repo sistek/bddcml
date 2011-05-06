@@ -479,6 +479,7 @@ integer, intent(in) ::    lpart
 integer*4, intent(out) ::  part(lpart)
 
 ! local vars
+character(*),parameter:: routine_name = 'GRAPH_DIVIDE'
 integer*4 :: wgtflag 
 integer*4 :: npart 
 integer*4,parameter :: numflag = 1 !( 1 - Fortran-like arrays (0 - C-like arrays) 
@@ -502,10 +503,9 @@ integer*4,allocatable::    options(:)
       allocate(options(loptions))
       options = 0
 
-      write(*,'(a,i6,a)') 'Calling METIS to divide into ',nsub,' subdomains...'
+      call info( routine_name, 'Calling METIS to divide into subdomains :',nsub )
       if (nsub.eq.0) then
-         write(*,'(a)') ' Illegal value of number of subdomains...'
-         stop
+         call error( routine_name, ' Illegal value of number of subdomains...' )
       else if (nsub.eq.1) then
          edgecut = 0
          part = 1
@@ -538,6 +538,7 @@ integer, intent(in out) :: components(lcomponents)
 integer, intent(out) ::    ncomponents
 
 ! Local variable
+character(*),parameter:: routine_name = 'GRAPH_COMPONENTS'
 integer :: i, icompo
 integer,parameter :: sizelimit = 2000000
 
@@ -546,7 +547,7 @@ components = -1
 
 ! check size of graph - recursion fails for huge graphs
 if (nvertex.gt.1000000) then
-   write(*,*) 'GRAPH_COMPONENTS: I am recursive subroutine, use me only for graphs smaller than ',sizelimit,' vertices.'
+   call warning( routine_name, ' I am recursive subroutine, use me only for graphs with number of vertices less than ',sizelimit)
    ncomponents = -1
    return
 end if
@@ -564,12 +565,10 @@ end do
 ncomponents = icompo 
 ! check the components
 if (any(components.eq.-1)) then
-   write(*,*) 'GRAPH_COMPONENTS: Error - some vertices not associated.'
-   call error_exit
+   call error( routine_name, 'Some vertices not associated.' )
 end if
 if (any(components.gt.ncomponents)) then
-   write(*,*) 'GRAPH_COMPONENTS: Error - some component indices larger than allowed.'
-   call error_exit
+   call error( routine_name, ' Some component indices larger than allowed.' )
 end if
 
 contains

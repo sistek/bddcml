@@ -376,6 +376,7 @@ integer, intent(in)  :: lkadjsub ! nsub * nsub
 integer, intent(out) ::  kadjsub(lkadjsub) ! marked subdomains that share nodes
 
 ! local vars
+character(*),parameter:: routine_name = 'PP_GET_SUB_NEIGHBOURS'
 ! index of subdomain under 
 integer :: isub
 
@@ -407,7 +408,7 @@ integer :: ie_loc, indel, indneibe, isubneib, iadje, n_graph_edge, pkadjsub
 integer :: graphtype = 0
 
 ! Create graph of mesh
-      write (*,'(a,$)') 'Create list of elements at a node ... '
+      call info( routine_name, 'Create list of elements at a node ... ')
 ! Allocate proper sizes of two-dimensional field for list of touching elements
       lnetn  = nnod
       lietn  = linet
@@ -417,18 +418,18 @@ integer :: graphtype = 0
 ! Create list of elements touching particular node
       call graph_get_dual_mesh(nelem,nnod,inet,linet,nnet,lnnet, &
                                netn,lnetn,ietn,lietn,kietn,lkietn)
-      write (*,'(a)') 'done.'
+      call info( routine_name, 'done.' )
 
-      write (*,'(a,$)') 'Count list of neighbours of elements ... '
+      call info( routine_name, 'Count list of neighbours of elements ... ' )
 ! Count elements adjacent to element
       lxadj = nelem + 1
       allocate(xadj(lxadj))
       
       call graph_from_mesh_size(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
                                 xadj,lxadj, n_graph_edge, ladjncy, ladjwgt)
-      write (*,'(a)') 'done.'
+      call info( routine_name, 'done.' )
 
-      write (*,'(a,$)') 'Create list of neighbours of elements ... '
+      call info( routine_name, 'Create list of neighbours of elements ... ' )
 
 ! Allocate proper field for graph
       allocate(adjncy(ladjncy),adjwgt(ladjwgt))
@@ -436,12 +437,12 @@ integer :: graphtype = 0
 ! Create graph
       call graph_from_mesh(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
                            xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
-      write (*,'(a)') 'done.'
+      call info( routine_name, 'done.' )
 
-      write (*,'(a,$)') 'Check graph ... '
+      call info( routine_name, 'Check graph ... ' )
 ! Check the graph
       call graph_check(nelem,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
-      write (*,'(a)') 'done.'
+      call info( routine_name, 'done.' )
 
       deallocate(netn,ietn,kietn)
 
@@ -1048,6 +1049,7 @@ integer, intent(in)    :: lpart
 integer*4, intent(out) ::  part(lpart) ! distribution
 
 ! local vars
+character(*),parameter:: routine_name = 'PP_DIVIDE_MESH'
 integer:: nedge, ncomponents
 integer :: lnetn, lietn, lkietn
 integer,allocatable:: ietn(:), kietn(:), netn(:)
@@ -1072,8 +1074,8 @@ integer :: ie, isub, nedges, nsubcomponents, iadje, icomp, ies,&
 integer :: nelemsmax, nelemsmin
 logical :: one_more_check_needed = .false.
 
-      write (*,'(a)') 'Building a graph ... '
-      write (*,'(a,$)') 'Create list of elements at a node ... '
+      call info( routine_name, 'Building a graph ... ' )
+      call info( routine_name, 'Create list of elements at a node ... ' )
 ! Allocate proper sizes of two-dimensional field for list of touching elements
       lnetn  = nnod
       lietn  = linet
@@ -1083,18 +1085,18 @@ logical :: one_more_check_needed = .false.
 ! Create list of elements touching particular node
       call graph_get_dual_mesh(nelem,nnod,inet,linet,nnet,lnnet, &
                                netn,lnetn,ietn,lietn,kietn,lkietn)
-      write (*,'(a)') 'done.'
+      call info( routine_name, 'done.' )
 
-      write (*,'(a,$)') 'Count list of neighbours of elements ... '
+      call info( routine_name, 'Count list of neighbours of elements ... ' )
 ! Count elements adjacent to element
       lxadj = nelem + 1
       allocate(xadj(lxadj))
       
       call graph_from_mesh_size(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
                                 xadj,lxadj, nedge, ladjncy, ladjwgt)
-      write (*,'(a)') 'done.'
+      call info( routine_name, 'done.' )
 
-      write (*,'(a,$)') 'Create list of neighbours of elements ... '
+      call info( routine_name, 'Create list of neighbours of elements ... ' )
 
 ! Allocate proper field for graph
       allocate(adjncy(ladjncy),adjwgt(ladjwgt))
@@ -1102,25 +1104,25 @@ logical :: one_more_check_needed = .false.
 ! Create graph
       call graph_from_mesh(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
                            xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
-      write (*,'(a)') 'done.'
+      call info( routine_name, 'done.' )
       ! free memory
       deallocate(netn,ietn,kietn)
 
-      write (*,'(a,$)') 'Check graph ... '
+      call info( routine_name, 'Check graph ... ' )
 ! Check the graph
       call graph_check(nelem,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
-      write (*,'(a)') 'done.'
+      call info( routine_name, 'done.' )
 ! Check components of the graph
-      write (*,'(a,$)') 'Check mesh components ... '
+      call info( routine_name, 'Check mesh components ... ' )
       lcomponents = nelem
       allocate(components(lcomponents))
       call graph_components(nelem, xadj,lxadj, adjncy,ladjncy, components,lcomponents, ncomponents)
       if (ncomponents.eq.1) then
-         write(*,'(a)') 'mesh seems continuous.'
+         call info( routine_name, 'mesh seems continuous.' )
       else if (ncomponents.eq.-1) then
-         write(*,'(a)') 'failed for size of mesh.'
+         call warning( routine_name, 'failed for size of mesh.' )
       else
-         write(*,'(a,i8,a)') 'mesh discontinuous - it contains ',ncomponents,' components.'
+         call warning( routine_name, 'mesh discontinuous - number of components: ',ncomponents )
       end if
       deallocate(components)
 
@@ -1135,7 +1137,7 @@ logical :: one_more_check_needed = .false.
       vwgt = 1
       call graph_divide(graphtype,nelem,xadj,lxadj,adjncy,ladjncy,vwgt,lvwgt,adjwgt,ladjwgt,nsub,edgecut,part,lpart)
       deallocate(vwgt)
-      write(*,'(a,i9)') 'resulting number of cut edges:',edgecut
+      call info( routine_name, 'resulting number of cut edges:', edgecut )
 
       ! count numbers of elements in subdomains
       lnelemsa = nsub
@@ -1144,16 +1146,16 @@ logical :: one_more_check_needed = .false.
          nelemsa(isub) = count(part.eq.isub)
       end do
 
-      write (*,'(a)') 'CHECKING OF DIVISION: '
+      call info( routine_name, 'CHECKING OF DIVISION: ' )
 
   123 continue
 
       nelemsmax = maxval(nelemsa)
       nelemsmin = minval(nelemsa)
-      write(*,*) 'final quality of division:'
-      write(*,*) 'largest subdomain contains :',nelemsmax,' elements'
-      write(*,*) 'smallest subdomain contains :',nelemsmin,' elements'
-      write(*,*) 'imbalance of division:',float(nelemsmax-nelemsmin)/float(nelemsmin)*100,' %'
+      call info( routine_name, 'final quality of division:' )
+      call info( routine_name, 'largest subdomain contains elements :',nelemsmax )
+      call info( routine_name, 'smallest subdomain contains elements :',nelemsmin )
+      call info( routine_name, 'imbalance of division [%]:',dble(nelemsmax-nelemsmin)/dble(nelemsmin)*100 )
 
 ! check division into subdomains
       one_more_check_needed = .false.
@@ -1206,7 +1208,8 @@ logical :: one_more_check_needed = .false.
          allocate(subcomponents(lsubcomponents))
          call graph_components(nelems, xadjs,lxadjs, adjncys,ladjncys, subcomponents,lsubcomponents, nsubcomponents)
          if (nsubcomponents.ne.1) then
-            write (*,'(a,i8,a,i3,a)') 'Subdomain ',isub,' discontinuous - it contains ',nsubcomponents,' components.'
+            call warning(routine_name, 'Subdomain discontinuous: ', isub )
+            call warning(routine_name, '   - number of components: ', nsubcomponents )
 
             if (correct_division) then
                one_more_check_needed = .true.
@@ -1218,7 +1221,7 @@ logical :: one_more_check_needed = .false.
                indcompx = 0
                do icomp = 1,nsubcomponents
                   necomp = count(subcomponents .eq. icomp)
-                  write(*,*) 'number of elements in subcomponent:',necomp 
+                  call info(routine_name, 'number of elements in subcomponent:',necomp )
                   if (necomp.gt.necompx) then
                      necompx  = necomp
                      indcompx = icomp
@@ -1256,8 +1259,7 @@ logical :: one_more_check_needed = .false.
                         end if
                      end do
                      if (indsubmin.eq.0) then
-                        write(*,*) 'MESHDIVIDE: Error in finding candidate subdomain for merging.'
-                        call error_exit
+                        call error( routine_name, ' Error in finding candidate subdomain for merging.' )
                      end if
 
                      ! join the component to the candidate subdomain
@@ -1287,7 +1289,7 @@ logical :: one_more_check_needed = .false.
 
       ! if some part of subdomains were glued to other subdomains, make one more check
       if (one_more_check_needed) then
-         write(*,*) 'PP_DIVIDE_MESH: Some parts were redistributed, perform one more check.'
+         call info ( routine_name, 'Some parts were redistributed, perform one more check.' )
          goto 123
       end if
 
