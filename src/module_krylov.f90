@@ -539,7 +539,7 @@ module module_krylov
       integer,intent(in) :: ndecrmax
 
       ! desired accuracy of relative residual
-      real(kr),intent(out) :: tol
+      real(kr),intent(in) :: tol
 
       ! resulting number of iterations
       integer,intent(out) :: num_iter
