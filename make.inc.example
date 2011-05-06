@@ -25,7 +25,7 @@ INCPARMETIS = -I$(HOME)/programy/PARMETIS
 INCMUMPS    = -I$(HOME)/programy/MUMPS/include
 
 #*********** Libraries
-LIBBDDCML    = -L$(HOME)/mojprg/bddcml/lib -lbddcml
+LIBBDDCML    = -L$(HOME)/mojprg/bddc/lib -lbddcml
 LIBMUMPS     = -L$(HOME)/programy/MUMPS/lib -ldmumps -lmumps_common
 LIBSCALAPACK = -L$(HOME)/lib -lscalapack
 LIBBLACS     = -L$(HOME)/lib -lblacs -lblacsCinit -lblacsF77init -lblacs 
