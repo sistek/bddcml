@@ -44,16 +44,16 @@ void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind,
 			   int *iets, int *liets,
 			   int *nsub, int *nsub_loc, int *sub_start,
 			   int *kadjsub, int *lkadjsub, int *debug,
-		           int *commInt)
+		           MPI_Fint *commInt)
 {
   int *xadj, *adjncy;
   int myid;
   int nver_loc, ivl, iv, isub, ineig, nneig, indneig, isub_loc, isubneig, point;
   MPI_Comm comm;
 
-  /********************************/
-  /* Try and take care bad inputs */
-  /********************************/
+  /***********************************/
+  /* Try and take care of bad inputs */
+  /***********************************/
   if (elmdist == NULL || eptr == NULL || eind == NULL || 
       numflag == NULL || ncommonnodes == NULL ||
       iets == NULL || liets == NULL ||
@@ -73,7 +73,7 @@ void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind,
         printf("   calling Mesh2Dual to get dual graph ...");
      }
   }
-  ParMETIS_V3_Mesh2Dual(elmdist, eptr, eind, numflag, ncommonnodes, &xadj, &adjncy, &comm);
+  ParMETIS_V3_Mesh2Dual( elmdist, eptr, eind, numflag, ncommonnodes, &xadj, &adjncy, &comm );
   if (*debug) {
      if (myid == 0) {
         printf(" done. \n");

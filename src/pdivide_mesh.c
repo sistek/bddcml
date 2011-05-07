@@ -41,13 +41,13 @@
 void pdivide_mesh_c( idxtype *elmdist, idxtype *eptr, idxtype *eind, idxtype *elmwgt, 
 	             int *wgtflag, int *numflag, int *ncon, int *ncommonnodes, int *nparts, 
 	             float *tpwgts, float *ubvec, int *options, int *edgecut, idxtype *part, 
-	             int *commInt )
+	             MPI_Fint *commInt )
 {
   MPI_Comm comm;
 
-  /********************************/
-  /* Try and take care bad inputs */
-  /********************************/
+  /***********************************/
+  /* Try and take care of bad inputs */
+  /***********************************/
   if (elmdist == NULL || eptr == NULL || eind == NULL || 
       numflag == NULL || ncommonnodes == NULL ||
       nparts == NULL || options == NULL || edgecut == NULL ||
