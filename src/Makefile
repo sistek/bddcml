@@ -37,7 +37,8 @@ OBJ = \
    module_mumps.o \
    module_graph.o \
    module_pp.o \
-   pget_sub_neighbours.o\
+   pget_sub_neighbours.o \
+   pdivide_mesh.o \
    module_parsing.o \
    module_sm.o \
    module_tecplot.o \
@@ -111,6 +112,7 @@ module_graph.o: \
 
 module_pp.o: \
    pget_sub_neighbours.o \
+   pdivide_mesh.o \
    module_graph.o \
    module_parsing.o \
    module_utils.o 
@@ -188,6 +190,8 @@ test_module_adaptivity: \
    module_adaptivity.o \
    module_pp.o \
    pget_sub_neighbours.o \
+   pdivide_mesh.o \
+   pdivide_mesh.o \
    module_graph.o \
    module_parsing.o \
    module_dd.o \
@@ -203,6 +207,8 @@ test_module_dd: \
    test_module_dd.o \
    module_pp.o \
    pget_sub_neighbours.o \
+   pdivide_mesh.o \
+   pdivide_mesh.o \
    module_graph.o \
    module_parsing.o \
    module_dd.o \
@@ -215,6 +221,8 @@ test_module_dd2: \
    test_module_dd2.o \
    module_pp.o \
    pget_sub_neighbours.o \
+   pdivide_mesh.o \
+   pdivide_mesh.o \
    module_graph.o \
    module_parsing.o \
    module_dd.o \
@@ -229,6 +237,8 @@ test_module_levels: \
    module_adaptivity.o \
    module_pp.o \
    pget_sub_neighbours.o \
+   pdivide_mesh.o \
+   pdivide_mesh.o \
    module_graph.o \
    module_parsing.o \
    module_dd.o \
@@ -251,6 +261,8 @@ test_module_pp: \
    test_module_pp.o \
    module_pp.o \
    pget_sub_neighbours.o \
+   pdivide_mesh.o \
+   pdivide_mesh.o \
    module_graph.o \
    module_parsing.o \
    module_utils.o 

@@ -178,8 +178,13 @@ integer :: ierr
             call flush(6)
          end if
          nparts = nsub
-         call ParMETIS_V3_PartMeshKway(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, tpwgts, ubvec, options,&
-                                       ec, part_loc, comm)
+         ! portable call
+         call pdivide_mesh_c(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, tpwgts, ubvec, options,&
+                             ec, part_loc, comm)
+         ! less portable call - works for MPI implementations using MPI_Comm int ( like mpich ), does not work with general types
+         ! ( like in OpenMPI )
+         !call ParMETIS_V3_PartMeshKway(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, tpwgts, ubvec, options,&
+         !                              ec, part_loc, comm)
          edgecut = ec
          if (myid.eq.0 .and. debug) then
             write(*,'(a)') ' ..done.'

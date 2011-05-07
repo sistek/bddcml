@@ -21,19 +21,19 @@ RANLIB = ranlib
 CDEFS   = -DAdd_
 
 #*********** Includes
-INCPARMETIS = -I$(HOME)/programy/PARMETIS
-INCMUMPS    = -I$(HOME)/programy/MUMPS/include
+INCPARMETIS = -I/usr/include
+INCMUMPS    = -I/usr/include
 
 #*********** Libraries
 LIBBDDCML    = -L$(HOME)/mojprg/bddc/lib -lbddcml
-LIBMUMPS     = -L$(HOME)/programy/MUMPS/lib -ldmumps -lmumps_common
-LIBSCALAPACK = -L$(HOME)/lib -lscalapack
-LIBBLACS     = -L$(HOME)/lib -lblacs -lblacsCinit -lblacsF77init -lblacs 
-LIBBLAS      = -L$(HOME)/lib -lblas
-LIBLAPACK    = -L$(HOME)/lib -llapack
-LIBPARMETIS  = -L$(HOME)/programy/PARMETIS -lparmetis -lmetis 
-LIBMETIS     = -L$(HOME)/programy/METIS -lmetis 
-LIBPORD      = -L$(HOME)/MUMPS/lib -lpord
+LIBMUMPS     = -L/usr/lib -ldmumps-4.9.2
+LIBSCALAPACK = -L/usr/lib -lscalapack-openmpi
+LIBBLACS     = -L/usr/lib -lblacs-openmpi -lblacsCinit-openmpi -lblacsF77init-openmpi -lblacs-openmpi 
+LIBBLAS      = -L/usr/lib -lblas
+LIBLAPACK    = -L/usr/lib -llapack
+LIBPARMETIS  = -L/usr/lib -lparmetis -lmetis 
+LIBMETIS     = -L/usr/lib -lmetis 
+LIBPORD      = 
 LIBOTHERS    = 
 
 # BLOPEX paths

@@ -15,6 +15,7 @@
  *_______________________________________________________________*/
 
 #include "parmetis.h"
+#include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -43,11 +44,12 @@ void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind,
 			   int *iets, int *liets,
 			   int *nsub, int *nsub_loc, int *sub_start,
 			   int *kadjsub, int *lkadjsub, int *debug,
-		           MPI_Comm *comm)
+		           int *commInt)
 {
   int *xadj, *adjncy;
   int myid;
   int nver_loc, ivl, iv, isub, ineig, nneig, indneig, isub_loc, isubneig, point;
+  MPI_Comm comm;
 
   /********************************/
   /* Try and take care bad inputs */
@@ -56,19 +58,22 @@ void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind,
       numflag == NULL || ncommonnodes == NULL ||
       iets == NULL || liets == NULL ||
       nsub == NULL || nsub_loc == NULL || sub_start == NULL ||
-      kadjsub == NULL || lkadjsub == NULL || debug == NULL || comm == NULL) {
+      kadjsub == NULL || lkadjsub == NULL || debug == NULL || commInt == NULL) {
      printf("ERROR: One or more required parameters is NULL. Aborting.\n");
      abort();
   }
 
-  MPI_Comm_rank(*comm,&myid);
+  /* portable change of Fortran communicator into C communicator */
+  comm = MPI_Comm_f2c( *commInt );
+
+  MPI_Comm_rank( comm, &myid);
 
   if (*debug) {
      if (myid == 0) {
         printf("   calling Mesh2Dual to get dual graph ...");
      }
   }
-  ParMETIS_V3_Mesh2Dual(elmdist, eptr, eind, numflag, ncommonnodes, &xadj, &adjncy, comm);
+  ParMETIS_V3_Mesh2Dual(elmdist, eptr, eind, numflag, ncommonnodes, &xadj, &adjncy, &comm);
   if (*debug) {
      if (myid == 0) {
         printf(" done. \n");
