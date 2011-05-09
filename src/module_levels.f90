@@ -41,6 +41,9 @@ module module_levels
       integer,parameter,private :: lfnamex = 130
 ! adjustable parameters ############################
 
+! shift of indexing between C and Fortran
+      integer,private :: levels_numshift
+
 ! type for data about levels
       type levels_type
 
@@ -392,7 +395,6 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_GLOBAL_DATA'
       integer :: i,j
-      integer :: numshift
 
       ! store unit of file with element matrices at first level
       levels(1)%idelm = idelm
@@ -401,7 +403,7 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       iactive_level = 0
 
       ! set numerical shift for C/Fortran
-      numshift = 1 - numbase
+      levels_numshift = 1 - numbase
 
       ! check number of elements
       if (levels(1)%nsub.gt.nelem) then
@@ -416,7 +418,7 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       levels(iactive_level)%linetc = linet  
       allocate(levels(iactive_level)%inetc(levels(iactive_level)%linetc))
       do i = 1,levels(iactive_level)%linetc
-         levels(iactive_level)%inetc(i) = inet(i) + numshift
+         levels(iactive_level)%inetc(i) = inet(i) + levels_numshift
       end do
       levels(iactive_level)%lnnetc = lnnet  
       allocate(levels(iactive_level)%nnetc(levels(iactive_level)%lnnetc))
@@ -516,7 +518,6 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_LOCAL_DATA'
-      integer :: numshift
 
       logical :: is_mesh_loaded 
       integer :: isub_loc
@@ -525,7 +526,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       iactive_level = 0
 
       ! set numerical shift for C/Fortran
-      numshift = 1 - numbase
+      levels_numshift = 1 - numbase
 
       if ( .not. levels(iactive_level)%is_level_prepared ) then
          ! initialize zero level
@@ -554,7 +555,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       levels(iactive_level)%global_loading = .false.
 
       ! local index of subdomain
-      call get_index(isub, levels(iactive_level)%indexsub,levels(iactive_level)%lindexsub, isub_loc)
+      call get_index(isub+levels_numshift, levels(iactive_level)%indexsub,levels(iactive_level)%lindexsub, isub_loc)
       if ( isub_loc .eq. -1 ) then
          call error( routine_name, 'Index of subdomain not found among local subdomains: ', isub )
       end if
@@ -571,14 +572,14 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       end if
 
       call dd_upload_sub_mesh(levels(iactive_level)%subdomains(isub_loc), nelems, nnods, ndofs, ndim, &
-                              nndf,lnndf, nnet,lnnet, numshift, inet,linet, &
+                              nndf,lnndf, nnet,lnnet, levels_numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
                               xyz,lxyz1,lxyz2)
       call dd_upload_bc(levels(iactive_level)%subdomains(isub_loc), ifix,lifix, fixv,lfixv)
       call dd_upload_rhs(levels(iactive_level)%subdomains(isub_loc), rhs,lrhs)
 
       ! load matrix to our structure
-      call dd_load_matrix_triplet(levels(iactive_level)%subdomains(isub_loc), matrixtype, numshift, &
+      call dd_load_matrix_triplet(levels(iactive_level)%subdomains(isub_loc), matrixtype, levels_numshift, &
                                   i_sparse,j_sparse,a_sparse,la,la,is_assembled)
       ! assembly it if needed
       if (.not. is_assembled) then
@@ -3719,7 +3720,7 @@ subroutine levels_dd_download_solution(isub, sols,lsols)
       integer :: isub_loc
 
       ! local index of subdomain
-      call get_index(isub, levels(ilevel)%indexsub,levels(ilevel)%lindexsub, isub_loc)
+      call get_index(isub+levels_numshift, levels(ilevel)%indexsub,levels(ilevel)%lindexsub, isub_loc)
       if ( isub_loc .eq. -1 ) then
          call error( routine_name, 'Index of subdomain not found among local subdomains: ', isub )
       end if
@@ -3885,7 +3886,7 @@ subroutine levels_dd_dotprod_subdomain_local(ilevel,isub, vec1,lvec1, vec2,lvec2
       integer :: isub_loc
 
       ! local index of subdomain
-      call get_index(isub, levels(ilevel)%indexsub,levels(ilevel)%lindexsub, isub_loc)
+      call get_index(isub+levels_numshift, levels(ilevel)%indexsub,levels(ilevel)%lindexsub, isub_loc)
       if ( isub_loc .eq. -1 ) then
          call error( routine_name, 'Index of subdomain not found among local subdomains: ', isub )
       end if

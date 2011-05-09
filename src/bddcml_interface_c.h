@@ -54,7 +54,7 @@ void bddcml_download_local_solution( int *isub, double *sols, int *lsols );
 void bddcml_download_global_solution( double *sol, int *lsol );
 
 #define bddcml_dotprod_subdomain F_SYMBOL(bddcml_dotprod_subdomain, BDDCML_DOTPROD_SUBDOMAIN)
-void bddcml_dotprod_subdomain( int *isub, double *vec1, int *lvec1, double *vec2, int *lvec2, double *dotprod )
+void bddcml_dotprod_subdomain( int *isub, double *vec1, int *lvec1, double *vec2, int *lvec2, double *dotprod );
 
 #define bddcml_finalize F_SYMBOL(bddcml_finalize, BDDCML_FINALIZE)
 void bddcml_finalize( );
