@@ -104,13 +104,18 @@ program bddcml_local
       integer :: ndim, nsub, nelem, ndof, nnod, linet
       integer :: maxit, ndecrmax
       real(kr) :: tol
-      real(kr) :: norm_sol
 
 ! number of levels
       integer :: nlevels
 ! subdomains in levels
       integer ::            lnsublev
       integer,allocatable :: nsublev(:)
+      integer ::             nsub_loc_1
+
+      integer ::            lsub2proc
+      integer,allocatable::  sub2proc(:)
+      integer ::            lndofsa
+      integer,allocatable::  ndofsa(:)
 
       integer ::                    lnnet,   lnndf
       integer,allocatable:: inet(:), nnet(:), nndf(:)
@@ -163,12 +168,13 @@ program bddcml_local
       character(lfilenamex)    :: filename
 
       ! small variables - indices, etc.
-      integer :: ie, idofn, ind, indn, indvg, i, indvs, inod, inods, isub, j, ndofn
+      integer :: ie, idofn, ind, indn, indvg, i, indvs, inod, inods, isub, j, ndofn, ir
       integer :: is_assembled_int
 
       ! data about resulting convergence
       integer :: num_iter, converged_reason 
       real(kr) :: condition_number
+      real(kr) :: norm_sol, norm2, norm2_loc, norm2_sub 
 
       ! time variables
       real(kr) :: t_total, t_import, t_distribute, t_init, t_load, t_pc_setup, t_pcg
@@ -267,12 +273,6 @@ program bddcml_local
             call warning(routine_name,'PCG method is not considered robust for non SPD matrices')
          end if
       end if
-      if (nsub.ne.nproc) then
-         if (myid.eq.0) then
-            call error(routine_name,'This solver can run solely on number of subdomains'&
-                                    //'equal to the number of processors.')
-         end if
-      end if
 
       call time_start
       lnnet = nelem
@@ -368,168 +368,190 @@ program bddcml_local
          end do
       end if
 
-      ! localize mesh
-      isub = myid + 1
-
-      nelems = 0
-      linets = 0
-      do ie = 1,nelem
-         if (iets(ie).eq.isub) then
-            nelems = nelems + 1
-            linets = linets + nnet(ie)
-         end if
-      end do
-      lnnets  = nelems
-      lisegns = nelems
-      lisngns = linets
-      allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
-
-      call pp_create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
-                             nnods,inets,linets,nnets,lnnets,&
-                             isegns,lisegns,isngns,lisngns)
-
-      ! correct lisngns
-      lisngns = nnods
-      lnndfs  = nnods
-      allocate(nndfs(lnndfs))
-
-      ! get array nndfs
-      do inods = 1,nnods
-         nndfs(inods) = nndf(isngns(inods))
-      end do
-! find local number of DOF on subdomain NDOFS
-      ndofs = sum(nndfs)
-
-! create array kdofs
-      lkdofs = nnods
-      allocate(kdofs(lkdofs))
-      if (nnods.gt.0) then
-         kdofs(1) = 0
-         do inods = 2,nnods
-            kdofs(inods) = kdofs(inods-1) + nndfs(inods-1)
-         end do
-      end if
-
-      ! prepare array ISVGVN
-      lisvgvns = ndofs
-      allocate(isvgvns(lisvgvns))
-      indvs = 0
-      do inods = 1,nnods
-         inod = isngns(inods)
-
-         ndofn   = nndfs(inods)
-         indvg   = kdof(inod)
-         ! in lack of memory for kdof array, this can be altered by indvg = sum(nndf(1:inod-1))
-         do idofn = 1,ndofn
-            indvs = indvs + 1
-            indvg = indvg + 1
-
-            isvgvns(indvs) = indvg
-         end do
-      end do
-
-      ! coordinates of subdomain nodes
-      lxyzs1 = nnods
-      lxyzs2 = ndim
-      allocate(xyzs(lxyzs1,lxyzs2))
-      do j = 1,ndim
-         do i = 1,nnods
-            indn = isngns(i)
-
-            xyzs(i,j) = xyz(indn,j)
-         end do
-      end do
-
-      lrhss = ndofs
-      allocate(rhss(lrhss))
-      lifixs = ndofs
-      allocate(ifixs(lifixs))
-      lfixvs = ndofs
-      allocate(fixvs(lfixvs))
-      lsols = ndofs
-      allocate(sols(lsols))
-
-      ! localize RHS, IFIX and FIXV
-      do i = 1,ndofs
-         ind = isvgvns(i)
-
-         rhss(i)  = rhs(ind)
-
-         ifixs(i) = ifix(ind)
-         fixvs(i) = fixv(ind)
-
-         sols(i)  = sol(i)
-      end do
-
-! prepare matrix
-! Load sparse matrix
-      ! find the length for matrix entries
-      call sm_pmd_get_length(matrixtype,nelems,inets,linets,nnets,lnnets,nndfs,lnndfs,la)
-      ! prepare memory
-      allocate(i_sparse(la), j_sparse(la), a_sparse(la))
-! ELMS - element stiffness matrices of subdomain - structure:
-      call getfname(problemname(1:lproblemname),isub,'ELM',filename)
-      call allocate_unit(idelm)
-      open(unit=idelm,file=filename,status='old',form='unformatted')
-      call sm_pmd_load(matrixtype,idelm,nelems,inets,linets,nnets,lnnets,nndfs,lnndfs,kdofs,lkdofs,&
-                       i_sparse, j_sparse, a_sparse, la)
-
-
       if (myid.eq.0) then
          write (*,'(a)') 'Initializing LEVELS ...'
          call flush(6)
       end if
-
       call time_start
-      call bddcml_init(nlevels,nsublev,lnsublev,comm_all,verbose_level)
+      ! tell me how much subdomains should I load
+      nsub_loc_1 = -1
+      call bddcml_init(nlevels, nsublev,lnsublev, nsub_loc_1, comm_all,verbose_level)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_init)
-      if (myid.eq.0) then
-         write (*,'(a)') 'Initializing LEVELS done.'
-         call flush(6)
-      end if
+      write (*,*) 'Initializing LEVELS done, locally owned subdomains: ', nsub_loc_1
+      call flush(6)
+
+      lsub2proc = nproc + 1
+      allocate(sub2proc(lsub2proc))
+!***************************************************************PARALLEL
+      call MPI_ALLGATHER( nsub_loc_1, 1, MPI_INTEGER, sub2proc, 1, MPI_INTEGER, comm_all, ierr)
+!***************************************************************PARALLEL
+      ! the array now contains counts, change it to starts
+      do i = 2,nproc
+         sub2proc(i) = sub2proc(i-1) + sub2proc(i)
+      end do
+      ! shift it one back and add one 
+      do ir = 0, nproc - 1 ! reverse index
+         i = nproc + 1 - ir
+
+         sub2proc(i) = sub2proc(i-1) + 1
+      end do
+      ! put one in the beginning
+      sub2proc(1) = 1
+
       if (myid.eq.0) then
          write (*,'(a)') 'Loading data ...'
          call flush(6)
       end if
       call time_start
-      is_assembled_int = 0
+      lndofsa = nsub_loc_1
+      allocate (ndofsa(lndofsa)) ! note number of degrees of freedom for each subdomain
+      do isub = sub2proc(myid+1), sub2proc(myid+2) - 1
+         ! localize mesh
 
-      if (myid.eq.0) then
-         write (*,'(a)') 'Minimal number of shared nodes to call elements adjacent: '
-         call flush(6)
-         read (*,*) neighbouring
-      end if
+         nelems = 0
+         linets = 0
+         do ie = 1,nelem
+            if (iets(ie).eq.isub) then
+               nelems = nelems + 1
+               linets = linets + nnet(ie)
+            end if
+         end do
+         lnnets  = nelems
+         lisegns = nelems
+         lisngns = linets
+         allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
 
-      call bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
-                                    isub, nelems, nnods, ndofs, &
-                                    numbase, inets,linets, nnets,lnnets, nndfs,lnndfs, &
-                                    isngns,lisngns, isvgvns,lisvgvns, isegns,lisegns, &
-                                    xyzs,lxyzs1,lxyzs2, &
-                                    ifixs,lifixs, fixvs,lfixvs, &
-                                    rhss,lrhss, &
-                                    matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
+         call pp_create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                                nnods,inets,linets,nnets,lnnets,&
+                                isegns,lisegns,isngns,lisngns)
+
+         ! correct lisngns
+         lisngns = nnods
+         lnndfs  = nnods
+         allocate(nndfs(lnndfs))
+
+         ! get array nndfs
+         do inods = 1,nnods
+            nndfs(inods) = nndf(isngns(inods))
+         end do
+! find local number of DOF on subdomain NDOFS
+         ndofs = sum(nndfs)
+         ndofsa(isub - sub2proc(myid+1) + 1) = ndofs
+
+! create array kdofs
+         lkdofs = nnods
+         allocate(kdofs(lkdofs))
+         if (nnods.gt.0) then
+            kdofs(1) = 0
+            do inods = 2,nnods
+               kdofs(inods) = kdofs(inods-1) + nndfs(inods-1)
+            end do
+         end if
+
+         ! prepare array ISVGVN
+         lisvgvns = ndofs
+         allocate(isvgvns(lisvgvns))
+         indvs = 0
+         do inods = 1,nnods
+            inod = isngns(inods)
+
+            ndofn   = nndfs(inods)
+            indvg   = kdof(inod)
+            ! in lack of memory for kdof array, this can be altered by indvg = sum(nndf(1:inod-1))
+            do idofn = 1,ndofn
+               indvs = indvs + 1
+               indvg = indvg + 1
+
+               isvgvns(indvs) = indvg
+            end do
+         end do
+
+         ! coordinates of subdomain nodes
+         lxyzs1 = nnods
+         lxyzs2 = ndim
+         allocate(xyzs(lxyzs1,lxyzs2))
+         do j = 1,ndim
+            do i = 1,nnods
+               indn = isngns(i)
+
+               xyzs(i,j) = xyz(indn,j)
+            end do
+         end do
+
+         lrhss = ndofs
+         allocate(rhss(lrhss))
+         lifixs = ndofs
+         allocate(ifixs(lifixs))
+         lfixvs = ndofs
+         allocate(fixvs(lfixvs))
+         lsols = ndofs
+         allocate(sols(lsols))
+
+         ! localize RHS, IFIX and FIXV
+         do i = 1,ndofs
+            ind = isvgvns(i)
+
+            rhss(i)  = rhs(ind)
+
+            ifixs(i) = ifix(ind)
+            fixvs(i) = fixv(ind)
+
+            sols(i)  = sol(i)
+         end do
+
+! prepare matrix
+! Load sparse matrix
+         ! find the length for matrix entries
+         call sm_pmd_get_length(matrixtype,nelems,inets,linets,nnets,lnnets,nndfs,lnndfs,la)
+         ! prepare memory
+         allocate(i_sparse(la), j_sparse(la), a_sparse(la))
+! ELMS - element stiffness matrices of subdomain - structure:
+         call getfname(problemname(1:lproblemname),isub,'ELM',filename)
+         call allocate_unit(idelm)
+         open(unit=idelm,file=filename,status='old',form='unformatted')
+         call sm_pmd_load(matrixtype,idelm,nelems,inets,linets,nnets,lnnets,nndfs,lnndfs,kdofs,lkdofs,&
+                          i_sparse, j_sparse, a_sparse, la)
+
+
+         is_assembled_int = 0
+
+         call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
+                                           isub, nelems, nnods, ndofs, &
+                                           numbase, inets,linets, nnets,lnnets, nndfs,lnndfs, &
+                                           isngns,lisngns, isvgvns,lisvgvns, isegns,lisegns, &
+                                           xyzs,lxyzs1,lxyzs2, &
+                                           ifixs,lifixs, fixvs,lfixvs, &
+                                           rhss,lrhss, &
+                                           matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
+         deallocate(inets,nnets,nndfs,xyzs)
+         deallocate(kdofs)
+         deallocate(rhss)
+         deallocate(ifixs,fixvs)
+         deallocate(sols)
+         deallocate(isvgvns)
+         deallocate(isngns)
+         deallocate(isegns)
+         deallocate(i_sparse, j_sparse, a_sparse)
+      end do
+      deallocate(inet,nnet,nndf,xyz)
+      deallocate(iets)
+      deallocate(kdof)
+      deallocate(ifix,fixv)
+      deallocate(rhs)
+      deallocate(sol)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_load)
       if (myid.eq.0) then
          write (*,'(a)') 'Loading data done.'
          call flush(6)
       end if
-      deallocate(inet,nnet,nndf,xyz)
-      deallocate(kdof)
-      deallocate(ifix,fixv)
-      deallocate(rhs)
-      deallocate(sol)
-      deallocate(inets,nnets,nndfs,xyzs)
-      deallocate(kdofs)
-      deallocate(rhss)
-      deallocate(ifixs,fixvs)
-      deallocate(sols)
-      deallocate(isvgvns)
-      deallocate(isngns)
-      deallocate(isegns)
-      deallocate(i_sparse, j_sparse, a_sparse)
 
+      if (myid.eq.0) then
+         write (*,'(a)') 'Minimal number of shared nodes to call elements adjacent: '
+         call flush(6)
+         read (*,*) neighbouring
+      end if
 ! Broadcast basic properties of the problem
 !***************************************************************PARALLEL
       call MPI_BCAST(neighbouring,1,MPI_INTEGER,      0, comm_all, ierr)
@@ -572,32 +594,47 @@ program bddcml_local
 
       deallocate(nsublev)
 
-      ! download local solution
-      lsols = ndofs
-      allocate(sols(lsols))
-      call bddcml_download_local_solution(sols,lsols,norm_sol)
+      norm2_loc = 0._kr
+      do isub = sub2proc(myid+1), sub2proc(myid+2) - 1
+         ! download local solution
+         ndofs = ndofsa(isub - sub2proc(myid+1) + 1)
+         lsols = ndofs
+         allocate(sols(lsols))
+         call bddcml_download_local_solution(isub, sols,lsols)
+
+         ! write solution to separate file
+         ! open subdomain SOLS file for solution
+         call getfname(problemname(1:lproblemname),isub,'SOLS',filename)
+         call info(routine_name,' Opening file fname: '//trim(filename))
+         call allocate_unit(idsols)
+         open (unit=idsols,file=trim(filename),status='replace',form='unformatted')
+
+         rewind idsols
+         write(idsols) (sols(i),i=1,lsols)
+         
+         if (print_solution) then
+            write(*,*) 'isub =',isub,' solution: '
+            write(*,'(e15.7)') sols
+         end if
+         close(idsols)
+
+         call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, norm2_sub )
+
+         norm2_loc = norm2_loc + norm2_sub
+
+         deallocate(sols)
+      end do
+
+      ! find global norm of solution
+      call MPI_ALLREDUCE(norm2_loc, norm2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr)
+      norm_sol = sqrt( norm2 )
 
       if (myid.eq.0) then
           write(*,*) 'Norm of solution is: ', norm_sol
       end if
 
-      ! write solution to separate file
-      ! open subdomain SOLS file for solution
-      call getfname(problemname(1:lproblemname),isub,'SOLS',filename)
-      call info(routine_name,' Opening file fname: '//trim(filename))
-      call allocate_unit(idsols)
-      open (unit=idsols,file=trim(filename),status='replace',form='unformatted')
-
-      rewind idsols
-      write(idsols) (sols(i),i=1,lsols)
-      
-      if (print_solution) then
-         write(*,*) 'isub =',isub,' solution: '
-         write(*,'(e15.7)') sols
-      end if
-      close(idsols)
-
-      deallocate(sols)
+      deallocate (ndofsa)
+      deallocate(sub2proc)
 
       if (myid.eq.0) then
          write (*,'(a)') 'Finalizing LEVELS ...'
@@ -624,6 +661,7 @@ program bddcml_local
          write(*,'(a)')         '  ______________________________'
          write(*,'(a,f11.3,a)') '  total             ',t_total,    ' s'
       end if
+
 
       ! MPI finalization
 !***************************************************************PARALLEL

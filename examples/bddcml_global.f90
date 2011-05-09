@@ -68,7 +68,7 @@ program bddcml_global
       integer, parameter :: numbase = 1
 
 ! use prepared division into subdomains on first level in file *.ES?
-      integer,parameter :: load_division = 0
+      integer,parameter :: load_division = 1
 ! use prepared selection of corners in file *.CN and description of globs for first level in file *.GLB?
       integer,parameter :: load_globs = 0
 ! use prepared file with pairs for adaptivity (*.PAIR) on first level?
@@ -110,6 +110,9 @@ program bddcml_global
 ! subdomains in levels
       integer ::            lnsublev
       integer,allocatable :: nsublev(:)
+
+      ! number of local subdomains on level 1
+      integer :: nsub_loc_1
 
       integer ::                    lnnet,   lnndf
       integer,allocatable:: inet(:), nnet(:), nndf(:)
@@ -319,7 +322,8 @@ program bddcml_global
 
 
       call time_start
-      call bddcml_init(nlevels,nsublev,lnsublev,comm_all,verbose_level)
+      nsub_loc_1 = -1
+      call bddcml_init(nlevels,nsublev,lnsublev,nsub_loc_1,comm_all,verbose_level)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_init)
       if (myid.eq.0) then

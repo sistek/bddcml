@@ -49,6 +49,8 @@ module module_levels
          integer :: comm_all  ! global communicator for the level
          integer :: comm_self ! local communicator for the level
          
+         
+         logical :: global_loading = .true. ! global data are normally expected - this is switched off by local loaded subdomains
 
          integer :: nelem    ! number of elements on level
          integer :: nnod     ! number of nodes on level
@@ -117,8 +119,6 @@ module module_levels
 
          real(kr) :: adaptivity_estimate ! estimate of condition number on given level
 
-         logical :: is_basics_loaded  = .false. ! subdomain mesh, subdomain - for local data loading
-
          logical :: is_level_prepared = .false. ! whole level prepared
 
       end type levels_type
@@ -133,9 +133,9 @@ module module_levels
 
 contains
 
-!******************************************************************
-subroutine levels_init(nl,nsublev,lnsublev,comm_init,verbose_level)
-!******************************************************************
+!*****************************************************************************
+subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level)
+!*****************************************************************************
 ! Subroutine for initialization of levels data and creating communicators
       ! NOTE:
       ! although the code supports reducing communicators, some routines require
@@ -154,12 +154,17 @@ subroutine levels_init(nl,nsublev,lnsublev,comm_init,verbose_level)
 
 ! given number of levels
       integer,intent(in) :: nl
-! number of subdomains in all levels
+! global number of subdomains in all levels - i.e. sum of all subdomains at first level
       integer,intent(in) :: lnsublev
       integer,intent(in) ::  nsublev(lnsublev)
 
-      integer, intent(in):: comm_init ! initial global communicator (possibly MPI_COMM_WORLD)
-      integer, intent(in):: verbose_level ! verbosity level
+      integer,intent(inout) ::  nsub_loc_1    ! number of subdomains on first level dedicated to the process - if -1, 
+                                              ! the solver decides and returns the value, to which it was allocated
+                                              ! note that you can either determine all or none, i.e. all cores should have -1
+                                              ! if this value should be computed
+
+      integer, intent(in)::     comm_init     ! initial global communicator (possibly MPI_COMM_WORLD)
+      integer, intent(in)::     verbose_level ! verbosity level
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_INIT'
@@ -170,6 +175,8 @@ subroutine levels_init(nl,nsublev,lnsublev,comm_init,verbose_level)
       integer,allocatable :: ranks(:)
       integer :: mpi_group_new, mpi_group_old, comm_new, comm_old
       integer :: myid_old, nproc_old
+      integer :: nsub_1
+      integer :: i, ir
 
 ! initial checks 
       if (nl.lt.2) then
@@ -177,6 +184,15 @@ subroutine levels_init(nl,nsublev,lnsublev,comm_init,verbose_level)
       end if
       if (nsublev(nl).ne.1) then
          call error(routine_name,'Number of subdomains at last level must be 1.')
+      end if
+      if ( nsub_loc_1 .ne. -1 ) then ! check that the sum applies
+!***************************************************************PARALLEL
+         call MPI_ALLREDUCE( nsub_loc_1, nsub_1, 1, MPI_INTEGER, MPI_SUM, comm_init, ierr) 
+!***************************************************************PARALLEL
+         ! the result should compare to number of levels at first level
+         if ( nsub_1 .ne. nsublev(1) ) then
+            call error(routine_name,'Number of local subdomains on first level must sum up to given global number:', nsublev(1))
+         end if
       end if
       if (any(nsublev(2:nl).gt.nsublev(1:nl-1))) then
          call error(routine_name,'Number of subdomains must decrease monotonically with increasing level.')
@@ -274,9 +290,36 @@ subroutine levels_init(nl,nsublev,lnsublev,comm_init,verbose_level)
             ! prepare distribution of subdomains for the level
             levels(iactive_level)%lsub2proc = nproc + 1
             allocate(levels(iactive_level)%sub2proc(levels(iactive_level)%lsub2proc))
-            call pp_distribute_linearly(nsub,nproc,levels(iactive_level)%sub2proc,levels(iactive_level)%lsub2proc)
 
-            nsub_loc    = levels(iactive_level)%sub2proc(myid+2) - levels(iactive_level)%sub2proc(myid+1)
+            if ( iactive_level .eq. 1 .and. nsub_loc_1 .ne. -1 ) then ! user defined subdomain distribution on first level
+!***************************************************************PARALLEL
+               call MPI_ALLGATHER( nsub_loc_1, 1, MPI_INTEGER, levels(iactive_level)%sub2proc, 1, MPI_INTEGER, &
+                                   comm_all,ierr)
+!***************************************************************PARALLEL
+               ! the array now contains counts, change it to starts
+               do i = 2,nproc
+                  levels(iactive_level)%sub2proc(i) = levels(iactive_level)%sub2proc(i-1) + levels(iactive_level)%sub2proc(i)
+               end do
+               ! shift it one back and add one 
+               do ir = 0, nproc - 1 ! reverse index
+                  i = nproc + 1 - ir
+
+                  levels(iactive_level)%sub2proc(i) = levels(iactive_level)%sub2proc(i-1) + 1
+               end do
+               ! put one in the beginning
+               levels(iactive_level)%sub2proc(1) = 1
+
+               nsub_loc = nsub_loc_1
+
+            else
+               call pp_distribute_linearly(nsub,nproc,levels(iactive_level)%sub2proc,levels(iactive_level)%lsub2proc)
+               nsub_loc    = levels(iactive_level)%sub2proc(myid+2) - levels(iactive_level)%sub2proc(myid+1)
+               ! return to user the number of assigned subdomains
+               if ( iactive_level .eq. 1 ) then
+                  nsub_loc_1 = nsub_loc
+               end if
+            end if
+
             levels(iactive_level)%nsub_loc = nsub_loc
 
             ! prepare array of indices of local subdomains for each level
@@ -421,20 +464,20 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
 
 
       levels(iactive_level)%is_level_prepared = .true.
+
 end subroutine
 
 !***********************************************************************************
-subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
-                                    isub, nelems, nnods, ndofs, &
-                                    numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
-                                    isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
-                                    xyz,lxyz1,lxyz2, &
-                                    ifix,lifix, fixv,lfixv, &
-                                    rhs,lrhs, &
-                                    matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
+subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
+                                        isub, nelems, nnods, ndofs, &
+                                        numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
+                                        isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
+                                        xyz,lxyz1,lxyz2, &
+                                        ifix,lifix, fixv,lfixv, &
+                                        rhs,lrhs, &
+                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
 !***********************************************************************************
-! Subroutine for loading LOCAL data at first level
-! currently only allows loading one subdomain for each processor
+! Subroutine for loading LOCAL data of one subdomain at first level
       use module_utils
       implicit none
 
@@ -475,74 +518,80 @@ subroutine levels_upload_local_data(nelem, nnod, ndof, ndim, &
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_LOCAL_DATA'
       integer :: numshift
 
+      logical :: is_mesh_loaded 
+      integer :: isub_loc
+
       ! set active level to zero
       iactive_level = 0
 
       ! set numerical shift for C/Fortran
       numshift = 1 - numbase
 
-      ! initialize zero level
-      levels(iactive_level)%nsub  = nelem
-      levels(iactive_level)%nnodc = nnod
-      levels(iactive_level)%ndofc = ndof
+      if ( .not. levels(iactive_level)%is_level_prepared ) then
+         ! initialize zero level
+         levels(iactive_level)%nsub  = nelem
+         levels(iactive_level)%nnodc = nnod
+         levels(iactive_level)%ndofc = ndof
 
-      levels(iactive_level)%lnnetc = nelem  
-      levels(iactive_level)%lnndfc = nnod 
-      levels(iactive_level)%lxyzc1 = nnod  
-      levels(iactive_level)%lxyzc2 = ndim  
-      levels(iactive_level)%lifixc = ndof
-      levels(iactive_level)%lfixvc = ndof
-      levels(iactive_level)%lrhsc  = ndof
+         levels(iactive_level)%lnnetc = nelem  
+         levels(iactive_level)%lnndfc = nnod 
+         levels(iactive_level)%lxyzc1 = nnod  
+         levels(iactive_level)%lxyzc2 = ndim  
+         levels(iactive_level)%lifixc = ndof
+         levels(iactive_level)%lfixvc = ndof
+         levels(iactive_level)%lrhsc  = ndof
 
-      levels(iactive_level)%lsolc  = ndof
-      allocate(levels(iactive_level)%solc(levels(iactive_level)%lsolc))
-      levels(iactive_level)%solc = 0
+         levels(iactive_level)%lsolc  = ndof
 
-      ! mark 0th level as ready
-      levels(iactive_level)%is_level_prepared = .true.
-
+         ! mark 0th level as ready
+         levels(iactive_level)%is_level_prepared = .true.
+      end if
 
       ! set active level to one
       iactive_level = 1
 
-! initialize zero level
-      levels(iactive_level)%nelem  = nelem
-      levels(iactive_level)%nnodc   = nnod
-      levels(iactive_level)%ndofc   = ndof
+      ! note that no global data are loaded
+      levels(iactive_level)%global_loading = .false.
+
+      ! local index of subdomain
+      call get_index(isub, levels(iactive_level)%indexsub,levels(iactive_level)%lindexsub, isub_loc)
+      if ( isub_loc .eq. -1 ) then
+         call error( routine_name, 'Index of subdomain not found among local subdomains: ', isub )
+      end if
 
 ! check that there is one and only one active subdomain
-      if (levels(iactive_level)%nsub_loc.ne.1) then
-         call error(routine_name,'There is not one subdomain activated at level (currently not supported). Activated: ',&
-                    levels(iactive_level)%nsub_loc)
-      end if
-      if (levels(iactive_level)%lsubdomains .ne. 1) then
-         call error(routine_name,'Inproper size of array SUBDOMAINS for sub',isub)
-      end if
       if (.not. allocated(levels(iactive_level)%subdomains)) then
-         call error(routine_name,'memory for subdomain not prepared for sub',isub)
+         call error( routine_name,'memory not prepared for subdomain', isub )
       end if
 
-      call dd_upload_sub_mesh(levels(iactive_level)%subdomains(1), nelems, nnods, ndofs, ndim, &
+      ! check that the subdomain is empty
+      call dd_is_mesh_loaded( levels(iactive_level)%subdomains(isub_loc), is_mesh_loaded )
+      if ( is_mesh_loaded ) then
+         call error( routine_name, 'It appears that mesh was already loaded for subdomain', isub )
+      end if
+
+      call dd_upload_sub_mesh(levels(iactive_level)%subdomains(isub_loc), nelems, nnods, ndofs, ndim, &
                               nndf,lnndf, nnet,lnnet, numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
                               xyz,lxyz1,lxyz2)
-      call dd_upload_bc(levels(iactive_level)%subdomains(1), ifix,lifix, fixv,lfixv)
-      call dd_upload_rhs(levels(iactive_level)%subdomains(1), rhs,lrhs)
+      call dd_upload_bc(levels(iactive_level)%subdomains(isub_loc), ifix,lifix, fixv,lfixv)
+      call dd_upload_rhs(levels(iactive_level)%subdomains(isub_loc), rhs,lrhs)
 
       ! load matrix to our structure
-      call dd_load_matrix_triplet(levels(iactive_level)%subdomains(1), matrixtype, numshift, &
+      call dd_load_matrix_triplet(levels(iactive_level)%subdomains(isub_loc), matrixtype, numshift, &
                                   i_sparse,j_sparse,a_sparse,la,la,is_assembled)
       ! assembly it if needed
       if (.not. is_assembled) then
-         call dd_assembly_local_matrix(levels(iactive_level)%subdomains(1))
+         call dd_assembly_local_matrix(levels(iactive_level)%subdomains(isub_loc))
       end if
 
+      ! initialize first level if all subdomains were loaded
+      levels(iactive_level)%nelem   = nelem
+      levels(iactive_level)%nnodc   = nnod
+      levels(iactive_level)%ndofc   = ndof
+
       ! TODO: Allow loading initial approximation of solution
-
       levels(iactive_level)%use_initial_solution = .false.
-
-      ! mark that basics are loaded on 1st level
-      levels(iactive_level)%is_basics_loaded = .true.
 
 end subroutine
 
@@ -1062,6 +1111,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
       logical :: remove_original 
       logical :: remove_bc_nodes 
       logical :: keep_global 
+      logical :: is_mesh_loaded 
 
       ! variables for new Parmetis Communicator
       integer ::            lranks
@@ -1091,7 +1141,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
                   t_prepare_coarse, t_standard_coarse_prepare, t_adaptive_coarse_prepare,&
                   t_par_globs_search, t_construct_cnodes 
 
-      if (.not.levels(ilevel-1)%is_level_prepared) then
+      if (.not.levels(ilevel-1)%is_level_prepared .and.  levels(ilevel)%nsub_loc .gt. 0 ) then
          call error(routine_name, 'Previous level not ready:', ilevel-1)
       end if
 
@@ -1139,8 +1189,9 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
       nnod      = levels(ilevel)%nnod
       nelem     = levels(ilevel)%nelem
 
-      ! if basic data are loaded for each subdomain, jump to searching globs
-      if (levels(iactive_level)%is_basics_loaded) then
+      ! only perform division of into subdomains for global loading
+      call MPI_BCAST(levels(iactive_level)%global_loading, 1, MPI_LOGICAL, 0, levels(iactive_level-1)%comm_all, ierr)
+      if (.not. levels(iactive_level)%global_loading .and. iactive_level .eq. 1) then
          goto 1234
       end if
 
@@ -1230,9 +1281,9 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
 
             ! find local number of elements in linear distribution and maximal value
             nelem_loc  = elm2proc(myid_parmetis+2) - elm2proc(myid_parmetis+1)
-!***************************************************************PARALLEL
+!************************************************************PARALLEL
             call MPI_ALLREDUCE(nelem_loc,nelem_locx,1, MPI_INTEGER, MPI_MAX, comm_parmetis, ierr) 
-!***************************************************************PARALLEL
+!************************************************************PARALLEL
             ! debug
             !print *,'myid = ',myid_parmetis,'nelem_loc',nelem_loc,'nelem_locx',nelem_locx
             
@@ -1267,9 +1318,9 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
                      length_send = length_send + nnet(ie)
                   end do
                   if (length_send.gt.0) then
-!***************************************************************PARALLEL
+!************************************************************PARALLEL
                      call MPI_SEND(inet(indinet),length_send,MPI_INTEGER,indproc,indproc,comm_parmetis,ierr)
-!***************************************************************PARALLEL
+!************************************************************PARALLEL
                   end if
                   indinet = indinet + length_send
                end do
@@ -1278,9 +1329,9 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
                nullify(nnet)
             else
                if (linet_loc.gt.0) then
-!***************************************************************PARALLEL
+!************************************************************PARALLEL
                   call MPI_RECV(inet_loc,linet_loc,MPI_INTEGER,0,myid_parmetis,comm_parmetis,stat,ierr)
-!***************************************************************PARALLEL
+!************************************************************PARALLEL
                end if
             end if
       
@@ -1401,9 +1452,9 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
 !-----profile
       end if
       ! populate IETS along previous communicator
-!***************************************************************PARALLEL
+!************************************************************PARALLEL
       call MPI_BCAST(levels(ilevel)%iets,levels(ilevel)%liets, MPI_INTEGER, 0, comm_all, ierr)
-!***************************************************************PARALLEL
+!************************************************************PARALLEL
       ! check division - that number of subdomains equal largest entry in partition array IETS
       if (maxval(levels(ilevel)%iets).ne.nsub) then
          !write(*,*) 'IETS:',levels(ilevel)%iets
@@ -1484,9 +1535,17 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
          end if
       end if
 !-----profile
-
-      ! get here if distributed data were loaded
+      
+! only for global loading
  1234 continue
+
+      ! check that subdomains are properly loaded
+      do i = 1,levels(iactive_level)%nsub_loc
+         call dd_is_mesh_loaded( levels(iactive_level)%subdomains(i), is_mesh_loaded )
+         if ( .not. is_mesh_loaded ) then
+            call error( routine_name, 'It appears that not all expected subdomains were loaded on proc: ', myid )
+         end if
+      end do
 
       ! for communication, any shared nodes are considered
 !-----profile 
@@ -2134,9 +2193,10 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
       end if
 
       ! Get matrix
-      if (levels(iactive_level)%is_basics_loaded) then
+      if (.not. levels(iactive_level)%global_loading .and. iactive_level .eq. 1) then
          goto 1235
       end if
+
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
@@ -2166,9 +2226,9 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
          if (myid_prev.eq.0) then 
             liets_aux = levels(ilevel)%liets
          end if
-!*****************************************************************MPI
+!**************************************************************MPI
          call MPI_BCAST(liets_aux,  1,  MPI_INTEGER, 0, comm_prev, ierr)
-!*****************************************************************MPI
+!**************************************************************MPI
          allocate(iets_aux(liets_aux))
          if (myid_prev.eq.0) then 
             ! copy IETS at root
@@ -2176,16 +2236,16 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
                iets_aux(i) = levels(ilevel)%iets(i)
             end do
          end if
-!*****************************************************************MPI
+!**************************************************************MPI
          call MPI_BCAST(iets_aux,  liets_aux,  MPI_INTEGER, 0, comm_prev, ierr)
-!*****************************************************************MPI
+!**************************************************************MPI
          ! distribute SUB2PROC along all processes at previous level
          if (myid_prev.eq.0) then 
             lsub2proc_aux = nproc_prev+1
          end if
-!*****************************************************************MPI
+!**************************************************************MPI
          call MPI_BCAST(lsub2proc_aux,  1,  MPI_INTEGER, 0, comm_prev, ierr)
-!*****************************************************************MPI
+!**************************************************************MPI
          allocate(sub2proc_aux(lsub2proc_aux))
          if (myid_prev.eq.0) then 
             ! copy SUB2PROC at root
@@ -2197,9 +2257,9 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
                sub2proc_aux(i) = nsub+1
             end do
          end if
-!*****************************************************************MPI
+!**************************************************************MPI
          call MPI_BCAST(sub2proc_aux,  lsub2proc_aux,  MPI_INTEGER, 0, comm_prev, ierr)
-!*****************************************************************MPI
+!**************************************************************MPI
          call dd_gather_matrix(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains,&
                                levels(ilevel-1)%subdomains,levels(ilevel-1)%lsubdomains,&
                                comm_prev,levels(ilevel)%nsub,levels(ilevel-1)%nsub,matrixtype,&
@@ -3272,7 +3332,7 @@ subroutine levels_add_standard_level(ilevel)
          call dd_map_subo_to_sub(levels(ilevel)%subdomains(isub_loc), resos,lresos, sols,lsols)
          deallocate(resos)
 
-         ! restrict prolong subdomain sols to global sol
+         ! prolong subdomain sols to global sol
          call dd_map_sub_to_glob(levels(ilevel)%subdomains(isub_loc), sols,lsols, solaux,lsol)
          deallocate(sols)
       end do
@@ -3631,9 +3691,9 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data)
 
 end subroutine
 
-!**********************************************************
-subroutine levels_dd_download_solution(sols,lsols,norm_sol)
-!**********************************************************
+!*******************************************************
+subroutine levels_dd_download_solution(isub, sols,lsols)
+!*******************************************************
 ! Subroutine for obtaining LOCAL solution from DD structure.
 ! Only calls the function from DD module.
 ! module for handling subdomain data
@@ -3644,47 +3704,28 @@ subroutine levels_dd_download_solution(sols,lsols,norm_sol)
       implicit none
       include "mpif.h"
 
+      ! global index of subdomain
+      integer, intent(in) ::  isub
+
       ! local solution 
       integer, intent(in) ::  lsols
       real(kr), intent(out) :: sols(lsols)
-      real(kr), intent(out) :: norm_sol
 
 ! local vars
       character(*),parameter:: routine_name = 'LEVELS_DD_DOWNLOAD_SOLUTION'
       ! for Krylov data, index of level is 1
       integer,parameter :: ilevel = 1
 
-      integer ::             lsols_aux
-      real(kr),allocatable :: sols_aux(:)
+      integer :: isub_loc
 
-      real(kr) :: normsol2_loc, normsol2_sub, normsol2
-      integer :: ierr
-
-      normsol2_loc = 0
+      ! local index of subdomain
+      call get_index(isub, levels(ilevel)%indexsub,levels(ilevel)%lindexsub, isub_loc)
+      if ( isub_loc .eq. -1 ) then
+         call error( routine_name, 'Index of subdomain not found among local subdomains: ', isub )
+      end if
 
       ! obtain solution from DD structure
-      call dd_download_solution(levels(ilevel)%subdomains(1), sols,lsols)
-
-      ! compute norm of global solution vector
-      lsols_aux = lsols
-      allocate(sols_aux(lsols_aux))
-
-      ! copy array
-      sols_aux = sols
-      call dd_weights_apply(levels(ilevel)%subdomains(1),sols_aux,lsols_aux)
-
-      normsol2_sub = dot_product(sols_aux,sols)
-      normsol2_loc = normsol2_loc + normsol2_sub
-
-!***************************************************************PARALLEL
-      call MPI_ALLREDUCE(normsol2_loc,normsol2, 1, MPI_DOUBLE_PRECISION,&
-                         MPI_SUM, levels(ilevel)%comm_all, ierr) 
-!***************************************************************PARALLEL
-
-      ! fill the global norm
-      norm_sol = sqrt(normsol2)
-
-      deallocate(sols_aux)
+      call dd_download_solution(levels(ilevel)%subdomains(isub_loc), sols,lsols)
 
 end subroutine
 
@@ -3818,11 +3859,48 @@ subroutine levels_get_global_solution(sol,lsol)
 
 end subroutine
 
+!*****************************************************************************************
+subroutine levels_dd_dotprod_subdomain_local(ilevel,isub, vec1,lvec1, vec2,lvec2, dotprod)
+!*****************************************************************************************
+! Subroutine used for indirect access to DD data
+! multiplies vector 1 and vector 2 using weights in DD at interface, but uses
+! subdomain arrays (i.e. including intrior )
+      use module_utils
+      implicit none
+
+      ! length of vector
+      integer,intent(in) ::   ilevel 
+      integer,intent(in) ::   isub
+      ! vectors to multiply
+      integer,intent(in) ::  lvec1
+      real(kr), intent(in) :: vec1(lvec1)
+      integer,intent(in) ::  lvec2
+      real(kr), intent(in) :: vec2(lvec2)
+      
+      ! result
+      real(kr), intent(out) :: dotprod
+
+      ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_DD_DOTPROD_SUBDOMAIN_LOCAL'
+      integer :: isub_loc
+
+      ! local index of subdomain
+      call get_index(isub, levels(ilevel)%indexsub,levels(ilevel)%lindexsub, isub_loc)
+      if ( isub_loc .eq. -1 ) then
+         call error( routine_name, 'Index of subdomain not found among local subdomains: ', isub )
+      end if
+
+      ! add data from module and call function from adaptive module
+      call dd_dotprod_subdomain_local(levels(ilevel)%subdomains(isub_loc), vec1,lvec1, vec2,lvec2, dotprod)
+
+end subroutine
+
 !***********************************************************************************
 subroutine levels_dd_dotprod_local(ilevel,isub_loc, vec1,lvec1, vec2,lvec2, dotprod)
 !***********************************************************************************
 ! Subroutine used for indirect access to DD data
-! multiplies vector 1 and vector 2 using weights in DD
+! multiplies vector 1 and vector 2 using weights in DD, only uses vectors at
+! interface
       implicit none
 
       ! length of vector

@@ -5592,6 +5592,20 @@ subroutine dd_get_interface_size(sub,ndofi,nnodi)
 
 end subroutine
 
+!***********************************************
+subroutine dd_is_mesh_loaded(sub,is_mesh_loaded)
+!***********************************************
+! Subroutine for querying if mesh is loaded for the subdomain
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+! Is mesh loaded?
+      logical,intent(out) :: is_mesh_loaded
+
+      is_mesh_loaded = sub%is_mesh_loaded
+end subroutine
+
 !******************************************
 subroutine dd_get_size(sub,ndof,nnod,nelem)
 !******************************************
@@ -9331,6 +9345,60 @@ subroutine dd_get_interface_diagonal(sub, rhoi,lrhoi)
       deallocate(rho)
 end subroutine
 
+!**************************************************************************
+subroutine dd_dotprod_subdomain_local(sub, vec1,lvec1, vec2,lvec2, dotprod)
+!**************************************************************************
+! Subroutine for computing weighted dot product to be used in repeated entries with DD
+! dotprod = vec1 * wi * vec2, assumes vectors of subdomain length
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+
+      ! vectors to multiply
+      integer,intent(in) ::  lvec1
+      real(kr), intent(in) :: vec1(lvec1)
+      integer,intent(in) ::  lvec2
+      real(kr), intent(in) :: vec2(lvec2)
+      
+      ! result
+      real(kr), intent(out) :: dotprod
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_DOTPROD_SUBDOMAIN_LOCAL'
+      integer :: i, indvs
+      integer :: ndofi, ndofo
+
+      ! check the prerequisities
+      if (.not. (sub%is_weights_ready)) then
+         write(*,*) 'DD_DOTPROD_LOCAL: Weights not ready.'
+         call error_exit
+      end if
+
+      ! check dimensions
+      if (lvec1 .ne. lvec2) then
+         call error( routine_name, 'Dimensions mismatch.' )
+      end if
+      if (lvec1 .ne. sub%ndof) then
+         call error( routine_name, 'Dimensions mismatch with local subdomain size.' )
+      end if
+
+      ndofi = sub%ndofi
+      ndofo = sub%ndofo
+
+      dotprod = 0._kr
+      ! weight the vector at interface
+      do i = 1,ndofi
+         indvs = sub%iivsvn(i)
+         dotprod = dotprod + vec1(indvs) * sub%wi(i) * vec2(indvs)
+      end do
+      ! unweighted contribution at interior
+      do i = 1,ndofo
+         indvs = sub%iovsvn(i)
+         dotprod = dotprod + vec1(indvs) * vec2(indvs)
+      end do
+
+end subroutine
 !****************************************************************
 subroutine dd_dotprod_local(sub, vec1,lvec1, vec2,lvec2, dotprod)
 !****************************************************************

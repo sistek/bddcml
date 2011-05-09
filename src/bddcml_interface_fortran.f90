@@ -19,9 +19,9 @@
 ! to exploit multilevel adaptive BDDC solver 
 ! Jakub Sistek, Praha 12/2010
 
-!******************************************************************
-subroutine bddcml_init(nl,nsublev,lnsublev,comm_init,verbose_level)
-!******************************************************************
+!*****************************************************************************
+subroutine bddcml_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level)
+!*****************************************************************************
 ! initialization of LEVELS module
       use module_levels
       use module_utils , only : suppress_output_on
@@ -30,9 +30,13 @@ subroutine bddcml_init(nl,nsublev,lnsublev,comm_init,verbose_level)
 
 ! given number of levels
       integer,intent(in) :: nl
-! number of subdomains in all levels
+! GLOBAL numbers of subdomains in all levels
       integer,intent(in) :: lnsublev
       integer,intent(in) ::  nsublev(lnsublev)
+! LOCAL number of subdomains assigned to the process
+!     >= 0 - number of local subdomains - sum up across processes to nsublev(1)
+!     -1   - let solver decide, then the value is returned ( determining linear partition )
+      integer, intent(inout):: nsub_loc_1 
 ! initial global communicator (possibly MPI_COMM_WORLD)
       integer, intent(in):: comm_init 
 ! level of verbosity
@@ -41,7 +45,7 @@ subroutine bddcml_init(nl,nsublev,lnsublev,comm_init,verbose_level)
 !     2 - detailed output
       integer, intent(in):: verbose_level 
 
-      call levels_init(nl,nsublev,lnsublev,comm_init,verbose_level)
+      call levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level)
 
       select case ( verbose_level )
       case (0)
@@ -118,14 +122,14 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
 end subroutine
 
 !**************************************************************************************
-subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
-                                    isub, nelems, nnods, ndofs, &
-                                    numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
-                                    isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
-                                    xyz,lxyz1,lxyz2, &
-                                    ifix,lifix, fixv,lfixv, &
-                                    rhs,lrhs, &
-                                    matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
+subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
+                                        isub, nelems, nnods, ndofs, &
+                                        numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
+                                        isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
+                                        xyz,lxyz1,lxyz2, &
+                                        ifix,lifix, fixv,lfixv, &
+                                        rhs,lrhs, &
+                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
 ! Only one subdomain is allowed to be loaded at each processor
@@ -143,7 +147,7 @@ subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
       ! GLOBAL number of spacial dimensions
       integer, intent(in):: ndim
 
-      ! index of subdomain
+      ! GLOBAL index of subdomain
       integer, intent(in):: isub
       ! LOCAL number of elements
       integer, intent(in):: nelems
@@ -222,14 +226,14 @@ subroutine bddcml_upload_local_data(nelem, nnod, ndof, ndim, &
       ! translate integer to logical
       call logical2integer(is_assembled_int,is_assembled)
 
-      call levels_upload_local_data(nelem, nnod, ndof, ndim, &
-                                    isub, nelems, nnods, ndofs, &
-                                    numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
-                                    isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
-                                    xyz,lxyz1,lxyz2, &
-                                    ifix,lifix, fixv,lfixv, &
-                                    rhs,lrhs, &
-                                    matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
+      call levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
+                                        isub, nelems, nnods, ndofs, &
+                                        numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
+                                        isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
+                                        xyz,lxyz1,lxyz2, &
+                                        ifix,lifix, fixv,lfixv, &
+                                        rhs,lrhs, &
+                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
 
 end subroutine
 
@@ -434,23 +438,24 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
 
 end subroutine
 
-!***************************************************************
-subroutine bddcml_download_local_solution(sols, lsols, norm_sol)
-!***************************************************************
+!**********************************************************
+subroutine bddcml_download_local_solution(isub, sols,lsols)
+!**********************************************************
 ! Subroutine for getting local solution,
 ! i.e. restriction of solution vector to subdomain (no weights are applied)
-! Only one subdomain is allowed to be at each processor
       use module_levels
       use module_utils
       implicit none
       integer,parameter :: kr = kind(1.D0)
 
+      ! GLOBAL index of subdomain
+      integer, intent(in)::  isub
+
       ! LOCAL solution 
       integer, intent(in)::  lsols
       real(kr), intent(out):: sols(lsols)
-      real(kr), intent(out):: norm_sol
 
-      call levels_dd_download_solution(sols,lsols, norm_sol)
+      call levels_dd_download_solution(isub, sols,lsols)
 
 end subroutine
 
@@ -468,6 +473,37 @@ subroutine bddcml_download_global_solution(sol, lsol)
       real(kr), intent(out):: sol(lsol)
 
       call levels_get_global_solution(sol,lsol)
+
+end subroutine
+
+!*******************************************************************************
+subroutine bddcml_dotprod_subdomain( isub, vec1,lvec1, vec2,lvec2, dotprod )
+!*******************************************************************************
+! Auxiliary subroutine to compute scalar product of two vectors of lenght of
+! subdomain exploiting interface weights from the solver. This routine is useful 
+! if we want to compute global norm or dot product based on vectors restricted to 
+! subdomains. Since interface values are contained in several vectors for
+! several subdomains, this dot product or norm cannot be determined without
+! weights.
+      use module_levels
+      implicit none
+      integer,parameter :: kr = kind(1.D0)
+
+      ! GLOBAL index of subdomain
+      integer,intent(in) ::   isub 
+      ! vectors to multiply
+      integer,intent(in) ::  lvec1        ! length of the first vector
+      real(kr), intent(in) :: vec1(lvec1) ! first vector
+      integer,intent(in) ::  lvec2        ! length of the second vector
+      real(kr), intent(in) :: vec2(lvec2) ! second vector - may be same as first
+      
+      ! result = vec1' * weights * vec2
+      real(kr), intent(out) :: dotprod
+
+      ! local vars
+      integer,parameter :: ilevel = 1
+
+      call levels_dd_dotprod_subdomain_local(ilevel, isub, vec1,lvec1, vec2,lvec2, dotprod)
 
 end subroutine
 
