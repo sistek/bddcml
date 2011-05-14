@@ -306,7 +306,7 @@ contains
       ! local vars
       character(*),parameter:: routine_name = 'MUMPS_FACTORIZE'
       integer :: myid, errproc, ierr, comm, errcode
-      integer,parameter :: mem_relax_lim = 100 ! limit of allowed memory relaxation (in percent)
+      integer,parameter :: mem_relax_lim = 300 ! limit of allowed memory relaxation (in percent)
 
 
 ! Job type = 2 for factorization

@@ -516,6 +516,8 @@ program bddcml_local
 
          is_assembled_int = 0
 
+
+         ! experiment a bit
          call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
                                            isub, nelems, nnods, ndofs, &
                                            numbase, inets,linets, nnets,lnnets, nndfs,lnndfs, &
@@ -523,6 +525,7 @@ program bddcml_local
                                            xyzs,lxyzs1,lxyzs2, &
                                            ifixs,lifixs, fixvs,lfixvs, &
                                            rhss,lrhss, &
+                                           sols,lsols, &
                                            matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
          deallocate(inets,nnets,nndfs,xyzs)
          deallocate(kdofs)

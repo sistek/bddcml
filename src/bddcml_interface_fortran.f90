@@ -129,6 +129,7 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
                                         xyz,lxyz1,lxyz2, &
                                         ifix,lifix, fixv,lfixv, &
                                         rhs,lrhs, &
+                                        sol,lsol, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
@@ -201,9 +202,8 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       real(kr), intent(in):: rhs(lrhs)
 
       ! LOCAL initial SOLution - initial approximation for iterative method
-      ! not supported in present version
-      !integer, intent(in):: lsol
-      !real(kr), intent(in):: sol(lsol)
+      integer, intent(in):: lsol
+      real(kr), intent(in):: sol(lsol)
 
       ! LOCAL matrix triplet i, j, a(i,j) 
       ! Type of the matrix
@@ -233,6 +233,7 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
                                         xyz,lxyz1,lxyz2, &
                                         ifix,lifix, fixv,lfixv, &
                                         rhs,lrhs, &
+                                        sol,lsol, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
 
 end subroutine

@@ -458,12 +458,7 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       do i = 1,levels(iactive_level)%lsolc
          levels(iactive_level)%solc(i) = sol(i)
       end do
-      if (any(sol.ne.0._kr)) then
-         levels(iactive_level)%use_initial_solution = .true.
-      else
-         levels(iactive_level)%use_initial_solution = .false.
-      end if
-
+      levels(iactive_level)%use_initial_solution = .true.
 
       levels(iactive_level)%is_level_prepared = .true.
 
@@ -477,6 +472,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
                                         xyz,lxyz1,lxyz2, &
                                         ifix,lifix, fixv,lfixv, &
                                         rhs,lrhs, &
+                                        sol,lsol, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
 !***********************************************************************************
 ! Subroutine for loading LOCAL data of one subdomain at first level
@@ -506,6 +502,8 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       real(kr), intent(in):: fixv(lfixv)
       integer, intent(in):: lrhs
       real(kr), intent(in):: rhs(lrhs)
+      integer, intent(in):: lsol
+      real(kr), intent(in):: sol(lsol)
       ! LOCAL matrix triplet i, j, a(i,j) 
       integer, intent(in)::  matrixtype    ! type of matrix (MUMPS-like)
       integer, intent(in)::  i_sparse(la)  ! array of row indices
@@ -578,9 +576,14 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       call dd_upload_bc(levels(iactive_level)%subdomains(isub_loc), ifix,lifix, fixv,lfixv)
       call dd_upload_rhs(levels(iactive_level)%subdomains(isub_loc), rhs,lrhs)
 
+      ! upload initial solution to DD structure
+      call dd_upload_solution(levels(iactive_level)%subdomains(isub_loc), sol,lsol)
+      levels(iactive_level)%use_initial_solution = .true.
+
       ! load matrix to our structure
       call dd_load_matrix_triplet(levels(iactive_level)%subdomains(isub_loc), matrixtype, levels_numshift, &
                                   i_sparse,j_sparse,a_sparse,la,la,is_assembled)
+
       ! assembly it if needed
       if (.not. is_assembled) then
          call dd_assembly_local_matrix(levels(iactive_level)%subdomains(isub_loc))
@@ -591,8 +594,6 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       levels(iactive_level)%nnodc   = nnod
       levels(iactive_level)%ndofc   = ndof
 
-      ! TODO: Allow loading initial approximation of solution
-      levels(iactive_level)%use_initial_solution = .false.
 
 end subroutine
 
@@ -3544,7 +3545,11 @@ subroutine levels_prepare_interface_initial_data(isub_loc,solis,lsolis,resis,lre
 
       if (levels(ilevel)%use_initial_solution) then
          ! set initial guess
-         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc),levels(ilevel)%sol,levels(ilevel)%lsol,sols,lsols)
+         if ( levels(ilevel)%global_loading ) then
+            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc),levels(ilevel)%sol,levels(ilevel)%lsol,sols,lsols)
+         else
+            call dd_download_solution(levels(ilevel)%subdomains(isub_loc), sols,lsols)
+         end if
       else
          ! set zero initial guess
          ! u_0 = 0
