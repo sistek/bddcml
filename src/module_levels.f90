@@ -136,9 +136,9 @@ module module_levels
 
 contains
 
-!*****************************************************************************
-subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level)
-!*****************************************************************************
+!*************************************************************************************
+subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,numbase)
+!*************************************************************************************
 ! Subroutine for initialization of levels data and creating communicators
       ! NOTE:
       ! although the code supports reducing communicators, some routines require
@@ -168,6 +168,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level)
 
       integer, intent(in)::     comm_init     ! initial global communicator (possibly MPI_COMM_WORLD)
       integer, intent(in)::     verbose_level ! verbosity level
+      integer, intent(in)::     numbase       ! first index of arrays ( 0 for C, 1 for Fortran )
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_INIT'
@@ -205,6 +206,9 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level)
       if (verbose_level .eq. 2 ) then
          call levels_set_profile_on
       end if
+
+! set index shift for C/Fortran
+      levels_numshift = 1 - numbase
 
 ! initialize basic structure
       nlevels = nl
@@ -364,7 +368,7 @@ end subroutine
 
 !***********************************************************************************
 subroutine levels_upload_global_data(nelem,nnod,ndof,&
-                                     numbase,inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                     inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                                      ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol, idelm)
 !***********************************************************************************
 ! Subroutine for loading global data as zero level
@@ -372,7 +376,6 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       implicit none
 
       integer, intent(in):: nelem, nnod, ndof
-      integer, intent(in):: numbase
       integer, intent(in):: linet
       integer, intent(in)::  inet(linet)
       integer, intent(in):: lnnet
@@ -401,9 +404,6 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
 
       ! set active level to zero
       iactive_level = 0
-
-      ! set numerical shift for C/Fortran
-      levels_numshift = 1 - numbase
 
       ! check number of elements
       if (levels(1)%nsub.gt.nelem) then
@@ -467,7 +467,7 @@ end subroutine
 !***********************************************************************************
 subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
                                         isub, nelems, nnods, ndofs, &
-                                        numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
+                                        inet,linet, nnet,lnnet, nndf,lnndf, &
                                         isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
                                         xyz,lxyz1,lxyz2, &
                                         ifix,lifix, fixv,lfixv, &
@@ -481,7 +481,6 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
 
       integer, intent(in):: nelem, nnod, ndof, ndim
       integer, intent(in):: isub, nelems, nnods, ndofs
-      integer, intent(in):: numbase
       integer, intent(in):: linet
       integer, intent(in)::  inet(linet)
       integer, intent(in):: lnnet
@@ -522,9 +521,6 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
 
       ! set active level to zero
       iactive_level = 0
-
-      ! set numerical shift for C/Fortran
-      levels_numshift = 1 - numbase
 
       if ( .not. levels(iactive_level)%is_level_prepared ) then
          ! initialize zero level

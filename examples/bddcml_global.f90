@@ -323,7 +323,7 @@ program bddcml_global
 
       call time_start
       nsub_loc_1 = -1
-      call bddcml_init(nlevels,nsublev,lnsublev,nsub_loc_1,comm_all,verbose_level)
+      call bddcml_init(nlevels, nsublev,lnsublev, nsub_loc_1, comm_all, verbose_level, numbase)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_init)
       if (myid.eq.0) then
@@ -335,7 +335,7 @@ program bddcml_global
          call flush(6)
       end if
       call time_start
-      call bddcml_upload_global_data(nelem,nnod,ndof,numbase,&
+      call bddcml_upload_global_data(nelem,nnod,ndof,&
                                      inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                                      ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol, idelm)
       call MPI_BARRIER(comm_all,ierr)

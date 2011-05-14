@@ -19,18 +19,18 @@
 # endif
 
 #define bddcml_init F_SYMBOL(bddcml_init, BDDCML_INIT)
-void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level );
+void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase );
 
 #define bddcml_upload_global_data F_SYMBOL(bddcml_upload_global_data, BDDCML_UPLOAD_GLOBAL_DATA)
 void bddcml_upload_global_data( int *nelem, int *nnod, int *ndof,
-                                int *numbase, int *inet, int *linet, int *nnet, int *lnnet, int *nndf, int *lnndf, 
+                                int *inet, int *linet, int *nnet, int *lnnet, int *nndf, int *lnndf, 
                                 double *xyz, int *lxyz1, int *lxyz2,
                                 int *ifix, int *lifix, double *fixv, int *lfixv, double *rhs, int *lrhs, double *sol, int *lsol, int *idelm );
 
 #define bddcml_upload_subdomain_data F_SYMBOL(bddcml_upload_subdomain_data, BDDCML_UPLOAD_SUBDOMAIN_DATA)
 void bddcml_upload_subdomain_data( int *nelem, int *nnod, int *ndof, int *ndim, 
                                    int *isub, int *nelems, int *nnods, int *ndofs, 
-                                   int *numbase, int *inet, int *linet, int *nnet, int *lnnet, int *nndf, int *lnndf, 
+                                   int *inet, int *linet, int *nnet, int *lnnet, int *nndf, int *lnndf, 
                                    int *isngn, int *lisngn, int *isvgvn, int *lisvgvn, int *isegn, int *lisegn, 
                                    double *xyz, int *lxyz1, int *lxyz2, 
                                    int *ifix, int *lifix, double *fixv, int *lfixv, 

@@ -375,7 +375,7 @@ program bddcml_local
       call time_start
       ! tell me how much subdomains should I load
       nsub_loc_1 = -1
-      call bddcml_init(nlevels, nsublev,lnsublev, nsub_loc_1, comm_all,verbose_level)
+      call bddcml_init(nlevels, nsublev,lnsublev, nsub_loc_1, comm_all, verbose_level, numbase)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_init)
       write (*,*) 'Initializing LEVELS done, locally owned subdomains: ', nsub_loc_1
@@ -520,7 +520,7 @@ program bddcml_local
          ! experiment a bit
          call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
                                            isub, nelems, nnods, ndofs, &
-                                           numbase, inets,linets, nnets,lnnets, nndfs,lnndfs, &
+                                           inets,linets, nnets,lnnets, nndfs,lnndfs, &
                                            isngns,lisngns, isvgvns,lisvgvns, isegns,lisegns, &
                                            xyzs,lxyzs1,lxyzs2, &
                                            ifixs,lifixs, fixvs,lfixvs, &

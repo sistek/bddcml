@@ -215,10 +215,10 @@ program test_module_levels
 
       write (*,*) 'myid = ',myid,': Initializing LEVELS.'
       nsub_loc_1 = -1
-      call levels_init(nlevels,nsublev,lnsublev,nsub_loc_1,comm_all,1)
+      call levels_init(nlevels,nsublev,lnsublev,nsub_loc_1,comm_all,1,numbase)
       write (*,*) 'myid = ',myid,': Number of assigned subdomains:',nsub_loc_1
       call levels_upload_global_data(nelem,nnod,ndof,&
-                                     numbase, inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                     inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                                      ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol,idelm)
       deallocate(inet,nnet,nndf,xyz)
       deallocate(ifix,fixv)

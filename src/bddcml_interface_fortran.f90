@@ -19,9 +19,9 @@
 ! to exploit multilevel adaptive BDDC solver 
 ! Jakub Sistek, Praha 12/2010
 
-!*****************************************************************************
-subroutine bddcml_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level)
-!*****************************************************************************
+!******************************************************************************************
+subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_level, numbase)
+!******************************************************************************************
 ! initialization of LEVELS module
       use module_levels
       use module_utils , only : suppress_output_on
@@ -30,22 +30,29 @@ subroutine bddcml_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level)
 
 ! given number of levels
       integer,intent(in) :: nl
+
 ! GLOBAL numbers of subdomains in all levels
       integer,intent(in) :: lnsublev
       integer,intent(in) ::  nsublev(lnsublev)
+
 ! LOCAL number of subdomains assigned to the process
 !     >= 0 - number of local subdomains - sum up across processes to nsublev(1)
 !     -1   - let solver decide, then the value is returned ( determining linear partition )
       integer, intent(inout):: nsub_loc_1 
+
 ! initial global communicator (possibly MPI_COMM_WORLD)
       integer, intent(in):: comm_init 
+
 ! level of verbosity
 !     0 - only errors printed
 !     1 - some output
 !     2 - detailed output
       integer, intent(in):: verbose_level 
 
-      call levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level)
+! first index of arrays ( 0 for C, 1 for Fortran )
+      integer, intent(in) :: numbase
+
+      call levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,numbase)
 
       select case ( verbose_level )
       case (0)
@@ -61,7 +68,7 @@ end subroutine
 
 !**************************************************************************************
 subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
-                                     numbase, inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                     inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                                      ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol, idelm)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
@@ -77,8 +84,6 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
       ! GLOBAL number of degrees of freedom
       integer, intent(in):: ndof
 
-      ! beginning index of nodes ( 0 for C, 1 for Fortran )
-      integer, intent(in) :: numbase
 
       ! GLOBAL Indices of Nodes on ElemenTs
       integer, intent(in):: linet
@@ -116,7 +121,7 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
       integer,intent(in) :: idelm  
 
       call levels_upload_global_data(nelem,nnod,ndof,&
-                                     numbase, inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                     inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                                      ifix,lifix,fixv,lfixv,rhs,lrhs, sol,lsol, idelm)
 
 end subroutine
@@ -124,7 +129,7 @@ end subroutine
 !**************************************************************************************
 subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
                                         isub, nelems, nnods, ndofs, &
-                                        numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
+                                        inet,linet, nnet,lnnet, nndf,lnndf, &
                                         isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
                                         xyz,lxyz1,lxyz2, &
                                         ifix,lifix, fixv,lfixv, &
@@ -156,9 +161,6 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       integer, intent(in):: nnods
       ! LOCAL number of degrees of freedom
       integer, intent(in):: ndofs
-
-      ! beginning index of nodes ( 0 for C, 1 for Fortran )
-      integer, intent(in) :: numbase
 
       ! LOCAL Indices of Nodes on ElemenTs
       integer, intent(in):: linet
@@ -228,7 +230,7 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
 
       call levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
                                         isub, nelems, nnods, ndofs, &
-                                        numbase, inet,linet, nnet,lnnet, nndf,lnndf, &
+                                        inet,linet, nnet,lnnet, nndf,lnndf, &
                                         isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
                                         xyz,lxyz1,lxyz2, &
                                         ifix,lifix, fixv,lfixv, &
