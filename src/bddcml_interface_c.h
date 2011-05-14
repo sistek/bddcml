@@ -22,13 +22,14 @@
 void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase );
 
 #define bddcml_upload_global_data F_SYMBOL(bddcml_upload_global_data, BDDCML_UPLOAD_GLOBAL_DATA)
-void bddcml_upload_global_data( int *nelem, int *nnod, int *ndof,
+void bddcml_upload_global_data( int *nelem, int *nnod, int *ndof, int *ndim, int *meshdim, 
                                 int *inet, int *linet, int *nnet, int *lnnet, int *nndf, int *lnndf, 
                                 double *xyz, int *lxyz1, int *lxyz2,
-                                int *ifix, int *lifix, double *fixv, int *lfixv, double *rhs, int *lrhs, double *sol, int *lsol, int *idelm );
+                                int *ifix, int *lifix, double *fixv, int *lfixv, double *rhs, int *lrhs, double *sol, int *lsol, int *idelm, 
+                                int *neighbouring, int *load_division_int );
 
 #define bddcml_upload_subdomain_data F_SYMBOL(bddcml_upload_subdomain_data, BDDCML_UPLOAD_SUBDOMAIN_DATA)
-void bddcml_upload_subdomain_data( int *nelem, int *nnod, int *ndof, int *ndim, 
+void bddcml_upload_subdomain_data( int *nelem, int *nnod, int *ndof, int *ndim, int *meshdim,
                                    int *isub, int *nelems, int *nnods, int *ndofs, 
                                    int *inet, int *linet, int *nnet, int *lnnet, int *nndf, int *lnndf, 
                                    int *isngn, int *lisngn, int *isvgvn, int *lisvgvn, int *isegn, int *lisegn, 
@@ -39,10 +40,8 @@ void bddcml_upload_subdomain_data( int *nelem, int *nnod, int *ndof, int *ndim,
                                    int *matrixtype, int *i_sparse, int *j_sparse, double *a_sparse, int *la, int *is_assembled_int );
 
 #define bddcml_setup_preconditioner F_SYMBOL(bddcml_setup_preconditioner, BDDCML_SETUP_PRECONDITIONER)
-void bddcml_setup_preconditioner( int *matrixtype, int *ndim, int *meshdim, int *neighbouring, 
-                                  int *use_defaults_int, int *load_division_int,
-                                  int *parallel_division_int, int *correct_division_int, int *parallel_neighbouring_int,
-                                  int *parallel_globs_int, int *use_arithmetic_int, int *use_adaptive_int );
+void bddcml_setup_preconditioner( int *matrixtype, int *use_defaults_int,
+                                  int *parallel_division_int, int *use_arithmetic_int, int *use_adaptive_int );
 
 #define bddcml_solve F_SYMBOL(bddcml_solve, BDDCML_SOLVE)
 void bddcml_solve( int *comm_all, int *method, double *tol, int *maxit, int *ndecrmax, 

@@ -75,12 +75,6 @@ program bddcml_global
       integer,parameter :: load_pairs = 0
 ! should parallel division be used (ParMETIS instead of METIS)?
       integer,parameter :: parallel_division = 1
-! correct disconnected subdomains to make them continuous (not allowed for parallel divisions and loaded divisions)
-      integer,parameter :: correct_division = 1
-! should parallel search of neighbours be used? (distributed graph rather than serial graph)
-      integer,parameter :: parallel_neighbouring = 1
-! should parallel search of globs be used? (some corrections on globs may not be available)
-      integer,parameter :: parallel_globs = 1
 ! maximal length of problemname
       integer,parameter:: lproblemnamex = 100
 ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
@@ -320,6 +314,16 @@ program bddcml_global
          rewind idelm
       end if
 
+      if (myid.eq.0) then
+         write (*,'(a)') 'Minimal number of shared nodes to call elements adjacent: '
+         call flush(6)
+         read (*,*) neighbouring
+      end if
+! Broadcast basic properties of the problem
+!***************************************************************PARALLEL
+      call MPI_BCAST(neighbouring,1,MPI_INTEGER,      0, comm_all, ierr)
+!***************************************************************PARALLEL
+
 
       call time_start
       nsub_loc_1 = -1
@@ -335,9 +339,9 @@ program bddcml_global
          call flush(6)
       end if
       call time_start
-      call bddcml_upload_global_data(nelem,nnod,ndof,&
+      call bddcml_upload_global_data(nelem,nnod,ndof,ndim, meshdim, &
                                      inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                     ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol, idelm)
+                                     ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol, idelm, neighbouring,load_division)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_load)
       if (myid.eq.0) then
@@ -350,16 +354,6 @@ program bddcml_global
       deallocate(sol)
 
       if (myid.eq.0) then
-         write (*,'(a)') 'Minimal number of shared nodes to call elements adjacent: '
-         call flush(6)
-         read (*,*) neighbouring
-      end if
-! Broadcast basic properties of the problem
-!***************************************************************PARALLEL
-      call MPI_BCAST(neighbouring,1,MPI_INTEGER,      0, comm_all, ierr)
-!***************************************************************PARALLEL
-
-      if (myid.eq.0) then
          write (*,'(a)') 'Preconditioner SETUP ...'
          call flush(6)
       end if
@@ -367,10 +361,10 @@ program bddcml_global
 ! PRECONDITIONER SETUP
       call MPI_BARRIER(comm_all,ierr)
       call time_start
-      call bddcml_setup_preconditioner(matrixtype, ndim, meshdim, neighbouring, &
-                                       use_preconditioner_defaults, load_division,&
-                                       parallel_division,correct_division,parallel_neighbouring,&
-                                       parallel_globs,use_arithmetic,use_adaptive)
+      call bddcml_setup_preconditioner(matrixtype, &
+                                       use_preconditioner_defaults,&
+                                       parallel_division,&
+                                       use_arithmetic,use_adaptive)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pc_setup)
 

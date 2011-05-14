@@ -39,6 +39,16 @@ module module_levels
       logical,parameter,private :: damp_corners = .false.
 ! maximal allowed length of file names
       integer,parameter,private :: lfnamex = 130
+! should parallel search of globs be used? (some corrections on globs may not be available)
+      logical,parameter,private :: levels_parallel_globs = .true.
+! should parallel search of neighbours be used? (distributed graph rather than serial graph)
+      logical,parameter,private :: levels_parallel_neighbouring = .true.
+! use globs from *.GLB and *.CN file?
+      logical,parameter,private :: levels_load_globs = .false.
+! load PAIRS for adaptivity from file?
+      logical,parameter,private :: levels_load_pairs = .false.
+! should disconnected subdomains be connected? (not applicable for parallel division)
+      logical,parameter,private :: levels_correct_division = .true.
 ! adjustable parameters ############################
 
 ! shift of indexing between C and Fortran
@@ -58,6 +68,8 @@ module module_levels
          integer :: nelem    ! number of elements on level
          integer :: nnod     ! number of nodes on level
          integer :: ndof     ! number of dof on level
+         integer :: ndim     ! number of spacial dimensions
+         integer :: meshdim  ! topological dimension of mesh: for 3D problems, = ndim, for 3D shells = 2, for 3D beams  = 1
 
          ! description of mesh
          integer          ::   linet    ! length of INET array 
@@ -119,6 +131,10 @@ module module_levels
          logical :: use_initial_solution = .false. ! should some initial solution be used for iterations?
 
          integer ::             idelm    ! unit with opened Fortran unformatted file with element matrices
+
+         integer ::             neighbouring = 1 ! how many nodes must be shared to call two elements neighbours
+         logical ::      load_division = .false. ! should division into subdomains be read from file?
+         
 
          real(kr) :: adaptivity_estimate ! estimate of condition number on given level
 
@@ -367,15 +383,16 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,nu
 end subroutine
 
 !***********************************************************************************
-subroutine levels_upload_global_data(nelem,nnod,ndof,&
+subroutine levels_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
                                      inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                     ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol, idelm)
+                                     ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol, idelm, &
+                                     neighbouring, load_division)
 !***********************************************************************************
 ! Subroutine for loading global data as zero level
       use module_utils
       implicit none
 
-      integer, intent(in):: nelem, nnod, ndof
+      integer, intent(in):: nelem, nnod, ndof, ndim, meshdim
       integer, intent(in):: linet
       integer, intent(in)::  inet(linet)
       integer, intent(in):: lnnet
@@ -393,7 +410,10 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       integer, intent(in):: lsol
       real(kr), intent(in):: sol(lsol)
       integer,intent(in) :: idelm  
-
+! how many nodes are shared to called elements adjacent
+      integer,intent(in) :: neighbouring
+! use prepared division into subdomains?
+      logical,intent(in) :: load_division
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_GLOBAL_DATA'
@@ -411,9 +431,11 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       end if
 
 ! initialize zero level
-      levels(iactive_level)%nsub  = nelem
-      levels(iactive_level)%nnodc = nnod
-      levels(iactive_level)%ndofc = ndof
+      levels(iactive_level)%nsub    = nelem
+      levels(iactive_level)%nnodc   = nnod
+      levels(iactive_level)%ndofc   = ndof
+      levels(iactive_level)%ndim    = ndim
+      levels(iactive_level)%meshdim = meshdim
 
       levels(iactive_level)%linetc = linet  
       allocate(levels(iactive_level)%inetc(levels(iactive_level)%linetc))
@@ -460,12 +482,17 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,&
       end do
       levels(iactive_level)%use_initial_solution = .true.
 
+
       levels(iactive_level)%is_level_prepared = .true.
+
+      iactive_level = 1
+      levels(iactive_level)%neighbouring  = neighbouring
+      levels(iactive_level)%load_division = load_division
 
 end subroutine
 
 !***********************************************************************************
-subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
+subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isub, nelems, nnods, ndofs, &
                                         inet,linet, nnet,lnnet, nndf,lnndf, &
                                         isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
@@ -479,7 +506,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       use module_utils
       implicit none
 
-      integer, intent(in):: nelem, nnod, ndof, ndim
+      integer, intent(in):: nelem, nnod, ndof, ndim, meshdim
       integer, intent(in):: isub, nelems, nnods, ndofs
       integer, intent(in):: linet
       integer, intent(in)::  inet(linet)
@@ -524,9 +551,11 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
 
       if ( .not. levels(iactive_level)%is_level_prepared ) then
          ! initialize zero level
-         levels(iactive_level)%nsub  = nelem
-         levels(iactive_level)%nnodc = nnod
-         levels(iactive_level)%ndofc = ndof
+         levels(iactive_level)%nsub    = nelem
+         levels(iactive_level)%nnodc   = nnod
+         levels(iactive_level)%ndofc   = ndof
+         levels(iactive_level)%ndim    = ndim
+         levels(iactive_level)%meshdim = meshdim
 
          levels(iactive_level)%lnnetc = nelem  
          levels(iactive_level)%lnndfc = nnod 
@@ -589,15 +618,15 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       levels(iactive_level)%nelem   = nelem
       levels(iactive_level)%nnodc   = nnod
       levels(iactive_level)%ndofc   = ndof
+      levels(iactive_level)%ndim    = ndim
+      levels(iactive_level)%meshdim = meshdim
 
 
 end subroutine
 
 !*************************************************************************************
-subroutine levels_pc_setup(load_division,load_globs,load_pairs,&
-                           parallel_division,correct_division,&
-                           parallel_neighbouring, neighbouring, parallel_globs, &
-                           matrixtype,ndim, meshdim, use_arithmetic, use_adaptive)
+subroutine levels_pc_setup( parallel_division,&
+                            matrixtype, use_arithmetic, use_adaptive)
 !*************************************************************************************
 ! subroutine for multilevel BDDC preconditioner setup
       use module_pp
@@ -605,28 +634,10 @@ subroutine levels_pc_setup(load_division,load_globs,load_pairs,&
       implicit none
       include "mpif.h"
 
-! use prepared division into subdomains?
-      logical,intent(in) :: load_division
-! use prepared selected corners and globs?
-      logical,intent(in) :: load_globs
-! use prepared file with pairs for adaptivity (*.PAIR) on first level?
-      logical,intent(in) :: load_pairs
 ! should parallel division be used (ParMETIS instead of METIS)?
       logical,intent(in) :: parallel_division
-! should disconnected subdomains be connected? (not applicable for parallel division)
-      logical,intent(in) :: correct_division
-! should parallel search of neighbours be used? (distributed graph rather than serial graph)
-      logical,intent(in) :: parallel_neighbouring
-! how many nodes are shared to called elements adjacent
-      integer,intent(in) :: neighbouring
-! should parallel search of globs be used? (some corrections on globs may not be available)
-      logical,intent(in) :: parallel_globs
 ! type of matrix (0 - nosymetric, 1 - SPD, 2 - general symmetric)
       integer,intent(in) :: matrixtype
-! dimension
-      integer,intent(in) :: ndim
-! dimension of mesh
-      integer,intent(in) :: meshdim
 ! Use arithmetic averages on globs as constraints?
       logical,intent(in) :: use_arithmetic
 ! Use adaptive constraints on faces?
@@ -639,10 +650,10 @@ subroutine levels_pc_setup(load_division,load_globs,load_pairs,&
 
       ! no debug
       !iactive_level = 1
-      !call levels_read_level_from_file(problemname,comm_all,ndim,iactive_level)
+      !call levels_read_level_from_file(problemname,comm_all,iactive_level)
 
       ! check input
-      if (.not. (load_globs .eqv. load_pairs).and. use_adaptive) then
+      if (.not. (levels_load_globs .eqv. levels_load_pairs).and. use_adaptive) then
          call warning(routine_name,'loading globs while not loading pairs or vice versa may result in wrong constraints')
       end if
 
@@ -655,10 +666,8 @@ subroutine levels_pc_setup(load_division,load_globs,load_pairs,&
             if (debug .and. myid.eq.0) then
                call info(routine_name,'Preparing level',iactive_level)
             end if
-            call levels_prepare_standard_level(load_division,load_globs,load_pairs, &
-                                               parallel_division,correct_division,&
-                                               parallel_neighbouring, neighbouring,&
-                                               parallel_globs, matrixtype,ndim,meshdim,iactive_level,&
+            call levels_prepare_standard_level(parallel_division,&
+                                               matrixtype,iactive_level,&
                                                use_arithmetic,use_adaptive)
          end if
       end do
@@ -691,9 +700,9 @@ subroutine levels_pc_setup(load_division,load_globs,load_pairs,&
 
 end subroutine
 
-!*******************************************************************
-subroutine levels_read_level_from_file(problemname,comm,ndim,ilevel)
-!*******************************************************************
+!**************************************************************
+subroutine levels_read_level_from_file(problemname,comm,ilevel)
+!**************************************************************
 ! Subroutine for loading first two levels from file
 
       use module_utils
@@ -704,8 +713,6 @@ subroutine levels_read_level_from_file(problemname,comm,ndim,ilevel)
       character(*),intent(in) :: problemname
 ! communicator
       integer,intent(in) :: comm
-! dimension
-      integer,intent(in) :: ndim
 ! index of level to import
       integer,intent(in) :: ilevel
 
@@ -772,7 +779,7 @@ subroutine levels_read_level_from_file(problemname,comm,ndim,ilevel)
       lnnetc = nsub
       lnndfc = nnodc
       lxyzc1 = nnodc
-      lxyzc2 = ndim
+      lxyzc2 = levels(ilevel)%ndim
 
       allocate(inetc(linetc),nnetc(lnnetc),nndfc(lnndfc),xyzc(lxyzc1,lxyzc2))
 
@@ -780,7 +787,7 @@ subroutine levels_read_level_from_file(problemname,comm,ndim,ilevel)
          read(idlevel,*) inetc
          read(idlevel,*) nnetc
          do i = 1,nnodc
-            read(idlevel,*) (xyzc(i,j),j = 1,ndim)
+            read(idlevel,*) (xyzc(i,j),j = 1,levels(ilevel)%ndim)
          end do
       end if
 !*****************************************************************MPI
@@ -956,11 +963,8 @@ subroutine levels_upload_level_mesh(ilevel,ncorner,nedge,nface,nnodc,ndofc,&
 end subroutine
 
 !*******************************************************************************
-subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
-                                         parallel_division,correct_division,&
-                                         parallel_neighbouring, neighbouring,&
-                                         parallel_globs, &
-                                         matrixtype,ndim,meshdim,ilevel,&
+subroutine levels_prepare_standard_level(parallel_division,&
+                                         matrixtype,ilevel,&
                                          use_arithmetic,use_adaptive)
 !*******************************************************************************
 ! Subroutine for building the standard level
@@ -971,17 +975,8 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
       implicit none
       include "mpif.h"
 
-      logical,intent(in) :: load_division
-      logical,intent(in) :: load_globs
-      logical,intent(in) :: load_pairs ! should pairs be loaded from  PAIR file?
       logical,intent(in) :: parallel_division ! should parallel division be used?
-      logical,intent(in) :: correct_division
-      logical,intent(in) :: parallel_neighbouring ! should neighbours be devised from parallel graph?
-      integer,intent(in) :: neighbouring
-      logical,intent(in) :: parallel_globs ! should globs be found in parallel?
       integer,intent(in) :: matrixtype
-      integer,intent(in) :: ndim
-      integer,intent(in) :: meshdim
       integer,intent(in) :: ilevel     ! index of level
       ! Use arithmetic averages on globs as constraints?
       logical,intent(in) :: use_arithmetic
@@ -1152,9 +1147,11 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
       end if
 
       ! make the connection with previous level
-      levels(ilevel)%nelem = levels(ilevel-1)%nsub
-      levels(ilevel)%nnod  = levels(ilevel-1)%nnodc
-      levels(ilevel)%ndof  = levels(ilevel-1)%ndofc
+      levels(ilevel)%nelem   = levels(ilevel-1)%nsub
+      levels(ilevel)%nnod    = levels(ilevel-1)%nnodc
+      levels(ilevel)%ndof    = levels(ilevel-1)%ndofc
+      levels(ilevel)%ndim    = levels(ilevel-1)%ndim
+      levels(ilevel)%meshdim = levels(ilevel-1)%meshdim
 
       levels(ilevel)%linet = levels(ilevel-1)%linetc  
       levels(ilevel)%inet  => levels(ilevel-1)%inetc  
@@ -1204,7 +1201,8 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
          goto 111
       end if
 
-      if (ilevel.eq.1 .and. load_division) then
+      ! this could be generalized to more levels if needed
+      if (ilevel.eq.1 .and. levels(iactive_level)%load_division) then
          ! read the division from file *.ES
          if (myid.eq.0) then
             filename = 'partition_l1.ES'
@@ -1364,7 +1362,8 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
       
       ! divide mesh into subdomains by ParMetis
             graphtype = 0 ! no weights
-            call pp_pdivide_mesh(myid_parmetis,nproc_parmetis,comm_parmetis,graphtype,neighbouring,nelem,nelem_loc,&
+            call pp_pdivide_mesh(myid_parmetis,nproc_parmetis,comm_parmetis,graphtype,&
+                                 levels(iactive_level)%neighbouring,nelem,nelem_loc,&
                                  inet_loc,linet_loc,nnet_loc,lnnet_loc,nsub,&
                                  edgecut,part_loc,lpart_loc)
             if (myid.eq.0) then
@@ -1423,7 +1422,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
   123       continue     
          else
             if (myid.eq.0) then
-               call pp_divide_mesh(graphtype,correct_division,neighbouring,&
+               call pp_divide_mesh(graphtype,levels_correct_division,levels(iactive_level)%neighbouring,&
                                    levels(ilevel)%nelem,levels(ilevel)%nnod,&
                                    levels(ilevel)%inet,levels(ilevel)%linet,levels(ilevel)%nnet,levels(ilevel)%lnnet,nsub,&
                                    edgecut,levels(ilevel)%iets,levels(ilevel)%liets)
@@ -1474,7 +1473,8 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
             !write(*,*) 'IETS:',levels(ilevel)%iets
             call warning(routine_name,'Partition does not contain subdomain',isub)
          end if
-         call dd_localize_mesh(levels(ilevel)%subdomains(isub_loc),isub,ndim,levels(ilevel)%nelem,levels(ilevel)%nnod,&
+         call dd_localize_mesh(levels(ilevel)%subdomains(isub_loc),isub,levels(ilevel)%ndim,&
+                               levels(ilevel)%nelem,levels(ilevel)%nnod,&
                                levels(ilevel)%inet,levels(ilevel)%linet,&
                                levels(ilevel)%nnet,levels(ilevel)%lnnet,&
                                levels(ilevel)%nndf,levels(ilevel)%lnndf,&
@@ -1553,7 +1553,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
       end if
 !-----profile
       neighball = 1
-      if (parallel_neighbouring) then
+      if (levels_parallel_neighbouring) then
          nelem_loc  = 0
          do isub_loc = 1,nsub_loc
             ! find size of subdomain and mesh
@@ -1735,7 +1735,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
       ! debug
       !write(*,*) 'kadjsub'
       !do isub_loc = 1,nsub_loc
-      !   if (parallel_neighbouring) then
+      !   if (levels_parallel_neighbouring) then
       !      pkadjsub = (isub_loc-1)*nsub
       !   else
       !      isub = levels(ilevel)%indexsub(isub_loc)
@@ -1761,7 +1761,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
 
       ! create subdomain neighbours
       do isub_loc = 1,nsub_loc
-         if (parallel_neighbouring) then
+         if (levels_parallel_neighbouring) then
             pkadjsub = (isub_loc-1)*nsub
          else
             isub = levels(ilevel)%indexsub(isub_loc)
@@ -1806,7 +1806,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
       end if
 !-----profile
 
-      if (ilevel.eq.1 .and. load_globs) then
+      if (ilevel.eq.1 .and. levels_load_globs) then
          ! read list of corners from *.CN file
          ! read list of globs from *.GLB file
 
@@ -1894,7 +1894,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
          deallocate(inglb)
          deallocate(inodc)
       ! PARALLEL IDENTIFICATION OF GLOBS
-      else if (parallel_globs) then
+      else if (levels_parallel_globs) then
 !-----profile 
          if (profile) then
             call MPI_BARRIER(comm_all,ierr)
@@ -1946,7 +1946,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
          ncornermin = 0 ! do not add anything randomly
          allocate(kglobs(lkglobs),typeglobs(ltypeglobs))
          if (myid.eq.0) then
-            call pp_get_globs(ndim,meshdim,nelem,nnod,nsub,&
+            call pp_get_globs(levels(ilevel)%ndim,levels(ilevel)%meshdim,nelem,nnod,nsub,&
                               levels(ilevel)%inet,levels(ilevel)%linet,levels(ilevel)%nnet,levels(ilevel)%lnnet,&
                               levels(ilevel)%nndf,levels(ilevel)%lnndf,&
                               levels(ilevel)%xyz,levels(ilevel)%lxyz1,levels(ilevel)%lxyz2,&
@@ -2122,7 +2122,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
 
 ! prepare coordinates for coarse mesh
       lxyzc1 = nnodc
-      lxyzc2 = ndim
+      lxyzc2 = levels(ilevel)%ndim
       allocate(xyzc(lxyzc1,lxyzc2))
       allocate(xyzcaux(lxyzc1,lxyzc2))
       ! initialize array
@@ -2144,7 +2144,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
          pointinetc = pointinetc + nnodcs
 
          lxyzcs1 = nnodcs
-         lxyzcs2 = ndim
+         lxyzcs2 = levels(ilevel)%ndim
          allocate(xyzcs(lxyzcs1,lxyzcs2))
 
          call dd_get_coarse_coordinates(levels(ilevel)%subdomains(isub_loc), xyzcs,lxyzcs1,lxyzcs2)
@@ -2154,18 +2154,18 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
             indc = cnodenumbers(indcs)
             if (xyzcaux(indc,1) .eq. init_value) then
                ! I am the first one to write local coordinates to the global
-               xyzcaux(indc,1:ndim) = xyzcs(indcs,1:ndim)
-            else if (any(abs(xyzcaux(indc,1:ndim) - xyzcs(indcs,1:ndim)).gt.numerical_zero)) then
+               xyzcaux(indc,1:levels(ilevel)%ndim) = xyzcs(indcs,1:levels(ilevel)%ndim)
+            else if (any(abs(xyzcaux(indc,1:levels(ilevel)%ndim) - xyzcs(indcs,1:levels(ilevel)%ndim)).gt.numerical_zero)) then
 
                ! debug
                !print *,'myid',myid,'isub',isub
                !print *,'cnodenumbers',cnodenumbers
                !print *,'xyzcs'
                !do i = 1,nnodcs
-               !   print *,xyzcs(i,1:ndim)
+               !   print *,xyzcs(i,1:levels(ilevel)%ndim)
                !end do
                !call flush(6)
-               !print *,xyzcaux(indc,1:ndim) , 'vs.', xyzcs(indcs,1:ndim)
+               !print *,xyzcaux(indc,1:levels(ilevel)%ndim) , 'vs.', xyzcs(indcs,1:levels(ilevel)%ndim)
                call error(routine_name,'Different coarse coordinates from two subdomains.')
             end if
          end do
@@ -2504,7 +2504,7 @@ subroutine levels_prepare_standard_level(load_division,load_globs,load_pairs, &
             call time_start
          end if
 !-----profile
-         if (ilevel.eq.1 .and. load_pairs) then
+         if (ilevel.eq.1 .and. levels_load_pairs) then
             ! read pairs from *.PAIR file
             if (myid.eq.0) then
                filename = 'pairs_l1.PAIR'
@@ -3292,7 +3292,7 @@ subroutine levels_add_standard_level(ilevel)
 !*****************************************************************MPI
       
       ! add corrections - sol already contains subdomain contributions
-      ! TODO: this could be done only among neigbouring subdomains exactly as on the first level
+      ! TODO: this could be done only among neighbouring subdomains exactly as on the first level
       !       using commvec instead of global allreduce
 
       do i = 1,lsol
@@ -3465,7 +3465,7 @@ subroutine levels_add_first_level(common_krylov_data,lcommon_krylov_data)
       ! Download data
       do isub_loc = 1,nsub_loc
 
-         ! get contibution from neigbours
+         ! get contibution from neighbours
          call dd_comm_download(levels(ilevel)%subdomains(isub_loc), &
                                common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
       end do
@@ -3624,7 +3624,7 @@ subroutine levels_sm_apply(common_krylov_data,lcommon_krylov_data)
       ! Download data
       do isub_loc = 1,levels(ilevel)%nsub_loc
 
-         ! add contibution from neigbours
+         ! add contibution from neighbours
          call dd_comm_download(levels(ilevel)%subdomains(isub_loc), &
                                common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
       end do
@@ -4067,9 +4067,11 @@ subroutine levels_clear_level(level)
       end if
       level%lsubdomains = 0
 
-      level%nelem = 0
-      level%nnod  = 0
-      level%ndof  = 0
+      level%nelem   = 0
+      level%nnod    = 0
+      level%ndof    = 0
+      level%ndim    = 0
+      level%meshdim = 0
 
       level%nsub  = 0
 

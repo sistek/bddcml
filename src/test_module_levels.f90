@@ -31,10 +31,6 @@ program test_module_levels
       integer,parameter:: lfilenamex = 130
       ! use prepared division into subdomains in file *.ES?
       logical,parameter :: load_division = .false.
-      ! use prepared selection of corners in file *.CN and description of globs in file *.GLB?
-      logical,parameter :: load_globs = .false.
-      ! use prepared file with pairs for adaptivity (*.PAIR) on first level?
-      logical,parameter :: load_pairs = .false.
       ! type of matrix (0 - general, 1 - SPD, 2 - general symmetric)
       integer,parameter :: matrixtype = 1 ! SPD matrix
       ! should arithmetic averages be used?
@@ -43,14 +39,8 @@ program test_module_levels
       logical,parameter :: use_adaptive   = .false.
       ! should parallel division be used (e.g. ParMETIS instead of METIS)?
       logical,parameter :: parallel_division = .true.
-      ! should divisions be corrected to make subdomains connected?
-      logical,parameter :: correct_division = .false.
-      ! should parallel search of neighbours be used? (distributed graph rather than serial graph)
-      logical,parameter :: parallel_neighbouring = .true.
       ! how many nodes has to be shared by two elements to consider them adjacent?
       integer,parameter :: neighbouring = 4
-      ! should parallel search of globs be used? (some corrections on globs may not be available)
-      logical,parameter :: parallel_globs = .true.
       ! what is the base for array indexing ( 1 in Fortran )
       integer,parameter :: numbase = 1
       ! end of parameters to set ######################
@@ -216,10 +206,11 @@ program test_module_levels
       write (*,*) 'myid = ',myid,': Initializing LEVELS.'
       nsub_loc_1 = -1
       call levels_init(nlevels,nsublev,lnsublev,nsub_loc_1,comm_all,1,numbase)
+      deallocate(nsublev)
       write (*,*) 'myid = ',myid,': Number of assigned subdomains:',nsub_loc_1
-      call levels_upload_global_data(nelem,nnod,ndof,&
+      call levels_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
                                      inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                     ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol,idelm)
+                                     ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol,idelm, neighbouring, load_division)
       deallocate(inet,nnet,nndf,xyz)
       deallocate(ifix,fixv)
       deallocate(rhs)
@@ -240,10 +231,8 @@ program test_module_levels
 !      call levels_prepare_standard_level(ilevel,nsub,1,nsub)
 !
 !      call levels_prepare_last_level(myid,nproc,comm_all,comm_self,matrixtype,ndim,problemname)
-      call levels_pc_setup(load_division,load_globs,load_pairs,parallel_division,correct_division,&
-                           parallel_neighbouring, neighbouring, parallel_globs,&
-                           matrixtype,ndim,meshdim,use_arithmetic, use_adaptive)
-      deallocate(nsublev)
+      call levels_pc_setup(parallel_division, &
+                           matrixtype,use_arithmetic, use_adaptive)
 
    !   lvec = 15
    !   allocate(vec(lvec))

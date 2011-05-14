@@ -67,9 +67,10 @@ subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_leve
 end subroutine
 
 !**************************************************************************************
-subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
+subroutine bddcml_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
                                      inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                     ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol, idelm)
+                                     ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol, idelm, &
+                                     neighbouring, load_division_int)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
       use module_levels
@@ -83,6 +84,15 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
       integer, intent(in):: nnod
       ! GLOBAL number of degrees of freedom
       integer, intent(in):: ndof
+
+      ! space dimensions
+      integer,intent(in) :: ndim 
+
+      ! mesh dimension
+      ! for 3D problems, = ndim
+      ! for 3D shells = 2
+      ! for 3D beams  = 1
+      integer,intent(in) :: meshdim
 
 
       ! GLOBAL Indices of Nodes on ElemenTs
@@ -120,14 +130,27 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,&
       ! opened unit with unformatted file with element matrices
       integer,intent(in) :: idelm  
 
-      call levels_upload_global_data(nelem,nnod,ndof,&
+      ! how many nodes should be shared for calling element adjacent in graph?
+      integer,intent(in) :: neighbouring 
+
+      ! use division from 'partition_l1.ES' file?
+      integer,intent(in) :: load_division_int
+
+
+      ! local variables
+      logical :: load_division          
+
+      call logical2integer(load_division_int,load_division)
+
+      call levels_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
                                      inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                     ifix,lifix,fixv,lfixv,rhs,lrhs, sol,lsol, idelm)
+                                     ifix,lifix,fixv,lfixv,rhs,lrhs, sol,lsol, idelm, &
+                                     neighbouring,load_division)
 
 end subroutine
 
 !**************************************************************************************
-subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
+subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isub, nelems, nnods, ndofs, &
                                         inet,linet, nnet,lnnet, nndf,lnndf, &
                                         isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
@@ -152,6 +175,11 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       integer, intent(in):: ndof
       ! GLOBAL number of spacial dimensions
       integer, intent(in):: ndim
+      ! mesh dimension
+      ! for 3D problems, = ndim
+      ! for 3D shells = 2
+      ! for 3D beams  = 1
+      integer,intent(in) :: meshdim
 
       ! GLOBAL index of subdomain
       integer, intent(in):: isub
@@ -228,7 +256,7 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
       ! translate integer to logical
       call logical2integer(is_assembled_int,is_assembled)
 
-      call levels_upload_subdomain_data(nelem, nnod, ndof, ndim, &
+      call levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isub, nelems, nnods, ndofs, &
                                         inet,linet, nnet,lnnet, nndf,lnndf, &
                                         isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
@@ -241,10 +269,8 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
 end subroutine
 
 !************************************************************************************************
-subroutine bddcml_setup_preconditioner(matrixtype, ndim, meshdim, neighbouring, &
-                                       use_defaults_int, load_division_int,&
-                                       parallel_division_int,correct_division_int,parallel_neighbouring_int,&
-                                       parallel_globs_int,use_arithmetic_int,use_adaptive_int)
+subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
+                                       parallel_division_int, use_arithmetic_int,use_adaptive_int)
 !************************************************************************************************
 ! setup multilevel preconditioner
       use module_levels
@@ -258,35 +284,11 @@ subroutine bddcml_setup_preconditioner(matrixtype, ndim, meshdim, neighbouring, 
       !  2 - symmetric general
       integer,intent(in) :: matrixtype 
 
-      ! space dimensions
-      integer,intent(in) :: ndim 
-
-      ! mesh dimension
-      ! for 3D problems, = ndim
-      ! for 3D shells = 2
-      ! for 3D beams  = 1
-      integer,intent(in) :: meshdim
-
-      ! how many nodes should be shared for calling element adjacent in graph?
-      integer,intent(in) :: neighbouring 
-
-      ! use default values for all other variables?
+      ! use default values for all other settings?
       integer,intent(in) :: use_defaults_int
-
-      ! use division from *.ES file?
-      integer,intent(in) :: load_division_int
 
       ! should parallel division be used (ParMETIS instead of METIS)?
       integer,intent(in) :: parallel_division_int
-
-      ! correct disconnected subdomains to make them continuous (not allowed for parallel divisions and loaded divisions)
-      integer,intent(in) :: correct_division_int
-
-      ! should parallel search of neighbours be used? (distributed graph using ParMETIS rather than own serial graph)
-      integer,intent(in) :: parallel_neighbouring_int
-
-      ! should parallel search of globs be used? (some corrections on globs may not be available)
-      integer,intent(in) :: parallel_globs_int
 
       ! use arithmetic constraints?
       integer,intent(in) :: use_arithmetic_int
@@ -309,56 +311,34 @@ subroutine bddcml_setup_preconditioner(matrixtype, ndim, meshdim, neighbouring, 
       ! local variables
       ! ######################################
       ! default values of levels parameters
-      logical :: levels_load_division          = .false.
       logical :: levels_parallel_division      = .true.
-      logical :: levels_correct_division       = .false.
-      logical :: levels_parallel_neighbouring  = .true.
-      logical :: levels_parallel_globs         = .true.
       logical :: levels_use_arithmetic         = .true.
       logical :: levels_use_adaptive           = .false. ! experimental - not used by default
       ! ######################################
       logical :: use_defaults
-      logical :: load_division
       logical :: parallel_division
-      logical :: correct_division
-      logical :: parallel_neighbouring
-      logical :: parallel_globs
       logical :: use_arithmetic
       logical :: use_adaptive
 
       character(*),parameter:: routine_name = 'BDDCML_SETUP_PRECONDITIONER'
 
-      ! use globs from *.GLB and *.CN file?
-      logical :: levels_load_globs = .false.
-      ! load PAIRS from file?
-      logical :: levels_load_pairs = .false.
-
       ! convert logical parameters (entered as integers for C compatibility)
       call logical2integer(use_defaults_int,use_defaults)
-      call logical2integer(load_division_int,load_division)
-      call logical2integer(parallel_division_int,parallel_division)
-      call logical2integer(correct_division_int,correct_division)
-      call logical2integer(parallel_neighbouring_int,parallel_neighbouring)
-      call logical2integer(parallel_globs_int,parallel_globs)
-      call logical2integer(use_arithmetic_int,use_arithmetic)
-      call logical2integer(use_adaptive_int,use_adaptive)
 
       if (use_defaults) then
          call info(routine_name,'using default preconditioner parameters')
       else
-         levels_load_division          =  load_division        
+         call logical2integer(parallel_division_int,parallel_division)
+         call logical2integer(use_arithmetic_int,use_arithmetic)
+         call logical2integer(use_adaptive_int,use_adaptive)
          levels_parallel_division      =  parallel_division    
-         levels_correct_division       =  correct_division     
-         levels_parallel_neighbouring  =  parallel_neighbouring
-         levels_parallel_globs         =  parallel_globs       
          levels_use_arithmetic         =  use_arithmetic       
          levels_use_adaptive           =  use_adaptive         
       end if
 
       ! setup preconditioner
-      call levels_pc_setup(levels_load_division,levels_load_globs,levels_load_pairs,&
-                           levels_parallel_division,levels_correct_division,levels_parallel_neighbouring,neighbouring,&
-                           levels_parallel_globs,matrixtype,ndim,meshdim,levels_use_arithmetic,levels_use_adaptive)
+      call levels_pc_setup(levels_parallel_division,&
+                           matrixtype,levels_use_arithmetic,levels_use_adaptive)
 
 end subroutine
 

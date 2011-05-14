@@ -69,20 +69,12 @@ program bddcml_local
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1
 
-! use prepared division into subdomains on first level in file *.ES?
-      integer,parameter :: load_division = 1
 ! use prepared selection of corners in file *.CN and description of globs for first level in file *.GLB?
       integer,parameter :: load_globs = 0
 ! use prepared file with pairs for adaptivity (*.PAIR) on first level?
       integer,parameter :: load_pairs = 0
 ! should parallel division be used (ParMETIS instead of METIS)?
       integer,parameter :: parallel_division = 1
-! correct disconnected subdomains to make them continuous (not allowed for parallel divisions and loaded divisions)
-      integer,parameter :: correct_division = 1
-! should parallel search of neighbours be used? (distributed graph rather than serial graph)
-      integer,parameter :: parallel_neighbouring = 1
-! should parallel search of globs be used? (some corrections on globs may not be available)
-      integer,parameter :: parallel_globs = 1
 ! maximal length of problemname
       integer,parameter:: lproblemnamex = 100
 ! maximal length of any used file - should be reasonably larger than length of problem to allow suffices
@@ -162,7 +154,6 @@ program bddcml_local
 
       integer :: lproblemname
       integer :: meshdim
-      integer :: neighbouring
 
       character(lproblemnamex) :: problemname 
       character(lfilenamex)    :: filename
@@ -518,7 +509,7 @@ program bddcml_local
 
 
          ! experiment a bit
-         call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, &
+         call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                            isub, nelems, nnods, ndofs, &
                                            inets,linets, nnets,lnnets, nndfs,lnndfs, &
                                            isngns,lisngns, isvgvns,lisvgvns, isegns,lisegns, &
@@ -551,26 +542,16 @@ program bddcml_local
       end if
 
       if (myid.eq.0) then
-         write (*,'(a)') 'Minimal number of shared nodes to call elements adjacent: '
-         call flush(6)
-         read (*,*) neighbouring
-      end if
-! Broadcast basic properties of the problem
-!***************************************************************PARALLEL
-      call MPI_BCAST(neighbouring,1,MPI_INTEGER,      0, comm_all, ierr)
-!***************************************************************PARALLEL
-
-      if (myid.eq.0) then
          write (*,'(a)') 'Preconditioner SETUP ...'
          call flush(6)
       end if
 ! PRECONDITIONER SETUP
       call MPI_BARRIER(comm_all,ierr)
       call time_start
-      call bddcml_setup_preconditioner(matrixtype, ndim, meshdim, neighbouring, &
-                                       use_preconditioner_defaults, load_division,&
-                                       parallel_division,correct_division,parallel_neighbouring,&
-                                       parallel_globs,use_arithmetic,use_adaptive)
+      call bddcml_setup_preconditioner(matrixtype,&
+                                       use_preconditioner_defaults, &
+                                       parallel_division,&
+                                       use_arithmetic,use_adaptive)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pc_setup)
 
