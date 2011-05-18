@@ -7324,10 +7324,11 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
                graphtype = 0
                ladjwgt = 0
+               allocate(adjwgt(ladjwgt))
                call graph_check(nshn,graphtype, xadj,lxadj, adjncy,ladjncy_used, adjwgt,ladjwgt)
+               deallocate(adjwgt)
 
                ! check components of graph
-
                lcomponents = nshn
                allocate(components(lcomponents))
 
@@ -7425,7 +7426,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                      deallocate(xyzbase)
                      deallocate(dist)
                   end if
-                  ! play with meshdim if necessary for selection of the third corner if necessary
+                  ! play with meshdim for selection of the third corner if necessary
                   if (ndim.gt.2.and.componentsize.gt.2) then
                   ! two corners are already set, select the third
                      x1 = xyzsh(inodcf(1),1)
@@ -7591,11 +7592,8 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       call get_array_norepeat(inodc_loc,linodc_loc,ncp_loc)
 
       ! Create global array of corners
-
-      if (myid.eq.0) then
-         lncpa = nproc
-         allocate(ncpa(lncpa))
-      end if
+      lncpa = nproc
+      allocate(ncpa(lncpa))
 !*****************************************************************MPI
       call MPI_GATHER(ncp_loc,1, MPI_INTEGER,ncpa,1, MPI_INTEGER,  0, comm_all, ierr) 
 !*****************************************************************MPI
@@ -7627,13 +7625,13 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
             kinodcw = kinodcw + ncp_loc_proc
          end do
 
-         deallocate(ncpa)
       else
          ! send my inodc_loc to root
          if (ncp_loc.gt.0) then
             call MPI_SEND(inodc_loc,ncp_loc,MPI_INTEGER,0,myid,comm_all,ierr)
          end if
       end if
+      deallocate(ncpa)
       deallocate(inodc_loc)
 
       ! now root sorts corners and remove duplicities
@@ -8031,12 +8029,10 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
       ! Create global array of edges and faces
 
-      if (myid.eq.0) then
-         lnepa = nproc
-         allocate(nepa(lnepa))
-         lnfpa = nproc
-         allocate(nfpa(lnfpa))
-      end if
+      lnepa = nproc
+      allocate(nepa(lnepa))
+      lnfpa = nproc
+      allocate(nfpa(lnfpa))
 !*****************************************************************MPI
       call MPI_GATHER(nep_loc,1, MPI_INTEGER,nepa,1, MPI_INTEGER,  0, comm_all, ierr) 
       call MPI_GATHER(nfp_loc,1, MPI_INTEGER,nfpa,1, MPI_INTEGER,  0, comm_all, ierr) 
@@ -8085,8 +8081,6 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
             kinodfw = kinodfw + nfp_loc_proc
          end do
 
-         deallocate(nepa)
-         deallocate(nfpa)
       else
          ! send my inode_loc and inodf_loc to root
          if (nep_loc.gt.0) then
@@ -8096,6 +8090,8 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
             call MPI_SEND(inodf_loc,nfp_loc,MPI_INTEGER,0,myid,comm_all,ierr)
          end if
       end if
+      deallocate(nepa)
+      deallocate(nfpa)
       deallocate(inode_loc)
       deallocate(inodf_loc)
 
