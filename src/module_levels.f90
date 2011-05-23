@@ -30,7 +30,7 @@ module module_levels
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! debugging 
-      logical,parameter,private :: debug = .false.
+      logical,parameter,private :: debug = .true.
 ! profiling 
       logical,private :: profile = .true.
 ! damping division
@@ -48,7 +48,7 @@ module module_levels
 ! load PAIRS for adaptivity from file?
       logical,parameter,private :: levels_load_pairs = .false.
 ! should disconnected subdomains be connected? (not applicable for parallel division)
-      logical,parameter,private :: levels_correct_division = .true.
+      logical,parameter,private :: levels_correct_division = .false.
 ! adjustable parameters ############################
 
 ! shift of indexing between C and Fortran
@@ -132,7 +132,7 @@ module module_levels
 
          integer ::             idelm    ! unit with opened Fortran unformatted file with element matrices
 
-         integer ::             neighbouring = 1 ! how many nodes must be shared to call two elements neighbours
+         integer ::             neighbouring = 0 ! how many nodes must be shared to call two elements neighbours
          logical ::      load_division = .false. ! should division into subdomains be read from file?
          
 
@@ -214,7 +214,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,nu
             call error(routine_name,'Number of local subdomains on first level must sum up to given global number:', nsublev(1))
          end if
       end if
-      if (any(nsublev(2:nl).gt.nsublev(1:nl-1))) then
+      if (any(nsublev(2:nl).ge.nsublev(1:nl-1))) then
          call error(routine_name,'Number of subdomains must decrease monotonically with increasing level.')
       end if
 
@@ -1152,6 +1152,18 @@ subroutine levels_prepare_standard_level(parallel_division,&
       levels(ilevel)%ndof    = levels(ilevel-1)%ndofc
       levels(ilevel)%ndim    = levels(ilevel-1)%ndim
       levels(ilevel)%meshdim = levels(ilevel-1)%meshdim
+      ! set neighbouring for higher levels than 1 - it is never given
+      if ( ilevel.gt.1 ) then
+         if      ( levels(ilevel)%meshdim .eq. 3 ) then
+            levels(ilevel)%neighbouring = 4
+         else if ( levels(ilevel)%meshdim .eq. 2 ) then
+            levels(ilevel)%neighbouring = 3
+         else if ( levels(ilevel)%meshdim .eq. 1 ) then
+            levels(ilevel)%neighbouring = 1
+         else
+            call error ( routine_name, 'Unsupported mesh dimension :', levels(ilevel)%meshdim )
+         end if
+      end if
 
       levels(ilevel)%linet = levels(ilevel-1)%linetc  
       levels(ilevel)%inet  => levels(ilevel-1)%inetc  
@@ -1177,6 +1189,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       !print *,'nnod',levels(ilevel)%nnod
       !print *,'nelem',levels(ilevel)%nelem
       !print *,'nndf',levels(ilevel)%nndf
+
+
 
       ! initialize values
       nsub      = levels(ilevel)%nsub
@@ -1363,7 +1377,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       ! divide mesh into subdomains by ParMetis
             graphtype = 0 ! no weights
             call pp_pdivide_mesh(myid_parmetis,nproc_parmetis,comm_parmetis,graphtype,&
-                                 levels(iactive_level)%neighbouring,nelem,nelem_loc,&
+                                 levels(ilevel)%neighbouring,nelem,nelem_loc,&
                                  inet_loc,linet_loc,nnet_loc,lnnet_loc,nsub,&
                                  edgecut,part_loc,lpart_loc)
             if (myid.eq.0) then
@@ -1422,7 +1436,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
   123       continue     
          else
             if (myid.eq.0) then
-               call pp_divide_mesh(graphtype,levels_correct_division,levels(iactive_level)%neighbouring,&
+               call pp_divide_mesh(graphtype,levels_correct_division,levels(ilevel)%neighbouring,&
                                    levels(ilevel)%nelem,levels(ilevel)%nnod,&
                                    levels(ilevel)%inet,levels(ilevel)%linet,levels(ilevel)%nnet,levels(ilevel)%lnnet,nsub,&
                                    edgecut,levels(ilevel)%iets,levels(ilevel)%liets)

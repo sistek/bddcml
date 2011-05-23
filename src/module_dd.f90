@@ -3756,8 +3756,8 @@ subroutine dd_construct_cnodes(sub)
       ! prepare KDOFI
       lkdofi = nnodi
       allocate(kdofi(lkdofi))
-      kdofi(1) = 0
       if (lkdofi.gt.0) then
+         kdofi(1) = 0
          do i = 2,nnodi
             indn = sub%iin(i-1)
             ndofn = sub%nndf(indn)
@@ -8746,7 +8746,9 @@ subroutine dd_embed_cnodes(suba,lsuba, indexsub,lindexsub, comm_all,&
       ! create array of global coarse dof KDOFC(ncorner) with addresses before first global dof
       lkdofc = lnndfc
       allocate(kdofc(lkdofc))
-      kdofc(1) = 0
+      if ( lkdofc .gt. 0 ) then
+         kdofc(1) = 0
+      end if
       do indn = 2,lnndfc
          kdofc(indn) = kdofc(indn-1) + nndfc(indn-1)
       end do
