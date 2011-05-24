@@ -656,6 +656,8 @@ subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
          write(*,*) 'DD_READ_MATRIX_FROM_FILE: File with element matrices read.'
       end if
 
+      nnza = la
+
       ! eliminate boundary conditions
       if (sub%is_bc_present) then
          ndof =  sub%ndof
@@ -668,7 +670,7 @@ subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
 
          ! eliminate natural BC
          call sm_apply_bc(matrixtype,sub%ifix,sub%lifix,sub%fixv,sub%lfixv,&
-                          i_sparse,j_sparse,a_sparse,la, bc,lbc)
+                          nnza, i_sparse,j_sparse,a_sparse,la, bc,lbc)
          if (sub%is_bc_nonzero) then
             call dd_load_eliminated_bc(sub, bc,lbc)
          else
@@ -677,7 +679,6 @@ subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
       end if
 
       ! load matrix to our structure
-      nnza = la
       is_assembled = .false.
       call dd_load_matrix_triplet(sub, matrixtype, 0, &
                                   i_sparse,j_sparse,a_sparse,la,nnza,is_assembled)
@@ -977,7 +978,7 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
       integer::              lbci
       real(kr),allocatable :: bci(:)
 
-      integer :: isub, isub_loc, la, ndofs, ndofis
+      integer :: isub, isub_loc, nnza, la, ndofs, ndofis
 
       ! find if any nonzero BC is present
       is_bc_present_loc = .false.
@@ -994,7 +995,8 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
       do isub_loc = 1,lindexsub
          isub = indexsub(isub_loc)
 
-         la = suba(isub_loc)%la
+         nnza = suba(isub_loc)%nnza
+         la   = suba(isub_loc)%la
 
          suba(isub_loc)%is_assembled = .false.
 
@@ -1011,7 +1013,7 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
          if (suba(isub_loc)%is_bc_present) then
             call sm_apply_bc(suba(isub_loc)%matrixtype,&
                              suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
-                             suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc)
+                             nnza, suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc)
          end if
 
          if (is_bc_present) then
@@ -1110,7 +1112,7 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
       real(kr),allocatable :: elm(:)
 
 !     Matrix in IJA sparse format - triplet
-      integer::  la
+      integer::  nnza, la
 
 !     kdof array
       integer::              lkdof
@@ -1314,7 +1316,8 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
             cycle
          end if
 
-         la = suba(isub_loc)%la
+         la   = suba(isub_loc)%la
+         nnza = suba(isub_loc)%nnza
 
          suba(isub_loc)%is_assembled = .false.
          suba(isub_loc)%is_matrix_loaded = .true.
@@ -1332,7 +1335,7 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
 
             ! eliminate natural BC
             call sm_apply_bc(matrixtype,suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
-                             suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc)
+                             nnza,suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc)
             if (suba(isub_loc)%is_bc_nonzero) then
                call dd_load_eliminated_bc(suba(isub_loc), bc,lbc)
             end if

@@ -185,7 +185,7 @@ program test_module_sm
 
 ! Apply boundary conditions 
       fixv = 1.0_kr
-      call sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_sparse,nnz,bc,lbc) 
+      call sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_sparse,la,bc,lbc) 
       write(*,*) 'Matrix after application of BC...'
       call sm_print(6, i_sparse, j_sparse, a_sparse, la, nnz)
 

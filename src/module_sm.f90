@@ -22,7 +22,7 @@ module module_sm
 ! type of real variables
       integer,parameter,private :: kr = kind(1.D0)
 ! numerical zero
-      real(kr),parameter,private :: numerical_zero = 1.e-12_kr
+      real(kr),parameter,private :: numerical_zero = 1.e-16_kr
 
 contains
 
@@ -378,15 +378,16 @@ subroutine sm_pmd_make_element_numbering(matrixtype,nelem,inet,linet,nnet,lnnet,
       return
 end subroutine
 
-!********************************************************************************************
-subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_sparse,la,bc,lbc)
-!********************************************************************************************
+!************************************************************************************************
+subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_sparse,la,bc,lbc)
+!************************************************************************************************
 ! Subroutine for application of Dirichlet boudary conditions on a sparse matrix
 ! using PMD arrays
 ! Eliminate boundary conditions from right hand side, put zeros to the row and
 ! column and one on the diagonal. 
 ! The value of fixed variable put in RHS.
 
+      use module_utils
       implicit none
 
 ! Type of matrix - determine its storage
@@ -404,8 +405,9 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_spar
       real(kr),intent(in):: fixv(lfixv)
 
 ! Matrix in IJA sparse format
+      integer,intent(in) :: nnz
       integer,intent(in) :: la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
+      integer,intent(inout) :: i_sparse(la), j_sparse(la)
       real(kr),intent(inout):: a_sparse(la)
 
 ! values of fixed variables
@@ -413,8 +415,12 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_spar
       real(kr),intent(out) :: bc(lbc)
 
 ! Local variables
+      character(*),parameter:: routine_name = 'SM_APPLY_BC'
       integer :: ia, indi, indj
       real(kr):: fixval, aval, value, auxval
+      integer :: i, newplace
+      integer ::            lis_diag_fixed
+      logical,allocatable :: is_diag_fixed(:)
 
 ! Zero BC
       if (lbc.gt.0) then
@@ -424,8 +430,13 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_spar
 ! Auxiliary value to put on diagonal after eliminating BC
       auxval = 1.0_kr
 
+! Auxiliary array checking that no diagonal entry was omitted - even for saddle point systems
+      lis_diag_fixed = lifix
+      allocate( is_diag_fixed(lis_diag_fixed) )
+      is_diag_fixed = .false.
+
 ! Eliminate boundary conditions
-      do ia = 1,la
+      do ia = 1,nnz
          indi = i_sparse(ia)
          indj = j_sparse(ia)
 
@@ -477,11 +488,39 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,i_sparse,j_sparse,a_spar
                   value = aval*fixval
                   bc(indi) = bc(indi) + value
                end if
+               is_diag_fixed(indi) = .true.
             end if
          end if
       end do
 
-      return
+      ! make sure that all diagonal entries were fixed - problem with saddle point systems
+      ! eventually write them behind existing entries
+      newplace = nnz + 1
+      do i = 1,lifix
+         if ( ifix(i) .gt. 0 .and. .not. is_diag_fixed(i) ) then
+            ! value was not fixed, add it
+
+            ! check space
+            if ( newplace .gt. la ) then
+                call error ( routine_name, ' No space left in matrix for adding new entries induced by BC.' )
+            end if
+
+            fixval = fixv(i)
+
+            i_sparse(newplace) = i
+            j_sparse(newplace) = i
+
+            a_sparse(newplace) = auxval
+            value = auxval*fixval
+            bc(i) = bc(i) + value
+
+            is_diag_fixed(i) = .true.
+
+            newplace = newplace + 1
+         end if
+      end do
+
+      deallocate( is_diag_fixed )
 
 end subroutine
 
