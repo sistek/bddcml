@@ -2,30 +2,13 @@
 include ../make.inc
 
 # include files needed
-INC = $(INCMUMPS) $(INCPARMETIS) $(INCBLOPEX) $(INCMPI)
-# libraries needed
-LIBS = $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
-       $(LIBLAPACK) $(LIBBLAS) $(LIBPORD) $(LIBOTHERS)
-# $(LIBMPI)$(LIBPTHREAD)
+INC = $(BDDCML_INCMUMPS) $(BDDCML_INCPARMETIS) $(BDDCML_INCBLOPEX) $(BDDCML_INCMPI)
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
 # $^ - all prerequisities
 # $< - first prerequisity
 
-# rules
-
-TESTS = \
-   test_module_utils \
-   test_module_graph \
-   test_module_pp \
-   test_module_adaptivity \
-   test_module_dd \
-   test_module_dd2 \
-   test_module_levels \
-   test_module_mumps \
-   test_module_mumps2 \
-   test_module_sm 
 
 OBJ = \
    lobpcg_mvecmult_f.o \
@@ -46,28 +29,20 @@ OBJ = \
    lobpcg_driver.o \
    bddcml_interface_fortran.o
 
-BDDCLIBDIR=../lib
-BDDCLIB=$(BDDCLIBDIR)/libbddcml.a
-
+# rules
 all: \
-   modules tests bddclib
+   modules bddclib
 
 modules: $(OBJ)
 
-tests: $(TESTS)
-
-bddclib: $(BDDCLIB)
-
+bddclib: $(LIBBDDCML)
 
 # general rule s for compiling objects
 %.o : %.f90
-	$(MPFC) $(MPFFLAGS) $(INC) -c $<
-
-%.o : %.f
-	$(MPFC) $(MPFFLAGS) $(INC) -c $<
+	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) $(INC) -c $<
 
 %.o : %.c
-	$(MPCC) $(MPCFLAGS) $(CDEFS) $(INC) -c $<
+	$(BDDCML_MPCC) $(BDDCML_MPCFLAGS) $(BDDCML_CDEFS) $(INC) -c $<
 
 # module dependencies
 module_bddc.o: \
@@ -117,167 +92,14 @@ module_pp.o: \
    module_parsing.o \
    module_utils.o 
 
-test_module_mumps.o: \
-   module_mumps.o
+lobpcg_mvecmult_f.o: \
+   module_levels.o
 
-test_module_mumps2.o: \
-   module_mumps.o
-
-test_module_sm.o: \
-   module_sm.o
-
-test_module_bddc.o: \
-   module_bddc.o 
-
-test_module_bddc2.o: \
-   module_bddc.o
-
-test_module_adaptivity.o: \
-   module_pp.o \
-   module_adaptivity.o \
-   module_dd.o
-
-test_module_levels.o: \
-   module_levels.o \
-   module_adaptivity.o \
-   module_pp.o \
-   module_graph.o \
-   module_parsing.o \
-   module_dd.o \
-   module_mumps.o \
-   module_sm.o \
-   module_utils.o 
-
-test_module_dd.o: \
-   module_dd.o
-
-test_module_dd2.o: \
-   module_dd.o
-
-test_module_graph.o: \
-   module_graph.o
-
-test_module_pp.o: \
-   module_pp.o
-
-test_module_utils.o: \
-   module_utils.o
-
-lobpcg_mvecmult_f.o: module_levels.o
-
-# building binaries
-test_module_mumps: \
-   test_module_mumps.o \
-   module_mumps.o \
-   module_utils.o
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
-
-test_module_mumps2: \
-   test_module_mumps2.o \
-   module_mumps.o \
-   module_utils.o
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
-
-test_module_sm: \
-   test_module_sm.o \
-   module_sm.o \
-   module_utils.o
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
-
-test_module_adaptivity: \
-   test_module_adaptivity.o \
-   module_levels.o \
-   module_adaptivity.o \
-   module_pp.o \
-   pget_sub_neighbours.o \
-   pdivide_mesh.o \
-   pdivide_mesh.o \
-   module_graph.o \
-   module_parsing.o \
-   module_dd.o \
-   module_mumps.o \
-   module_sm.o \
-   module_utils.o \
-   module_krylov_types_def.o \
-   lobpcg_driver.o \
-   lobpcg_mvecmult_f.o
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) $(BLOPEXLINK)
-
-test_module_dd: \
-   test_module_dd.o \
-   module_pp.o \
-   pget_sub_neighbours.o \
-   pdivide_mesh.o \
-   pdivide_mesh.o \
-   module_graph.o \
-   module_parsing.o \
-   module_dd.o \
-   module_mumps.o \
-   module_sm.o \
-   module_utils.o 
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
-
-test_module_dd2: \
-   test_module_dd2.o \
-   module_pp.o \
-   pget_sub_neighbours.o \
-   pdivide_mesh.o \
-   pdivide_mesh.o \
-   module_graph.o \
-   module_parsing.o \
-   module_dd.o \
-   module_mumps.o \
-   module_sm.o \
-   module_utils.o 
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
-
-test_module_levels: \
-   test_module_levels.o \
-   module_levels.o \
-   module_adaptivity.o \
-   module_pp.o \
-   pget_sub_neighbours.o \
-   pdivide_mesh.o \
-   pdivide_mesh.o \
-   module_graph.o \
-   module_parsing.o \
-   module_dd.o \
-   module_mumps.o \
-   module_sm.o \
-   module_utils.o \
-   module_krylov_types_def.o \
-   lobpcg_driver.o \
-   lobpcg_mvecmult_f.o
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS) $(BLOPEXLINK)
-
-test_module_graph: \
-   test_module_graph.o \
-   module_graph.o \
-   module_parsing.o \
-   module_utils.o 
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
-
-test_module_pp: \
-   test_module_pp.o \
-   module_pp.o \
-   pget_sub_neighbours.o \
-   pdivide_mesh.o \
-   pdivide_mesh.o \
-   module_graph.o \
-   module_parsing.o \
-   module_utils.o 
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
-
-test_module_utils: \
-   test_module_utils.o \
-   module_utils.o 
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBS)
-
-# make modules into BDDCML archive library
-$(BDDCLIB): $(OBJ)
-	mkdir -p $(BDDCLIBDIR)
-	$(AR) $@ $^
-	$(RANLIB) $@
+# make modules and join them into BDDCML archive library
+$(LIBBDDCML): $(OBJ)
+	mkdir -p $(BDDCML_LIB_DIR)
+	$(BDDCML_AR) $@ $^
+	$(BDDCML_RANLIB) $@
 
 clean:
-	-rm -f *.mod *.o $(OBJ) $(TESTS) $(BDDCLIB)
+	-rm -f *.mod *.o $(OBJ) $(LIBBDDCML)

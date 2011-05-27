@@ -1,52 +1,61 @@
-#*********** Compilers
-MPFC = mpif90
-MPFFLAGS = -g -C -Wall -fbounds-check
-#MPFFLAGS = -O3
-FC = gfortran 
-FFLAGS = -g -C -pg -Wall -fbounds-check
-#FFLAGS = -O3
+#*********************************
+# the whole link sequence for BDDC
+#*********************************
+BDDCML_LINK_SEQUENCE = $(LIBBDDCML) $(BDDCML_LIBMUMPS) $(BDDCML_LIBPARMETIS) $(BDDCML_LIBSCALAPACK) $(BDDCML_LIBBLACS) \
+                       $(BDDCML_LIBPORD) $(BDDCML_LIBLAPACK) $(BDDCML_LIBBLAS) $(BDDCML_BLOPEXLINK) $(BDDCML_LIBOTHERS) 
+BDDCML_INC           = -I$(BDDCML_ROOT)/include
 
-MPCC = mpicc
-MPCFLAGS = -g -Wall
-#MPCFLAGS = -O3
-CC = gcc
-CFLAGS = -g -Wall
-#CFLAGS = -O3
+#*********** Compilers
+BDDCML_MPFC = mpif90
+BDDCML_MPFFLAGS = -g -C -Wall -fbounds-check
+#BDDCML_MPFFLAGS = -O3
+BDDCML_FC = gfortran 
+BDDCML_FFLAGS = -g -C -pg -Wall -fbounds-check
+#BDDCML_FFLAGS = -O3
+
+BDDCML_MPCC = mpicc
+BDDCML_MPCFLAGS = -g -Wall
+#BDDCML_MPCFLAGS = -O3
+BDDCML_CC = gcc
+BDDCML_CFLAGS = -g -Wall
+#BDDCML_CFLAGS = -O3
 
 #*********** Library tools
-AR = ar vr
-RANLIB = ranlib
+BDDCML_AR = ar vr
+BDDCML_RANLIB = ranlib
 
 #**********Preprocessor defs for calling Fortran from C (-DAdd_ or -DAdd__ or -DUPPER)
-CDEFS   = -DAdd_
+BDDCML_CDEFS   = -DAdd_
 
 #*********** Includes
-INCPARMETIS = -I/usr/include
-INCMUMPS    = -I/usr/include
+BDDCML_INCPARMETIS = -I$(HOME)/programy/PARMETIS
+BDDCML_INCMUMPS    = -I$(HOME)/programy/MUMPS/include
 
 #*********** Libraries
-LIBBDDCML    = -L$(HOME)/mojprg/bddc/lib -lbddcml
-LIBMUMPS     = -L/usr/lib -ldmumps-4.9.2
-LIBSCALAPACK = -L/usr/lib -lscalapack-openmpi
-LIBBLACS     = -L/usr/lib -lblacs-openmpi -lblacsCinit-openmpi -lblacsF77init-openmpi -lblacs-openmpi 
-LIBBLAS      = -L/usr/lib -lblas
-LIBLAPACK    = -L/usr/lib -llapack
-LIBPARMETIS  = -L/usr/lib -lparmetis -lmetis 
-LIBMETIS     = -L/usr/lib -lmetis 
-LIBPORD      = 
-LIBOTHERS    = 
+BDDCML_ROOT         = $(HOME)/mojprg/bddc
+BDDCML_LIB_DIR      = $(BDDCML_ROOT)/lib
+LIBBDDCML           = $(BDDCML_LIB_DIR)/libbddcml.a
+BDDCML_LIBMUMPS     = -L$(HOME)/programy/MUMPS/lib -ldmumps -lmumps_common -lpord
+BDDCML_LIBSCALAPACK = -L$(HOME)/lib -lscalapack
+BDDCML_LIBBLACS     = -L$(HOME)/lib -lblacs -lblacsCinit -lblacsF77init -lblacs 
+BDDCML_LIBBLAS      = -L/usr/lib -lblas
+BDDCML_LIBLAPACK    = -L/usr/lib -llapack
+BDDCML_LIBPARMETIS  = -L$(HOME)/programy/PARMETIS -lparmetis -lmetis 
+BDDCML_LIBMETIS     = -L$(HOME)/programy/PARMETIS -lmetis 
+BDDCML_LIBPORD      = 
+BDDCML_LIBOTHERS    = 
 
 # BLOPEX paths
-BLOPEXDIR = $(HOME)/programy/lobpcg/blopex-read-only
-INCBLOPEX = \
-   -I$(BLOPEXDIR)/blopex_serial_double/multivector \
-   -I$(BLOPEXDIR)/blopex_serial_double/pcg_multi \
-   -I$(BLOPEXDIR)/blopex_serial_double/matmultivec \
-   -I$(BLOPEXDIR)/blopex_abstract/include
-OBJBLOPEX = \
-   $(BLOPEXDIR)/blopex_serial_double/multivector/multi_vector.o \
-   $(BLOPEXDIR)/blopex_serial_double/pcg_multi/pcg_multi.o \
-   $(BLOPEXDIR)/blopex_serial_double/matmultivec/matmultivec.o
-LIBBLOPEX = -L$(BLOPEXDIR)/blopex_abstract/lib -lBLOPEX
-BLOPEXLINK = $(OBJBLOPEX) $(LIBBLOPEX)
+BDDCML_BLOPEXDIR = $(HOME)/programy/lobpcg/blopex-read-only
+BDDCML_INCBLOPEX = \
+   -I$(BDDCML_BLOPEXDIR)/blopex_serial_double/multivector \
+   -I$(BDDCML_BLOPEXDIR)/blopex_serial_double/pcg_multi \
+   -I$(BDDCML_BLOPEXDIR)/blopex_serial_double/matmultivec \
+   -I$(BDDCML_BLOPEXDIR)/blopex_abstract/include
+BDDCML_OBJBLOPEX = \
+   $(BDDCML_BLOPEXDIR)/blopex_serial_double/multivector/multi_vector.o \
+   $(BDDCML_BLOPEXDIR)/blopex_serial_double/pcg_multi/pcg_multi.o \
+   $(BDDCML_BLOPEXDIR)/blopex_serial_double/matmultivec/matmultivec.o
+BDDCML_LIBBLOPEX = -L$(BDDCML_BLOPEXDIR)/blopex_abstract/lib -lBLOPEX
+BDDCML_BLOPEXLINK = $(BDDCML_OBJBLOPEX) $(BDDCML_LIBBLOPEX)
 

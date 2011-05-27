@@ -2,10 +2,8 @@
 include ../make.inc
 
 # include files needed
-INC = $(INCMUMPS) $(INCMPI) -I../src 
 # libraries needed
-LIBS = $(LIBBDDCML) $(LIBMUMPS) $(LIBPARMETIS) $(LIBSCALAPACK) $(LIBBLACS) \
-       $(LIBPORD) $(LIBLAPACK) $(LIBBLAS) $(BLOPEXLINK) $(LIBOTHERS)
+LIBS = $(BDDCML_LINK_SEQUENCE) 
 EXAMPLES = bddcml_global bddcml_local
 ##############################################################
 # GNU Make automatic variables:
@@ -17,17 +15,17 @@ all: $(EXAMPLES)
 
 # general rule s for compiling objects
 %.o : %.f90
-	$(MPFC) $(MPFFLAGS) $(INC) -c $<
+	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) -I../src -c $<
 
 # building binaries
 bddcml_global: \
    bddcml_global.o \
-   ../lib/libbddcml.a
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBBDDCML) $(LIBS) 
+   $(LIBBDDCML)
+	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) -o $@ $^ $(LIBS) 
 
 bddcml_local: \
    bddcml_local.o \
-   ../lib/libbddcml.a
-	$(MPFC) $(MPFFLAGS) -o $@ $^ $(LIBBDDCML) $(LIBS) 
+   $(LIBBDDCML)
+	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) -o $@ $^ $(LIBS) 
 clean:
 	-rm -f *.o *.mod $(EXAMPLES)
