@@ -6806,7 +6806,7 @@ end subroutine
 
 !*******************************************************************************************************
 subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, comm_all, remove_bc_nodes,&
-                           damp_corners, ilevel, &
+                           damp_corners, ilevel, meshdim, &
                            ncorner, nedge, nface)
 !*******************************************************************************************************
 ! Subroutine for finding corners in BDDC
@@ -6830,7 +6830,10 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 ! for damping corners
       logical,intent(in) :: damp_corners
       integer,intent(in) :: ilevel
-      ! basic properties of the coarse problem
+
+! what is the dimension of mesh
+      integer,intent(in) :: meshdim
+! basic properties of the coarse problem
       integer,intent(out) :: ncorner
       integer,intent(out) :: nedge
       integer,intent(out) :: nface
@@ -7403,7 +7406,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                      deallocate(xyzbase)
                      deallocate(dist)
                   end if
-                  if (componentsize.gt.1) then
+                  if (meshdim.gt.1.and.componentsize.gt.1) then
                      lxyzbase = ndim
                      allocate(xyzbase(lxyzbase))
                      ! one corner is already selected, select the second
@@ -7429,8 +7432,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                      deallocate(xyzbase)
                      deallocate(dist)
                   end if
-                  ! play with meshdim for selection of the third corner if necessary
-                  if (ndim.gt.2.and.componentsize.gt.2) then
+                  if (meshdim.gt.2.and.componentsize.gt.2) then
                   ! two corners are already set, select the third
                      x1 = xyzsh(inodcf(1),1)
                      y1 = xyzsh(inodcf(1),2)

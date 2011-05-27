@@ -124,6 +124,7 @@ program bddcml_global
 
       integer :: lproblemname
       integer :: meshdim
+      character(2) :: aux
       integer :: neighbouring
 
       character(lproblemnamex) :: problemname 
@@ -160,8 +161,37 @@ program bddcml_global
          write(*,'(a)') '==================GLOBAL===================='
       end if
 
-! Name of the problem
-      call pp_pget_problem_name(comm_all,problemname,lproblemnamex,lproblemname)
+! Name of the problem as the first argument, 
+! number of nodes shared by two elements to call them adjacent as the second argument
+      problemname = ' '
+      if ( myid .eq. 0 ) then
+         if(iargc().ge.2) then
+            call getarg(1,problemname)
+            call getarg(2,aux)
+            read ( aux, * ) neighbouring
+         else
+            write (*,'(a)') ' Usage: mpirun -np X ./bddcml_local PROBLEMNAME M              '
+            write (*,'(a)') '  M - minimal number of shared nodes to call elements adjacent '
+            call error(routine_name,'trouble getting problemname')
+         end if
+         ! get length
+         lproblemname = index(problemname,' ') - 1
+         if (lproblemname.eq.-1) then
+            lproblemname = lproblemnamex 
+         end if
+         ! pad the name with spaces
+         do i = lproblemname+1,lproblemnamex
+            problemname(i:i) = ' '
+         end do
+      end if
+! Broadcast of name of the problem      
+!***************************************************************PARALLEL
+      call MPI_BCAST(lproblemname, 1,           MPI_INTEGER,   0, comm_all, ierr)
+      call MPI_BCAST(problemname, lproblemname, MPI_CHARACTER, 0, comm_all, ierr)
+      call MPI_BCAST(neighbouring, 1,           MPI_INTEGER,   0, comm_all, ierr)
+!***************************************************************PARALLEL
+
+
 
 ! measuring time
       call MPI_BARRIER(comm_all,ierr)
@@ -313,17 +343,6 @@ program bddcml_global
          end if
          rewind idelm
       end if
-
-      if (myid.eq.0) then
-         write (*,'(a)') 'Minimal number of shared nodes to call elements adjacent: '
-         call flush(6)
-         read (*,*) neighbouring
-      end if
-! Broadcast basic properties of the problem
-!***************************************************************PARALLEL
-      call MPI_BCAST(neighbouring,1,MPI_INTEGER,      0, comm_all, ierr)
-!***************************************************************PARALLEL
-
 
       call time_start
       nsub_loc_1 = -1

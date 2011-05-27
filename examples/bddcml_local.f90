@@ -194,8 +194,30 @@ program bddcml_local
          write(*,'(a)') '==================LOCAL====================='
       end if
 
-! Name of the problem
-      call pp_pget_problem_name(comm_all,problemname,lproblemnamex,lproblemname)
+! Name of the problem as the first argument
+      problemname = ' '
+      if ( myid .eq. 0 ) then
+         if(iargc().ge.1) then
+            call getarg(1,problemname)
+         else
+            write (*,'(a)') ' Usage: mpirun -np X ./bddcml_local PROBLEMNAME'
+            call error(routine_name,'trouble getting problemname')
+         end if
+         ! get length
+         lproblemname = index(problemname,' ') - 1
+         if (lproblemname.eq.-1) then
+            lproblemname = lproblemnamex 
+         end if
+         ! pad the name with spaces
+         do i = lproblemname+1,lproblemnamex
+            problemname(i:i) = ' '
+         end do
+      end if
+! Broadcast of name of the problem      
+!***************************************************************PARALLEL
+      call MPI_BCAST(lproblemname, 1,           MPI_INTEGER,   0, comm_all, ierr)
+      call MPI_BCAST(problemname, lproblemname, MPI_CHARACTER, 0, comm_all, ierr)
+!***************************************************************PARALLEL
 
 ! measuring time
       call MPI_BARRIER(comm_all,ierr)

@@ -1927,7 +1927,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
                               levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                               levels(ilevel)%indexsub,levels(ilevel)%lindexsub, &
                               comm_all,remove_bc_nodes, &
-                              damp_corners, ilevel, &
+                              damp_corners, ilevel, levels(ilevel)%meshdim, &
                               ncorner,nedge,nface)
          nnodc = ncorner + nedge + nface
 !-----profile
