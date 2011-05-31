@@ -11,6 +11,7 @@ Install notes:
    These include: 
    BLOPEX ( http://code.google.com/p/blopex ) 
    MUMPS  ( http://graal.ens-lyon.fr/MUMPS )  
+   ParMETIS ( http://glaros.dtc.umn.edu/gkhome/metis/parmetis/overview )
    LAPACK ( http://www.netlib.org/lapack ) 
    BLAS ( http://www.netlib.org/blas )
     ( LAPACK and BLAS are often included in numerical libraries such as MKL )
@@ -19,6 +20,10 @@ Install notes:
    This should first compile object and modules of src/ folder, 
    create library libbddcml.a in lib/ folder,
    and finally compile example solvers in examples/ solver.
+
+For additional info, see
+http://www.math.cas.cz/~sistek/software/bddcml.html
+In case help is needed, write to Jakub Sistek ( sistek@math.cas.cz ).
 
 The library provides a simple interface callable from Fortran and C. The solution proces is
 operated by several routines consequently called. 
