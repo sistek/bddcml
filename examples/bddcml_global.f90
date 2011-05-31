@@ -172,7 +172,7 @@ program bddcml_global
          else
             write (*,'(a)') ' Usage: mpirun -np X ./bddcml_local PROBLEMNAME M              '
             write (*,'(a)') '  M - minimal number of shared nodes to call elements adjacent '
-            call error(routine_name,'trouble getting problemname')
+            call error(routine_name,'trouble getting problemname and neighbouring')
          end if
          ! get length
          lproblemname = index(problemname,' ') - 1

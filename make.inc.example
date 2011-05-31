@@ -28,24 +28,34 @@ BDDCML_RANLIB = ranlib
 BDDCML_CDEFS   = -DAdd_
 
 #*********** Includes
+# ParMetis
 BDDCML_INCPARMETIS = -I$(HOME)/programy/PARMETIS
+# MUMPS
 BDDCML_INCMUMPS    = -I$(HOME)/programy/MUMPS/include
 
 #*********** Libraries
+# library being created
 BDDCML_ROOT         = $(HOME)/mojprg/bddc
 BDDCML_LIB_DIR      = $(BDDCML_ROOT)/lib
 LIBBDDCML           = $(BDDCML_LIB_DIR)/libbddcml.a
+# MUMPS
 BDDCML_LIBMUMPS     = -L$(HOME)/programy/MUMPS/lib -ldmumps -lmumps_common -lpord
-BDDCML_LIBSCALAPACK = -L$(HOME)/lib -lscalapack
-BDDCML_LIBBLACS     = -L$(HOME)/lib -lblacs -lblacsCinit -lblacsF77init -lblacs 
+# ScaLAPACK
+BDDCML_LIBSCALAPACK = -L/usr/lib -lscalapack-openmpi
+# BLACS
+BDDCML_LIBBLACS     = -L/usr/lib -lblacs-openmpi -lblacsCinit-openmpi -lblacsF77init-openmpi -lblacs-openmpi
+# BLAS
 BDDCML_LIBBLAS      = -L/usr/lib -lblas
+# LAPACK
 BDDCML_LIBLAPACK    = -L/usr/lib -llapack
-BDDCML_LIBPARMETIS  = -L$(HOME)/programy/PARMETIS -lparmetis -lmetis 
-BDDCML_LIBMETIS     = -L$(HOME)/programy/PARMETIS -lmetis 
-BDDCML_LIBPORD      = 
+# ParMetis
+BDDCML_LIBPARMETIS  = -L$(HOME)/programy/PARMETIS -lparmetis -lmetis
+# Metis
+BDDCML_LIBMETIS     = -L$(HOME)/programy/PARMETIS -lmetis
+# other needed libs ( e.g. -lmpi, -lpthread )
 BDDCML_LIBOTHERS    = 
 
-# BLOPEX paths
+# BLOPEX objects
 BDDCML_BLOPEXDIR = $(HOME)/programy/lobpcg/blopex-read-only
 BDDCML_INCBLOPEX = \
    -I$(BDDCML_BLOPEXDIR)/blopex_serial_double/multivector \
