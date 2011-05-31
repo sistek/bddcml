@@ -3,7 +3,7 @@
 #*********************************
 BDDCML_LINK_SEQUENCE = $(LIBBDDCML) $(BDDCML_LIBMUMPS) $(BDDCML_LIBPARMETIS) $(BDDCML_LIBSCALAPACK) $(BDDCML_LIBBLACS) \
                        $(BDDCML_LIBPORD) $(BDDCML_LIBLAPACK) $(BDDCML_LIBBLAS) $(BDDCML_BLOPEXLINK) $(BDDCML_LIBOTHERS) 
-BDDCML_INC           = -I$(BDDCML_ROOT)/include
+BDDCML_INC           = -I$(BDDCML_ROOT)/src
 
 #*********** Compilers
 BDDCML_MPFC = mpif90
