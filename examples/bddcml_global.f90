@@ -93,6 +93,8 @@ program bddcml_global
 
       integer :: i
 
+      integer(4) :: iargc
+
       integer :: idelm, ios
 
       integer :: ndim, nsub, nelem, ndof, nnod, linet
@@ -165,7 +167,7 @@ program bddcml_global
 ! number of nodes shared by two elements to call them adjacent as the second argument
       problemname = ' '
       if ( myid .eq. 0 ) then
-         if(iargc().ge.2) then
+         if(iargc().eq.2) then
             call getarg(1,problemname)
             call getarg(2,aux)
             read ( aux, * ) neighbouring

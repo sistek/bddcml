@@ -97,6 +97,8 @@ program bddcml_local
       integer :: maxit, ndecrmax
       real(kr) :: tol
 
+      integer(4) :: iargc
+
 ! number of levels
       integer :: nlevels
 ! subdomains in levels
@@ -197,7 +199,7 @@ program bddcml_local
 ! Name of the problem as the first argument
       problemname = ' '
       if ( myid .eq. 0 ) then
-         if(iargc().ge.1) then
+         if(iargc().eq.1) then
             call getarg(1,problemname)
          else
             write (*,'(a)') ' Usage: mpirun -np X ./bddcml_local PROBLEMNAME'
