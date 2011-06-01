@@ -189,6 +189,7 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
       integer,intent(in) :: npair
 
 ! local variables
+      character(*),parameter:: routine_name = 'ADAPTIVITY_INIT'
 ! MPI variables
       integer :: myid
       integer :: ierr
@@ -232,13 +233,13 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
       end if
 
       if (myid.eq.0) then
-         write(*,*) 'ADAPTIVITY SETUP====================='
-         write(*,*) 'threshold for selection: ', threshold_eigval
-         write(*,*) 'max LOBPCG iterations: ',  lobpcg_maxit
-         write(*,*) 'LOBPCG relative tolerance: ',  lobpcg_rel_tol
-         write(*,*) 'max number of computed eigenvectors: ', neigvecx
-         write(*,*) 'LOBPCG preconditioner (0 = no,1 = BDDC): ', lobpcg_preconditioner
-         write(*,*) 'END ADAPTIVITY SETUP================='
+         call info( routine_name, 'ADAPTIVITY SETUP=====================' )
+         call info( routine_name, 'threshold for selection: ', threshold_eigval )
+         call info( routine_name, 'max LOBPCG iterations: ',  lobpcg_maxit )
+         call info( routine_name, 'LOBPCG relative tolerance: ',  lobpcg_rel_tol )
+         call info( routine_name, 'max number of computed eigenvectors: ', neigvecx )
+         call info( routine_name, 'LOBPCG preconditioner (0 = no,1 = BDDC): ', lobpcg_preconditioner )
+         call info( routine_name, 'END ADAPTIVITY SETUP=================' )
       end if
 
 end subroutine
@@ -1302,7 +1303,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             neigvec     = min(neigvecx,ndofcomm-ncommon_crows)
             if (debug) then
                if (neigvec.ne.neigvecx) then
-                  write (*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: Number of vectors reduced to',neigvec,' for pair',my_pair
+                  call warning( routine_name, ' For pair: ', my_pair )
+                  call warning( routine_name, ' Number of vectors reduced to: ', neigvec )
                end if
             end if
             leigvec = neigvec * problemsize
@@ -2082,7 +2084,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                                            eigval,eigvec,lobpcg_iter,ierr)
                      end if
                   end if
-                  write(*,*) 'myid =',myid,', LOBPCG finished in ',lobpcg_iter,' iterations for pair ',my_pair
+                  call info ( routine_name, ' myid: ',myid )
+                  call info ( routine_name, ' For pair: ',my_pair )
+                  call info ( routine_name, ' Number of iterations needed by LOBPCG: ', lobpcg_iter )
 
                   ! turn around the eigenvalues to be the largest
                   eigval = -eigval
@@ -2482,7 +2486,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
       if (debug) then
          if (myid.eq.0) then
-            write(*,*) 'Expected estimated condition number: ',est
+            call info( routine_name, 'Expected estimated condition number: ', est )
          end if
       end if
 

@@ -8558,8 +8558,7 @@ subroutine dd_create_pairs(suba,lsuba, indexsub,lindexsub, comm_all,&
 
       ! root print the summary of selection of globs
       if (myid.eq.0) then
-         write(*,*) '   We have found ',npair,' pairs for adaptivity.'
-         call flush(6)
+         call info ( routine_name, 'Number of pairs for adaptivity:', npair )
       end if
 
 end subroutine
