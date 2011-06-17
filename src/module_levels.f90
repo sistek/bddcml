@@ -1199,8 +1199,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       nelem     = levels(ilevel)%nelem
 
       ! only perform division of into subdomains for global loading
-      call MPI_BCAST(levels(iactive_level)%global_loading, 1, MPI_LOGICAL, 0, levels(iactive_level-1)%comm_all, ierr)
-      if (.not. levels(iactive_level)%global_loading .and. iactive_level .eq. 1) then
+      call MPI_BCAST(levels(ilevel)%global_loading, 1, MPI_LOGICAL, 0, levels(ilevel-1)%comm_all, ierr)
+      if (.not. levels(ilevel)%global_loading .and. ilevel .eq. 1) then
          goto 1234
       end if
 
@@ -1216,7 +1216,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 
       ! this could be generalized to more levels if needed
-      if (ilevel.eq.1 .and. levels(iactive_level)%load_division) then
+      if (ilevel.eq.1 .and. levels(ilevel)%load_division) then
          ! read the division from file *.ES
          if (myid.eq.0) then
             filename = 'partition_l1.ES'
@@ -1552,12 +1552,17 @@ subroutine levels_prepare_standard_level(parallel_division,&
  1234 continue
 
       ! check that subdomains are properly loaded
-      do i = 1,levels(iactive_level)%nsub_loc
-         call dd_is_mesh_loaded( levels(iactive_level)%subdomains(i), is_mesh_loaded )
+      do i = 1,levels(ilevel)%nsub_loc
+         call dd_is_mesh_loaded( levels(ilevel)%subdomains(i), is_mesh_loaded )
          if ( .not. is_mesh_loaded ) then
             call error( routine_name, 'It appears that not all expected subdomains were loaded on proc: ', myid )
          end if
       end do
+      ! assure that all processes has same value of ndim as root
+!**************************************************************MPI
+      call MPI_BCAST(levels(ilevel)%ndim,     1,  MPI_INTEGER, 0, comm_all, ierr)
+      call MPI_BCAST(levels(ilevel)%meshdim,  1,  MPI_INTEGER, 0, comm_all, ierr)
+!**************************************************************MPI
 
       ! for communication, any shared nodes are considered
 !-----profile 
@@ -2137,6 +2142,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
 ! prepare coordinates for coarse mesh
       lxyzc1 = nnodc
       lxyzc2 = levels(ilevel)%ndim
+      print *, 'lxyzc1, lxyzc2', lxyzc1, lxyzc2
       allocate(xyzc(lxyzc1,lxyzc2))
       allocate(xyzcaux(lxyzc1,lxyzc2))
       ! initialize array
@@ -2205,7 +2211,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 
       ! Get matrix
-      if (.not. levels(iactive_level)%global_loading .and. iactive_level .eq. 1) then
+      if (.not. levels(ilevel)%global_loading .and. ilevel .eq. 1) then
          goto 1235
       end if
 

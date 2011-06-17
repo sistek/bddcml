@@ -7490,7 +7490,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
                   ! mark corner in subdomain interface
                   !print *,'inodcf',suba(isub_loc)%isngn(suba(isub_loc)%iin(suba(isub_loc)%ishnadj(kishnadj + inodcf)))
-                  do i = 1,3
+                  do i = 1,meshdim
                      if (inodcf(i).ne.0) then
 
                         indni = suba(isub_loc)%ishnadj(kishnadj + compind(inodcf(i)))

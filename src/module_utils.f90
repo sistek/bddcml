@@ -1082,15 +1082,16 @@ subroutine condtri(nw,nwx,w,lw, cond)
       real(kr),intent(out) :: cond
 
 ! local variables
-
-! arrays on stack
       ! diagonal of the matrix
-      real(kr) :: d(nw)
-      real(kr) :: e(nw-1)
+      real(kr),allocatable :: d(:)
+      real(kr),allocatable :: e(:)
 
       integer ::  i
       integer ::  ld, le
 
+      ld = nw
+      le = nw-1
+      allocate(d(ld),e(le))
       ! prepare data for LAPACK
       ! diagonal
       do i = 1,nw
@@ -1111,6 +1112,7 @@ subroutine condtri(nw,nwx,w,lw, cond)
       le = nw-1
       call condsparse(nw,d,ld,e,le, cond)
 
+      deallocate(d,e)
 end subroutine
 
 !****************************************
