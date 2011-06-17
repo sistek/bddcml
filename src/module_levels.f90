@@ -2142,7 +2142,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
 ! prepare coordinates for coarse mesh
       lxyzc1 = nnodc
       lxyzc2 = levels(ilevel)%ndim
-      print *, 'lxyzc1, lxyzc2', lxyzc1, lxyzc2
       allocate(xyzc(lxyzc1,lxyzc2))
       allocate(xyzcaux(lxyzc1,lxyzc2))
       ! initialize array
