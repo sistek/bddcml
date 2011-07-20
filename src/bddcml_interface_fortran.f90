@@ -161,7 +161,6 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
-! Only one subdomain is allowed to be loaded at each processor
       use module_levels
       use module_utils
       implicit none
