@@ -35,7 +35,7 @@ BDDCML_INCMUMPS    = -I$(HOME)/programy/MUMPS/include
 
 #*********** Libraries
 # library being created
-BDDCML_ROOT         = $(HOME)/mojprg/bddc
+BDDCML_ROOT         = $(HOME)/mojprg/bddcml
 BDDCML_LIB_DIR      = $(BDDCML_ROOT)/lib
 LIBBDDCML           = $(BDDCML_LIB_DIR)/libbddcml.a
 # MUMPS
