@@ -453,9 +453,9 @@ do
       orderxyz(3) = nvar
    else
 ! create the string of variables
-      if (varstring .ne. ' ') then
-         varstring = trim(varstring)//','
-      end if
+      !if (varstring .ne. ' ') then
+      !   varstring = trim(varstring)//','
+      !end if
       varstring = trim(varstring)//' '//trim(string)
    end if
 

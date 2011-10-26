@@ -7423,10 +7423,24 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                      ! set index of second new corner
                      inodcf(2) = indaux(1)
 
+                     ! if geometry fails, select any node different from the first, regardless of the coordinates
                      if (inodcf(2).eq.inodcf(1)) then
-                        write(*,*) 'dist:',dist
-                        call flush(6)
-                        call error(routine_name, 'Problem finding second corner on subdomain - same as first.',inodcf(2))
+                        !write(*,*) 'dist:',dist
+                        !write(*,*) 'coords:'
+                        !do incomp = 1,componentsize
+                        !   write(*,*) xyzsh(incomp,1:ndim)
+                        !end do
+                        !write(*,*) 'base:'
+                        !write(*,*) xyzbase(1:ndim)
+                        !call flush(6)
+                        call warning(routine_name, 'Problem finding second corner on subdomain - same as first. ',inodcf(2))
+                        ! perform search for different corner
+                        do incomp = 1,componentsize
+                           if ( incomp .ne. inodcf(1) ) then
+                              inodcf(2) = incomp
+                              exit
+                           end if
+                        end do
                      end if
 
                      deallocate(xyzbase)
@@ -7479,10 +7493,19 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
                      ! set index of the third new corner
                      inodcf(3) = indaux(1)
+
+                     ! if geometry fails, select any node different from the first two, regardless of the coordinates
                      if (inodcf(3).eq.inodcf(1).or.inodcf(3).eq.inodcf(2)) then
-                        write(*,*) 'area:',area
-                        call flush(6)
-                        call error(routine_name, 'Problem finding third corner on subdomain - same as first or second.',inodcf(3))
+                        !write(*,*) 'area:',area
+                        !call flush(6)
+                        call warning(routine_name, 'Problem finding third corner on subdomain - same as first or second.',inodcf(3))
+                        ! perform search for different corner
+                        do incomp = 1,componentsize
+                           if ( incomp .ne. inodcf(1) .and. incomp .ne. inodcf(2) ) then
+                              inodcf(3) = incomp
+                              exit
+                           end if
+                        end do
                      end if
 
                      deallocate(area)
