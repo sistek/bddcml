@@ -498,7 +498,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
                                         xyz,lxyz1,lxyz2, &
                                         ifix,lifix, fixv,lfixv, &
-                                        rhs,lrhs, &
+                                        rhs,lrhs, is_rhs_complete, &
                                         sol,lsol, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
 !***********************************************************************************
@@ -528,6 +528,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       real(kr), intent(in):: fixv(lfixv)
       integer, intent(in):: lrhs
       real(kr), intent(in):: rhs(lrhs)
+      logical, intent(in):: is_rhs_complete
       integer, intent(in):: lsol
       real(kr), intent(in):: sol(lsol)
       ! LOCAL matrix triplet i, j, a(i,j) 
@@ -599,7 +600,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
                               xyz,lxyz1,lxyz2)
       call dd_upload_bc(levels(iactive_level)%subdomains(isub_loc), ifix,lifix, fixv,lfixv)
-      call dd_upload_rhs(levels(iactive_level)%subdomains(isub_loc), rhs,lrhs)
+      call dd_upload_rhs(levels(iactive_level)%subdomains(isub_loc), rhs,lrhs, is_rhs_complete)
 
       ! upload initial solution to DD structure
       call dd_upload_solution(levels(iactive_level)%subdomains(isub_loc), sol,lsol)
@@ -1533,7 +1534,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             lrhss = ndofs
             allocate(rhss(lrhss))
             call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%rhs,levels(ilevel)%lrhs, rhss,lrhss)
-            call dd_upload_rhs(levels(ilevel)%subdomains(isub_loc), rhss,lrhss)
+            call dd_upload_rhs(levels(ilevel)%subdomains(isub_loc), rhss,lrhss, .true. )
             deallocate(rhss)
          end do
       end if
@@ -3081,7 +3082,7 @@ subroutine levels_corsub_standard_level(ilevel)
          call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), res,lres, ress,lress)
 
          ! upload residual on subdomain to DD structure as RHS
-         call dd_upload_rhs(levels(ilevel)%subdomains(isub_loc), ress,lress)
+         call dd_upload_rhs(levels(ilevel)%subdomains(isub_loc), ress,lress, .true.)
          deallocate(ress)
       end do
 

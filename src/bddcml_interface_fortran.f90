@@ -156,7 +156,7 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
                                         xyz,lxyz1,lxyz2, &
                                         ifix,lifix, fixv,lfixv, &
-                                        rhs,lrhs, &
+                                        rhs,lrhs, is_rhs_complete_int, &
                                         sol,lsol, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
 !**************************************************************************************
@@ -233,6 +233,12 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       ! LOCAL initial SOLution - initial approximation for iterative method
       integer, intent(in):: lsol
       real(kr), intent(in):: sol(lsol)
+      integer, intent(in)::  is_rhs_complete_int  ! is the right-hand side complete?  
+                                                  !  0 = no, e.g. if it is assembled subdomain-by-subdomain 
+                                                  !      and the interface entries are not interchanged
+                                                  !  1 = yes, e.g. if it was created as a restriction of
+                                                  !      the global RHS array and so entries on interface are
+                                                  !      contained in several subdomains - weights will be applied
 
       ! LOCAL matrix triplet i, j, a(i,j) 
       ! Type of the matrix
@@ -251,9 +257,11 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
 
       ! local vars
       logical :: is_assembled
+      logical :: is_rhs_complete
 
       ! translate integer to logical
-      call logical2integer(is_assembled_int,is_assembled)
+      call logical2integer(is_assembled_int,    is_assembled)
+      call logical2integer(is_rhs_complete_int, is_rhs_complete)
 
       call levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isub, nelems, nnods, ndofs, &
@@ -261,7 +269,7 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
                                         xyz,lxyz1,lxyz2, &
                                         ifix,lifix, fixv,lfixv, &
-                                        rhs,lrhs, &
+                                        rhs,lrhs, is_rhs_complete, &
                                         sol,lsol, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
 

@@ -17,7 +17,7 @@ END-INFO-DIR-ENTRY
 @title BDDCML
 @subtitle solver library based on Multi-Level Balancing Domain Decomposition by Constraints
 @subtitle copyright (C) 2010-2011 Jakub @v{S}@'{@dotless{i}}stek
-@subtitle version 1.1
+@subtitle version 1.2
 @author Jakub @v{S}@'{@dotless{i}}stek
 
 @end titlepage
@@ -264,7 +264,7 @@ void bddcml_upload_subdomain_data( int *nelem, int *nnod, int *ndof, int *ndim, 
                                    int *isngn, int *lisngn, int *isvgvn, int *lisvgvn, int *isegn, int *lisegn, 
                                    double *xyz, int *lxyz1, int *lxyz2, 
                                    int *ifix, int *lifix, double *fixv, int *lfixv, 
-                                   double *rhs, int *lrhs, 
+                                   double *rhs, int *lrhs, int *is_rhs_complete,
                                    double *sol, int *lsol, 
                                    int *matrixtype, int *i_sparse, int *j_sparse, double *a_sparse, int *la, int *is_assembled_int )
 }
@@ -374,6 +374,15 @@ LOCAL array with Right-Hand Side. Values at nodes repeated among subdomains are 
 
 @item lrhs
 length of array @code{rhs}, equal to @code{ndofs}.
+
+@item is_rhs_complete
+is the subdomain right-hand side complete? 
+@itemize 
+@item 0 - no, e.g. if only local subassembly of right-hand side was performed - interface values are not fully assembled,
+solver does not apply weights
+@item 1 - yes, e.g. if local right-hand side is a restriction of the global array to the subdomain - interface values are
+complete and repeated for more subdomains, solver applies weights to handle multiplicity of these entries
+@end itemize 
 
 @item sol
 LOCAL array with initial SOLution guess. This is used as initial approximation for iterative method. 

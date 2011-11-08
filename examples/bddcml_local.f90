@@ -162,6 +162,7 @@ program bddcml_local
 
       ! small variables - indices, etc.
       integer :: ie, idofn, ind, indn, indvg, i, indvs, inod, inods, isub, j, ndofn, ir
+      integer :: is_rhs_complete_int
       integer :: is_assembled_int
 
       ! data about resulting convergence
@@ -514,6 +515,7 @@ program bddcml_local
 
             sols(i)  = sol(i)
          end do
+         is_rhs_complete_int = 1
 
 ! prepare matrix
 ! Load sparse matrix
@@ -539,7 +541,7 @@ program bddcml_local
                                            isngns,lisngns, isvgvns,lisvgvns, isegns,lisegns, &
                                            xyzs,lxyzs1,lxyzs2, &
                                            ifixs,lifixs, fixvs,lfixvs, &
-                                           rhss,lrhss, &
+                                           rhss,lrhss, is_rhs_complete_int, &
                                            sols,lsols, &
                                            matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
          deallocate(inets,nnets,nndfs,xyzs)

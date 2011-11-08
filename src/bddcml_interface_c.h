@@ -35,7 +35,7 @@ void bddcml_upload_subdomain_data( int *nelem, int *nnod, int *ndof, int *ndim, 
                                    int *isngn, int *lisngn, int *isvgvn, int *lisvgvn, int *isegn, int *lisegn, 
                                    double *xyz, int *lxyz1, int *lxyz2, 
                                    int *ifix, int *lifix, double *fixv, int *lfixv, 
-                                   double *rhs, int *lrhs, 
+                                   double *rhs, int *lrhs, int *is_rhs_complete, 
                                    double *sol, int *lsol, 
                                    int *matrixtype, int *i_sparse, int *j_sparse, double *a_sparse, int *la, int *is_assembled_int );
 

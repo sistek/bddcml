@@ -280,6 +280,7 @@ module module_dd
 
          ! arrays connected to iterative methods
          logical :: is_rhs_loaded = .false.
+         logical :: is_rhs_complete = .true. ! if TRUE, the solver weights the RHS before using it to manage repeated entries
          integer ::             lrhs         ! length of RHS array
          real(kr),allocatable :: rhs(:)      ! RHS array - right hand side restricted to subdomain
          logical :: is_reduced_rhs_loaded = .false.
@@ -530,7 +531,7 @@ subroutine dd_read_mesh_from_file(sub,problemname)
                                ignsin,lignsin1,lignsin2, igvsivn,ligvsivn1,ligvsivn2,&
                                glob_type,lglob_type)
       call dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
-      call dd_upload_rhs(sub, rhss,lrhss)
+      call dd_upload_rhs(sub, rhss,lrhss, .true.)
 
       if (debug) then
          write(*,*) 'DD_READ_MESH_FROM_FILE: Data loaded successfully.'
@@ -2390,9 +2391,9 @@ subroutine dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
 
 end subroutine
 
-!**************************************
-subroutine dd_upload_rhs(sub, rhs,lrhs)
-!**************************************
+!*******************************************************
+subroutine dd_upload_rhs(sub, rhs,lrhs, is_rhs_complete)
+!*******************************************************
 ! Subroutine for initialization of subdomain right hand side
       use module_utils
       implicit none
@@ -2401,6 +2402,7 @@ subroutine dd_upload_rhs(sub, rhs,lrhs)
       type(subdomain_type),intent(inout) :: sub
       integer,intent(in) :: lrhs
       real(kr),intent(in)::  rhs(lrhs)
+      logical :: is_rhs_complete
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_UPLOAD_RHS'
@@ -2422,6 +2424,7 @@ subroutine dd_upload_rhs(sub, rhs,lrhs)
       end do
 
       sub%is_rhs_loaded = .true.
+      sub%is_rhs_complete = is_rhs_complete
    
 end subroutine
 
@@ -5282,6 +5285,8 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
       character(*),parameter:: routine_name = 'DD_PREPARE_REDUCED_RHS_ALL'
       integer ::              lrhs
       real(kr),allocatable ::  rhs(:)
+      integer ::              lbc
+      real(kr),allocatable ::  bc(:)
       integer ::              lsolo
       real(kr),allocatable ::  solo(:)
       integer ::              lg
@@ -5327,14 +5332,27 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
             rhs(i) = suba(isub_loc)%rhs(i)
          end do
 
-         ! fix BC in aux2
-         if (suba(isub_loc)%is_bc_present) then
-            call sm_prepare_rhs(suba(isub_loc)%ifix,suba(isub_loc)%lifix,&
-                                suba(isub_loc)%bc,suba(isub_loc)%lbc,rhs,lrhs)
+         ! only if restriction of RHS is loaded, i.e. not assembled subdomain RHS,
+         if ( suba(isub_loc)%is_rhs_complete ) then
+            ! apply weights on interface
+            call dd_weights_apply(suba(isub_loc), rhs,lrhs)
          end if
 
-         ! apply weights on interface
-         call dd_weights_apply(suba(isub_loc), rhs,lrhs)
+         ! fix BC in aux2
+         if (suba(isub_loc)%is_bc_present) then
+            ! prepare subdomain BC array
+            lbc = ndof
+            allocate(bc(lbc))
+            ! copy BC
+            do i = 1,ndof
+               bc(i) = suba(isub_loc)%bc(i)
+            end do
+            ! apply weights on interface
+            call dd_weights_apply(suba(isub_loc), bc,lbc)
+            call sm_prepare_rhs(suba(isub_loc)%ifix,suba(isub_loc)%lifix,&
+                                bc,lbc,rhs,lrhs)
+            deallocate(bc)
+         end if
 
          ! prepare interior portion of solution
          call dd_prepare_reduced_rhs(suba(isub_loc),rhs,lrhs,solo,lsolo,g,lg)
