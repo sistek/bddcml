@@ -36,6 +36,7 @@ logical,parameter,private  :: read_threshold_from_file = .false.
 ! maximal number of LOBPCG iterations
 integer,parameter,private ::  lobpcg_maxit = 15
 ! precision of LOBPCG solver - worst residual
+!real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-9_kr
 real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-9_kr
 ! maximal number of eigenvectors per problem
 ! this number is used for sufficient size of problems 

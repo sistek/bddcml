@@ -2356,13 +2356,14 @@ subroutine dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
       if (any(ifix.ne.0)) then
          sub%is_bc_present = .true.
          import_bc = .true.
+         if (any(fixv.ne.0.0_kr)) then
+            sub%is_bc_nonzero = .true.
+         else
+            sub%is_bc_nonzero = .false.
+         end if
       else
          sub%is_bc_present = .false.
          import_bc = .false.
-      end if
-      if (any(fixv.ne.0.0_kr)) then
-         sub%is_bc_nonzero = .true.
-      else
          sub%is_bc_nonzero = .false.
       end if
 
@@ -2377,6 +2378,8 @@ subroutine dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
 
       allocate(sub%ifix(sub%lifix))
       allocate(sub%fixv(sub%lfixv))
+      sub%ifix = 0
+      sub%fixv = 0._kr
 
       if (import_bc) then
          do i = 1,lifix

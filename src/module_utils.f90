@@ -1339,7 +1339,7 @@ if      (tf_int.eq.0) then
 else if (tf_int.eq.1) then
    tf = .true.
 else
-   call error(routine_name, 'Illegal value of integer true/false type - not 0 nor 1')
+   call error(routine_name, 'Illegal value of integer true/false type - not 0 nor 1 but ', tf_int)
 end if
 
 end subroutine
