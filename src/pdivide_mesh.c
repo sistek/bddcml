@@ -38,9 +38,9 @@
 
 #define pdivide_mesh_c \
     F_SYMBOL(pdivide_mesh_c,PDIVIDE_MESH_C)
-void pdivide_mesh_c( idxtype *elmdist, idxtype *eptr, idxtype *eind, idxtype *elmwgt, 
+void pdivide_mesh_c( int *elmdist, int *eptr, int *eind, int *elmwgt, 
 	             int *wgtflag, int *numflag, int *ncon, int *ncommonnodes, int *nparts, 
-	             float *tpwgts, float *ubvec, int *options, int *edgecut, idxtype *part, 
+	             float *tpwgts, float *ubvec, int *options, int *edgecut, int *part, 
 	             MPI_Fint *commInt )
 {
   MPI_Comm comm;
@@ -52,7 +52,7 @@ void pdivide_mesh_c( idxtype *elmdist, idxtype *eptr, idxtype *eind, idxtype *el
       numflag == NULL || ncommonnodes == NULL ||
       nparts == NULL || options == NULL || edgecut == NULL ||
       part == NULL || commInt == NULL ) {
-     printf("ERROR: One or more required parameters is NULL. Aborting.\n");
+     printf("ERROR in PDIVIDE_MESH_C:: One or more required parameters is NULL. Aborting.\n");
      abort();
   }
 

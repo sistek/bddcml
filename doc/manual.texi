@@ -16,8 +16,8 @@ END-INFO-DIR-ENTRY
 @titlepage
 @title BDDCML
 @subtitle solver library based on Multi-Level Balancing Domain Decomposition by Constraints
-@subtitle copyright (C) 2010-2011 Jakub @v{S}@'{@dotless{i}}stek
-@subtitle version 1.2
+@subtitle copyright (C) 2010-2012 Jakub @v{S}@'{@dotless{i}}stek
+@subtitle version 1.3
 @author Jakub @v{S}@'{@dotless{i}}stek
 
 @end titlepage
@@ -87,8 +87,59 @@ Their parameters are described in separate sections.
 @item @code{bddcml_finalize} -- clear solver data and deallocate memory
 @end enumerate
 
-Two examples are presented in the @code{examples} folder. Both are written in Fortran 90. 
+Two examples are presented in the @file{examples} folder. Both are written in Fortran 90. 
 The @file{bddcml_global.f90} demonstrates the use of global input, while the @file{bddcml_local.f90} demonstrates the use of localized subdomain input.
+Optionally, one can ask for nodal reactions at Dirichlet boundary conditions by 
+@itemize
+@item @code{bddcml_download_local_reactions} -- get the reactions restricted to a subdomain from the solver (use for local loading)
+@item @code{bddcml_download_global_reactions} -- get the global reactions from the solver (use for global loading)
+@end itemize
+
+@chapter Notes for C/C++ users
+
+Since @code{BDDCML} is written in Fortran 95 language, users who want to use BDDCML from C/C++ need to 
+overcome a few issues related to this fact.
+
+@section @code{Header file}
+There is a C interface provided in the file @file{bddcml_interface_c.h} that has to be included in applications.
+In C++, users should include this file using the @code{extern} directive as
+
+@verbatim
+extern "C" { 
+    #include <bddcml_interface_c.h>
+}
+@end verbatim
+
+@section @code{Cross-compilation}
+Fortran compilers change the name of subroutines as they appear in the code when they generate symbols out of them
+(this is mainly related to historical reasons).
+Some Fortran compilers append `@code{_}' at the end of the name, some append `@code{__}', some do not do anything to the name and
+some change all letters to upper case.
+In order to combine C and Fortran code, it is necessary to mimic the behaviour of the Fortran compiler in a C/C++ code by 
+modifying names of the C functions (both when calling Fortran routine from a C function and vice versa). 
+For a somewhat generic behaviour of this naming convention, there is an @code{F_SYMBOL} macro defined in @file{bddcml_interface_c.h}
+which changes the C names to match the name expected by Fortran. 
+This is based on a preprocessor variable used in compiling C/C++ code.
+Possible values include:
+@itemize
+@item     @code{Add_}  - append `@code{_}' at the end of the function name (this is most common and used e.g. by @code{gfortran} or @code{Intel Fortran Compiler})
+@item     @code{Add__} - append `@code{__}' at the end of the function name (used e.g. by @code{g95})
+@item     @code{UPPER} - change all letters to uppercase
+@end itemize
+This should appear on command line as e.g. @code{-DAdd_} during compiling.
+If nothing is defined, no change is done to the symbol name, which is in fact correct for certain Fortran compilers, 
+such as those by @code{IBM}.
+
+@section @code{Libraries of Fortran compiler}
+If C code is called from Fortran, no additional libraries are usually needed. 
+However, in the opposite case, i.e. the one encountered if @code{BDDCML} is used from a C/C++ code,
+one needs to explicitly specify the libraries of Fortran compiler in the linking sequence when the 
+final executable is build by a C++ linker. 
+For example, if combining @code{g++} and @code{gfortran}, it is necessary to add
+@verbatim
+-L/usr/lib -lmpi_f77 -lgfortran 
+@end verbatim
+when linking an executable by @code{g++}. Obviously, the path may be different from this example on a particular machine.
 
 
 @chapter Description of interface functions
@@ -101,6 +152,19 @@ In this chapter, detailed description of the solver interface functions with exp
 @code{
 void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase )
 }
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_level, numbase)
+}
+@verbatim
+      integer, intent(in) :: nl
+      integer, intent(in) :: lnsublev
+      integer, intent(in) ::  nsublev(lnsublev)
+      integer, intent(inout):: nsub_loc_1 
+      integer, intent(in):: comm_init 
+      integer, intent(in):: verbose_level 
+      integer, intent(in) :: numbase
+@end verbatim
 
 @unnumberedsubsec Description
 Prepares internal data structures for the solver. 
@@ -109,10 +173,11 @@ Prepares internal data structures for the solver.
 
 @table @code
 @item nl
-given number of levels
+given number of levels, @code{nl} >= 2, @code{nl} = 2 corresponds to standard (two-level) BDDC method
 
 @item nsublev
-array with GLOBAL numbers of subdomains for each level
+array with GLOBAL numbers of subdomains for each level. Need to be monotonically decreasing 
+from @code{nsublev(1) = sum(nsub_loc_1)} to @code{nsublev(nl) = 1}
 
 @item lnsublev
 length of array @code{nsublev} - should match @code{nl}
@@ -126,8 +191,9 @@ LOCAL number of subdomains assigned to the process.
 
 @item comm_init 
 initial global communicator (possibly @code{MPI_COMM_WORLD}). This should be communicator in Fortran.
-When called from C, it should NOT be of type @code{MPI_Comm}. 
-Use @code{MPI_Comm_c2f} function before calling this routine to get the proper argument. 
+When called from C, it should NOT be of type @code{MPI_Comm} but of type @code{int *}, and user should 
+use the @code{MPI_Comm_c2f} function to convert the C @code{MPI_Comm} communicator to Fortran 
+communicator of type @code{int *}. 
 
 @item verbose_level 
 level of verbosity
@@ -154,6 +220,39 @@ void bddcml_upload_global_data( int *nelem, int *nnod, int *ndof, int *ndim, int
                                 int *ifix, int *lifix, double *fixv, int *lfixv, double *rhs, int *lrhs, double *sol, int *lsol, int *idelm, 
                                 int *neighbouring, int *load_division_int )
 }
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
+                                     inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
+                                     ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol, idelm, &
+                                     neighbouring, load_division_int)
+}
+@verbatim
+      integer, intent(in):: nelem
+      integer, intent(in):: nnod
+      integer, intent(in):: ndof
+      integer, intent(in) :: ndim 
+      integer, intent(in) :: meshdim
+      integer, intent(in):: linet
+      integer, intent(in)::  inet(linet)
+      integer, intent(in):: lnnet
+      integer, intent(in)::  nnet(lnnet)
+      integer, intent(in):: lnndf
+      integer, intent(in)::  nndf(lnndf)
+      integer, intent(in):: lxyz1, lxyz2
+      real(kr), intent(in):: xyz(lxyz1,lxyz2)
+      integer, intent(in):: lifix
+      integer, intent(in)::  ifix(lifix)
+      integer, intent(in):: lfixv
+      real(kr), intent(in):: fixv(lfixv)
+      integer, intent(in):: lrhs
+      real(kr), intent(in):: rhs(lrhs)
+      integer, intent(in):: lsol
+      real(kr), intent(in):: sol(lsol)
+      integer, intent(in) :: idelm  
+      integer, intent(in) :: neighbouring 
+      integer, intent(in) :: load_division_int
+@end verbatim
 
 @unnumberedsubsec Description
 If no distribution of data exists in the user application, it may be left to the solver. 
@@ -212,8 +311,9 @@ dimension of @code{xyz} is given used as @code{xyz(lxyz1,lxyz2)}.
 The @code{lxyz1} is equal to @code{nnod}. The @code{lxyz2} is equal to @code{ndim}.
 
 @item ifix
-GLOBAL array of Indices of FIXed variables - all degrees of freedom with Dirichlet BC are marked with its number, 
-i.e. non-zero entries determine fixed degrees of freedom.
+GLOBAL array of Indices of FIXed variables - all degrees of freedom with Dirichlet boundary condition are marked by 1, degrees of freedom not prescribed are marked by 0,
+i.e. non-zero entries determine fixed degrees of freedom. 
+The values of prescribed boundary conditions are given by corresponding entries of array @code{fixv}.
 
 @item lifix
 length of array @code{ifix}, equal to @code{ndof}.
@@ -268,6 +368,58 @@ void bddcml_upload_subdomain_data( int *nelem, int *nnod, int *ndof, int *ndim, 
                                    double *sol, int *lsol, 
                                    int *matrixtype, int *i_sparse, int *j_sparse, double *a_sparse, int *la, int *is_assembled_int )
 }
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
+                                        isub, nelems, nnods, ndofs, &
+                                        inet,linet, nnet,lnnet, nndf,lnndf, &
+                                        isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn, &
+                                        xyz,lxyz1,lxyz2, &
+                                        ifix,lifix, fixv,lfixv, &
+                                        rhs,lrhs, is_rhs_complete_int, &
+                                        sol,lsol, &
+                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
+}
+@verbatim
+      integer, intent(in):: nelem
+      integer, intent(in):: nnod
+      integer, intent(in):: ndof
+      integer, intent(in):: ndim
+      integer, intent(in):: meshdim
+      integer, intent(in):: isub
+      integer, intent(in):: nelems
+      integer, intent(in):: nnods
+      integer, intent(in):: ndofs
+      integer, intent(in):: linet
+      integer, intent(in)::  inet(linet)
+      integer, intent(in):: lnnet
+      integer, intent(in)::  nnet(lnnet)
+      integer, intent(in):: lnndf
+      integer, intent(in)::  nndf(lnndf)
+      integer, intent(in):: lisngn
+      integer, intent(in)::  isngn(lisngn)
+      integer, intent(in):: lisvgvn
+      integer, intent(in)::  isvgvn(lisvgvn)
+      integer, intent(in):: lisegn
+      integer, intent(in)::  isegn(lisegn)
+      integer, intent(in):: lxyz1, lxyz2
+      real(kr), intent(in):: xyz(lxyz1,lxyz2)
+      integer, intent(in):: lifix
+      integer, intent(in)::  ifix(lifix)
+      integer, intent(in):: lfixv
+      real(kr), intent(in):: fixv(lfixv)
+      integer, intent(in):: lrhs
+      real(kr), intent(in):: rhs(lrhs)
+      integer, intent(in):: lsol
+      real(kr), intent(in):: sol(lsol)
+      integer, intent(in)::  is_rhs_complete_int  
+      integer, intent(in)::  matrixtype 
+      integer, intent(in)::  i_sparse(la)  
+      integer, intent(in)::  j_sparse(la)  
+      real(kr), intent(in):: a_sparse(la)  
+      integer, intent(in)::  la            
+      integer, intent(in)::  is_assembled_int 
+@end verbatim
 
 @unnumberedsubsec Description
 If distribution of data into subdomains exists already in the user application, data should be loaded into the solver using this routine.
@@ -357,8 +509,9 @@ dimension of @code{xyz} is used as @code{xyz(lxyz1,lxyz2)}.
 The @code{lxyz1} is equal to @code{nnods}. The @code{lxyz2} is equal to @code{ndim}.
 
 @item ifix
-LOCAL array of Indices of FIXed variables - all dofs with Dirichlet boundary condition are marked with its number, 
+LOCAL array of Indices of FIXed variables - all degrees of freedom with Dirichlet boundary condition are marked by 1, degrees of freedom not prescribed are marked by 0,
 i.e. non-zero entries determine fixed degrees of freedom.
+The values of prescribed boundary conditions are given by corresponding entries of array @code{fixv}.
 
 @item lifix
 length of array @code{ifix}, equal to @code{ndofs}.
@@ -403,10 +556,12 @@ general symmetric - only upper triangle of the matrix is loaded
 @end itemize
 
 @item i_sparse
-array of row indices of non-zero entries
+array of row indices of non-zero entries in LOCAL numbering with respect to subdomain degrees of freedom, 
+i.e. indices are in the range [@code{0}, @code{ndofs-1}] in C ( and in [@code{1}, @code{ndofs}] in Fortran)
 
 @item j_sparse
-array of column indices of non-zero entries
+array of column indices of non-zero entries in LOCAL numbering with respect to subdomain degrees of freedom,
+see @code{i_sparse} for their ranges
 
 @item a_sparse  
 array of values of non-zero entries
@@ -434,6 +589,18 @@ The solver comes with fast assembly routine so the users might want to pass just
 void bddcml_setup_preconditioner( int *matrixtype, int *use_defaults_int,
                                   int *parallel_division_int, int *use_arithmetic_int, int *use_adaptive_int );
 }
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
+                                       parallel_division_int, use_arithmetic_int,use_adaptive_int)
+}
+@verbatim
+      integer,intent(in) :: matrixtype 
+      integer,intent(in) :: use_defaults_int
+      integer,intent(in) :: parallel_division_int
+      integer,intent(in) :: use_arithmetic_int
+      integer,intent(in) :: use_adaptive_int
+@end verbatim
 
 @unnumberedsubsec Description
 Calling this function prepares internal data of the preconditioner. Local factorizations are performed for each subdomain at each level and also
@@ -486,6 +653,21 @@ Default is @code{0}.
 void bddcml_solve( int *comm_all, int *method, double *tol, int *maxit, int *ndecrmax, 
                    int *num_iter, int *converged_reason, double *condition_number);
 }
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
+                        num_iter,converged_reason,condition_number)
+}
+@verbatim
+      integer, intent(in) :: comm_all 
+      integer, intent(in) :: method
+      real(kr), intent(in) :: tol
+      integer, intent(in) :: maxit
+      integer, intent(in) :: ndecrmax
+      integer, intent(out) :: num_iter
+      integer, intent(out) :: converged_reason
+      real(kr), intent(out) :: condition_number
+@end verbatim
 
 @unnumberedsubsec Description
 This function launches the solution procedure for prepared data. System is solved either by preconditioned conjugate gradient (PCG) method or by 
@@ -538,6 +720,15 @@ on output, estimated condition number ( for PCG only ).
 @code{
 void bddcml_download_local_solution( int *isub, double *sols, int *lsols )
 }
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_download_local_solution(isub, sols,lsols)
+}
+@verbatim
+      integer, intent(in)::  isub
+      integer, intent(in)::  lsols
+      real(kr), intent(out):: sols(lsols)
+@end verbatim
 
 @unnumberedsubsec Description
 Subroutine for getting local solution, i.e. restriction of solution vector to subdomain (no weights are applied).
@@ -564,9 +755,17 @@ length of array @code{sols}, equal to @code{ndofs}.
 @code{
 void bddcml_download_global_solution( double *sol, int *lsol )
 }
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_download_global_solution(sol, lsol)
+}
+@verbatim
+      integer, intent(in)::  lsol
+      real(kr), intent(out):: sol(lsol)
+@end verbatim
 
 @unnumberedsubsec Description
-This function downloads global solution of the system from the solver at root process.
+This function downloads global solution of the system from the solver at the root process.
 
 @unnumberedsubsec Parameters
 
@@ -581,12 +780,95 @@ length of array @code{sol}, equal to @code{ndof}
 
 
 @page
+@section @code{bddcml_download_local_reactions}
+
+@unnumberedsubsec C interface
+@code{
+void bddcml_download_local_reactions( int *isub, double *reas, int *lreas )
+}
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_download_local_reactions(isub, reas,lreas)
+}
+@verbatim
+      integer, intent(in)::  isub
+      integer, intent(in)::  lreas
+      real(kr), intent(out):: reas(lreas)
+@end verbatim
+
+@unnumberedsubsec Description
+Subroutine for getting local reactions at unknowns fixed by Dirichlet boundary conditions, 
+i.e. restriction of vector of reactions to subdomain (no weights are applied).
+Global vector of reactions is given by @code{r = Ax - b}, where @code{A} is the matrix WITHOUT Dirichlet boundary conditions fixed,
+@code{x} is the solution, and @code{b} the original right-hand side.
+@unnumberedsubsec Parameters
+
+@table @code
+@item isub
+GLOBAL index of subdomain
+
+@item reas
+LOCAL array of vector of reactions restricted to subdomain. It contains nonzeros only at unknowns marked in the IFIX array
+(see @code{bddcml_upload_local_data}). 
+
+@item lreas
+length of array @code{reas}, equal to @code{ndofs}.
+
+@end table
+
+@page
+@section @code{bddcml_download_global_reactions}
+
+@unnumberedsubsec C interface
+@code{
+void bddcml_download_global_reactions( double *rea, int *lrea )
+}
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_download_global_reactions(rea, lrea)
+}
+@verbatim
+      integer, intent(in)::  lrea
+      real(kr), intent(out):: rea(lrea)
+@end verbatim
+
+@unnumberedsubsec Description
+Subroutine for getting global reactions at unknowns fixed by Dirichlet boundary conditions at the root process. 
+Global vector of reactions is given by @code{r = Ax - b}, where @code{A} is the matrix WITHOUT Dirichlet boundary conditions fixed,
+@code{x} is the solution, and @code{b} the original right-hand side.
+
+@unnumberedsubsec Parameters
+
+@table @code
+@item rea
+GLOBAL array of reactions. It contains nonzeros only at unknowns marked in the IFIX array
+(see @code{bddcml_upload_global_data}). 
+
+@item lrea
+length of array @code{rea}, equal to @code{ndof}
+
+@end table
+
+@page
+
 @section @code{bddcml_dotprod_subdomain}
 
 @unnumberedsubsec C interface
 @code{
 void bddcml_dotprod_subdomain( int *isub, double *vec1, int *lvec1, double *vec2, int *lvec2, double *dotprod )
 }
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_dotprod_subdomain( isub, vec1,lvec1, vec2,lvec2, dotprod )
+}
+@verbatim
+      integer, intent(in) ::  isub 
+      integer, intent(in) ::  lvec1  
+      real(kr), intent(in) :: vec1(lvec1)
+      integer, intent(in) ::  lvec2      
+      real(kr), intent(in) :: vec2(lvec2)
+      real(kr), intent(out) :: dotprod
+@end verbatim
 
 @unnumberedsubsec Description
 Auxiliary subroutine to compute scalar product of two vectors of lenght of
@@ -626,6 +908,10 @@ on exit, returns vec1' * weights * vec2
 @unnumberedsubsec C interface
 @code{
 void bddcml_finalize( )
+}
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_finalize
 }
 
 @unnumberedsubsec Description

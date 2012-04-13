@@ -466,6 +466,44 @@ subroutine bddcml_download_global_solution(sol, lsol)
 
 end subroutine
 
+!***********************************************************
+subroutine bddcml_download_local_reactions(isub, reas,lreas)
+!***********************************************************
+! Subroutine for getting local reactions at Dirichlet BC,
+! i.e. restriction of vector of reactions to subdomain (no weights are applied)
+      use module_levels
+      use module_utils
+      implicit none
+      integer,parameter :: kr = kind(1.D0)
+
+      ! GLOBAL index of subdomain
+      integer, intent(in)::  isub
+
+      ! LOCAL reactions 
+      integer, intent(in)::  lreas
+      real(kr), intent(out):: reas(lreas)
+
+      call levels_dd_download_reactions(isub, reas,lreas)
+
+end subroutine
+
+!*****************************************************
+subroutine bddcml_download_global_reactions(rea, lrea)
+!*****************************************************
+! Subroutine for getting global vector of reactions at Dirichlet BC at root process
+      use module_levels
+      use module_utils
+      implicit none
+      integer,parameter :: kr = kind(1.D0)
+
+      ! GLOBAL  - required to be allocated only at root
+      integer, intent(in)::  lrea
+      real(kr), intent(out):: rea(lrea)
+
+      call levels_get_global_reactions(rea,lrea)
+
+end subroutine
+
 !*******************************************************************************
 subroutine bddcml_dotprod_subdomain( isub, vec1,lvec1, vec2,lvec2, dotprod )
 !*******************************************************************************

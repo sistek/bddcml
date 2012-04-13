@@ -1133,11 +1133,7 @@ logical :: one_more_check_needed = .false.
 
 
 ! Divide graph
-      if (graphtype.eq.1) then
-         lvwgt = nelem
-      else
-         lvwgt = 1
-      end if
+      lvwgt = nelem
       allocate(vwgt(lvwgt))
       vwgt = 1
       call graph_divide(graphtype,nelem,xadj,lxadj,adjncy,ladjncy,vwgt,lvwgt,adjwgt,ladjwgt,nsub,edgecut,part,lpart)

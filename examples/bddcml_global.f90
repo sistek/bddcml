@@ -68,7 +68,7 @@ program bddcml_global
       integer, parameter :: numbase = 1
 
 ! use prepared division into subdomains on first level in file *.ES?
-      integer,parameter :: load_division = 1
+      integer,parameter :: load_division = 0
 ! use prepared selection of corners in file *.CN and description of globs for first level in file *.GLB?
       integer,parameter :: load_globs = 0
 ! use prepared file with pairs for adaptivity (*.PAIR) on first level?
@@ -122,6 +122,11 @@ program bddcml_global
       real(kr),allocatable:: rhs(:)
       integer ::            lsol
       real(kr),allocatable:: sol(:)
+      integer ::            lrea
+      real(kr),allocatable:: rea(:)
+      real(kr) :: sum_rea(3)
+
+      integer :: idofn, ndofn, inddof, inod
 
 
       integer :: lproblemname
@@ -369,7 +374,7 @@ program bddcml_global
          write (*,'(a)') 'Loading data done.'
          call flush(6)
       end if
-      deallocate(inet,nnet,nndf,xyz)
+      deallocate(inet,nnet,xyz)
       deallocate(ifix,fixv)
       deallocate(rhs)
       deallocate(sol)
@@ -415,34 +420,50 @@ program bddcml_global
       if (myid.eq.0) then
          lsol = ndof
          allocate(sol(lsol))
+         lrea = ndof
+         allocate(rea(lrea))
       end if
 
       ! download global solution - all processors have to call this
       call bddcml_download_global_solution(sol,lsol)
 
+      ! download global reactions - all processors have to call this
+      call bddcml_download_global_reactions(rea,lrea)
+
       if (myid.eq.0) then
-        ! solution is ready, write it to SOL file
+         ! compute sums of reactions into coordinate axes
+         inddof = 0
+         sum_rea = 0._kr
+         do inod = 1,nnod
+            ndofn = nndf(inod)
+            do idofn = 1,ndofn
+               inddof = inddof + 1
+               sum_rea(idofn) = sum_rea(idofn) + rea(inddof)
+            end do
+         end do
+
+         ! solution is ready, write it to SOL file
          call allocate_unit(idsol)
          open (unit=idsol,file=trim(problemname)//'.SOL',status='replace',form='unformatted')
          rewind idsol
       
+         ! solution
          write(idsol) (sol(i), i = 1,lsol)
-! Nonsense writing in place where postprocessor expect reactions
-         write(idsol) (sol(i), i = 1,lsol), 0.0D0, 0.0D0, 0.0D0
+         ! reactions
+         write(idsol) (rea(i), i = 1,lrea), (sum_rea(i), i = 1,3)
          write(*,*) 'Solution has been written into file ',trim(problemname)//'.SOL'
-         write(*,*) 'Warning: At the moment solver does not ',&
-                    'resolve reaction forces. Record of these does not',&
-                    ' make sense and is present only to make ',&
-                    'postprocessor str3 happy with input data.'
          close(idsol)
 
          if (print_solution) then
-            write(*,*) ' solution: '
-            write(*,'(e15.7)') sol
+            write(*,*) ' solution | reactions'
+            write(*,'(2e15.7)') (sol(i), rea(i), i = 1,lsol)
+            write(*,*) ' sums of reactions into coordinate axes: ',sum_rea
          end if
 
          deallocate(sol)
+         deallocate(rea)
       end if
+      deallocate(nndf)
 
       if (myid.eq.0) then
          write (*,'(a)') 'Finalizing LEVELS ...'

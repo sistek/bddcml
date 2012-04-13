@@ -2,7 +2,7 @@
 include ../make.inc
 
 # include files needed
-INC = $(BDDCML_INCMUMPS) $(BDDCML_INCPARMETIS) $(BDDCML_INCBLOPEX) $(BDDCML_INCMPI)
+INC = $(BDDCML_INCMUMPS) $(BDDCML_INCPARMETIS) $(BDDCML_INCMETIS) $(BDDCML_INCBLOPEX) $(BDDCML_INCMPI)
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -22,6 +22,7 @@ OBJ = \
    module_pp.o \
    pget_sub_neighbours.o \
    pdivide_mesh.o \
+   divide_graph.o \
    module_parsing.o \
    module_sm.o \
    module_tecplot.o \
@@ -83,6 +84,7 @@ module_sm.o: \
 
 module_graph.o: \
    module_parsing.o \
+   divide_graph.o \
    module_utils.o 
 
 module_pp.o: \

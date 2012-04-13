@@ -118,6 +118,19 @@ module module_dd
          integer ::         lbc = 0       ! length of BC array
          real(kr),allocatable :: bc(:)        ! BC array - eliminated entries of stiffness matrix multiplied by values of fixed variables 
 
+         ! matrix of fixed rows in IJA sparse format
+         logical :: is_fixed_rows_matrix_loaded = .false.
+         integer :: nnza_fixed
+         integer :: la_fixed
+         integer,allocatable  :: i_a_fixed_sparse(:)
+         integer,allocatable  :: j_a_fixed_sparse(:)
+         real(kr),allocatable ::   a_fixed_sparse(:)
+
+         ! reactions at fixed variables
+         logical :: is_reactions_ready = .false.
+         integer ::         lrea = 0       ! length of REA array
+         real(kr),allocatable :: rea(:)    ! REA array - reactions = A*sol - rhs
+
          ! description of corners
          logical ::             is_corners_loaded = .false.
          integer ::             ncorner                  ! number of corners on subdomain
@@ -270,6 +283,18 @@ module module_dd
          integer ::               lphisi1
          integer ::               lphisi2
          real(kr),allocatable ::   phisi(:,:)
+
+         ! dual coarse space basis functions on whole subdomain PHIS
+         logical :: is_phis_dual_prepared  = .false.
+         integer ::               lphis_dual1
+         integer ::               lphis_dual2
+         real(kr),allocatable ::   phis_dual(:,:)
+
+         ! dual coarse space basis functions restricted to interface PHISI
+         logical :: is_phisi_dual_prepared  = .false.
+         integer ::               lphisi_dual1
+         integer ::               lphisi_dual2
+         real(kr),allocatable ::   phisi_dual(:,:)
 
          ! subdomain coarse matrix 
          logical :: is_coarse_prepared = .false.
@@ -671,7 +696,7 @@ subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
 
          ! eliminate natural BC
          call sm_apply_bc(matrixtype,sub%ifix,sub%lifix,sub%fixv,sub%lfixv,&
-                          nnza, i_sparse,j_sparse,a_sparse,la, bc,lbc)
+                          nnza, i_sparse,j_sparse,a_sparse,la, bc,lbc, .false., 0)
          if (sub%is_bc_nonzero) then
             call dd_load_eliminated_bc(sub, bc,lbc)
          else
@@ -889,7 +914,7 @@ subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,idelm,nsub,nelem,matrixty
          ! ELM - element stiffness matrices - structure:
          inquire (idelm, opened=is_opened, read=is_readable )
          if (.not. is_opened .or. trim(is_readable) .eq. 'N' ) then
-            print *, is_opened, is_readable
+            write (*,*) is_opened, is_readable
             call error(routine_name,'Cannot access file with element matrices, unit IDELM.')
          end if
          rewind idelm
@@ -981,6 +1006,9 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
 
       integer :: isub, isub_loc, nnza, la, ndofs, ndofis
 
+      logical,parameter :: store_fixed_rows = .true.
+      integer :: la_fixed
+
       ! find if any nonzero BC is present
       is_bc_present_loc = .false.
       do isub_loc = 1,lindexsub
@@ -1011,11 +1039,37 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
          end if
 
          ! eliminate natural BC
+         la_fixed = 0
+         if (suba(isub_loc)%is_bc_present) then
+            la_fixed = 0
+            if ( store_fixed_rows ) then
+                call sm_count_fixed_rows_matrix_size(suba(isub_loc)%matrixtype,suba(isub_loc)%ifix,suba(isub_loc)%lifix,nnza,&
+                                                     suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse, la, la_fixed)
+            end if
+         end if
+         suba(isub_loc)%la_fixed   = la_fixed
+         suba(isub_loc)%nnza_fixed = la_fixed
+         allocate( suba(isub_loc)%i_a_fixed_sparse(la_fixed), &
+                   suba(isub_loc)%j_a_fixed_sparse(la_fixed), &
+                   suba(isub_loc)%a_fixed_sparse(la_fixed) )
          if (suba(isub_loc)%is_bc_present) then
             call sm_apply_bc(suba(isub_loc)%matrixtype,&
                              suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
-                             nnza, suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc)
+                             nnza, suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc, &
+                             store_fixed_rows, suba(isub_loc)%la_fixed,&
+                             suba(isub_loc)%i_a_fixed_sparse,&
+                             suba(isub_loc)%j_a_fixed_sparse,&
+                             suba(isub_loc)%a_fixed_sparse)
+            if ( store_fixed_rows ) then
+                !print *, 'la_fixed, nnza_fixed',suba(isub_loc)%la_fixed,suba(isub_loc)%nnza_fixed
+                !call sm_print(6, suba(isub_loc)%i_a_fixed_sparse, suba(isub_loc)%j_a_fixed_sparse, suba(isub_loc)%a_fixed_sparse, &
+                !              suba(isub_loc)%la_fixed, suba(isub_loc)%la_fixed)
+                !call flush(6)
+                call sm_assembly(suba(isub_loc)%i_a_fixed_sparse, suba(isub_loc)%j_a_fixed_sparse, suba(isub_loc)%a_fixed_sparse,& 
+                                 suba(isub_loc)%la_fixed, suba(isub_loc)%nnza_fixed)
+            end if
          end if
+         suba(isub_loc)%is_fixed_rows_matrix_loaded = .true.
 
          if (is_bc_present) then
             ndofis = suba(isub_loc)%ndofi
@@ -1060,6 +1114,128 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
 
 end subroutine
 
+!*******************************************************************************************
+subroutine dd_compute_reactions(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,lindexsub)
+!*******************************************************************************************
+! Subroutine for eliminating constraints from RHS and fixing them in the matrix
+      use module_sm
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+! array of sub structure
+      integer,intent(in) ::                lsuba
+      type(subdomain_type),intent(inout) :: suba(lsuba)
+! communicator
+      integer,intent(in) :: comm_all
+! division of subdomains to processors
+      integer,intent(in) :: lsub2proc
+      integer,intent(in) ::  sub2proc(lsub2proc)
+! global indices of local subdomains
+      integer,intent(in) :: lindexsub
+      integer,intent(in) ::  indexsub(lindexsub)
+
+! local variables
+      character(*),parameter:: routine_name = 'DD_COMPUTE_REACTIONS'
+      integer :: ierr
+      logical :: is_bc_present_loc, is_bc_present
+
+!     BC arrays
+      integer::              lreai
+      real(kr),allocatable :: reai(:)
+
+      integer :: isub, isub_loc, ndofs, ndofis
+      integer :: lrea
+
+      ! find if any nonzero BC is present
+      is_bc_present_loc = .false.
+      do isub_loc = 1,lindexsub
+         if (suba(isub_loc)%is_bc_present) then
+            is_bc_present_loc = .true.
+         end if
+      end do
+!*****************************************************************MPI
+      call MPI_ALLREDUCE(is_bc_present_loc,is_bc_present,1, MPI_LOGICAL, MPI_LOR, comm_all, ierr) 
+!*****************************************************************MPI
+
+      ! eliminate constraints if they are present
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         if (suba(isub_loc)%is_bc_present .and. .not. suba(isub_loc)%is_fixed_rows_matrix_loaded) then
+            print *, suba(isub_loc)%is_bc_present, suba(isub_loc)%is_fixed_rows_matrix_loaded
+            call error( routine_name, &
+                        'Matrix of fixed rows not prepared,'//&
+                        'not asked for reactions in DD_FIX_CONSTRAINTS for subdomain',&
+                        suba(isub_loc)%isub )
+         end if
+
+         ! eliminate boundary conditions
+         ndofs =  suba(isub_loc)%ndof
+
+         lrea = ndofs
+         suba(isub_loc)%lrea = lrea
+         allocate(suba(isub_loc)%rea(lrea))
+         call zero(suba(isub_loc)%rea,suba(isub_loc)%lrea)
+
+         ! eliminate natural BC
+         if (suba(isub_loc)%is_bc_present) then
+            call sm_vec_mult(suba(isub_loc)%matrixtype, suba(isub_loc)%nnza_fixed, &
+                             suba(isub_loc)%i_a_fixed_sparse, suba(isub_loc)%j_a_fixed_sparse, suba(isub_loc)%a_fixed_sparse, &
+                             suba(isub_loc)%la_fixed, &
+                             suba(isub_loc)%sol,suba(isub_loc)%lsol, suba(isub_loc)%rea,suba(isub_loc)%lrea )
+            ! at the moment, rea = A_fixed*sol
+            ! change it to rea = A_fixed * sol - rhs
+            if (.not. suba(isub_loc)%is_rhs_complete) then
+               if (suba(isub_loc)%is_bc_present) then
+                  where (suba(isub_loc)%ifix .ne. 0 ) suba(isub_loc)%rea = suba(isub_loc)%rea - suba(isub_loc)%rhs
+               end if
+            end if
+
+            ndofis = suba(isub_loc)%ndofi
+            lreai = ndofis
+            allocate(reai(lreai))
+            call zero(reai,lreai)
+            call dd_map_sub_to_subi(suba(isub_loc), suba(isub_loc)%rea,suba(isub_loc)%lrea, reai,lreai) 
+            call dd_comm_upload(suba(isub_loc), reai,lreai) 
+            deallocate(reai)
+         end if
+      end do
+      if (is_bc_present) then
+         call dd_comm_swapdata(suba,lsuba, indexsub,lindexsub, sub2proc,lsub2proc,comm_all)
+         ! finalize input of boundary conditions
+         do isub_loc = 1,lindexsub
+            isub = indexsub(isub_loc)
+
+            ndofis = suba(isub_loc)%ndofi
+            lreai = ndofis
+            allocate(reai(lreai))
+            call zero(reai,lreai)
+
+            call dd_comm_download(suba(isub_loc), reai,lreai) 
+            ! add correction from neighbours
+            call dd_map_subi_to_sub(suba(isub_loc), reai,lreai, suba(isub_loc)%rea,suba(isub_loc)%lrea) 
+
+            deallocate(reai)
+
+            ! at the moment, rea = A_fixed*sol
+            ! change it to rea = A_fixed * sol - rhs
+            if (suba(isub_loc)%is_rhs_complete) then
+               if (suba(isub_loc)%is_bc_present .and. suba(isub_loc)%lifix.gt.0 ) then
+                  if ( suba(isub_loc)%lifix .ne. suba(isub_loc)%lrea .or. suba(isub_loc)%lifix .ne. suba(isub_loc)%lrhs ) then
+                     print *, suba(isub_loc)%lifix, suba(isub_loc)%lrea, suba(isub_loc)%lrhs
+                     call error( routine_name, 'Dimension of arrays mismatch.')
+                  end if
+                  where (suba(isub_loc)%ifix .ne. 0 ) suba(isub_loc)%rea = suba(isub_loc)%rea - suba(isub_loc)%rhs
+               end if
+            end if
+
+            suba(isub_loc)%is_reactions_ready = .true.
+         end do
+      end if
+
+
+end subroutine
 !***********************************************************************************
 subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixtype,&
                             sub2proc,lsub2proc,indexsub,lindexsub,&
@@ -1336,7 +1512,8 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
 
             ! eliminate natural BC
             call sm_apply_bc(matrixtype,suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
-                             nnza,suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc)
+                             nnza,suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc, &
+                             .false., 0 )
             if (suba(isub_loc)%is_bc_nonzero) then
                call dd_load_eliminated_bc(suba(isub_loc), bc,lbc)
             end if
@@ -2556,6 +2733,41 @@ subroutine dd_download_solution(sub, sol,lsol)
 
       do i = 1,lsol
          sol(i) = sub%sol(i)
+      end do
+
+end subroutine
+
+!**********************************************
+subroutine dd_download_reactions(sub, rea,lrea)
+!**********************************************
+! Subroutine for downloading reactions from subdomain structure
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+! Subdomain reactions
+      integer,intent(in) ::  lrea
+      real(kr),intent(out)::  rea(lrea)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_DOWNLOAD_REACTIONS'
+      integer :: i
+      integer :: ndof
+
+      ! check prerequisites
+      if (.not. sub%is_reactions_ready) then
+         call error( routine_name,'Reactions are not computed for subdomain: ',sub%isub)
+      end if
+
+      ndof = sub%ndof
+      ! check dimension
+      if (lrea.ne.ndof) then
+         call error(routine_name,'Array REA dimension mismatch.')
+      end if
+
+      do i = 1,lrea
+         rea(i) = sub%rea(i)
       end do
 
 end subroutine
@@ -4073,6 +4285,7 @@ subroutine dd_prepare_aug(sub,comm_self)
 ! |C  0 |
 ! and its factorization
       use module_mumps
+      use module_sm
       use module_utils
       implicit none
 
@@ -4237,6 +4450,11 @@ subroutine dd_prepare_coarse(sub,keep_global)
 ! phis are coarse space basis functions on subdomain
 ! Then the routine builds the local coarse matrix:
 ! Ac = phis^T * A * phis 
+! for unsymmetric problems, it also solves
+! | A^T C^T|| phis_dual | = | 0 |
+! | C   0  ||lambda_dual|   | I |
+! and 
+! Ac = phis_dual^T * A * phis 
 
       use module_mumps
       use module_utils
@@ -4254,6 +4472,8 @@ subroutine dd_prepare_coarse(sub,keep_global)
       integer ::  i, j, indphis, nrhs, &
                   indphisstart, indi, icoarsem, lcoarsem
       integer ::  lphisi1, lphisi2, lphis1, lphis2
+      integer ::  lphisi_dual1, lphisi_dual2, lphis_dual1, lphis_dual2
+      logical :: solve_adjoint
 
       integer ::             lphis
       real(kr),allocatable :: phis(:)
@@ -4292,6 +4512,20 @@ subroutine dd_prepare_coarse(sub,keep_global)
             sub%is_phisi_prepared   = .false.
          end if
 
+         if (allocated(sub%phis_dual)) then
+            deallocate(sub%phis_dual)
+            sub%lphis_dual1 = 0
+            sub%lphis_dual2 = 0
+            sub%is_phis_dual_prepared   = .false.
+         end if
+
+         if (allocated(sub%phisi_dual)) then
+            deallocate(sub%phisi_dual)
+            sub%lphisi_dual1 = 0
+            sub%lphisi_dual2 = 0
+            sub%is_phisi_dual_prepared   = .false.
+         end if
+
          deallocate(sub%coarsem)
          sub%lcoarsem = 0
          sub%ndofc = 0
@@ -4316,7 +4550,8 @@ subroutine dd_prepare_coarse(sub,keep_global)
 
       ! solve the system with multiple RHS
       nrhs = nconstr
-      call dd_solve_aug(sub, phis,lphis, nrhs) 
+      solve_adjoint = .false.
+      call dd_solve_aug(sub, phis,lphis, nrhs, solve_adjoint) 
 
       !debug
       !write(*,*) 'Subdomain ',sub%isub,' coarse basis functions phis:'
@@ -4325,6 +4560,7 @@ subroutine dd_prepare_coarse(sub,keep_global)
       !end do
 
       ! Build subdomain coarse matrix by the fact that phis^T*A*phis = -lambda 
+      ! this is correct also for unsymmetric problems where Ac_i = phis_dual^T*A*phis = -lambda
       lac1 = nconstr
       lac2 = nconstr
       allocate(ac(lac1,lac2))
@@ -4371,6 +4607,57 @@ subroutine dd_prepare_coarse(sub,keep_global)
          end do
       end do
       sub%is_phisi_prepared   = .true.
+
+      ! compute dual basis functions from the adjoint problem
+      ! A^T
+      if (sub%matrixtype .eq. 0) then
+         ! zero all entries
+         call zero(phis,lphis)
+
+         ! put identity into the block of constraints
+         do j = 1,nconstr
+            indphis = (j-1)*ndofaaug + ndof + j
+            phis(indphis) = 1._kr
+         end do
+
+         ! solve the system with multiple RHS
+         nrhs = nconstr
+         solve_adjoint = .true.
+         call dd_solve_aug(sub, phis,lphis, nrhs, solve_adjoint) 
+
+         if (keep_global) then
+            ndof   = sub%ndof
+            lphis_dual1 = ndof
+            lphis_dual2 = nconstr
+            allocate(sub%phis_dual(lphis_dual1,lphis_dual2))
+            sub%lphis_dual1 = lphis_dual1
+            sub%lphis_dual2 = lphis_dual2
+            do i = 1,ndof
+               do j = 1,nconstr
+                  indphis = (j-1)*ndofaaug + i
+                  sub%phis_dual(i,j) = phis(indphis)
+               end do
+            end do
+            sub%is_phis_dual_prepared   = .true.
+         end if
+         ! restrict vector phis to interface unknowns and load it to the structure
+         ndofi   = sub%ndofi
+         lphisi_dual1 = ndofi
+         lphisi_dual2 = nconstr
+         allocate(sub%phisi_dual(lphisi_dual1,lphisi_dual2))
+         sub%lphisi_dual1 = lphisi_dual1
+         sub%lphisi_dual2 = lphisi_dual2
+         do i = 1,ndofi
+            indi = sub%iivsvn(i)
+            do j = 1,nconstr
+               indphis = (j-1)*ndofaaug + indi
+
+               sub%phisi_dual(i,j) = phis(indphis)
+            end do
+         end do
+         sub%is_phisi_dual_prepared   = .true.
+         
+      end if
 
       ! load the coarse matrix to the structure in appropriate format
       matrixtype = sub%matrixtype
@@ -4450,9 +4737,9 @@ subroutine dd_get_aug_size(sub, ndofaaug)
 
 end subroutine
 
-!*******************************************
-subroutine dd_solve_aug(sub, vec,lvec, nrhs)
-!*******************************************
+!**********************************************************
+subroutine dd_solve_aug(sub, vec,lvec, nrhs, solve_adjoint)
+!**********************************************************
 ! Subroutine for solving system 
 ! | A C^T|| z_i | = | res_i |
 ! | C  0 || mu  |   |   0   |
@@ -4471,6 +4758,9 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs)
 
       ! how many right hand sides are hidden in vec
       integer,intent(in) ::    nrhs
+
+      ! should the adjoint system be solved? This solves transposed system. 
+      logical,intent(in) ::    solve_adjoint
 
       ! local vars
       integer ::  ndofaaug
@@ -4497,7 +4787,7 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs)
 
       ! solve the system with multiple RHS
       if (.not.sub%is_degenerated) then
-         call mumps_resolve(sub%mumps_aug,vec,lvec,nrhs)
+         call mumps_resolve(sub%mumps_aug,vec,lvec,nrhs,solve_adjoint)
       end if
 
 end subroutine
@@ -4578,9 +4868,9 @@ subroutine dd_get_phisi(sub, phisi, lphisi1,lphisi2)
 
 end subroutine
 
-!*****************************************************************
-subroutine dd_phisi_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
-!*****************************************************************
+!*****************************************************
+subroutine dd_phisi_apply(sub, vec1,lvec1, vec2,lvec2)
+!*****************************************************
 ! Subroutine for multiplication of vector VEC1 by PHISI matrix
 ! vec2 = phisi * vec1 + vec2
 ! phisi are coarse space basis functions on subdomain restricted to interface
@@ -4591,9 +4881,6 @@ subroutine dd_phisi_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
 ! Subdomain structure
       type(subdomain_type),intent(in) :: sub
 
-      ! is matrix transposed
-      logical,intent(in) :: transposed
-
       ! input vector
       integer,intent(in) :: lvec1
       real(kr),intent(in) :: vec1(lvec1)
@@ -4602,7 +4889,7 @@ subroutine dd_phisi_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
       real(kr),intent(out) :: vec2(lvec2)
 
       ! local vars
-      logical :: wrong_dim
+      character(*),parameter:: routine_name = 'DD_PHISI_APPLY'
 
       ! BLAS vars
       character(1) :: TRANS
@@ -4611,31 +4898,15 @@ subroutine dd_phisi_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
 
       ! check the prerequisities
       if (.not.sub%is_phisi_prepared) then
-         write(*,*) 'DD_PHISI_APPLY: PHISI matrix not ready:', sub%isub
-         call error_exit
+         call error(routine_name, 'PHISI matrix not ready for sub: ', sub%isub)
       end if
       ! check dimensions
-      wrong_dim = .false.
-      if (transposed) then
-         if (lvec1 .ne. sub%lphisi1 .or. lvec2 .ne. sub%lphisi2) then 
-            wrong_dim = .true.
-         end if
-      else
-         if (lvec1 .ne. sub%lphisi2 .or. lvec2 .ne. sub%lphisi1) then 
-            wrong_dim = .true.
-         end if
-      end if
-      if (wrong_dim) then
-         write(*,*) 'DD_PHISI_APPLY: Dimensions mismatch:', sub%isub
-         call error_exit
+      if (lvec1 .ne. sub%lphisi2 .or. lvec2 .ne. sub%lphisi1) then 
+         call error(routine_name, 'Dimensions mismatch for sub:', sub%isub)
       end if
 
       ! checking done, perform multiply by BLAS
-      if (transposed) then
-         TRANS = 'T'
-      else
-         TRANS = 'N'
-      end if
+      TRANS = 'N'
       M = sub%lphisi1
       N = sub%lphisi2
       ALPHA = 1._kr
@@ -4653,9 +4924,9 @@ subroutine dd_phisi_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
 
 end subroutine
 
-!****************************************************************
-subroutine dd_phis_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
-!****************************************************************
+!****************************************************
+subroutine dd_phis_apply(sub, vec1,lvec1, vec2,lvec2)
+!****************************************************
 ! Subroutine for multiplication of vector VEC1 by PHIS matrix
 ! vec2 = phis * vec1 + vec2
 ! phis are coarse space basis functions on subdomain
@@ -4666,9 +4937,6 @@ subroutine dd_phis_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
 ! Subdomain structure
       type(subdomain_type),intent(in) :: sub
 
-      ! is matrix transposed
-      logical,intent(in) :: transposed
-
       ! input vector
       integer,intent(in) :: lvec1
       real(kr),intent(in) :: vec1(lvec1)
@@ -4677,7 +4945,7 @@ subroutine dd_phis_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
       real(kr),intent(out) :: vec2(lvec2)
 
       ! local vars
-      logical :: wrong_dim
+      character(*),parameter:: routine_name = 'DD_PHIS_APPLY'
 
       ! BLAS vars
       character(1) :: TRANS
@@ -4689,31 +4957,15 @@ subroutine dd_phis_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
          return
       end if
       if (.not.sub%is_phis_prepared) then
-         write(*,*) 'DD_PHIS_APPLY: PHIS matrix not ready:', sub%isub
-         call error_exit
+         call error(routine_name, 'PHIS matrix not ready for sub: ', sub%isub)
       end if
       ! check dimensions
-      wrong_dim = .false.
-      if (transposed) then
-         if (lvec1 .ne. sub%lphis1 .or. lvec2 .ne. sub%lphis2) then 
-            wrong_dim = .true.
-         end if
-      else
-         if (lvec1 .ne. sub%lphis2 .or. lvec2 .ne. sub%lphis1) then 
-            wrong_dim = .true.
-         end if
-      end if
-      if (wrong_dim) then
-         write(*,*) 'DD_PHIS_APPLY: Dimensions mismatch:', sub%isub
-         call error_exit
+      if (lvec1 .ne. sub%lphis2 .or. lvec2 .ne. sub%lphis1) then 
+         call error(routine_name, 'Dimensions mismatch for sub:', sub%isub)
       end if
 
       ! checking done, perform multiply by BLAS
-      if (transposed) then
-         TRANS = 'T'
-      else
-         TRANS = 'N'
-      end if
+      TRANS = 'N'
       M = sub%lphis1
       N = sub%lphis2
       ALPHA = 1._kr
@@ -4727,6 +4979,169 @@ subroutine dd_phis_apply(sub, transposed, vec1,lvec1, vec2,lvec2)
       else if (kr.eq.4) then
          ! single precision
          call SGEMV(TRANS,M,N,ALPHA,sub%phis,LDA,vec1,INCX,BETA,vec2,INCY)
+      end if
+
+end subroutine
+
+!**********************************************************
+subroutine dd_phisi_dual_apply(sub, vec1,lvec1, vec2,lvec2)
+!**********************************************************
+! Subroutine for multiplication of vector VEC1 by PHISI matrix
+! vec2 = phisi_dual^T * vec1 + vec2
+! phisi_dual are dual coarse space basis functions on subdomain restricted to interface
+
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+
+      ! input vector
+      integer,intent(in) :: lvec1
+      real(kr),intent(in) :: vec1(lvec1)
+      ! output vector
+      integer,intent(in) ::  lvec2
+      real(kr),intent(out) :: vec2(lvec2)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_PHISI_DUAL_APPLY'
+
+      ! BLAS vars
+      character(1) :: TRANS
+      integer :: M, N, LDA, INCX, INCY
+      real(kr) :: alpha, beta
+
+      ! check the prerequisities
+      if ((sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) ) then
+          
+         if ( .not.sub%is_phisi_prepared) then
+            call error(routine_name, 'PHISI matrix not ready for sub: ', sub%isub)
+         end if
+         ! check dimensions
+         if (lvec1 .ne. sub%lphisi1 .or. lvec2 .ne. sub%lphisi2) then 
+            call error(routine_name, 'Dimensions mismatch for sub:', sub%isub)
+         end if
+      else
+         if (.not.sub%is_phisi_dual_prepared) then
+            call error(routine_name, 'PHISI_DUAL matrix not ready for sub: ', sub%isub)
+         end if
+         ! check dimensions
+         if (lvec1 .ne. sub%lphisi_dual1 .or. lvec2 .ne. sub%lphisi_dual2) then 
+            call error(routine_name, 'Dimensions mismatch for sub:', sub%isub)
+         end if
+      end if
+
+      ! checking done, perform multiply by BLAS
+      TRANS = 'T'
+      ALPHA = 1._kr
+      INCX = 1
+      BETA = 1._kr ! sum second vector
+      INCY = 1
+      if ((sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) ) then
+         M = sub%lphisi1
+         N = sub%lphisi2
+         LDA = max(1,M)
+         if (kr.eq.8) then
+            ! double precision
+            call DGEMV(TRANS,M,N,ALPHA,sub%phisi,LDA,vec1,INCX,BETA,vec2,INCY)
+         else if (kr.eq.4) then
+            ! single precision
+            call SGEMV(TRANS,M,N,ALPHA,sub%phisi,LDA,vec1,INCX,BETA,vec2,INCY)
+         end if
+      else
+         M = sub%lphisi_dual1
+         N = sub%lphisi_dual2
+         LDA = max(1,M)
+         if (kr.eq.8) then
+            ! double precision
+            call DGEMV(TRANS,M,N,ALPHA,sub%phisi_dual,LDA,vec1,INCX,BETA,vec2,INCY)
+         else if (kr.eq.4) then
+            ! single precision
+            call SGEMV(TRANS,M,N,ALPHA,sub%phisi_dual,LDA,vec1,INCX,BETA,vec2,INCY)
+         end if
+      end if
+
+end subroutine
+
+!*********************************************************
+subroutine dd_phis_dual_apply(sub, vec1,lvec1, vec2,lvec2)
+!*********************************************************
+! Subroutine for multiplication of vector VEC1 by PHIS matrix
+! vec2 = phis * vec1 + vec2
+! phis are coarse space basis functions on subdomain
+
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+
+      ! input vector
+      integer,intent(in) :: lvec1
+      real(kr),intent(in) :: vec1(lvec1)
+      ! output vector
+      integer,intent(in) ::  lvec2
+      real(kr),intent(out) :: vec2(lvec2)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_PHIS_DUAL_APPLY'
+
+      ! BLAS vars
+      character(1) :: TRANS
+      integer :: M, N, LDA, INCX, INCY
+      real(kr) :: alpha, beta
+
+      ! check the prerequisities
+      if (sub%is_degenerated) then
+         return
+      end if
+      if ((sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) ) then
+         if (.not.sub%is_phis_prepared) then
+            call error(routine_name, 'PHIS matrix not ready for sub: ', sub%isub)
+         end if
+      ! check dimensions
+         if (lvec1 .ne. sub%lphis1 .or. lvec2 .ne. sub%lphis2) then 
+            call error(routine_name, 'Dimensions mismatch for sub:', sub%isub)
+         end if
+      else
+         if (.not.sub%is_phis_dual_prepared) then
+            call error(routine_name, 'PHIS_DUAL matrix not ready for sub: ', sub%isub)
+         end if
+      ! check dimensions
+         if (lvec1 .ne. sub%lphis_dual1 .or. lvec2 .ne. sub%lphis_dual2) then 
+            call error(routine_name, 'Dimensions mismatch for sub:', sub%isub)
+         end if
+
+      end if
+
+      ! checking done, perform multiply by BLAS
+      TRANS = 'T'
+      ALPHA = 1._kr
+      INCX = 1
+      BETA = 1._kr ! sum second vector
+      INCY = 1
+      if ((sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) ) then
+         M = sub%lphis1
+         N = sub%lphis2
+         LDA = max(1,M)
+         if (kr.eq.8) then
+            ! double precision
+            call DGEMV(TRANS,M,N,ALPHA,sub%phis,LDA,vec1,INCX,BETA,vec2,INCY)
+         else if (kr.eq.4) then
+            ! single precision
+            call SGEMV(TRANS,M,N,ALPHA,sub%phis,LDA,vec1,INCX,BETA,vec2,INCY)
+         end if
+      else
+         M = sub%lphis_dual1
+         N = sub%lphis_dual2
+         LDA = max(1,M)
+         if (kr.eq.8) then
+            ! double precision
+            call DGEMV(TRANS,M,N,ALPHA,sub%phis_dual,LDA,vec1,INCX,BETA,vec2,INCY)
+         else if (kr.eq.4) then
+            ! single precision
+            call SGEMV(TRANS,M,N,ALPHA,sub%phis_dual,LDA,vec1,INCX,BETA,vec2,INCY)
+         end if
       end if
 
 end subroutine
@@ -6861,6 +7276,8 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_CREATE_GLOBS'
+      logical, parameter :: select_corners   = .true.
+      logical, parameter :: check_components = .true.
       integer :: isub_loc, isub, isubadj
       integer :: ia, i, inodi, indni, indn, inodshaux
       integer :: nadj, nnodi, ndofi, nshn, ishn, indshn, nsubnx
@@ -7186,387 +7603,400 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          ! where nsubnode is 1, there is a face
          where (nsubnode.eq.1) globtypes = 1
 
-         ! prepare kinet
-         lkinet = suba(isub_loc)%nelem
-         allocate(kinet(lkinet))
-         kinet(1) = 0
-         do i = 2,lkinet
-            kinet(i) = kinet(i-1) + suba(isub_loc)%nnet(i-1)
-         end do
+         if (select_corners) then
 
-         ! prepare dual mesh
-         lnetn  = suba(isub_loc)%nnod
-         lietn  = suba(isub_loc)%linet
-         lkietn = suba(isub_loc)%nnod
-         allocate(netn(lnetn),ietn(lietn),kietn(lkietn))
-         call graph_get_dual_mesh(suba(isub_loc)%nelem,suba(isub_loc)%nnod,&
-                                  suba(isub_loc)%inet,suba(isub_loc)%linet,suba(isub_loc)%nnet,suba(isub_loc)%lnnet,&
-                                  netn,lnetn,ietn,lietn,kietn,lkietn)
-
-         ! now with subdomains sharing a face, run the corner selecting algorithm
-         kishnadj  = 0
-         do ia = 1,nadj
-            ! get index of neighbour
-            isubadj = suba(isub_loc)%iadj(ia)
-
-            ! number of nodes shared with this subdomain
-            nshn = suba(isub_loc)%nshnadj(ia)
-
-            we_share_a_face = .false.
-            do ishn = 1,nshn
-               ! index of shared node in interface numbering
-               indshn = suba(isub_loc)%ishnadj(kishnadj + ishn)
-
-               if (globtypes(indshn).eq.1) then
-                  we_share_a_face = .true.
-                  exit
-               end if
+            ! prepare kinet
+            lkinet = suba(isub_loc)%nelem
+            allocate(kinet(lkinet))
+            kinet(1) = 0
+            do i = 2,lkinet
+               kinet(i) = kinet(i-1) + suba(isub_loc)%nnet(i-1)
             end do
 
-            if (we_share_a_face) then
+            ! prepare dual mesh
+            lnetn  = suba(isub_loc)%nnod
+            lietn  = suba(isub_loc)%linet
+            lkietn = suba(isub_loc)%nnod
+            allocate(netn(lnetn),ietn(lietn),kietn(lkietn))
+            call graph_get_dual_mesh(suba(isub_loc)%nelem,suba(isub_loc)%nnod,&
+                                     suba(isub_loc)%inet,suba(isub_loc)%linet,suba(isub_loc)%nnet,suba(isub_loc)%lnnet,&
+                                     netn,lnetn,ietn,lietn,kietn,lkietn)
 
-               ! check components of interface among pair
-               lietin = nshn * maxval(netn)
-               allocate(ietin(lietin))
-               call zero(ietin,lietin)
-               liinterfnet = nshn * maxval(netn)
-               allocate(iinterfnet(liinterfnet))
+            ! now with subdomains sharing a face, run the corner selecting algorithm
+            kishnadj  = 0
+            do ia = 1,nadj
+               ! get index of neighbour
+               isubadj = suba(isub_loc)%iadj(ia)
 
-               indietin = 0
+               ! number of nodes shared with this subdomain
+               nshn = suba(isub_loc)%nshnadj(ia)
 
-               ! first create subgraph
+               we_share_a_face = .false.
                do ishn = 1,nshn
                   ! index of shared node in interface numbering
-                  indshn   = suba(isub_loc)%ishnadj(kishnadj + ishn)
+                  indshn = suba(isub_loc)%ishnadj(kishnadj + ishn)
 
-                  ! index of shared node in subdomain numbering
-                  indshsub = suba(isub_loc)%iin(indshn)
-
-                  nelemn    = netn(indshsub)
-                  pointietn = kietn(indshsub)
-                  ! for selected node, go through elements at node
-                  do ielemn = 1,nelemn
-                     indelemn = ietn(pointietn + ielemn)
-
-                     indietin = indietin + 1
-
-                     ietin(indietin)      = indelemn
-                     iinterfnet(indietin) = ishn
-
-                  end do
-
+                  if (globtypes(indshn).eq.1) then
+                     we_share_a_face = .true.
+                     exit
+                  end if
                end do
 
-               netin = indietin
+               if (we_share_a_face) then
 
-               !print *,'arrays before sorting'
-               !print *, ietin(1:netin)
-               !print *, iinterfnet(1:netin)
+                  ! check components of interface among pair
+                  lietin = nshn * maxval(netn)
+                  allocate(ietin(lietin))
+                  call zero(ietin,lietin)
+                  liinterfnet = nshn * maxval(netn)
+                  allocate(iinterfnet(liinterfnet))
 
-               ! sort arrays
-               call iquick_sort_simultaneous(ietin,netin,iinterfnet,netin)
+                  indietin = 0
 
-               !print *,'arrays after sorting'
-               !print *, ietin(1:netin)
-               !print *, iinterfnet(1:netin)
-
-               lonerow = maxval(netn) * maxval(suba(isub_loc)%nnet)
-               lonerowweig = lonerow
-               allocate(onerow(lonerow))
-               allocate(onerowweig(lonerowweig))
-
-               lxadj = nshn+1
-               allocate(xadj(lxadj))
-               xadj(1) = 1
-
-               ladjncy = nshn * maxval(netn) * maxval(suba(isub_loc)%nnet)
-               allocate(adjncy(ladjncy))
-               call zero(adjncy,ladjncy)
-               indadjncy = 0
-
-
-               do ishn = 1,nshn
-                  ! index of shared node in interface numbering
-                  indshn   = suba(isub_loc)%ishnadj(kishnadj + ishn)
-
-                  ! index of shared node in subdomain numbering
-                  indshsub = suba(isub_loc)%iin(indshn)
-
-
-                  ! zero onerow
-                  call zero(onerow,lonerow)
-                  ninonerow = 0
-
-                  nelemn    = netn(indshsub)
-                  pointietn = kietn(indshsub)
-                  ! for selected node, go through elements at node
-                  do ielemn = 1,nelemn
-                     indelemn = ietn(pointietn + ielemn)
-
-                     call get_index_sorted(indelemn,ietin,netin,indstart)
-                     if (indstart.le.0) then
-                        call error(routine_name,' Index of element not found for element ',indelemn)
-                     end if
-
-                     ind = indstart
-
-                     do while (ietin(ind) .eq. indelemn)
-                        
-                        indinterfnode = iinterfnet(ind)
-
-                        ! add the node to onerow
-                        ninonerow = ninonerow + 1
-                        onerow(ninonerow) = indinterfnode
-
-                        ind = ind + 1
-
-                     end do
-
-                  end do
-
-                  ! parse onerow
-                  neighbouring = 1
-                  lorin       = ninonerow
-                  call graph_parse_onerow(ishn,neighbouring,onerow,onerowweig,lorin,lorout)
-
-                  !print *,'onerow:'
-                  !print *,onerow(1:lorout)
-
-                  xadj(ishn+1) = xadj(ishn) + lorout
-
-                  ! copy parsed row of sparse graph into adjncy
-                  do i = 1,lorout
-                     indadjncy = indadjncy + 1
-                     adjncy(indadjncy) = onerow(i)
-                  end do
-               end do
-
-               deallocate(onerow)
-               deallocate(onerowweig)
-
-               deallocate(ietin)
-               deallocate(iinterfnet)
-
-               ladjncy_used = indadjncy
-
-               graphtype = 0
-               ladjwgt = 0
-               allocate(adjwgt(ladjwgt))
-               call graph_check(nshn,graphtype, xadj,lxadj, adjncy,ladjncy_used, adjwgt,ladjwgt)
-               deallocate(adjwgt)
-
-               ! check components of graph
-               lcomponents = nshn
-               allocate(components(lcomponents))
-
-               call graph_components(nshn,xadj,lxadj,adjncy,ladjncy_used,components,lcomponents,ncomponents)
-               if (ncomponents.gt.1) then
-                  call info(routine_name,'disconnected interface - number of components:',ncomponents)
-               end if
-
-               ! perform the triangle check for each component
-               do icomponent = 1,ncomponents
-
-                  ! initialize array
-                  inodcf = 0
-
-                  componentsize = count(components .eq. icomponent)
-
-                  lcompind = componentsize
-                  allocate(compind(lcompind))
-                  
-                  indcomp = 0
+                  ! first create subgraph
                   do ishn = 1,nshn
-                     if (components(ishn) .eq. icomponent) then
-                        indcomp = indcomp + 1
+                     ! index of shared node in interface numbering
+                     indshn   = suba(isub_loc)%ishnadj(kishnadj + ishn)
 
-                        compind(indcomp) = ishn
-                     end if
-                  end do
-                  if (indcomp.ne.lcompind) then
-                     call error(routine_name,'dimension mismatch in component size',indcomp)
-                  end if
-               
+                     ! index of shared node in subdomain numbering
+                     indshsub = suba(isub_loc)%iin(indshn)
 
-                  ! prepare coordinates of common interface
-                  lxyzsh1 = componentsize
-                  lxyzsh2 = ndim
-                  ! localize coordinates of shared nodes
-                  allocate(xyzsh(lxyzsh1,lxyzsh2))
-                  do incomp = 1,componentsize
-                     ishn  = compind(incomp)
-                     indni = suba(isub_loc)%ishnadj(kishnadj + ishn)
-                     indn  = suba(isub_loc)%iin(indni)
-                     xyzsh(incomp,1:ndim) = suba(isub_loc)%xyz(indn,1:ndim)
+                     nelemn    = netn(indshsub)
+                     pointietn = kietn(indshsub)
+                     ! for selected node, go through elements at node
+                     do ielemn = 1,nelemn
+                        indelemn = ietn(pointietn + ielemn)
+
+                        indietin = indietin + 1
+
+                        ietin(indietin)      = indelemn
+                        iinterfnet(indietin) = ishn
+
+                     end do
+
                   end do
 
+                  netin = indietin
 
-                  ! search an optimal triangle
-                  inodcf = 0
-                  if (componentsize.eq.0) then
-                     call error(routine_name,'There appears that there are zero shared nodes for subdomain:',isub)
-                  end if
-                  if (componentsize.gt.0) then
-                     lxyzbase = ndim
-                     allocate(xyzbase(lxyzbase))
-                     ! make it the most remote node to the first interface node
-                     inodshaux = 1
-                     xyzbase(1:ndim) = xyzsh(inodshaux,1:ndim)
-                  
-                     ! Find second corner by maximizing the distance of the first shared node
-                     ldist = componentsize
-                     allocate(dist(ldist))
-                     do incomp = 1,componentsize
-                        dist(incomp) = sum((xyzsh(incomp,1:ndim) - xyzbase(1:ndim))**2)
-                     end do
-                     indaux  = maxloc(dist)
+                  !print *,'arrays before sorting'
+                  !print *, ietin(1:netin)
+                  !print *, iinterfnet(1:netin)
 
-                     ! set index of first new corner
-                     inodcf(1) = indaux(1)
+                  ! sort arrays
+                  call iquick_sort_simultaneous(ietin,netin,iinterfnet,netin)
 
-                     deallocate(xyzbase)
-                     deallocate(dist)
-                  end if
-                  if (meshdim.gt.1.and.componentsize.gt.1) then
-                     lxyzbase = ndim
-                     allocate(xyzbase(lxyzbase))
-                     ! one corner is already selected, select the second
-                     xyzbase(1:ndim) = xyzsh(inodcf(1),1:ndim)
-                  
-                     ! Find second corner by maximizing the distance from the first one
-                     ldist = componentsize
-                     allocate(dist(ldist))
-                     do incomp = 1,componentsize
-                        dist(incomp) = sum((xyzsh(incomp,1:ndim) - xyzbase(1:ndim))**2)
-                     end do
-                     indaux  = maxloc(dist)
+                  !print *,'arrays after sorting'
+                  !print *, ietin(1:netin)
+                  !print *, iinterfnet(1:netin)
 
-                     ! set index of second new corner
-                     inodcf(2) = indaux(1)
+                  lonerow = maxval(netn) * maxval(suba(isub_loc)%nnet)
+                  lonerowweig = lonerow
+                  allocate(onerow(lonerow))
+                  allocate(onerowweig(lonerowweig))
 
-                     ! if geometry fails, select any node different from the first, regardless of the coordinates
-                     if (inodcf(2).eq.inodcf(1)) then
-                        !write(*,*) 'dist:',dist
-                        !write(*,*) 'coords:'
-                        !do incomp = 1,componentsize
-                        !   write(*,*) xyzsh(incomp,1:ndim)
-                        !end do
-                        !write(*,*) 'base:'
-                        !write(*,*) xyzbase(1:ndim)
-                        !call flush(6)
-                        call warning(routine_name, 'Problem finding second corner on subdomain - same as first. ',inodcf(2))
-                        ! perform search for different corner
-                        do incomp = 1,componentsize
-                           if ( incomp .ne. inodcf(1) ) then
-                              inodcf(2) = incomp
-                              exit
-                           end if
+                  lxadj = nshn+1
+                  allocate(xadj(lxadj))
+                  xadj(1) = 1
+
+                  ladjncy = nshn * maxval(netn) * maxval(suba(isub_loc)%nnet)
+                  allocate(adjncy(ladjncy))
+                  call zero(adjncy,ladjncy)
+                  indadjncy = 0
+
+
+                  do ishn = 1,nshn
+                     ! index of shared node in interface numbering
+                     indshn   = suba(isub_loc)%ishnadj(kishnadj + ishn)
+
+                     ! index of shared node in subdomain numbering
+                     indshsub = suba(isub_loc)%iin(indshn)
+
+
+                     ! zero onerow
+                     call zero(onerow,lonerow)
+                     ninonerow = 0
+
+                     nelemn    = netn(indshsub)
+                     pointietn = kietn(indshsub)
+                     ! for selected node, go through elements at node
+                     do ielemn = 1,nelemn
+                        indelemn = ietn(pointietn + ielemn)
+
+                        call get_index_sorted(indelemn,ietin,netin,indstart)
+                        if (indstart.le.0) then
+                           call error(routine_name,' Index of element not found for element ',indelemn)
+                        end if
+
+                        ind = indstart
+
+                        do while (ietin(ind) .eq. indelemn)
+                           
+                           indinterfnode = iinterfnet(ind)
+
+                           ! add the node to onerow
+                           ninonerow = ninonerow + 1
+                           onerow(ninonerow) = indinterfnode
+
+                           ind = ind + 1
+
                         end do
-                     end if
 
-                     deallocate(xyzbase)
-                     deallocate(dist)
-                  end if
-                  if (meshdim.gt.2.and.componentsize.gt.2) then
-                  ! two corners are already set, select the third
-                     x1 = xyzsh(inodcf(1),1)
-                     y1 = xyzsh(inodcf(1),2)
-                     z1 = xyzsh(inodcf(1),3)
-                     x2 = xyzsh(inodcf(2),1)
-                     y2 = xyzsh(inodcf(2),2)
-                     z2 = xyzsh(inodcf(2),3)
-                  
-                     ! Find third corner as the one maximizing area of triangle
-                     larea = componentsize
-                     allocate(area(larea))
-                     do incomp = 1,componentsize
-                        xish = xyzsh(incomp,1)
-                        yish = xyzsh(incomp,2)
-                        zish = xyzsh(incomp,3)
-                        area(incomp) = ((y2-y1)*(zish-z1) - (yish-y1)*(z2-z1))**2 &
-                                     + ((x2-x1)*(zish-z1) - (xish-x1)*(z2-z1))**2 &
-                                     + ((x2-x1)*(yish-y1) - (xish-x1)*(y2-y1))**2 
                      end do
-                     ! find maximum in the area array
-                     ! if my subdomain index is smaller that neighbour, search maximum from beginning, otherwise from the end
-                     if (isub.lt.isubadj) then
-                        start  = 1
-                        finish = larea
-                        step   = 1
-                     else if (isub.gt.isubadj) then
-                        start  = larea
-                        finish = 1
-                        step   = -1
-                     else
-                        call error(routine_name,'subdomain index mismatch - apperars same')
+
+                     ! parse onerow
+                     neighbouring = 1
+                     lorin       = ninonerow
+                     call graph_parse_onerow(ishn,neighbouring,onerow,onerowweig,lorin,lorout)
+
+                     !print *,'onerow:'
+                     !print *,onerow(1:lorout)
+
+                     xadj(ishn+1) = xadj(ishn) + lorout
+
+                     ! copy parsed row of sparse graph into adjncy
+                     do i = 1,lorout
+                        indadjncy = indadjncy + 1
+                        adjncy(indadjncy) = onerow(i)
+                     end do
+                  end do
+
+                  deallocate(onerow)
+                  deallocate(onerowweig)
+
+                  deallocate(ietin)
+                  deallocate(iinterfnet)
+
+                  ladjncy_used = indadjncy
+
+                  graphtype = 0
+                  ladjwgt = 0
+                  allocate(adjwgt(ladjwgt))
+                  call graph_check(nshn,graphtype, xadj,lxadj, adjncy,ladjncy_used, adjwgt,ladjwgt)
+                  deallocate(adjwgt)
+
+                  ! check components of graph
+                  lcomponents = nshn
+                  allocate(components(lcomponents))
+
+                  ! determine continuity of components
+                  if (check_components) then
+                     call graph_components(nshn,xadj,lxadj,adjncy,ladjncy_used,components,lcomponents,ncomponents)
+                     if (ncomponents.gt.1) then
+                        call info(routine_name,'disconnected interface - number of components:',ncomponents)
                      end if
-                     ! search maximum
-                     maxv = 0._kr
-                     maxl = 0
-                     do i = start,finish,step
-                        if (area(i).gt.maxv) then
-                           maxv = area(i)
-                           maxl = i
+                  else
+                     components  = 1
+                     ncomponents = 1
+                  end if
+
+                  ! perform the triangle check for each component
+                  do icomponent = 1,ncomponents
+
+                     ! initialize array
+                     inodcf = 0
+
+                     componentsize = count(components .eq. icomponent)
+
+                     lcompind = componentsize
+                     allocate(compind(lcompind))
+                     
+                     indcomp = 0
+                     do ishn = 1,nshn
+                        if (components(ishn) .eq. icomponent) then
+                           indcomp = indcomp + 1
+
+                           compind(indcomp) = ishn
                         end if
                      end do
-                     indaux(1) = maxl
-                     !indaux  = maxloc(area)
+                     if (indcomp.ne.lcompind) then
+                        call error(routine_name,'dimension mismatch in component size',indcomp)
+                     end if
+                  
 
-                     ! set index of the third new corner
-                     inodcf(3) = indaux(1)
+                     ! prepare coordinates of common interface
+                     lxyzsh1 = componentsize
+                     lxyzsh2 = ndim
+                     ! localize coordinates of shared nodes
+                     allocate(xyzsh(lxyzsh1,lxyzsh2))
+                     do incomp = 1,componentsize
+                        ishn  = compind(incomp)
+                        indni = suba(isub_loc)%ishnadj(kishnadj + ishn)
+                        indn  = suba(isub_loc)%iin(indni)
+                        xyzsh(incomp,1:ndim) = suba(isub_loc)%xyz(indn,1:ndim)
+                     end do
 
-                     ! if geometry fails, select any node different from the first two, regardless of the coordinates
-                     if (inodcf(3).eq.inodcf(1).or.inodcf(3).eq.inodcf(2)) then
-                        !write(*,*) 'area:',area
-                        !call flush(6)
-                        call warning(routine_name, 'Problem finding third corner on subdomain - same as first or second.',inodcf(3))
-                        ! perform search for different corner
+
+                     ! search an optimal triangle
+                     inodcf = 0
+                     if (componentsize.eq.0) then
+                        call error(routine_name,'There appears that there are zero shared nodes for subdomain:',isub)
+                     end if
+                     if (componentsize.gt.0) then
+                        lxyzbase = ndim
+                        allocate(xyzbase(lxyzbase))
+                        ! make it the most remote node to the first interface node
+                        inodshaux = 1
+                        xyzbase(1:ndim) = xyzsh(inodshaux,1:ndim)
+                     
+                        ! Find second corner by maximizing the distance of the first shared node
+                        ldist = componentsize
+                        allocate(dist(ldist))
                         do incomp = 1,componentsize
-                           if ( incomp .ne. inodcf(1) .and. incomp .ne. inodcf(2) ) then
-                              inodcf(3) = incomp
-                              exit
+                           dist(incomp) = sum((xyzsh(incomp,1:ndim) - xyzbase(1:ndim))**2)
+                        end do
+                        indaux  = maxloc(dist)
+
+                        ! set index of first new corner
+                        inodcf(1) = indaux(1)
+
+                        deallocate(xyzbase)
+                        deallocate(dist)
+                     end if
+                     if (meshdim.gt.1.and.componentsize.gt.1) then
+                        lxyzbase = ndim
+                        allocate(xyzbase(lxyzbase))
+                        ! one corner is already selected, select the second
+                        xyzbase(1:ndim) = xyzsh(inodcf(1),1:ndim)
+                     
+                        ! Find second corner by maximizing the distance from the first one
+                        ldist = componentsize
+                        allocate(dist(ldist))
+                        do incomp = 1,componentsize
+                           dist(incomp) = sum((xyzsh(incomp,1:ndim) - xyzbase(1:ndim))**2)
+                        end do
+                        indaux  = maxloc(dist)
+
+                        ! set index of second new corner
+                        inodcf(2) = indaux(1)
+
+                        ! if geometry fails, select any node different from the first, regardless of the coordinates
+                        if (inodcf(2).eq.inodcf(1)) then
+                           !write(*,*) 'dist:',dist
+                           !write(*,*) 'coords:'
+                           !do incomp = 1,componentsize
+                           !   write(*,*) xyzsh(incomp,1:ndim)
+                           !end do
+                           !write(*,*) 'base:'
+                           !write(*,*) xyzbase(1:ndim)
+                           !call flush(6)
+                           call warning(routine_name, 'Problem finding second corner on subdomain - same as first. ',&
+                                        inodcf(2))
+                           ! perform search for different corner
+                           do incomp = 1,componentsize
+                              if ( incomp .ne. inodcf(1) ) then
+                                 inodcf(2) = incomp
+                                 exit
+                              end if
+                           end do
+                        end if
+
+                        deallocate(xyzbase)
+                        deallocate(dist)
+                     end if
+                     if (meshdim.gt.2.and.componentsize.gt.2) then
+                     ! two corners are already set, select the third
+                        x1 = xyzsh(inodcf(1),1)
+                        y1 = xyzsh(inodcf(1),2)
+                        z1 = xyzsh(inodcf(1),3)
+                        x2 = xyzsh(inodcf(2),1)
+                        y2 = xyzsh(inodcf(2),2)
+                        z2 = xyzsh(inodcf(2),3)
+                     
+                        ! Find third corner as the one maximizing area of triangle
+                        larea = componentsize
+                        allocate(area(larea))
+                        do incomp = 1,componentsize
+                           xish = xyzsh(incomp,1)
+                           yish = xyzsh(incomp,2)
+                           zish = xyzsh(incomp,3)
+                           area(incomp) = ((y2-y1)*(zish-z1) - (yish-y1)*(z2-z1))**2 &
+                                        + ((x2-x1)*(zish-z1) - (xish-x1)*(z2-z1))**2 &
+                                        + ((x2-x1)*(yish-y1) - (xish-x1)*(y2-y1))**2 
+                        end do
+                        ! find maximum in the area array
+                        ! if my subdomain index is smaller that neighbour, search maximum from beginning, otherwise from the end
+                        if (isub.lt.isubadj) then
+                           start  = 1
+                           finish = larea
+                           step   = 1
+                        else if (isub.gt.isubadj) then
+                           start  = larea
+                           finish = 1
+                           step   = -1
+                        else
+                           call error(routine_name,'subdomain index mismatch - apperars same')
+                        end if
+                        ! search maximum
+                        maxv = 0._kr
+                        maxl = 0
+                        do i = start,finish,step
+                           if (area(i).gt.maxv) then
+                              maxv = area(i)
+                              maxl = i
                            end if
                         end do
+                        indaux(1) = maxl
+                        !indaux  = maxloc(area)
+
+                        ! set index of the third new corner
+                        inodcf(3) = indaux(1)
+
+                        ! if geometry fails, select any node different from the first two, regardless of the coordinates
+                        if (inodcf(3).eq.inodcf(1).or.inodcf(3).eq.inodcf(2)) then
+                           !write(*,*) 'area:',area
+                           !call flush(6)
+                           call warning(routine_name, &
+                                        'Problem finding third corner on subdomain - same as first or second.', &
+                                        inodcf(3))
+                           ! perform search for different corner
+                           do incomp = 1,componentsize
+                              if ( incomp .ne. inodcf(1) .and. incomp .ne. inodcf(2) ) then
+                                 inodcf(3) = incomp
+                                 exit
+                              end if
+                           end do
+                        end if
+
+                        deallocate(area)
                      end if
 
-                     deallocate(area)
-                  end if
+                     ! mark corner in subdomain interface
+                     !print *,'inodcf',suba(isub_loc)%isngn(suba(isub_loc)%iin(suba(isub_loc)%ishnadj(kishnadj + inodcf)))
+                     do i = 1,meshdim
+                        if (inodcf(i).ne.0) then
 
-                  ! mark corner in subdomain interface
-                  !print *,'inodcf',suba(isub_loc)%isngn(suba(isub_loc)%iin(suba(isub_loc)%ishnadj(kishnadj + inodcf)))
-                  do i = 1,meshdim
-                     if (inodcf(i).ne.0) then
+                           indni = suba(isub_loc)%ishnadj(kishnadj + compind(inodcf(i)))
 
-                        indni = suba(isub_loc)%ishnadj(kishnadj + compind(inodcf(i)))
+                           globtypes(indni) = 3
+                        end if
+                     end do
 
-                        globtypes(indni) = 3
-                     end if
+                     deallocate(xyzsh)
+                     deallocate(compind)
                   end do
 
-                  deallocate(xyzsh)
-                  deallocate(compind)
-               end do
 
+                  deallocate(xadj)
+                  deallocate(adjncy)
+                  deallocate(components)
 
-               deallocate(xadj)
-               deallocate(adjncy)
-               deallocate(components)
-
-               ! TODO: add local pair
-            end if
+                  ! TODO: add local pair
+               end if
 
 
    
-            kishnadj = kishnadj + nshn
-         end do
+               kishnadj = kishnadj + nshn
+            end do
+
+            deallocate(kinet)
+            deallocate(netn,ietn,kietn)
+
+         end if
 
          ncorners = count(globtypes.eq.3)
 
          ! determine size of corner data local to processor
          ncornerp = ncornerp + ncorners
-
-         deallocate(netn,ietn,kietn)
-         deallocate(kinet)
 
          nullify(globtypes)
          nullify(kglobs)
@@ -9601,6 +10031,14 @@ subroutine dd_print_sub(sub)
             end do
          end if
       end if
+      write(*,*) '     matrix PHIS_DUAL prepared:    ', sub%is_phisi_dual_prepared
+      if (debug) then
+         if (sub%is_coarse_prepared) then
+            do i = 1,sub%lphisi_dual1
+               write(*,'(1000f13.6)') (sub%phisi_dual(i,j),j = 1,sub%lphisi_dual2)
+            end do
+         end if
+      end if
       write(*,*) '     coarse matrix prepared:  ', sub%is_coarse_prepared
       if (debug) then
          if (sub%is_coarse_prepared) then
@@ -9699,6 +10137,22 @@ subroutine dd_finalize(sub)
          deallocate(sub%bc)
       end if
       sub%lbc = 0
+      if (allocated(sub%i_a_fixed_sparse)) then
+         deallocate(sub%i_a_fixed_sparse)
+      end if
+      if (allocated(sub%j_a_fixed_sparse)) then
+         deallocate(sub%j_a_fixed_sparse)
+      end if
+      if (allocated(sub%a_fixed_sparse)) then
+         deallocate(sub%a_fixed_sparse)
+      end if
+      sub%nnza_fixed = 0
+      sub%la_fixed   = 0
+      if (allocated(sub%rea)) then
+         deallocate(sub%rea)
+      end if
+      sub%lrea = 0
+      sub%is_reactions_ready = .false.
       ! corners and globs
       if (allocated(sub%global_corner_number)) then
          deallocate(sub%global_corner_number)
@@ -9846,6 +10300,12 @@ subroutine dd_finalize(sub)
       if (allocated(sub%phisi)) then
          deallocate(sub%phisi)
       end if
+      if (allocated(sub%phis_dual)) then
+         deallocate(sub%phis_dual)
+      end if
+      if (allocated(sub%phisi_dual)) then
+         deallocate(sub%phisi_dual)
+      end if
       if (allocated(sub%coarsem)) then
          deallocate(sub%coarsem)
       end if
@@ -9879,6 +10339,8 @@ subroutine dd_finalize(sub)
       sub%is_c_loaded             = .false.
       sub%is_phis_prepared        = .false.
       sub%is_phisi_prepared       = .false.
+      sub%is_phis_dual_prepared   = .false.
+      sub%is_phisi_dual_prepared  = .false.
       sub%is_coarse_prepared      = .false.
       sub%is_aug_factorized       = .false.
       sub%is_interior_factorized  = .false.

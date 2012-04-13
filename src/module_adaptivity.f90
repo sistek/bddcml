@@ -2564,6 +2564,7 @@ integer,intent(inout) ::  idoper
 character(*),parameter:: routine_name = 'ADAPTIVITY_MVECMULT'
 integer :: i
 integer :: iinstr, isub, isub_loc, owner, point1, point2, point, length, do_i_compute, is_active
+logical :: solve_adjoint
 
 ! small BDDC related vars
 integer ::             laux2
@@ -2573,7 +2574,6 @@ real(kr),allocatable :: rescs(:)
 integer ::             lsolis
 real(kr),allocatable :: solis(:)
 integer ::             nrhs, nnods, nelems, ndofs, ndofaaugs, lindrowc, ndofi, nnodi
-logical :: transposed
 integer :: stat(MPI_STATUS_SIZE)
 
 integer :: indc
@@ -2763,7 +2763,8 @@ do iinstr = 1,ninstructions
       call dd_map_subi_to_sub(suba(isub_loc), bufrecv(point),length, aux2,ndofs)
 
       nrhs = 1
-      call dd_solve_aug(suba(isub_loc), aux2,laux2, nrhs)
+      solve_adjoint = .false.
+      call dd_solve_aug(suba(isub_loc), aux2,laux2, nrhs, solve_adjoint)
 
       ! get interface part of the vector of preconditioned residual
       call dd_get_number_of_crows(suba(isub_loc),lindrowc)
@@ -2772,9 +2773,8 @@ do iinstr = 1,ninstructions
       allocate(rescs(lrescs))
       call zero(rescs,lrescs)
 
-      ! rc = phis' * x
-      transposed = .true.
-      call dd_phisi_apply(suba(isub_loc), transposed, bufrecv(point),length, rescs,lrescs)
+      ! rc = phis_dual' * x
+      call dd_phisi_dual_apply(suba(isub_loc), bufrecv(point),length, rescs,lrescs)
 
       call MPI_SEND(rescs,lrescs,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,ierr)
       deallocate(rescs)
@@ -2881,8 +2881,7 @@ do iinstr = 1,ninstructions
       call zero(solis,lsolis)
 
       ! z_i = z_i + phis_i * uc_i
-      transposed = .false.
-      call dd_phisi_apply(suba(isub_loc), transposed, rescs,lrescs, solis,lsolis)
+      call dd_phisi_apply(suba(isub_loc), rescs,lrescs, solis,lsolis)
       deallocate(rescs)
 
       ! add coarse correction to already prepared subdomain correction

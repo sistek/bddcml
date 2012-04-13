@@ -53,6 +53,12 @@ void bddcml_download_local_solution( int *isub, double *sols, int *lsols );
 #define bddcml_download_global_solution F_SYMBOL(bddcml_download_global_solution, BDDCML_DOWNLOAD_GLOBAL_SOLUTION)
 void bddcml_download_global_solution( double *sol, int *lsol );
 
+#define bddcml_download_local_reactions F_SYMBOL(bddcml_download_local_reactions, BDDCML_DOWNLOAD_LOCAL_REACTIONS)
+void bddcml_download_local_reactions( int *isub, double *reas, int *lreas );
+
+#define bddcml_download_global_reactions F_SYMBOL(bddcml_download_global_reactions, BDDCML_DOWNLOAD_GLOBAL_REACTIONS)
+void bddcml_download_global_reactions( double *rea, int *lrea );
+
 #define bddcml_dotprod_subdomain F_SYMBOL(bddcml_dotprod_subdomain, BDDCML_DOTPROD_SUBDOMAIN)
 void bddcml_dotprod_subdomain( int *isub, double *vec1, int *lvec1, double *vec2, int *lvec2, double *dotprod );
 

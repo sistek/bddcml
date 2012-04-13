@@ -360,9 +360,9 @@ contains
 
       end subroutine
 
-!********************************************
-subroutine mumps_resolve(mumps,rhs,lrhs,nrhs)
-!********************************************
+!*************************************************************
+subroutine mumps_resolve(mumps,rhs,lrhs,nrhs,solve_transposed)
+!*************************************************************
 ! Performs backward step of multifrontal algorithm by MUMPS
 ! in the beginning, RHS contains RHS
 ! in the end, RHS contains solution
@@ -374,6 +374,7 @@ subroutine mumps_resolve(mumps,rhs,lrhs,nrhs)
       integer,intent(in):: lrhs
       real(kr),intent(inout),target:: rhs(lrhs)
       integer,intent(in),optional:: nrhs
+      logical,intent(in),optional:: solve_transposed
 
       ! local vars
       character(*),parameter:: routine_name = 'MUMPS_RESOLVE'
@@ -385,6 +386,15 @@ subroutine mumps_resolve(mumps,rhs,lrhs,nrhs)
          mumps%NRHS = nrhs
          ! leading dimension
          mumps%LRHS = lrhs/nrhs
+      end if
+
+      ! default is 1 which means A x = b
+      mumps%ICNTL(9) = 1
+      if (present(solve_transposed)) then
+         if (solve_transposed ) then
+            ! should a transposed system A^T x = b be solved?
+            mumps%ICNTL(9) = 0
+         end if
       end if
 
 ! Job type = 3 for backsubstitution

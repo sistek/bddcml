@@ -134,6 +134,8 @@ module module_levels
 
          integer ::             neighbouring = 0 ! how many nodes must be shared to call two elements neighbours
          logical ::      load_division = .false. ! should division into subdomains be read from file?
+
+         logical :: compute_reactions = .false. ! should reactions be computed on the level?
          
 
          real(kr) :: adaptivity_estimate ! estimate of condition number on given level
@@ -438,45 +440,61 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
       levels(iactive_level)%meshdim = meshdim
 
       levels(iactive_level)%linetc = linet  
-      allocate(levels(iactive_level)%inetc(levels(iactive_level)%linetc))
+      if ( .not. allocated(levels(iactive_level)%inetc)) then
+         allocate(levels(iactive_level)%inetc(levels(iactive_level)%linetc))
+      end if
       do i = 1,levels(iactive_level)%linetc
          levels(iactive_level)%inetc(i) = inet(i) + levels_numshift
       end do
       levels(iactive_level)%lnnetc = lnnet  
-      allocate(levels(iactive_level)%nnetc(levels(iactive_level)%lnnetc))
+      if ( .not. allocated(levels(iactive_level)%nnetc)) then
+         allocate(levels(iactive_level)%nnetc(levels(iactive_level)%lnnetc))
+      end if
       do i = 1,levels(iactive_level)%lnnetc
          levels(iactive_level)%nnetc(i) = nnet(i)
       end do
       levels(iactive_level)%lnndfc = lnndf  
-      allocate(levels(iactive_level)%nndfc(levels(iactive_level)%lnndfc))
+      if ( .not. allocated(levels(iactive_level)%nndfc)) then
+         allocate(levels(iactive_level)%nndfc(levels(iactive_level)%lnndfc))
+      end if
       do i = 1,levels(iactive_level)%lnndfc
          levels(iactive_level)%nndfc(i) = nndf(i)
       end do
       levels(iactive_level)%lxyzc1 = lxyz1  
       levels(iactive_level)%lxyzc2 = lxyz2  
-      allocate(levels(iactive_level)%xyzc(levels(iactive_level)%lxyzc1,levels(iactive_level)%lxyzc2))
+      if ( .not. allocated(levels(iactive_level)%xyzc)) then
+         allocate(levels(iactive_level)%xyzc(levels(iactive_level)%lxyzc1,levels(iactive_level)%lxyzc2))
+      end if
       do j = 1,levels(iactive_level)%lxyzc2
          do i = 1,levels(iactive_level)%lxyzc1
             levels(iactive_level)%xyzc(i,j) = xyz(i,j)
          end do
       end do
       levels(iactive_level)%lifixc = lifix
-      allocate(levels(iactive_level)%ifixc(levels(iactive_level)%lifixc))
+      if ( .not. allocated(levels(iactive_level)%ifixc)) then
+         allocate(levels(iactive_level)%ifixc(levels(iactive_level)%lifixc))
+      end if
       do i = 1,levels(iactive_level)%lifixc
          levels(iactive_level)%ifixc(i) = ifix(i)
       end do
       levels(iactive_level)%lfixvc = lfixv
-      allocate(levels(iactive_level)%fixvc(levels(iactive_level)%lfixvc))
+      if ( .not. allocated(levels(iactive_level)%fixvc)) then
+         allocate(levels(iactive_level)%fixvc(levels(iactive_level)%lfixvc))
+      end if
       do i = 1,levels(iactive_level)%lfixvc
          levels(iactive_level)%fixvc(i) = fixv(i)
       end do
       levels(iactive_level)%lrhsc = lrhs
-      allocate(levels(iactive_level)%rhsc(levels(iactive_level)%lrhsc))
+      if ( .not. allocated(levels(iactive_level)%rhsc)) then
+         allocate(levels(iactive_level)%rhsc(levels(iactive_level)%lrhsc))
+      end if
       do i = 1,levels(iactive_level)%lrhsc
          levels(iactive_level)%rhsc(i) = rhs(i)
       end do
       levels(iactive_level)%lsolc = lsol
-      allocate(levels(iactive_level)%solc(levels(iactive_level)%lsolc))
+      if ( .not. allocated(levels(iactive_level)%solc)) then
+         allocate(levels(iactive_level)%solc(levels(iactive_level)%lsolc))
+      end if
       do i = 1,levels(iactive_level)%lsolc
          levels(iactive_level)%solc(i) = sol(i)
       end do
@@ -488,6 +506,10 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
       iactive_level = 1
       levels(iactive_level)%neighbouring  = neighbouring
       levels(iactive_level)%load_division = load_division
+
+      ! set computing of reactions for the first level
+      levels(iactive_level)%compute_reactions = .true.
+
 
 end subroutine
 
@@ -2916,7 +2938,7 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
       integer :: ndofs, nnods, nelems, ndofaaugs, ndofcs, nnodcs
       integer :: nsub_loc, isub_loc, i, nrhs
       integer :: ilevel
-      logical :: transposed
+      logical :: solve_adjoint
 
       ! MPI vars
       integer :: comm_all, comm_self, myid, ierr
@@ -2968,9 +2990,8 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
          allocate(rescs(lrescs))
          call zero(rescs,lrescs)
 
-         ! rc = phis' * wi * resi
-         transposed = .true.
-         call dd_phisi_apply(levels(ilevel)%subdomains(isub_loc), transposed, aux,laux, rescs,lrescs)
+         ! rc = phis_dual' * wi * resi
+         call dd_phisi_dual_apply(levels(ilevel)%subdomains(isub_loc), aux,laux, rescs,lrescs)
 
          ! embed local resc to global one
          call dd_map_subc_to_globc(levels(ilevel)%subdomains(isub_loc), rescs,lrescs, rescaux,lresc)
@@ -2986,7 +3007,8 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
          call dd_map_subi_to_sub(levels(ilevel)%subdomains(isub_loc), aux,laux, aux2,ndofs)
 
          nrhs = 1
-         call dd_solve_aug(levels(ilevel)%subdomains(isub_loc), aux2,laux2, nrhs)
+         solve_adjoint = .false.
+         call dd_solve_aug(levels(ilevel)%subdomains(isub_loc), aux2,laux2, nrhs, solve_adjoint)
 
          ! get interface part of the vector of preconditioned residual
          call zero(common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
@@ -3037,7 +3059,7 @@ subroutine levels_corsub_standard_level(ilevel)
 
       integer :: ndofs, nnods, nelems, ndofaaugs, ndofcs, nnodcs, ndofis, nnodis
       integer :: nsub_loc, isub_loc, i, nrhs, isub
-      logical :: transposed
+      logical :: solve_adjoint
 
       ! MPI vars
       integer :: comm_all, comm_self, myid, ierr
@@ -3128,9 +3150,8 @@ subroutine levels_corsub_standard_level(ilevel)
          allocate(rescs(lrescs))
          call zero(rescs,lrescs)
 
-         ! rc = phis' * wi * resi
-         transposed = .true.
-         call dd_phis_apply(levels(ilevel)%subdomains(isub_loc), transposed, ress,lress, rescs,lrescs)
+         ! rc = phis_dual' * wi * resi
+         call dd_phis_dual_apply(levels(ilevel)%subdomains(isub_loc), ress,lress, rescs,lrescs)
 
          ! embed local resc to global one
          call dd_map_subc_to_globc(levels(ilevel)%subdomains(isub_loc), rescs,lrescs, rescaux,lresc)
@@ -3147,7 +3168,8 @@ subroutine levels_corsub_standard_level(ilevel)
          end do
 
          nrhs = 1
-         call dd_solve_aug(levels(ilevel)%subdomains(isub_loc), resaugs,lresaugs, nrhs)
+         solve_adjoint = .false.
+         call dd_solve_aug(levels(ilevel)%subdomains(isub_loc), resaugs,lresaugs, nrhs, solve_adjoint)
 
          ! apply weights
          ! z = wi * z
@@ -3238,7 +3260,6 @@ subroutine levels_add_standard_level(ilevel)
 
       integer :: ndofcs, nnodcs, nnods, nelems, ndofs, ndofis, nnodis, ndofos
       integer :: nsub_loc, isub_loc, i, isub
-      logical :: transposed
 
       ! MPI vars
       integer :: comm_all, comm_self, myid, ierr
@@ -3296,8 +3317,7 @@ subroutine levels_add_standard_level(ilevel)
 
          ! COARSE CORRECTION
          ! z_i = z_i + phis_i * uc_i
-         transposed = .false.
-         call dd_phis_apply(levels(ilevel)%subdomains(isub_loc), transposed, solcs,lsolcs, sols,lsols)
+         call dd_phis_apply(levels(ilevel)%subdomains(isub_loc), solcs,lsolcs, sols,lsols)
          ! apply weights
          ! z = wi * z
          call dd_weights_apply(levels(ilevel)%subdomains(isub_loc), sols,lsols)
@@ -3415,7 +3435,6 @@ subroutine levels_add_first_level(common_krylov_data,lcommon_krylov_data)
       integer :: ndofcs, nnodcs
       integer :: nsub_loc, isub_loc
       integer :: ilevel
-      logical :: transposed
 
       ! MPI vars
       integer :: comm_all, comm_self, myid, ierr
@@ -3462,8 +3481,7 @@ subroutine levels_add_first_level(common_krylov_data,lcommon_krylov_data)
 
          ! COARSE CORRECTION
          ! z_i = z_i + phis_i * uc_i
-         transposed = .false.
-         call dd_phisi_apply(levels(ilevel)%subdomains(isub_loc), transposed, solcs,lsolcs, &
+         call dd_phisi_apply(levels(ilevel)%subdomains(isub_loc), solcs,lsolcs, &
                              common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
          ! apply weights
          ! z = wi * z
@@ -3711,6 +3729,12 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data)
          deallocate(sols)
       end do
 
+      if (levels(ilevel)%compute_reactions) then
+         call dd_compute_reactions(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, levels(ilevel)%comm_all, &
+                                   levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                                   levels(ilevel)%indexsub,levels(ilevel)%lindexsub)
+      end if
+
 end subroutine
 
 !*******************************************************
@@ -3867,6 +3891,174 @@ subroutine levels_get_global_solution(sol,lsol)
                   end do
 
                   deallocate(sols)
+                  deallocate(isvgvn)
+                  ! add counter
+                  acceptedp(iproc+1) = acceptedp(iproc+1) + 1
+               end if
+            end do
+            if (all(acceptedp.eq.levels(ilevel)%sub2proc(2:nproc+1) - levels(ilevel)%sub2proc(1:nproc))) then
+               exit
+            end if
+         end do
+         deallocate(acceptedp)
+      end if
+
+end subroutine
+
+!********************************************************
+subroutine levels_dd_download_reactions(isub, reas,lreas)
+!********************************************************
+! Subroutine for obtaining LOCAL reactions from DD structure.
+! Only calls the function from DD module.
+! module for handling subdomain data
+      use module_dd
+! module with utility routines
+      use module_utils
+
+      implicit none
+      include "mpif.h"
+
+      ! global index of subdomain
+      integer, intent(in) ::  isub
+
+      ! local reactions 
+      integer, intent(in) ::  lreas
+      real(kr), intent(out) :: reas(lreas)
+
+! local vars
+      character(*),parameter:: routine_name = 'LEVELS_DD_DOWNLOAD_REACTIONS'
+      ! for Krylov data, index of level is 1
+      integer,parameter :: ilevel = 1
+
+      integer :: isub_loc
+
+      ! local index of subdomain
+      call get_index(isub+levels_numshift, levels(ilevel)%indexsub,levels(ilevel)%lindexsub, isub_loc)
+      if ( isub_loc .eq. -1 ) then
+         call error( routine_name, 'Index of subdomain not found among local subdomains: ', isub )
+      end if
+
+      ! obtain solution from DD structure
+      call dd_download_reactions(levels(ilevel)%subdomains(isub_loc), reas,lreas)
+
+end subroutine
+
+!***********************************************
+subroutine levels_get_global_reactions(rea,lrea)
+!***********************************************
+! Subroutine for obtaining local reactions from LEVELS and gathering global
+! vector of reactions on root.
+! It downloads it from the DD structures
+! module for handling subdomain data
+      use module_dd
+! module with utility routines
+      use module_utils
+
+      implicit none
+      include "mpif.h"
+
+      ! global reactions - allocated only at root
+      integer, intent(in) ::  lrea
+      real(kr), intent(out) :: rea(lrea)
+
+! local vars
+      character(*),parameter:: routine_name = 'LEVELS_GET_GLOBAL_REACTIONS'
+      ! for Krylov data, index of level is 1
+      integer,parameter :: ilevel = 1
+
+      ! subdomain reactions
+      integer ::              lreas
+      real(kr), allocatable :: reas(:)
+
+      integer ::             lisvgvn
+      integer,allocatable ::  isvgvn(:)
+
+      integer ::             lacceptedp
+      integer,allocatable ::  acceptedp(:)
+
+      integer :: ndofs, nnods, nelems, isub, isub_loc
+
+      ! MPI variables
+      integer :: ierr, myid, nproc, iproc, comm_all
+      integer :: i, indv, nsub_locp
+      integer :: stat(MPI_STATUS_SIZE)
+
+      ! orient in communicators
+      comm_all  = levels(ilevel)%comm_all
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
+
+      ! check that array is properly allocated at root
+      if (myid.eq.0) then
+         if (lrea.ne.levels(ilevel)%ndof) then
+            call error( routine_name, 'Space for global reactions not properly allocated on root.')
+         end if
+         call zero(rea,lrea)
+      end if
+
+      do isub_loc = 1,levels(ilevel)%nsub_loc
+         isub = levels(ilevel)%indexsub(isub_loc)
+
+         ! determine size of reactions
+         call dd_get_size(levels(ilevel)%subdomains(isub_loc),ndofs,nnods,nelems)
+
+         ! allocate local reactions reactions
+         lreas  = ndofs
+         allocate(reas(lreas))
+
+         ! obtain reactions from DD structure
+         call dd_download_reactions(levels(ilevel)%subdomains(isub_loc), reas,lreas)
+
+         ! send reactions to root
+         lisvgvn = ndofs
+         allocate(isvgvn(lisvgvn))
+         call dd_get_subdomain_isvgvn(levels(ilevel)%subdomains(isub_loc),isvgvn,lisvgvn)
+         if (myid.ne.0) then
+            ! now send the data to root
+            call MPI_SEND(ndofs,1,MPI_INTEGER,0,isub,comm_all,ierr)
+            call MPI_SEND(isvgvn,lisvgvn,MPI_INTEGER,0,isub,comm_all,ierr)
+            call MPI_SEND(reas,lreas,MPI_DOUBLE_PRECISION,0,isub,comm_all,ierr)
+         else
+            ! as root, first write my reactions, then process others
+            do i = 1,ndofs
+               indv = isvgvn(i)
+               rea(indv) = reas(i)
+            end do
+         end if
+         deallocate(isvgvn)
+         deallocate(reas)
+      end do
+
+      ! construct reactions at root
+      if (myid.eq.0) then
+         lacceptedp = nproc
+         allocate(acceptedp(lacceptedp))
+         call zero(acceptedp,lacceptedp)
+         acceptedp(1) = levels(ilevel)%nsub_loc
+         ! get reactions from others 
+         do 
+            do iproc = 1,nproc-1
+               nsub_locp = levels(ilevel)%sub2proc(iproc+2) - levels(ilevel)%sub2proc(iproc+1)
+               if (acceptedp(iproc+1).lt.nsub_locp) then
+
+                  ! I haven't got all processors subdomains yet, get one
+                  isub = levels(ilevel)%sub2proc(iproc+1) + acceptedp(iproc+1)
+                  call MPI_RECV(ndofs,1,MPI_INTEGER,iproc,isub,comm_all,stat,ierr)
+                  lisvgvn = ndofs
+                  allocate(isvgvn(lisvgvn))
+                  call MPI_RECV(isvgvn,lisvgvn,MPI_INTEGER,iproc,isub,comm_all,stat,ierr)
+                  lreas = ndofs
+                  allocate(reas(lreas))
+                  call MPI_RECV(reas,lreas,MPI_DOUBLE_PRECISION,iproc,isub,comm_all,stat,ierr)
+
+                  ! as root, write received reactions
+                  do i = 1,ndofs
+                     indv = isvgvn(i)
+
+                     rea(indv) = reas(i)
+                  end do
+
+                  deallocate(reas)
                   deallocate(isvgvn)
                   ! add counter
                   acceptedp(iproc+1) = acceptedp(iproc+1) + 1

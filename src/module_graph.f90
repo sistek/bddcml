@@ -480,45 +480,11 @@ integer*4, intent(out) ::  part(lpart)
 
 ! local vars
 character(*),parameter:: routine_name = 'GRAPH_DIVIDE'
-integer*4 :: wgtflag 
-integer*4 :: npart 
 integer*4,parameter :: numflag = 1 !( 1 - Fortran-like arrays (0 - C-like arrays) 
-integer*4 :: ec 
-integer*4::               loptions
-integer*4,allocatable::    options(:)
 
-      ! weights
-      if (graphtype.eq.1) then 
-         ! use weights
-         wgtflag = 1
-      else
-         ! no weights
-         wgtflag = 0
-      end if
-
-      npart = nsub
-
-      ! OPTIONS - use default options
-      loptions = 5
-      allocate(options(loptions))
-      options = 0
-
-      call info( routine_name, 'Calling METIS to divide into subdomains :',nsub )
-      if (nsub.eq.0) then
-         call error( routine_name, ' Illegal value of number of subdomains...' )
-      else if (nsub.eq.1) then
-         edgecut = 0
-         part = 1
-      else if (nsub.gt.1 .and. nsub.le.8) then
-         part = 1
-         call METIS_PartGraphRecursive(nvertex,xadj,adjncy,vwgt,adjwgt,wgtflag,numflag,npart,options,ec,part)
-      else
-         part = 1
-         call METIS_PartGraphKWay(nvertex,xadj,adjncy,vwgt,adjwgt,wgtflag,numflag,npart,options,ec,part)
-      end if
-      edgecut = ec
-
-      deallocate(options)
+call graph_divide_c( numflag, graphtype, nvertex, xadj, lxadj, adjncy, ladjncy, &
+                     vwgt, lvwgt, adjwgt, ladjwgt, nsub, &
+                     edgecut, part, lpart )
 
 end subroutine graph_divide
 

@@ -1,7 +1,7 @@
 #*********************************
 # the whole link sequence for BDDC
 #*********************************
-BDDCML_LINK_SEQUENCE = $(LIBBDDCML) $(BDDCML_LIBMUMPS) $(BDDCML_LIBPARMETIS) $(BDDCML_LIBSCALAPACK) $(BDDCML_LIBBLACS) \
+BDDCML_LINK_SEQUENCE = $(LIBBDDCML) $(BDDCML_LIBMUMPS) $(BDDCML_LIBPARMETIS) $(BDDCML_LIBMETIS) $(BDDCML_LIBSCALAPACK) $(BDDCML_LIBBLACS) \
                        $(BDDCML_LIBPORD) $(BDDCML_LIBLAPACK) $(BDDCML_LIBBLAS) $(BDDCML_BLOPEXLINK) $(BDDCML_LIBOTHERS) 
 BDDCML_INC           = -I$(BDDCML_ROOT)/src
 
@@ -29,17 +29,19 @@ BDDCML_CDEFS   = -DAdd_
 
 #*********** Includes
 # ParMetis
-BDDCML_INCPARMETIS = -I$(HOME)/programy/PARMETIS
+BDDCML_INCPARMETIS = -I$(HOME)/software/PARMETIS/include
+# Metis
+BDDCML_INCMETIS = -I$(HOME)/software/METIS/include
 # MUMPS
-BDDCML_INCMUMPS    = -I$(HOME)/programy/MUMPS/include
+BDDCML_INCMUMPS    = -I$(HOME)/software/MUMPS/include
 
 #*********** Libraries
 # library being created
-BDDCML_ROOT         = $(HOME)/mojprg/bddcml
+BDDCML_ROOT         = $(HOME)/programming/bddcml
 BDDCML_LIB_DIR      = $(BDDCML_ROOT)/lib
 LIBBDDCML           = $(BDDCML_LIB_DIR)/libbddcml.a
 # MUMPS
-BDDCML_LIBMUMPS     = -L$(HOME)/programy/MUMPS/lib -ldmumps -lmumps_common -lpord
+BDDCML_LIBMUMPS     = -L$(HOME)/software/MUMPS/lib -ldmumps -lmumps_common -lpord
 # ScaLAPACK
 BDDCML_LIBSCALAPACK = -L/usr/lib -lscalapack-openmpi
 # BLACS
@@ -49,14 +51,14 @@ BDDCML_LIBBLAS      = -L/usr/lib -lblas
 # LAPACK
 BDDCML_LIBLAPACK    = -L/usr/lib -llapack
 # ParMetis
-BDDCML_LIBPARMETIS  = -L$(HOME)/programy/PARMETIS -lparmetis -lmetis
+BDDCML_LIBPARMETIS  = -L$(HOME)/software/PARMETIS/lib -lparmetis
 # Metis
-BDDCML_LIBMETIS     = -L$(HOME)/programy/PARMETIS -lmetis
+BDDCML_LIBMETIS     = -L$(HOME)/software/METIS/lib -lmetis
 # other needed libs ( e.g. -lmpi, -lpthread )
 BDDCML_LIBOTHERS    = 
 
 # BLOPEX objects
-BDDCML_BLOPEXDIR = $(HOME)/programy/lobpcg/blopex-read-only
+BDDCML_BLOPEXDIR = $(HOME)/software/lobpcg/blopex-read-only
 BDDCML_INCBLOPEX = \
    -I$(BDDCML_BLOPEXDIR)/blopex_serial_double/multivector \
    -I$(BDDCML_BLOPEXDIR)/blopex_serial_double/pcg_multi \

@@ -379,7 +379,55 @@ subroutine sm_pmd_make_element_numbering(matrixtype,nelem,inet,linet,nnet,lnnet,
 end subroutine
 
 !************************************************************************************************
-subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_sparse,la,bc,lbc)
+subroutine sm_count_fixed_rows_matrix_size(matrixtype,ifix,lifix,nnz,i_sparse,j_sparse,la,&
+                                           la_fixed)
+!************************************************************************************************
+! Subroutine for calculating the size of the sparse matrix for storing fixed rows of the original matrix 
+! using PMD arrays
+      implicit none
+
+! Type of matrix - determine its storage
+! 0 - unsymmetric                 -> full element matrices
+! 1 - symmetric positive definite -> only upper triangle of element matrix
+! 2 - symmetric general           -> only upper triangle of element matrix
+      integer,intent(in) :: matrixtype
+
+! indices of fixed variables
+      integer,intent(in) :: lifix
+      integer,intent(in) :: ifix(lifix)
+
+! Matrix in IJA sparse format
+      integer,intent(in) :: nnz
+      integer,intent(in) :: la
+      integer,intent(inout) :: i_sparse(la), j_sparse(la)
+
+      integer,intent(out) ::    la_fixed
+
+
+! Local variables
+      character(*),parameter:: routine_name = 'SM_COUNT_FIXED_ROWS_MATRIX_SIZE'
+      integer :: ia, indi, indj
+      integer :: ifixed 
+
+! Eliminate boundary conditions
+      ifixed = 0
+      do ia = 1,nnz
+         indi = i_sparse(ia)
+         indj = j_sparse(ia)
+
+         if (ifix(indi).ne.0 .or. ( ( matrixtype.eq.1 .or. matrixtype.eq.2 ) .and. ifix(indj).ne.0 ) ) then
+            ifixed = ifixed + 1
+         end if
+
+      end do
+
+      la_fixed = ifixed
+
+end subroutine
+
+!************************************************************************************************
+subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_sparse,la,bc,lbc,&
+                       store_fixed_rows, la_fixed, i_fixed_sparse, j_fixed_sparse, a_fixed_sparse)
 !************************************************************************************************
 ! Subroutine for application of Dirichlet boudary conditions on a sparse matrix
 ! using PMD arrays
@@ -410,6 +458,14 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_
       integer,intent(inout) :: i_sparse(la), j_sparse(la)
       real(kr),intent(inout):: a_sparse(la)
 
+! Should the fixed rows be stored during elimination?
+      logical,intent(in) ::            store_fixed_rows
+
+! Matrix of fixed rows in IJA sparse format
+      integer,intent(in) ::             la_fixed
+      integer,intent(inout),optional :: i_fixed_sparse(la_fixed), j_fixed_sparse(la_fixed)
+      real(kr),intent(inout),optional:: a_fixed_sparse(la_fixed)
+
 ! values of fixed variables
       integer,intent(in)   :: lbc
       real(kr),intent(out) :: bc(lbc)
@@ -421,6 +477,7 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_
       integer :: i, newplace
       integer ::            lis_diag_fixed
       logical,allocatable :: is_diag_fixed(:)
+      integer :: ifixed
 
 ! Zero BC
       if (lbc.gt.0) then
@@ -436,9 +493,23 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_
       is_diag_fixed = .false.
 
 ! Eliminate boundary conditions
+      ifixed = 0
       do ia = 1,nnz
          indi = i_sparse(ia)
          indj = j_sparse(ia)
+
+         ! store the row if desired
+         if (store_fixed_rows) then
+            if (ifix(indi).ne.0 .or. ( ( matrixtype.eq.1 .or. matrixtype.eq.2 ) .and. ifix(indj).ne.0 ) ) then
+               ifixed = ifixed + 1
+               if (ifixed.gt.la_fixed) then
+                  call error ( routine_name, ' No space left in matrix of fixed rows.' )
+               end if
+               i_fixed_sparse(ifixed) = indi
+               j_fixed_sparse(ifixed) = indj
+               a_fixed_sparse(ifixed) = a_sparse(ia)
+            end if
+         end if
 
          ! off-diagonal entries
          if (indi.ne.indj) then
@@ -491,6 +562,7 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_
                is_diag_fixed(indi) = .true.
             end if
          end if
+
       end do
 
       ! make sure that all diagonal entries were fixed - problem with saddle point systems

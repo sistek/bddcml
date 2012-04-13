@@ -385,7 +385,7 @@ subroutine get_array_union(array1,larray1,array2,larray2,union,lunion,nunion)
 
 ! local vars
       integer :: i, ivalid
-      real(kr) :: valid
+      integer :: valid
 
       ! join arrays to large array
       do i = 1,larray1
