@@ -1404,8 +1404,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
                                  inet_loc,linet_loc,nnet_loc,lnnet_loc,nsub,&
                                  edgecut,part_loc,lpart_loc)
             if (myid.eq.0) then
-               write(*,'(a,i9)') 'Mesh divided. Resulting number of cut edges:',edgecut
-               call flush(6)
+               call info( routine_name, 'Mesh divided. Resulting number of cut edges:',edgecut )
             end if
       
       ! prepare memory for the global array on root

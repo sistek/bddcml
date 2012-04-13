@@ -27,7 +27,7 @@ implicit none
 ! debugging 
       logical,parameter,private :: debug = .false.
 ! profiling 
-      logical,parameter,private :: profile = .true.
+      logical,parameter,private :: profile = .false.
 ! adjustable parameters ############################
 
 contains 
