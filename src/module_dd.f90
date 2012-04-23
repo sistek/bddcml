@@ -30,7 +30,7 @@ module module_dd
 ! maximal allowed length of file names
       integer,parameter,private :: lfnamex = 130
 
-! debugging 
+! debugging mode
       logical,parameter,private :: debug = .false.
 
       interface dd_map_glob_to_sub
@@ -42,8 +42,6 @@ module module_dd
       type cnode_type
          integer :: itype                ! type of coarse node (1 - face, 2 - edge, 3 - corner)
          logical :: used       = .false. ! should this glob be applied in computation?
-         logical :: adaptive   = .false. ! should adaptive constraints be applied at this glob?
-         logical :: arithmetic = .false. ! should arithmetic constraints be applied at this glob?
          integer ::             lxyz
          real(kr),allocatable :: xyz(:) ! coordinates
          ! where the glob maps to
@@ -56,9 +54,9 @@ module module_dd
          integer :: nvar = 0              ! number of variables it contains
          integer,allocatable :: ivsivn(:)  ! indices of glob variables in subdomain interface numbering
          ! constraints on glob
-         integer :: nnz      ! number of nonzeros the matrix contains
-         integer :: lmatrix1 ! = ncdof
-         integer :: lmatrix2 ! = nvar
+         integer :: nnz      = 0 ! number of nonzeros the matrix contains
+         integer :: lmatrix1 = 0 ! = ncdof
+         integer :: lmatrix2 = 0 ! = nvar
          real(kr),allocatable :: matrix(:,:)
       end type cnode_type
 
@@ -94,6 +92,11 @@ module module_dd
          integer ::             lxyz1    ! length of array of coordinates
          integer ::             lxyz2    ! number of x,y,z vectors
          real(kr),allocatable :: xyz(:,:)! array of coordinates
+         ! components of the nodal graph
+         logical ::             is_nodal_components_loaded = .false.
+         integer ::             nnodal_components    ! number of local subcomponents of the mesh - 1 for contiguous domain
+         integer ::             lnodal_components    ! lenght of NODAL_COMPONENTS array - number of nodes
+         integer,allocatable ::  nodal_components(:) ! array of indices of local subcomponents for disconnected subdomains
       
          ! description of subdomain interface
          logical ::             is_interface_loaded = .false.
@@ -125,6 +128,12 @@ module module_dd
          integer,allocatable  :: i_a_fixed_sparse(:)
          integer,allocatable  :: j_a_fixed_sparse(:)
          real(kr),allocatable ::   a_fixed_sparse(:)
+
+         ! matrix of user defined constraints
+         logical :: is_user_constraints_loaded = .false.
+         integer ::              luser_constraints1 ! number of constraints
+         integer ::              luser_constraints2 ! number of columns (=NNODS)
+         real(kr),allocatable ::  user_constraints(:,:) ! array of user defined constraints
 
          ! reactions at fixed variables
          logical :: is_reactions_ready = .false.
@@ -169,6 +178,9 @@ module module_dd
          integer, allocatable :: kshvadj(:)            ! pointers to COMMVEC array 
          integer ::             lishnadj               ! length of array ISHNADJ
          integer, allocatable :: ishnadj(:)            ! indices of nodes shared with adjacent subdomains
+         integer ::             lishnncadj             ! length of array ISHNNCADJ
+         integer, allocatable :: ishnncadj(:)          ! indices of nodal components of nodes shared with adjacent subdomains 
+                                                       ! (in numbering of the neighbour)
          integer ::              lcommvec
          real(kr),allocatable ::  commvec_out(:)       ! communication vector for sending data
          real(kr),allocatable ::  commvec_in(:)        ! communication vector for receiving data
@@ -2248,6 +2260,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
 !*********************************************************************************
 ! Subroutine for loading mesh data into sub structure
       use module_utils
+      use module_graph
       implicit none
 
 ! Subdomain structure
@@ -2267,7 +2280,21 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       real(kr),intent(in)::  xyz(lxyz1,lxyz2)
 
       ! local vars
+! ################ parameters to set
+      logical,parameter :: find_componets    = .true. ! find and store components of nodal graph
+      integer,parameter :: node_neighbouring = 1      ! any element connecting nodes counts as a graph edge
+! ################ end parameter to set
       integer :: i, j
+
+      ! check continuity of nodal graph
+      integer             :: lnetn,  lietn,  lkietn,   lkinet
+      integer, allocatable :: netn(:),ietn(:),kietn(:), kinet(:)
+
+      integer ::              graphtype
+      integer ::              ngraph_edge
+      integer ::              ngraph_vertex
+      integer ::              lxadj,   ladjncy,   ladjwgt
+      integer,allocatable ::   xadj(:), adjncy(:), adjwgt(:)
 
       if (.not.sub%is_initialized) then
          write(*,*) 'DD_UPLOAD_SUB_MESH: Not initialized subdomain: ',sub%isub
@@ -2331,6 +2358,61 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
          sub%is_degenerated = .false.
       end if
       sub%is_mesh_loaded = .true.
+
+      ! determine nodal components of the mesh
+      if (find_componets) then
+         ! prepare kinet
+         lkinet = nelem
+         allocate(kinet(lkinet))
+         kinet(1) = 0
+         do i = 2,lkinet
+            kinet(i) = kinet(i-1) + nnet(i-1)
+         end do
+
+         ! prepare dual mesh
+         lnetn  = nnod
+         lietn  = linet
+         lkietn = nnod
+         allocate(netn(lnetn),ietn(lietn),kietn(lkietn))
+         call graph_get_dual_mesh(sub%nelem,sub%nnod,&
+                                  sub%inet,sub%linet,sub%nnet,sub%lnnet,&
+                                  netn,lnetn,ietn,lietn,kietn,lkietn)
+
+         ! prepare graph of subdomain nodes - i.e. dual graph
+         graphtype    = 0 ! unweighted
+         ngraph_vertex = nnod
+         lxadj = nnod + 1
+         allocate(xadj(lxadj))
+         call graph_from_mesh_size(ngraph_vertex,graphtype,node_neighbouring,&
+                                   ietn,lietn, netn,lnetn,&
+                                   sub%inet,sub%linet,&
+                                   sub%nnet,sub%lnnet,&
+                                   kinet,lkinet,&
+                                   xadj,lxadj, ngraph_edge, ladjncy,ladjwgt)
+         allocate(adjncy(ladjncy),adjwgt(ladjwgt))
+         call graph_from_mesh(ngraph_vertex,graphtype,node_neighbouring,&
+                              ietn,lietn, netn,lnetn,&
+                              sub%inet,sub%linet,&
+                              sub%nnet,sub%lnnet,&
+                              kinet,lkinet,&
+                              xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+         call graph_check(ngraph_vertex,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+
+         ! check components of graph
+         sub%lnodal_components = nnod
+         allocate(sub%nodal_components(sub%lnodal_components))
+
+         ! determine continuity of components
+         call graph_components(ngraph_vertex,xadj,lxadj,adjncy,ladjncy,&
+                               sub%nodal_components,sub%lnodal_components,sub%nnodal_components)
+
+         sub%is_nodal_components_loaded = .true.
+
+         deallocate(kinet)
+         deallocate(netn,ietn,kietn)
+         deallocate(xadj)
+         deallocate(adjncy,adjwgt)
+      end if
 
 end subroutine
 
@@ -2699,6 +2781,56 @@ subroutine dd_upload_solution(sub, sol,lsol)
       end do
 
       sub%is_solution_loaded = .true.
+   
+end subroutine
+
+!*****************************************************************************************************
+subroutine dd_upload_sub_user_constraints(sub, user_constraints,luser_constraints1,luser_constraints2)
+!*****************************************************************************************************
+! Subroutine for uploading solution to subdomain structure
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+      integer,intent(in) :: luser_constraints1
+      integer,intent(in) :: luser_constraints2
+      real(kr),intent(in)::  user_constraints(luser_constraints1*luser_constraints2)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_UPLOAD_SUB_USER_CONSTRAINTS'
+      integer :: i,j
+
+      ! check prerequisites
+      if (.not. sub%is_initialized) then
+         call error( routine_name,'Not initialized subdomain: ',sub%isub)
+      end if
+
+      ! check dimension
+      if (luser_constraints2.ne.sub%nnod .and. luser_constraints2.gt.0) then
+         call error(routine_name,'Array USER_CONSTRAINTS dimension mismatch.')
+      end if
+
+      ! is array allocated?
+      if (.not.allocated(sub%user_constraints)) then
+         ! if not, allocate it
+         sub%luser_constraints1 = luser_constraints1
+         sub%luser_constraints2 = luser_constraints2
+         allocate(sub%user_constraints(luser_constraints1,luser_constraints2))
+      else
+         ! if yes, check that it is allocated to correct dimension
+         if (luser_constraints1.ne.sub%luser_constraints1 .or. luser_constraints2.ne.sub%luser_constraints2) then
+            call error(routine_name,'Dimension of subdomain USER_CONSTRAINTS mismatch for subdomain:',sub%isub)
+         end if
+      end if
+      ! copy constraints and convert it from linear row-wise stored array to two-dimensional matrix
+      do i = 1,luser_constraints1
+         do j = 1,luser_constraints2
+            sub%user_constraints(i,j) = user_constraints((i-1)*luser_constraints2 + j)
+         end do
+      end do
+
+      sub%is_user_constraints_loaded = .true.
    
 end subroutine
 
@@ -3617,8 +3749,12 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_LOAD_ARITHMETIC_CONSTRAINTS'
-      integer :: icnode, lmatrix1, lmatrix2, ncnodes, ncdof, nvar
+      integer :: icnode, ncnodes, ncdof, nvar
       integer :: pointdof, nnod, inod, ndofn, idofn, indi, ind, ind1, ind2
+      real(kr) :: val
+      integer ::             lmatrix1, lmatrix2
+      real(kr),allocatable :: matrix(:,:)
+      integer :: nnz_new
 
       ! check the prerequisities
       if (.not.allocated(sub%cnodes) .or. .not.sub%is_cnodes_loaded) then
@@ -3632,9 +3768,9 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
       do icnode = 1,ncnodes
          if (sub%cnodes(icnode)%itype .eq. itype) then
          
+            ! get number of constraints on an arithmetic constraint
             nvar = sub%cnodes(icnode)%nvar
 
-            ! get number of constraints on an arithmetic constraint
             ! maximal number of dofs at a node
             ncdof = 0
             nnod = sub%cnodes(icnode)%nnod
@@ -3650,19 +3786,15 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
 
             lmatrix1 = ncdof
             lmatrix2 = nvar
-
-            sub%cnodes(icnode)%ncdof    = ncdof
-            sub%cnodes(icnode)%nnz      = nvar
-            sub%cnodes(icnode)%lmatrix1 = lmatrix1
-            sub%cnodes(icnode)%lmatrix2 = lmatrix2
-            allocate(sub%cnodes(icnode)%matrix(lmatrix1,lmatrix2))
-
-            call zero(sub%cnodes(icnode)%matrix,lmatrix1,lmatrix2)
+            allocate(matrix(lmatrix1,lmatrix2))
+            call zero(matrix,lmatrix1,lmatrix2)
 
             pointdof = 0
             do inod = 1,nnod
                indi = sub%cnodes(icnode)%insin(inod)
                ind  = sub%iin(indi)
+
+               val = 1._kr
 
                ndofn = sub%nndf(ind)
                do idofn = 1,ndofn
@@ -3676,11 +3808,14 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
                      call error(routine_name,'column index out of bounds for matrix of constraints')
                   end if
 
-                  sub%cnodes(icnode)%matrix(ind1,ind2) = 1._kr
+                  matrix(ind1,ind2) = val
                end do
                pointdof = pointdof + ndofn
             end do
-            sub%cnodes(icnode)%arithmetic = .true.
+
+            nnz_new = nvar ! number of new nonzeroes equal NVAR thanks to the structure
+            call dd_append_cnode_constraits(sub%cnodes(icnode),matrix,lmatrix1,lmatrix2,nnz_new)
+            deallocate(matrix)
 
             ! mark the coarse node as used
             sub%cnodes(icnode)%used = .true.
@@ -3689,9 +3824,9 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
 
 end subroutine
 
-!*********************************************************************************
-subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,nvalid)
-!*********************************************************************************
+!**************************************************************************
+subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2)
+!**************************************************************************
 ! Subroutine for assemblage of matrix
       use module_utils
       implicit none
@@ -3702,33 +3837,15 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,nvali
       integer,intent(in) :: lcadapt1, lcadapt2
       real(kr),intent(in) :: cadapt(lcadapt1,lcadapt2)
 
-      integer,intent(out) :: nvalid ! number of valid constraints after regularization
-
 ! local variables
       character(*),parameter:: routine_name = 'DD_LOAD_ADAPTIVE_CONSTRAINTS'
 
-! Variables for regularization of constraints
-      integer              :: lavg1, lavg2
-      real(kr),allocatable ::  avg(:,:)
-
-! LAPACK variables
-      integer             :: lipiv
-      integer,allocatable ::  ipiv(:)
-      integer              :: lwork
-      real(kr),allocatable ::  work(:)
-      integer              :: ltau
-      real(kr),allocatable ::  tau(:)
-      integer             :: lapack_info, ldavg
-
-      real(kr) :: normval, thresh_diag
-
-
       ! local vars
-      integer :: ind_loc, lmatrix1, lmatrix2, nvarglb, ncdof
+      integer :: ind_loc, nvarglb
       integer :: i, j, indiv
-      integer :: limit_loop
-      integer ::  nnz
-      real(kr) :: val
+      integer ::             lmatrix1, lmatrix2
+      real(kr),allocatable :: matrix(:,:)
+      integer :: nnz_new
 
       ! check the prerequisities
       if (.not.allocated(sub%cnodes) .or. .not.sub%is_cnodes_loaded) then
@@ -3748,125 +3865,375 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,nvali
          call error(routine_name,' Number of variables at glob seems larger than interface size of subdomain for glob',gglob)
       end if
 
-      ! regularize the matrix of constraints by QR decomposition
-      ! copy part of constraints to array AVG
-      lavg1 = nvarglb
-      lavg2 = lcadapt2
-      allocate(avg(lavg1,lavg2))
+      ! append selected constraints to the global structure
+      lmatrix1 = lcadapt2
+      lmatrix2 = nvarglb
+      allocate(matrix(lmatrix1,lmatrix2))
+      call zero(matrix,lmatrix1,lmatrix2)
       
+      ! copy transposed constraints
       do i = 1,nvarglb
          indiv = sub%cnodes(ind_loc)%ivsivn(i)
 
          do j = 1,lcadapt2
-            avg(i,j) = cadapt(indiv,j)
+            matrix(j,i) = cadapt(indiv,j)
          end do
       end do
-
-      !write (*,*) 'AVG before QR'
-      !do i = 1,lavg1
-      !   write(*,*) (avg(i,j),j = 1,lavg2)
-      !end do
-
-      ! perform QR decomposition of AVG by LAPACK
-      ! Prepare array for permutations
-      lipiv = lavg2
-      allocate(ipiv(lipiv))
-      ipiv = 0
-      ! prepare other LAPACK arrays
-      ltau = lavg1
-      allocate(tau(ltau))
-      lwork = 3*lavg2 + 1
-      allocate(work(lwork))
-
-      ldavg = max(1,lavg1)
-      ! QR decomposition
-      call DGEQP3( lavg1, lavg2, avg, ldavg, ipiv, tau, work, lwork, lapack_info )
-
-      !write (*,*) 'AVG after QR factorization'
-      !do i = 1,lavg1
-      !   write(*,*) (avg(i,j),j = 1,lavg2)
-      !end do
-      !write (*,*) 'IPIV after QR factorization'
-      !write(*,*) (ipiv(j),j = 1,lavg2)
-
-      ! determine number of columns to use
-      ! threshold of 1% of maximal norm
-      nvalid = 0
-      if (lavg1.gt.0.and.lavg2.gt.0) then
-         normval = abs(avg(1,1))
-         if (normval.gt.numerical_zero) then
-            thresh_diag = 0.01_kr * normval
-            limit_loop = min(lavg1,lavg2)
-            do i = 1,limit_loop
-               if (abs(avg(i,i)) .lt. thresh_diag) then
-                  exit
-               else
-                  nvalid = i
-               end if
-            end do
-         end if
-      end if
-
-      !write (*,*) 'Number of constraints to really use nvalid',nvalid
-
-      ! construct Q in AVG array
-      call DORGQR( lavg1, nvalid, nvalid, avg, ldavg, tau, work, lwork, lapack_info )
-
-      deallocate(work)
-      deallocate(tau)
-      deallocate(ipiv)
-
-      !write (*,*) 'AVG contains Q'
-      !do i = 1,lavg1
-      !   write(*,*) (avg(i,j),j = 1,nvalid)
-      !end do
-
-      if (debug) then
-         if (nvalid.lt.lcadapt2) then
-            call warning(routine_name,' Almost linearly dependent constraints on glob ',gglob)
-            call warning(routine_name,' Number of constrains reduced to ',nvalid)
-         end if
-      end if
-
-      ! copy transposed selected regularized constraints to the global structure
-      ncdof = nvalid
-      sub%cnodes(ind_loc)%ncdof = ncdof
-
-      lmatrix1 = nvalid
-      lmatrix2 = nvarglb
-      sub%cnodes(ind_loc)%lmatrix1 = lmatrix1
-      sub%cnodes(ind_loc)%lmatrix2 = lmatrix2
-      allocate(sub%cnodes(ind_loc)%matrix(lmatrix1,lmatrix2))
-      call zero(sub%cnodes(ind_loc)%matrix,lmatrix1,lmatrix2)
-      
-      nnz = 0
-      do i = 1,nvalid
-         do j = 1,nvarglb
-
-            val = avg(j,i)
-
-            if (abs(val).gt.0._kr) then
-               sub%cnodes(ind_loc)%matrix(i,j) = val
-               nnz = nnz + 1
-            end if
-         end do
-      end do
-      sub%cnodes(ind_loc)%nnz = nnz
-      sub%cnodes(ind_loc)%adaptive   = .true.
-      sub%cnodes(ind_loc)%arithmetic = .false.
-
-      ! mark the coarse node as used
-      sub%cnodes(ind_loc)%used = .true.
-
-      deallocate(avg)
 
       if (debug) then
          call info(routine_name,' Loading adaptive matrix of globs of subdomain ',sub%isub)
          call info(routine_name,' local glob #',ind_loc)
          do i = 1,lmatrix1
-            write(*,'(100f15.6)') (sub%cnodes(ind_loc)%matrix(i,j),j = 1,lmatrix2)
+            write(*,'(100f15.6)') (matrix(i,j),j = 1,lmatrix2)
          end do
       end if
+
+      nnz_new = lcadapt2 * nvarglb
+      call dd_append_cnode_constraits(sub%cnodes(ind_loc),matrix,lmatrix1,lmatrix2,nnz_new)
+      deallocate(matrix)
+
+      ! mark the coarse node as used
+      sub%cnodes(ind_loc)%used = .true.
+
+end subroutine
+
+!*********************************************
+subroutine dd_load_user_constraints(sub,itype)
+!*********************************************
+! Subroutine for creating constraints based on user supplied data
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+
+      integer,intent(in) :: itype ! type of globs (2 - edges, 1 - faces)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_LOAD_USER_CONSTRAINTS'
+      integer :: icnode, ncnodes, ncdof, nvar
+      integer :: pointdof, nnod, inod, ndofn, idofn, indi, ind, ind1, ind2, &
+                 iconstr, nuser_constraints
+      integer :: nnz_new
+      real(kr) :: val
+      integer ::             lmatrix1, lmatrix2
+      real(kr),allocatable :: matrix(:,:)
+
+      ! check the prerequisities
+      if (.not.sub%is_user_constraints_loaded) then
+         call error(routine_name, 'User constraints not loaded for subdomain ',sub%isub)
+      end if
+      if (.not.allocated(sub%cnodes) .or. .not.sub%is_cnodes_loaded) then
+         call error(routine_name, 'Array for cnodes not ready for subdomain ',sub%isub)
+      end if
+
+      ! get number of coarse nodes
+      ncnodes = sub%ncnodes
+
+      ! generate arithmetic averages on coarse nodes of prescribed type (e.g. edges)
+      do icnode = 1,ncnodes
+         if (sub%cnodes(icnode)%itype .eq. itype) then
+         
+            ! get number of constraints on an arithmetic constraint
+            nvar = sub%cnodes(icnode)%nvar
+
+            ! maximal number of dofs at a node per constraint
+            ncdof = 0
+            nnod = sub%cnodes(icnode)%nnod
+            do inod = 1,nnod
+               indi = sub%cnodes(icnode)%insin(inod)
+               ind  = sub%iin(indi)
+
+               ndofn = sub%nndf(ind)
+               if (ndofn.gt.ncdof) then
+                  ncdof = ndofn
+               end if
+            end do
+            nuser_constraints = sub%luser_constraints1
+
+            lmatrix1 = ncdof * nuser_constraints
+            lmatrix2 = nvar
+
+            allocate(matrix(lmatrix1,lmatrix2))
+            call zero(matrix,lmatrix1,lmatrix2)
+
+            do iconstr = 1,nuser_constraints
+               pointdof = 0
+               do inod = 1,nnod
+                  indi = sub%cnodes(icnode)%insin(inod)
+                  ind  = sub%iin(indi)
+
+                  val = sub%user_constraints(iconstr,ind)
+
+                  ndofn = sub%nndf(ind)
+                  do idofn = 1,ndofn
+                     ind1 = (iconstr-1)*ncdof + idofn
+                     ind2 = pointdof + idofn
+                     ! check indices
+                     if (ind1.gt.lmatrix1) then
+                        call error(routine_name,'row index out of bounds for matrix of constraints')
+                     end if
+                     if (ind2.gt.lmatrix2) then
+                        call error(routine_name,'column index out of bounds for matrix of constraints')
+                     end if
+
+                     matrix(ind1,ind2) = val
+                  end do
+                  pointdof = pointdof + ndofn
+               end do
+            end do
+
+            nnz_new = count(matrix.ne.0._kr)   ! number of new nonzeroes equal NVAR thanks to the structure
+            if (nnz_new.gt.0) then
+               call dd_append_cnode_constraits(sub%cnodes(icnode),matrix,lmatrix1,lmatrix2,nnz_new)
+            else
+               call warning(routine_name, 'User constraints are plain zeros on coarse node ',&
+                            sub%cnodes(icnode)%global_cnode_number)
+            end if
+            deallocate(matrix)
+
+            ! mark the coarse node as used
+            sub%cnodes(icnode)%used = .true.
+         end if
+
+      end do
+
+end subroutine
+
+!*************************************************************************
+subroutine dd_append_cnode_constraits(cnode,matrix,lmatrix1,lmatrix2, nnz)
+!*************************************************************************
+! Subroutine for inquiring sizes to allocate for number of adaptive averages
+      use module_utils
+      implicit none
+! Coarse node structure
+      type(cnode_type),intent(inout) :: cnode
+
+      ! matrix of appended constraints
+      integer,intent(in) :: lmatrix1, lmatrix2
+      real(kr),intent(in) :: matrix(lmatrix1,lmatrix2)
+
+      ! number of nonzeros in matrix
+      integer,intent(in) :: nnz
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_APPEND_CNODE_CONSTRAITS'
+      integer :: nnz_old, ncdof_old 
+      integer::              lmatrix_old1, lmatrix_old2
+      real(kr),allocatable :: matrix_old(:,:)
+      integer::              lmatrix_new1, lmatrix_new2
+
+      ! check the prerequisities
+      if (allocated(cnode%matrix) .and. cnode%lmatrix1 .ne. cnode%ncdof) then
+         call error(routine_name, 'Matrix size mismatch for existing coarse node',cnode%global_cnode_number)
+      end if
+      if (allocated(cnode%matrix) .and. cnode%lmatrix2 .ne. lmatrix2) then
+         call error(routine_name, 'Cannot append matrix to existing coarse node',cnode%global_cnode_number)
+      end if
+      if (cnode%nvar .ne. lmatrix2) then
+         call error(routine_name, 'Matrix size mismatch for coarse node',cnode%global_cnode_number)
+      end if
+      if (count(matrix.ne.0._kr) .ne. nnz) then
+         call info( routine_name, 'nnz = ',nnz )
+         call info( routine_name, 'count(matrix.ne.0._kr) = ',count(matrix.ne.0._kr) )
+         call error(routine_name, 'Matrix number of nonzeros mismatch for coarse node',cnode%global_cnode_number)
+      end if
+
+      ncdof_old = cnode%ncdof
+      nnz_old   = cnode%nnz 
+
+      ! store existing matrix
+      lmatrix_old1 = cnode%lmatrix1
+      lmatrix_old2 = cnode%lmatrix2
+      if (allocated(cnode%matrix)) then
+         allocate(matrix_old(lmatrix_old1,lmatrix_old2))
+         matrix_old = cnode%matrix
+         deallocate(cnode%matrix)
+      end if
+
+      lmatrix_new1 = lmatrix_old1 + lmatrix1
+      lmatrix_new2 = lmatrix2
+      allocate(cnode%matrix(lmatrix_new1,lmatrix_new2))
+
+      ! copy back existing matrix
+      if (allocated(matrix_old)) then
+         cnode%matrix(1:lmatrix_old1,:) = matrix_old
+         deallocate(matrix_old)
+      end if
+      ! append new matrix to the bottom
+      cnode%matrix(lmatrix_old1+1:lmatrix_new1,:) = matrix
+      cnode%lmatrix1 = lmatrix_new1
+      cnode%lmatrix2 = lmatrix_new2
+
+      ! update properties
+      cnode%ncdof = ncdof_old + lmatrix1
+      cnode%nnz   = nnz_old   + nnz
+end subroutine
+
+!*************************************************
+subroutine dd_orthogonalize_constraints(sub,itype)
+!*************************************************
+! Subroutine for assemblage of matrix
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+
+      integer,intent(in) :: itype ! type of globs (2 - edges, 1 - faces)
+
+! local variables
+      character(*),parameter:: routine_name = 'DD_ORTHOGONALIZE_CONSTRAINTS'
+
+      integer::              lconstraints1, lconstraints2
+      real(kr),allocatable :: constraints(:,:)
+
+! LAPACK variables
+      integer             :: lipiv
+      integer,allocatable ::  ipiv(:)
+      integer              :: lwork
+      real(kr),allocatable ::  work(:)
+      integer              :: ltau
+      real(kr),allocatable ::  tau(:)
+      integer             :: lapack_info, ldconstraints
+
+      real(kr) :: normval, thresh_diag
+
+      integer :: lmatrix2, nvar, icnode
+      integer :: lmatrix1_old, ncdof_old, ncnodes
+      integer :: i, j
+      integer :: limit_loop
+      integer ::  nnz, nnz_old, nvalid
+      real(kr) :: val
+
+      ! check the prerequisities
+      if (.not.allocated(sub%cnodes) .or. .not.sub%is_cnodes_loaded) then
+         call error(routine_name,'Array for cnodes not ready.')
+      end if
+
+      ! get number of coarse nodes
+      ncnodes = sub%ncnodes
+
+      ! generate arithmetic averages on coarse nodes of prescribed type (e.g. edges)
+      do icnode = 1,ncnodes
+         if (sub%cnodes(icnode)%itype .eq. itype) then
+         
+            nvar         = sub%cnodes(icnode)%nvar
+            ncdof_old    = sub%cnodes(icnode)%ncdof
+            nnz_old      = sub%cnodes(icnode)%nnz
+
+            lmatrix1_old = sub%cnodes(icnode)%lmatrix1
+            lmatrix2     = sub%cnodes(icnode)%lmatrix2
+
+            ! perform checks
+            if (.not. allocated(sub%cnodes(icnode)%matrix)) then
+               call error(routine_name, 'Matrix not allocated, nothing to regularize.',sub%cnodes(icnode)%global_cnode_number)
+            end if
+            if (lmatrix1_old .ne. ncdof_old) then
+               call error(routine_name, 'Constraints size mismatch for glob',sub%cnodes(icnode)%global_cnode_number)
+            end if
+            if (lmatrix2 .ne. nvar) then
+               call error(routine_name, 'Constraints size mismatch for glob',sub%cnodes(icnode)%global_cnode_number)
+            end if
+
+            ! space for transposed constraints
+            lconstraints1 = lmatrix2
+            lconstraints2 = lmatrix1_old
+            allocate(constraints(lconstraints1,lconstraints2))
+            constraints = transpose(sub%cnodes(icnode)%matrix)
+
+            !write (*,*) 'CONSTRAINTS before QR'
+            !do i = 1,lconstraints1
+            !   write(*,*) (constraints(i,j),j = 1,lconstraints2)
+            !end do
+
+            ! perform QR decomposition of AVG by LAPACK
+            ! Prepare array for permutations
+            lipiv = lconstraints2
+            allocate(ipiv(lipiv))
+            ipiv = 0
+            ! prepare other LAPACK arrays
+            ltau = lconstraints1
+            allocate(tau(ltau))
+            lwork = 3*lconstraints2 + 1
+            allocate(work(lwork))
+
+            ldconstraints = max(1,lconstraints1)
+            ! QR decomposition
+            call DGEQP3( lconstraints1, lconstraints2, constraints, ldconstraints, ipiv, tau, work, lwork, lapack_info )
+
+            !write (*,*) 'constraints after QR factorization'
+            !do i = 1,lconstraints1
+            !   write(*,*) (constraints(i,j),j = 1,lconstraints2)
+            !end do
+            !write (*,*) 'IPIV after QR factorization'
+            !write(*,*) (ipiv(j),j = 1,lconstraints2)
+
+            ! determine number of columns to use
+            ! threshold of 1% of maximal norm
+            nvalid = 0
+            if (lconstraints1.gt.0.and.lconstraints2.gt.0) then
+               normval = abs(constraints(1,1))
+               if (normval.gt.numerical_zero) then
+                  thresh_diag = 0.01_kr * normval
+                  limit_loop = min(lconstraints1,lconstraints2)
+                  do i = 1,limit_loop
+                     if (abs(constraints(i,i)) .lt. thresh_diag) then
+                        exit
+                     else
+                        nvalid = i
+                     end if
+                  end do
+               end if
+            end if
+
+            !write (*,*) 'Number of constraints to really use nvalid',nvalid
+
+            ! construct Q in constraints array
+            call DORGQR( lconstraints1, nvalid, nvalid, constraints, ldconstraints, tau, work, lwork, lapack_info )
+
+            deallocate(work)
+            deallocate(tau)
+            deallocate(ipiv)
+
+            !write (*,*) 'constraints contains Q'
+            !do i = 1,lconstraints1
+            !   write(*,*) (constraints(i,j),j = 1,nvalid)
+            !end do
+
+            if (debug) then
+               if (nvalid.lt.lconstraints2) then
+                  call warning(routine_name,' Almost linearly dependent constraints on glob ',&
+                               sub%cnodes(icnode)%global_cnode_number)
+                  call warning(routine_name,' Number of constrains reduced to ',nvalid)
+               end if
+            end if
+
+            ! copy transposed selected regularized constraints to the global structure
+            sub%cnodes(icnode)%ncdof = nvalid
+
+            sub%cnodes(icnode)%lmatrix1 = nvalid
+            sub%cnodes(icnode)%lmatrix2 = lmatrix2
+            deallocate(sub%cnodes(icnode)%matrix)
+            allocate(sub%cnodes(icnode)%matrix(sub%cnodes(icnode)%lmatrix1,sub%cnodes(icnode)%lmatrix2))
+            call zero(sub%cnodes(icnode)%matrix,sub%cnodes(icnode)%lmatrix1,sub%cnodes(icnode)%lmatrix2)
+      
+            nnz = 0
+            do i = 1,nvalid
+               do j = 1,nvar
+
+                  val = constraints(j,i)
+
+                  if (abs(val).gt.0._kr) then
+                     sub%cnodes(icnode)%matrix(i,j) = val
+                     nnz = nnz + 1
+                  end if
+               end do
+            end do
+            sub%cnodes(icnode)%nnz = nnz
+
+            deallocate(constraints)
+
+         end if
+      end do
 end subroutine
 
 !****************************************************************
@@ -3999,8 +4366,7 @@ subroutine dd_construct_cnodes(sub)
 
          ! type of coarse node - corner
          sub%cnodes(icnode)%itype = 3
-         ! is coarse node used?
-         sub%cnodes(icnode)%used  = .true.
+
          ! global number
          igcnode =  sub%global_corner_number(inodc)
          sub%cnodes(icnode)%global_cnode_number  = igcnode
@@ -4010,8 +4376,6 @@ subroutine dd_construct_cnodes(sub)
          ! number of variables it maps from 
          nvar = sub%nndf(indnode)
          sub%cnodes(icnode)%nvar = nvar
-         ! number of nonzeros it creates in matrix C
-         sub%cnodes(icnode)%nnz = nvar
 
          ! fill coordinates
          lxyz = sub%ndim
@@ -4166,6 +4530,8 @@ subroutine dd_prepare_c(sub)
             lmatrix1  = sub%cnodes(icn)%lmatrix1
             lmatrix2  = sub%cnodes(icn)%lmatrix2
             if (nvar.ne.lmatrix2) then
+               call info(routine_name, 'nvar', nvar)
+               call info(routine_name, 'lmatrix2', lmatrix2)
                call error(routine_name, 'Second matrix dimension does not match for subdomain', sub%isub)
             end if
             if (ncdof.ne.lmatrix1) then
@@ -6765,7 +7131,8 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
       integer :: nshared
       integer :: nsharedv, lcommvec, ndofn
       integer :: idofi, idofo, idofn, inod, inodi, &
-                 kisngnadj, ndofi, ndofo, nnodi, nnodadj
+                 kisngnadj, ndofi, ndofo, nnodi, nnodadj, &
+                 indcomponentadj, inodsadj
 
       integer ::             lnshnadj
       integer,allocatable ::  nshnadj(:)
@@ -6773,6 +7140,8 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
       integer,allocatable ::  kshvadj(:)
       integer ::             lishnadj
       integer,allocatable ::  ishnadj(:)
+      integer ::             lishnncadj
+      integer,allocatable ::  ishnncadj(:)
       integer ::             lishared
       integer,allocatable ::  ishared(:)
       integer ::             lkinodes
@@ -6790,10 +7159,12 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
 
          integer ::             lisngn
          integer,allocatable ::  isngn(:)
+         integer,allocatable ::  isnc(:)
          integer ::             lnnodadj
          integer,allocatable ::  nnodadj(:)
          integer ::             lisngnadj
          integer,allocatable ::  isngnadj(:)
+         integer,allocatable ::  isncadj(:)
 
       end type
 
@@ -6847,10 +7218,10 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
       nreq = ireq
 
       ! MPI arrays
-      lrequest = nreq
+      lrequest = nreq * 2
       allocate(request(lrequest))
       lstatarray1 = MPI_STATUS_SIZE
-      lstatarray2 = nreq
+      lstatarray2 = nreq * 2
       allocate(statarray(lstatarray1,lstatarray2))
 
       ! prepare subdomain data      
@@ -6944,13 +7315,16 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
    ! Allocate array for global node numbers for neighbours
          sub_aux(isub_loc)%lisngnadj = sum(sub_aux(isub_loc)%nnodadj)
          allocate(sub_aux(isub_loc)%isngnadj(sub_aux(isub_loc)%lisngnadj))
+         allocate(sub_aux(isub_loc)%isncadj( sub_aux(isub_loc)%lisngnadj))
          ! allocate data for myself
          sub_aux(isub_loc)%lisngn = nnod
          allocate(sub_aux(isub_loc)%isngn(sub_aux(isub_loc)%lisngn))
+         allocate(sub_aux(isub_loc)%isnc( sub_aux(isub_loc)%lisngn))
 
          ! prepare local ISNGN array
          do i = 1,nnod
             sub_aux(isub_loc)%isngn(i) = suba(isub_loc)%isngn(i)
+            sub_aux(isub_loc)%isnc(i)  = suba(isub_loc)%nodal_components(i)
          end do
       end do
 
@@ -6985,11 +7359,15 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
                ireq = ireq + 1
                call MPI_IRECV(sub_aux(isub_loc)%isngnadj(kisngnadj + 1),nnodadj,MPI_INTEGER,&
                               procadj,tag,comm_all,request(ireq),ierr)
+               ireq = ireq + 1
+               call MPI_IRECV(sub_aux(isub_loc)%isncadj(kisngnadj + 1),nnodadj,MPI_INTEGER,&
+                              procadj,tag,comm_all,request(ireq),ierr)
             else 
                ! I have subdomain data, simply copy necessary arrays
                call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
                do i = 1,nnodadj
                   sub_aux(isub_loc)%isngnadj(kisngnadj + i) = suba(isubadj_loc)%isngn(i)
+                  sub_aux(isub_loc)%isncadj (kisngnadj + i) = suba(isubadj_loc)%nodal_components(i)
                end do
             end if
             kisngnadj = kisngnadj + nnodadj
@@ -7018,6 +7396,7 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
                ! send him my data
                tag = isub*nsub + isubadj
                call MPI_SEND(sub_aux(isub_loc)%isngn(1),nnod,MPI_INTEGER, procadj,tag,comm_all,ierr)
+               call MPI_SEND(sub_aux(isub_loc)%isnc(1), nnod,MPI_INTEGER, procadj,tag,comm_all,ierr)
             end if
             kisngnadj = kisngnadj + nnodadj
          end do
@@ -7153,6 +7532,8 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
          allocate(kshvadj(lkshvadj))
          lishnadj = nadj * nnodi
          allocate(ishnadj(lishnadj))
+         lishnncadj = nadj * nnodi
+         allocate(ishnncadj(lishnncadj))
 
          kisngnadj = 0
          kishnadj  = 0
@@ -7186,6 +7567,11 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
                nsharedv = nsharedv + ndofn
 
                ishnadj(kishnadj + i) = inodis
+
+               call get_index(indg,sub_aux(isub_loc)%isngnadj(kisngnadj + 1),nnodadj,inodsadj)
+               indcomponentadj = sub_aux(isub_loc)%isncadj(kisngnadj + inodsadj)
+
+               ishnncadj(kishnadj + i) = indcomponentadj
             end do
    
             kshvadj(ia + 1) = kshvadj(ia) + nsharedv
@@ -7217,6 +7603,13 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
             suba(isub_loc)%ishnadj(i) = ishnadj(i)
          end do
 
+         ! truncate array ishnncadj to really used indices
+         suba(isub_loc)%lishnncadj = sum(nshnadj)
+         allocate(suba(isub_loc)%ishnncadj(suba(isub_loc)%lishnncadj))
+         do i = 1,suba(isub_loc)%lishnncadj
+            suba(isub_loc)%ishnncadj(i) = ishnncadj(i)
+         end do
+
          ! prepare communication arrays
          suba(isub_loc)%lcommvec = lcommvec
          
@@ -7227,12 +7620,15 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
          !print *,'isub = ',isub,'nshnadj',nshnadj
          !print *,'isub = ',isub,'kshvadj',kshvadj
          !print *,'isub = ',isub,'ishnadj',ishnadj
+         !print *,'isub = ',isub,'ishnncadj',ishnncadj
          deallocate(nshnadj)
          deallocate(kshvadj)
          deallocate(ishnadj)
+         deallocate(ishnncadj)
 
          deallocate(sub_aux(isub_loc)%isngn)
          deallocate(sub_aux(isub_loc)%isngnadj)
+         deallocate(sub_aux(isub_loc)%isnc)
          deallocate(sub_aux(isub_loc)%nnodadj)
       end do
 
@@ -7276,8 +7672,17 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_CREATE_GLOBS'
+! ######## parameters to set
+      ! additional search for corners
+      ! F - only vertices are considered as corners
+      ! T - additional face-based selection
       logical, parameter :: select_corners   = .true.
-      logical, parameter :: check_components = .true.
+      ! check for disconnected faces
+      ! F - face not analysed for continuity
+      ! T - search based algorithm run on each component separately
+      logical, parameter :: check_face_components = .true.
+! ######## parameters to set
+
       integer :: isub_loc, isub, isubadj
       integer :: ia, i, inodi, indni, indn, inodshaux
       integer :: nadj, nnodi, ndofi, nshn, ishn, indshn, nsubnx
@@ -7301,32 +7706,24 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       integer :: indedges, indfaces
       real(kr):: x1, y1, z1, x2, y2, z2, xish, yish, zish
       logical :: we_share_a_face
+      integer :: iold, indnew
 
       ! check continuity
-      integer             :: lnetn,  lietn,  lkietn,   lkinet
-      integer, allocatable :: netn(:),ietn(:),kietn(:), kinet(:)
-
-      integer ::            lietin,   liinterfnet
-      integer,allocatable :: ietin(:), iinterfnet(:)
-
-      integer ::            lonerow,   lonerowweig
-      integer,allocatable :: onerow(:), onerowweig(:)
-      integer ::            lorin, lorout
-      integer ::            ind, indinterfnode, indstart, neighbouring, ninonerow
-
-      integer ::            lxadj,   ladjncy,   ladjwgt
-      integer,allocatable :: xadj(:), adjncy(:), adjwgt(:)
-      integer ::            indadjncy, ladjncy_used, graphtype
-
-      integer ::            lcomponents
-      integer,allocatable :: components(:)
-      integer ::             ncomponents
+      integer ::            linterface_components
+      integer,allocatable :: interface_components(:)
+      integer ::             ninterface_components
+      integer ::            lmy_interface_components
+      integer,allocatable :: my_interface_components(:)
+      integer ::             nmy_components
+      integer ::            ladj_interface_components
+      integer,allocatable :: adj_interface_components(:)
+      integer ::             nadj_components
       integer ::            lcompind
       integer,allocatable :: compind(:)
       integer ::             incomp, indcomp
-      integer ::             componentsize, icomponent
+      integer ::             interface_componentsize, iinterface_component
 
-      integer :: indelemn, indietin, ielemn, nelemn, netin, pointietn, indshsub
+      integer :: indshsub
 
       ! MPI related variables 
       integer :: ierr, nproc, myid
@@ -7334,12 +7731,14 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
       integer ::             lnsubnode
       integer,pointer ::  nsubnode(:)
-      integer ::             lglobsubs1, lglobsubs2
-      integer,pointer ::  globsubs(:,:)
+      integer ::             lglobsubs1, lglobsubs2, lglobsubs3
+      integer,pointer ::  globsubs(:,:,:)
       integer ::             lkglobs
       integer,pointer ::      kglobs(:)
       integer ::             lglobtypes
       integer,pointer ::      globtypes(:)
+      integer ::              indcomponentadj
+      integer ::              indcomponent
 
       integer ::             linodc_loc
       integer,allocatable ::  inodc_loc(:)
@@ -7395,8 +7794,10 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       real(kr),allocatable:: xyzsh(:,:)
       integer::             lxyzbase
       real(kr),allocatable:: xyzbase(:)
-      integer ::             inodcf(3)
+      integer ::             inodcf(4)
       integer ::             indaux(1)
+      integer ::             end_bound
+      integer ::             iround
 
       integer :: idcn
 
@@ -7409,7 +7810,8 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          integer,allocatable ::  nsubnode(:)
          integer ::             lglobsubs1
          integer ::             lglobsubs2
-         integer,allocatable ::  globsubs(:,:)
+         integer ::             lglobsubs3
+         integer,allocatable ::  globsubs(:,:,:)
          integer ::             lglobtypes
          integer,allocatable ::  globtypes(:)
          integer ::             lkglobs
@@ -7491,11 +7893,13 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          ! create list of subdomains at interface nodes
          lglobsubs1 = nnodi
          lglobsubs2 = nsubnx
+         lglobsubs3 = 3 ! neighbouring subdomain | component in neighbouring subdomain | my own component
          sub_aux(isub_loc)%lglobsubs1 = lglobsubs1
          sub_aux(isub_loc)%lglobsubs2 = lglobsubs2
-         allocate(sub_aux(isub_loc)%globsubs(lglobsubs1,lglobsubs2))
+         sub_aux(isub_loc)%lglobsubs3 = lglobsubs3
+         allocate(sub_aux(isub_loc)%globsubs(lglobsubs1,lglobsubs2,lglobsubs3))
          globsubs => sub_aux(isub_loc)%globsubs
-         call zero(globsubs,lglobsubs1,lglobsubs2)
+         globsubs = 0
          ! use now nsubnode as counters
          call zero(nsubnode,lnsubnode)
          kishnadj  = 0
@@ -7510,10 +7914,26 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                ! index of shared node in interface numbering
                indshn = suba(isub_loc)%ishnadj(kishnadj + ishn)
 
+               ! index of component of the adjacent subdomain 
+               indcomponentadj = suba(isub_loc)%ishnncadj(kishnadj + ishn)
+
+               ! determine my own component
+               ! index of shared node in subdomain numbering
+               indshsub = suba(isub_loc)%iin(indshn)
+
+               if (.not. suba(isub_loc)%is_nodal_components_loaded ) then
+                  call error( routine_name, 'Cannot determine my own component, isub: ', suba(isub_loc)%isub )
+               end if
+               indcomponent = suba(isub_loc)%nodal_components(indshsub)
+
                ! mark the node to array nsubnode
                nsubnode(indshn) = nsubnode(indshn) + 1
 
-               globsubs(indshn,nsubnode(indshn)) = isubadj
+               globsubs(indshn,nsubnode(indshn),1) = isubadj
+               ! component of adjacent subdomain is stored in third dimension of the array
+               globsubs(indshn,nsubnode(indshn),2) = indcomponentadj
+               ! component of actual subdomain is stored in third dimension of the array
+               globsubs(indshn,nsubnode(indshn),3) = indcomponent
             end do
    
             kishnadj = kishnadj + nshn
@@ -7546,7 +7966,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                ! node is not assigned to glob yet
                iglobs = iglobs + 1
                kglobs(inodi) = iglobs
-               ! search for nodes shared by the same set of subdomains
+               ! search for nodes shared by the same set of subdomains and same components
                nsubn = nsubnode(inodi)
                nglobn = 1
                do jnodi = inodi+1,nnodi
@@ -7554,8 +7974,8 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                   if (kglobs(jnodi).eq.-1 .and. globtypes(jnodi).ne.3) then
                      ! check that number of subdomains sharing the node matches
                      if (nsubnode(jnodi).eq.nsubn) then
-                        ! check that all indices are the same
-                        if (all(globsubs(jnodi,1:nsubn).eq.globsubs(inodi,1:nsubn))) then
+                        ! check that all subdomain indices and all components are the same
+                        if (all(globsubs(jnodi,1:nsubn,:).eq.globsubs(inodi,1:nsubn,:))) then
                            ! the node belongs to the same glob
                            kglobs(jnodi) = iglobs
                            nglobn = nglobn + 1
@@ -7605,23 +8025,6 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
          if (select_corners) then
 
-            ! prepare kinet
-            lkinet = suba(isub_loc)%nelem
-            allocate(kinet(lkinet))
-            kinet(1) = 0
-            do i = 2,lkinet
-               kinet(i) = kinet(i-1) + suba(isub_loc)%nnet(i-1)
-            end do
-
-            ! prepare dual mesh
-            lnetn  = suba(isub_loc)%nnod
-            lietn  = suba(isub_loc)%linet
-            lkietn = suba(isub_loc)%nnod
-            allocate(netn(lnetn),ietn(lietn),kietn(lkietn))
-            call graph_get_dual_mesh(suba(isub_loc)%nelem,suba(isub_loc)%nnod,&
-                                     suba(isub_loc)%inet,suba(isub_loc)%linet,suba(isub_loc)%nnet,suba(isub_loc)%lnnet,&
-                                     netn,lnetn,ietn,lietn,kietn,lkietn)
-
             ! now with subdomains sharing a face, run the corner selecting algorithm
             kishnadj  = 0
             do ia = 1,nadj
@@ -7644,165 +8047,96 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
                if (we_share_a_face) then
 
-                  ! check components of interface among pair
-                  lietin = nshn * maxval(netn)
-                  allocate(ietin(lietin))
-                  call zero(ietin,lietin)
-                  liinterfnet = nshn * maxval(netn)
-                  allocate(iinterfnet(liinterfnet))
-
-                  indietin = 0
-
-                  ! first create subgraph
-                  do ishn = 1,nshn
-                     ! index of shared node in interface numbering
-                     indshn   = suba(isub_loc)%ishnadj(kishnadj + ishn)
-
-                     ! index of shared node in subdomain numbering
-                     indshsub = suba(isub_loc)%iin(indshn)
-
-                     nelemn    = netn(indshsub)
-                     pointietn = kietn(indshsub)
-                     ! for selected node, go through elements at node
-                     do ielemn = 1,nelemn
-                        indelemn = ietn(pointietn + ielemn)
-
-                        indietin = indietin + 1
-
-                        ietin(indietin)      = indelemn
-                        iinterfnet(indietin) = ishn
-
-                     end do
-
-                  end do
-
-                  netin = indietin
-
-                  !print *,'arrays before sorting'
-                  !print *, ietin(1:netin)
-                  !print *, iinterfnet(1:netin)
-
-                  ! sort arrays
-                  call iquick_sort_simultaneous(ietin,netin,iinterfnet,netin)
-
-                  !print *,'arrays after sorting'
-                  !print *, ietin(1:netin)
-                  !print *, iinterfnet(1:netin)
-
-                  lonerow = maxval(netn) * maxval(suba(isub_loc)%nnet)
-                  lonerowweig = lonerow
-                  allocate(onerow(lonerow))
-                  allocate(onerowweig(lonerowweig))
-
-                  lxadj = nshn+1
-                  allocate(xadj(lxadj))
-                  xadj(1) = 1
-
-                  ladjncy = nshn * maxval(netn) * maxval(suba(isub_loc)%nnet)
-                  allocate(adjncy(ladjncy))
-                  call zero(adjncy,ladjncy)
-                  indadjncy = 0
-
-
-                  do ishn = 1,nshn
-                     ! index of shared node in interface numbering
-                     indshn   = suba(isub_loc)%ishnadj(kishnadj + ishn)
-
-                     ! index of shared node in subdomain numbering
-                     indshsub = suba(isub_loc)%iin(indshn)
-
-
-                     ! zero onerow
-                     call zero(onerow,lonerow)
-                     ninonerow = 0
-
-                     nelemn    = netn(indshsub)
-                     pointietn = kietn(indshsub)
-                     ! for selected node, go through elements at node
-                     do ielemn = 1,nelemn
-                        indelemn = ietn(pointietn + ielemn)
-
-                        call get_index_sorted(indelemn,ietin,netin,indstart)
-                        if (indstart.le.0) then
-                           call error(routine_name,' Index of element not found for element ',indelemn)
-                        end if
-
-                        ind = indstart
-
-                        do while (ietin(ind) .eq. indelemn)
-                           
-                           indinterfnode = iinterfnet(ind)
-
-                           ! add the node to onerow
-                           ninonerow = ninonerow + 1
-                           onerow(ninonerow) = indinterfnode
-
-                           ind = ind + 1
-
-                        end do
-
-                     end do
-
-                     ! parse onerow
-                     neighbouring = 1
-                     lorin       = ninonerow
-                     call graph_parse_onerow(ishn,neighbouring,onerow,onerowweig,lorin,lorout)
-
-                     !print *,'onerow:'
-                     !print *,onerow(1:lorout)
-
-                     xadj(ishn+1) = xadj(ishn) + lorout
-
-                     ! copy parsed row of sparse graph into adjncy
-                     do i = 1,lorout
-                        indadjncy = indadjncy + 1
-                        adjncy(indadjncy) = onerow(i)
-                     end do
-                  end do
-
-                  deallocate(onerow)
-                  deallocate(onerowweig)
-
-                  deallocate(ietin)
-                  deallocate(iinterfnet)
-
-                  ladjncy_used = indadjncy
-
-                  graphtype = 0
-                  ladjwgt = 0
-                  allocate(adjwgt(ladjwgt))
-                  call graph_check(nshn,graphtype, xadj,lxadj, adjncy,ladjncy_used, adjwgt,ladjwgt)
-                  deallocate(adjwgt)
-
                   ! check components of graph
-                  lcomponents = nshn
-                  allocate(components(lcomponents))
+                  ! combined interface components - may be multiple of the above
+                  linterface_components = nshn
+                  allocate(interface_components(linterface_components))
+
 
                   ! determine continuity of components
-                  if (check_components) then
-                     call graph_components(nshn,xadj,lxadj,adjncy,ladjncy_used,components,lcomponents,ncomponents)
-                     if (ncomponents.gt.1) then
-                        call info(routine_name,'disconnected interface - number of components:',ncomponents)
+                  if (check_face_components) then
+                     ! my own components
+                     lmy_interface_components = nshn
+                     allocate(my_interface_components(lmy_interface_components))
+                     ! interface components of adjacent subdomain
+                     ladj_interface_components = nshn
+                     allocate(adj_interface_components(ladj_interface_components))
+
+                     ! create my own interface components
+                     do ishn = 1,nshn
+                        ! index of shared node in interface numbering
+                        indshn   = suba(isub_loc)%ishnadj(kishnadj + ishn)
+
+                        ! index of shared node in subdomain numbering
+                        indshsub = suba(isub_loc)%iin(indshn)
+
+                        ! index of interface component of adjacent subdomain
+                        indcomponentadj = suba(isub_loc)%ishnncadj(kishnadj + ishn)
+
+                        my_interface_components(ishn)  = suba(isub_loc)%nodal_components(indshsub)
+                        adj_interface_components(ishn) = indcomponentadj
+                     end do
+                     ! both arrays can have holes - not all components of
+                     ! adjacent subdomain have common interface with actual subdomain
+                     ! renumber components from 1 to number_of_different_indices
+                     indnew = 0
+                     do iold = 1,maxval(my_interface_components)
+                        if (any(my_interface_components.eq.iold)) then
+                           ! increase new index
+                           indnew = indnew + 1
+                           where (my_interface_components.eq.iold) my_interface_components = indnew
+                        end if
+                     end do
+                     nmy_components = indnew
+                     indnew = 0
+                     do iold = 1,maxval(adj_interface_components)
+                        if (any(adj_interface_components.eq.iold)) then
+                           ! increase new index
+                           indnew = indnew + 1
+                           where (adj_interface_components.eq.iold) adj_interface_components = indnew
+                        end if
+                     end do
+                     nadj_components = indnew
+
+                     ! combine the components
+                     interface_components = (my_interface_components - 1) * nadj_components + adj_interface_components
+                     ! exclude repetitions
+                     indnew = 0
+                     do iold = 1,maxval(interface_components)
+                        if (any(interface_components.eq.iold)) then
+                           ! increase new index
+                           indnew = indnew + 1
+                           where (interface_components.eq.iold) interface_components = indnew
+                        end if
+                     end do
+                     ninterface_components = indnew
+
+                     if (ninterface_components.gt.1) then
+                         call info(routine_name,'disconnected interface - number of interface components:',ninterface_components)
                      end if
+
+                     deallocate(my_interface_components)
+                     deallocate(adj_interface_components)
                   else
-                     components  = 1
-                     ncomponents = 1
+                     interface_components  = 1
+                     ninterface_components = 1
                   end if
 
+
                   ! perform the triangle check for each component
-                  do icomponent = 1,ncomponents
+                  do iinterface_component = 1,ninterface_components
 
                      ! initialize array
                      inodcf = 0
 
-                     componentsize = count(components .eq. icomponent)
+                     interface_componentsize = count(interface_components .eq. iinterface_component)
 
-                     lcompind = componentsize
+                     lcompind = interface_componentsize
                      allocate(compind(lcompind))
                      
                      indcomp = 0
                      do ishn = 1,nshn
-                        if (components(ishn) .eq. icomponent) then
+                        if (interface_components(ishn) .eq. iinterface_component) then
                            indcomp = indcomp + 1
 
                            compind(indcomp) = ishn
@@ -7811,27 +8145,25 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                      if (indcomp.ne.lcompind) then
                         call error(routine_name,'dimension mismatch in component size',indcomp)
                      end if
-                  
 
                      ! prepare coordinates of common interface
-                     lxyzsh1 = componentsize
+                     lxyzsh1 = interface_componentsize
                      lxyzsh2 = ndim
                      ! localize coordinates of shared nodes
                      allocate(xyzsh(lxyzsh1,lxyzsh2))
-                     do incomp = 1,componentsize
+                     do incomp = 1,interface_componentsize
                         ishn  = compind(incomp)
                         indni = suba(isub_loc)%ishnadj(kishnadj + ishn)
                         indn  = suba(isub_loc)%iin(indni)
                         xyzsh(incomp,1:ndim) = suba(isub_loc)%xyz(indn,1:ndim)
                      end do
 
-
                      ! search an optimal triangle
                      inodcf = 0
-                     if (componentsize.eq.0) then
+                     if (interface_componentsize.eq.0) then
                         call error(routine_name,'There appears that there are zero shared nodes for subdomain:',isub)
                      end if
-                     if (componentsize.gt.0) then
+                     if (interface_componentsize.gt.0) then
                         lxyzbase = ndim
                         allocate(xyzbase(lxyzbase))
                         ! make it the most remote node to the first interface node
@@ -7839,9 +8171,9 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                         xyzbase(1:ndim) = xyzsh(inodshaux,1:ndim)
                      
                         ! Find second corner by maximizing the distance of the first shared node
-                        ldist = componentsize
+                        ldist = interface_componentsize
                         allocate(dist(ldist))
-                        do incomp = 1,componentsize
+                        do incomp = 1,interface_componentsize
                            dist(incomp) = sum((xyzsh(incomp,1:ndim) - xyzbase(1:ndim))**2)
                         end do
                         indaux  = maxloc(dist)
@@ -7852,16 +8184,16 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                         deallocate(xyzbase)
                         deallocate(dist)
                      end if
-                     if (meshdim.gt.1.and.componentsize.gt.1) then
+                     if (meshdim.gt.1.and.interface_componentsize.gt.1) then
                         lxyzbase = ndim
                         allocate(xyzbase(lxyzbase))
                         ! one corner is already selected, select the second
                         xyzbase(1:ndim) = xyzsh(inodcf(1),1:ndim)
                      
                         ! Find second corner by maximizing the distance from the first one
-                        ldist = componentsize
+                        ldist = interface_componentsize
                         allocate(dist(ldist))
-                        do incomp = 1,componentsize
+                        do incomp = 1,interface_componentsize
                            dist(incomp) = sum((xyzsh(incomp,1:ndim) - xyzbase(1:ndim))**2)
                         end do
                         indaux  = maxloc(dist)
@@ -7873,7 +8205,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                         if (inodcf(2).eq.inodcf(1)) then
                            !write(*,*) 'dist:',dist
                            !write(*,*) 'coords:'
-                           !do incomp = 1,componentsize
+                           !do incomp = 1,interface_componentsize
                            !   write(*,*) xyzsh(incomp,1:ndim)
                            !end do
                            !write(*,*) 'base:'
@@ -7882,7 +8214,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                            call warning(routine_name, 'Problem finding second corner on subdomain - same as first. ',&
                                         inodcf(2))
                            ! perform search for different corner
-                           do incomp = 1,componentsize
+                           do incomp = 1,interface_componentsize
                               if ( incomp .ne. inodcf(1) ) then
                                  inodcf(2) = incomp
                                  exit
@@ -7893,7 +8225,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                         deallocate(xyzbase)
                         deallocate(dist)
                      end if
-                     if (meshdim.gt.2.and.componentsize.gt.2) then
+                     if (meshdim.gt.2.and.interface_componentsize.gt.2) then
                      ! two corners are already set, select the third
                         x1 = xyzsh(inodcf(1),1)
                         y1 = xyzsh(inodcf(1),2)
@@ -7903,9 +8235,9 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                         z2 = xyzsh(inodcf(2),3)
                      
                         ! Find third corner as the one maximizing area of triangle
-                        larea = componentsize
+                        larea = interface_componentsize
                         allocate(area(larea))
-                        do incomp = 1,componentsize
+                        do incomp = 1,interface_componentsize
                            xish = xyzsh(incomp,1)
                            yish = xyzsh(incomp,2)
                            zish = xyzsh(incomp,3)
@@ -7913,45 +8245,53 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                                         + ((x2-x1)*(zish-z1) - (xish-x1)*(z2-z1))**2 &
                                         + ((x2-x1)*(yish-y1) - (xish-x1)*(y2-y1))**2 
                         end do
-                        ! find maximum in the area array
-                        ! if my subdomain index is smaller that neighbour, search maximum from beginning, otherwise from the end
-                        if (isub.lt.isubadj) then
-                           start  = 1
-                           finish = larea
-                           step   = 1
-                        else if (isub.gt.isubadj) then
-                           start  = larea
-                           finish = 1
-                           step   = -1
-                        else
-                           call error(routine_name,'subdomain index mismatch - apperars same')
-                        end if
-                        ! search maximum
-                        maxv = 0._kr
-                        maxl = 0
-                        do i = start,finish,step
-                           if (area(i).gt.maxv) then
-                              maxv = area(i)
-                              maxl = i
+                        ! find maximum in the area array - perform two checks in reverse order
+                        do iround = 1,2
+                           if (iround.eq.1) then
+                              start  = 1
+                              finish = larea
+                              step   = 1
+                           else 
+                              start  = larea
+                              finish = 1
+                              step   = -1
                            end if
-                        end do
-                        indaux(1) = maxl
-                        !indaux  = maxloc(area)
+                           ! search maximum
+                           maxv = 0._kr
+                           maxl = 0
+                           do i = start,finish,step
+                              if (area(i).gt.maxv) then
+                                 maxv = area(i)
+                                 maxl = i
+                              end if
+                           end do
+                           indaux(1) = maxl
+                           !indaux  = maxloc(area)
 
-                        ! set index of the third new corner
-                        inodcf(3) = indaux(1)
+                           ! set index of the third new corner
+                           inodcf(2+iround) = indaux(1)
+                        end do
 
                         ! if geometry fails, select any node different from the first two, regardless of the coordinates
-                        if (inodcf(3).eq.inodcf(1).or.inodcf(3).eq.inodcf(2)) then
+                        if ((inodcf(3).eq.inodcf(1).and.inodcf(4).eq.inodcf(1)).or.&
+                            (inodcf(3).eq.inodcf(2).and.inodcf(4).eq.inodcf(2))) then
                            !write(*,*) 'area:',area
                            !call flush(6)
                            call warning(routine_name, &
                                         'Problem finding third corner on subdomain - same as first or second.', &
                                         inodcf(3))
-                           ! perform search for different corner
-                           do incomp = 1,componentsize
+                           ! perform search for different corners
+                           do incomp = 1,interface_componentsize
                               if ( incomp .ne. inodcf(1) .and. incomp .ne. inodcf(2) ) then
                                  inodcf(3) = incomp
+                                 exit
+                              end if
+                           end do
+                           do incomp = 1,interface_componentsize
+                              if ( incomp .ne. inodcf(1) .and. &
+                                   incomp .ne. inodcf(2) .and. &
+                                   incomp .ne. inodcf(3) ) then
+                                 inodcf(4) = incomp
                                  exit
                               end if
                            end do
@@ -7962,7 +8302,12 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
                      ! mark corner in subdomain interface
                      !print *,'inodcf',suba(isub_loc)%isngn(suba(isub_loc)%iin(suba(isub_loc)%ishnadj(kishnadj + inodcf)))
-                     do i = 1,meshdim
+                     if (meshdim.le.2) then
+                        end_bound = 2
+                     else
+                        end_bound = 4
+                     end if
+                     do i = 1,end_bound
                         if (inodcf(i).ne.0) then
 
                            indni = suba(isub_loc)%ishnadj(kishnadj + compind(inodcf(i)))
@@ -7976,21 +8321,12 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                   end do
 
 
-                  deallocate(xadj)
-                  deallocate(adjncy)
-                  deallocate(components)
+                  deallocate(interface_components)
 
-                  ! TODO: add local pair
                end if
 
-
-   
                kishnadj = kishnadj + nshn
             end do
-
-            deallocate(kinet)
-            deallocate(netn,ietn,kietn)
-
          end if
 
          ncorners = count(globtypes.eq.3)
@@ -8266,7 +8602,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                         ! check that number of subdomains sharing the node matches
                         if (nsubnode(jnodi).eq.nsubn) then
                            ! check that all indices are the same
-                           if (all(globsubs(jnodi,1:nsubn).eq.globsubs(inodi,1:nsubn))) then
+                           if (all(globsubs(jnodi,1:nsubn,:).eq.globsubs(inodi,1:nsubn,:))) then
                               ! the node belongs to the same glob
                               kglobs(jnodi) = ncorners + iedges
                               ! it is an edge
@@ -8302,7 +8638,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
                      ! check that number of subdomains sharing the node matches
                      if (nsubnode(jnodi).eq.nsubn) then
                         ! check that all indices are the same
-                        if (all(globsubs(jnodi,1:nsubn).eq.globsubs(inodi,1:nsubn))) then
+                        if (all(globsubs(jnodi,1:nsubn,:).eq.globsubs(inodi,1:nsubn,:))) then
                            ! the node belongs to the same glob
                            kglobs(jnodi) = ncorners + nedges + ifaces
                            ! it is a face
@@ -10118,6 +10454,9 @@ subroutine dd_finalize(sub)
       if (allocated(sub%xyz)) then
          deallocate(sub%xyz)
       end if
+      if (allocated(sub%nodal_components)) then
+         deallocate(sub%nodal_components)
+      end if
       if (allocated(sub%iin)) then
          deallocate(sub%iin)
       end if
@@ -10148,6 +10487,13 @@ subroutine dd_finalize(sub)
       end if
       sub%nnza_fixed = 0
       sub%la_fixed   = 0
+
+      if (allocated(sub%user_constraints)) then
+         deallocate(sub%user_constraints)
+      end if
+      sub%luser_constraints1 = 0
+      sub%luser_constraints2 = 0
+
       if (allocated(sub%rea)) then
          deallocate(sub%rea)
       end if
@@ -10189,6 +10535,9 @@ subroutine dd_finalize(sub)
       end if
       if (allocated(sub%ishnadj)) then
          deallocate(sub%ishnadj)
+      end if
+      if (allocated(sub%ishnncadj)) then
+         deallocate(sub%ishnncadj)
       end if
       if (allocated(sub%commvec_out)) then
          deallocate(sub%commvec_out)
@@ -10329,22 +10678,24 @@ subroutine dd_finalize(sub)
          deallocate(sub%sol)
       end if
 
-      sub%is_mesh_loaded          = .false.
-      sub%is_interface_loaded     = .false.
-      sub%is_adj_loaded           = .false.
-      sub%is_corners_loaded       = .false.
-      sub%is_globs_loaded         = .false.
-      sub%is_neighbouring_ready   = .false.
-      sub%is_matrix_loaded        = .false.
-      sub%is_c_loaded             = .false.
-      sub%is_phis_prepared        = .false.
-      sub%is_phisi_prepared       = .false.
-      sub%is_phis_dual_prepared   = .false.
-      sub%is_phisi_dual_prepared  = .false.
-      sub%is_coarse_prepared      = .false.
-      sub%is_aug_factorized       = .false.
-      sub%is_interior_factorized  = .false.
-      sub%is_weights_ready        = .false.
+      sub%is_mesh_loaded             = .false.
+      sub%is_nodal_components_loaded = .false.
+      sub%is_interface_loaded        = .false.
+      sub%is_adj_loaded              = .false.
+      sub%is_corners_loaded          = .false.
+      sub%is_globs_loaded            = .false.
+      sub%is_neighbouring_ready      = .false.
+      sub%is_matrix_loaded           = .false.
+      sub%is_user_constraints_loaded = .false.
+      sub%is_c_loaded                = .false.
+      sub%is_phis_prepared           = .false.
+      sub%is_phisi_prepared          = .false.
+      sub%is_phis_dual_prepared      = .false.
+      sub%is_phisi_dual_prepared     = .false.
+      sub%is_coarse_prepared         = .false.
+      sub%is_aug_factorized          = .false.
+      sub%is_interior_factorized     = .false.
+      sub%is_weights_ready           = .false.
 
 end subroutine
 

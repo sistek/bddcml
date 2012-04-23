@@ -49,22 +49,13 @@ program bddcml_local
       integer,parameter :: use_preconditioner_defaults = 0
 
 ! use arithmetic constraints?
-      integer,parameter :: use_arithmetic = 1
+      integer,parameter :: use_arithmetic_constraints = 1
 
 ! use adaptive constraints?
-      integer,parameter :: use_adaptive = 0
+      integer,parameter :: use_adaptive_constraints = 0
 
-! these options set following type of constraints
-!----------------------------------------------------- 
-!   \ use_arithmetic |      TRUE     |     FALSE     |
-! use_adaptive \     |               |               |
-!----------------------------------------------------|
-!    TRUE            | edges: arith. | edges: -      |
-!                    | faces: adapt. | faces: adapt. |
-!----------------------------------------------------|
-!    FALSE           | edges: arith. | edges: -      |
-!                    | faces: arith. | faces: -      |
-!----------------------------------------------------- 
+! use user constraints?
+      integer,parameter :: use_user_constraints = 1
 
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1
@@ -153,6 +144,11 @@ program bddcml_local
       integer,allocatable::  i_sparse(:)
       integer,allocatable::  j_sparse(:)
       real(kr),allocatable:: a_sparse(:)
+
+      ! data not used here
+      integer ::              luser_constraints1
+      integer ::              luser_constraints2
+      real(kr),allocatable ::  user_constraints(:)
 
       integer :: lproblemname
       integer :: meshdim
@@ -533,6 +529,10 @@ program bddcml_local
 
          is_assembled_int = 0
 
+         ! prepare user constraints
+         luser_constraints1 = 0
+         luser_constraints2 = 0
+         allocate(user_constraints(luser_constraints1*luser_constraints2))
 
          ! experiment a bit
          call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
@@ -543,7 +543,8 @@ program bddcml_local
                                            ifixs,lifixs, fixvs,lfixvs, &
                                            rhss,lrhss, is_rhs_complete_int, &
                                            sols,lsols, &
-                                           matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
+                                           matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int, &
+                                           user_constraints,luser_constraints1,luser_constraints2)
          deallocate(inets,nnets,nndfs,xyzs)
          deallocate(kdofs)
          deallocate(rhss)
@@ -553,6 +554,7 @@ program bddcml_local
          deallocate(isngns)
          deallocate(isegns)
          deallocate(i_sparse, j_sparse, a_sparse)
+         deallocate(user_constraints)
       end do
       deallocate(inet,nnet,nndf,xyz)
       deallocate(iets)
@@ -577,7 +579,9 @@ program bddcml_local
       call bddcml_setup_preconditioner(matrixtype,&
                                        use_preconditioner_defaults, &
                                        parallel_division,&
-                                       use_arithmetic,use_adaptive)
+                                       use_arithmetic_constraints,&
+                                       use_adaptive_constraints,&
+                                       use_user_constraints)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pc_setup)
 

@@ -158,7 +158,8 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         ifix,lifix, fixv,lfixv, &
                                         rhs,lrhs, is_rhs_complete_int, &
                                         sol,lsol, &
-                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
+                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int,&
+                                        user_constraints,luser_constraints1,luser_constraints2)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
       use module_levels
@@ -253,6 +254,10 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       integer, intent(in)::  is_assembled_int  ! is the array assembled? 
                                                !  0 = no, it can contain repeated entries
                                                !  1 = yes, it is sorted and doesn't contain repeated index pairs
+      ! LOCAL array of constraints defined by user
+      integer, intent(in)::  luser_constraints1 ! number of rows in matrix of constraints, i.e. number of user constraints
+      integer, intent(in)::  luser_constraints2 ! number of columns in matrix of constraints, ( = NNODS)
+      real(kr), intent(in):: user_constraints(luser_constraints1*luser_constraints2) ! array for additional constraints
 
 
       ! local vars
@@ -271,13 +276,17 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         ifix,lifix, fixv,lfixv, &
                                         rhs,lrhs, is_rhs_complete, &
                                         sol,lsol, &
-                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
+                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled, &
+                                        user_constraints,luser_constraints1,luser_constraints2)
 
 end subroutine
 
 !************************************************************************************************
 subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
-                                       parallel_division_int, use_arithmetic_int,use_adaptive_int)
+                                       parallel_division_int, &
+                                       use_arithmetic_constraints_int, &
+                                       use_adaptive_constraints_int, &
+                                       use_user_constraints_int)
 !************************************************************************************************
 ! setup multilevel preconditioner
       use module_levels
@@ -298,34 +307,27 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       integer,intent(in) :: parallel_division_int
 
       ! use arithmetic constraints?
-      integer,intent(in) :: use_arithmetic_int
+      integer,intent(in) :: use_arithmetic_constraints_int
 
       ! use adaptive constraints?
-      integer,intent(in) :: use_adaptive_int
+      integer,intent(in) :: use_adaptive_constraints_int
 
-      ! these options set following type of constraints
-      !----------------------------------------------------- 
-      !   \ use_arithmetic |      TRUE     |     FALSE     |
-      ! use_adaptive \     |               |               |
-      !----------------------------------------------------|
-      !    TRUE            | edges: arith. | edges: -      |
-      !                    | faces: adapt. | faces: adapt. |
-      !----------------------------------------------------|
-      !    FALSE           | edges: arith. | edges: -      |
-      !                    | faces: arith. | faces: -      |
-      !----------------------------------------------------- 
+      ! use user constraints?
+      integer,intent(in) :: use_user_constraints_int
 
       ! local variables
       ! ######################################
       ! default values of levels parameters
-      logical :: levels_parallel_division      = .true.
-      logical :: levels_use_arithmetic         = .true.
-      logical :: levels_use_adaptive           = .false. ! experimental - not used by default
+      logical :: levels_parallel_division          = .true.
+      logical :: levels_use_arithmetic_constraints = .true.
+      logical :: levels_use_adaptive_constraints   = .false. ! experimental - not used by default
+      logical :: levels_use_user_constraints       = .false. ! experimental - not used by default
       ! ######################################
       logical :: use_defaults
       logical :: parallel_division
-      logical :: use_arithmetic
-      logical :: use_adaptive
+      logical :: use_arithmetic_constraints
+      logical :: use_adaptive_constraints
+      logical :: use_user_constraints
 
       character(*),parameter:: routine_name = 'BDDCML_SETUP_PRECONDITIONER'
 
@@ -336,16 +338,21 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
          call info(routine_name,'using default preconditioner parameters')
       else
          call logical2integer(parallel_division_int,parallel_division)
-         call logical2integer(use_arithmetic_int,use_arithmetic)
-         call logical2integer(use_adaptive_int,use_adaptive)
+         call logical2integer(use_arithmetic_constraints_int,use_arithmetic_constraints)
+         call logical2integer(use_adaptive_constraints_int,use_adaptive_constraints)
+         call logical2integer(use_user_constraints_int,use_user_constraints)
          levels_parallel_division      =  parallel_division    
-         levels_use_arithmetic         =  use_arithmetic       
-         levels_use_adaptive           =  use_adaptive         
+         levels_use_arithmetic_constraints = use_arithmetic_constraints
+         levels_use_adaptive_constraints   = use_adaptive_constraints
+         levels_use_user_constraints       = use_user_constraints         
       end if
 
       ! setup preconditioner
       call levels_pc_setup(levels_parallel_division,&
-                           matrixtype,levels_use_arithmetic,levels_use_adaptive)
+                           matrixtype,&
+                           levels_use_arithmetic_constraints,&
+                           levels_use_adaptive_constraints,&
+                           levels_use_user_constraints)
 
 end subroutine
 

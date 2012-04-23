@@ -344,7 +344,6 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                  point_i, point_j, indiv, nadaptive, ioper, nadaptive_rcv, ind, &
                  nnzc_i, nnzc_j, inddrow, ic, indirow, indirow_loc, indjcol_loc, &
                  neigvecf, problemsizef
-      integer :: nvalid_i, nvalid_j, nvalid
       integer :: idmyunit
 
       real(kr) :: trA, lobpcg_tol
@@ -2355,17 +2354,6 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          !call info(routine_name,'All messages in pack 14 received on proc',myid)
 
          ! processors now own data of adaptively found constraints on their subdomains, they have to filter globs and load them into the structure
-         ! gather back data about really loaded constraints
-         ireq = 0
-         if (i_compute_pair) then
-            ! receive mapping of interface nodes into global nodes
-
-            ireq = ireq + 1
-            call MPI_IRECV(nvalid_i,1,MPI_INTEGER,comm_myplace1,comm_myisub,comm_all,request(ireq),ierr)
-
-            ireq = ireq + 1
-            call MPI_IRECV(nvalid_j,1,MPI_INTEGER,comm_myplace2,comm_myjsub,comm_all,request(ireq),ierr)
-         end if
          do iinstr = 1,ninstructions
             owner = instructions(iinstr,1)
             isub  = instructions(iinstr,2)
@@ -2395,9 +2383,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             !end do
 
             ! load constraints into DD structure 
-            call dd_load_adaptive_constraints(suba(isub_loc),gglob,cadapt,lcadapt1,lcadapt2, nvalid)
-
-            call MPI_SEND(nvalid,1,MPI_INTEGER,owner,isub,comm_all,ierr)
+            call dd_load_adaptive_constraints(suba(isub_loc),gglob,cadapt,lcadapt1,lcadapt2)
 
             deallocate(cadapt)
          end do
@@ -2407,14 +2393,6 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          end if
          ! debug
          !call info(routine_name,'All messages in pack 15 received on proc',myid)
-
-         if (i_compute_pair) then
-            ! check that number of loaded constraints left and write match
-            if (nvalid_i .ne. nvalid_j) then
-               call error(routine_name,'Number of valid constraints does not match for pair ',my_pair)
-            end if
-
-         end if
 
 !-----profile
          if (profile) then

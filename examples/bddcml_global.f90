@@ -47,22 +47,13 @@ program bddcml_global
       integer,parameter :: use_preconditioner_defaults = 0
 
 ! use arithmetic constraints?
-      integer,parameter :: use_arithmetic = 1
+      integer,parameter :: use_arithmetic_constraints = 1
 
 ! use adaptive constraints?
-      integer,parameter :: use_adaptive = 0
+      integer,parameter :: use_adaptive_constraints = 0
 
-! these options set following type of constraints
-!----------------------------------------------------- 
-!   \ use_arithmetic |      TRUE     |     FALSE     |
-! use_adaptive \     |               |               |
-!----------------------------------------------------|
-!    TRUE            | edges: arith. | edges: -      |
-!                    | faces: adapt. | faces: adapt. |
-!----------------------------------------------------|
-!    FALSE           | edges: arith. | edges: -      |
-!                    | faces: arith. | faces: -      |
-!----------------------------------------------------- 
+! use user constraints?
+      integer,parameter :: use_user_constraints = 0
 
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1
@@ -390,7 +381,9 @@ program bddcml_global
       call bddcml_setup_preconditioner(matrixtype, &
                                        use_preconditioner_defaults,&
                                        parallel_division,&
-                                       use_arithmetic,use_adaptive)
+                                       use_arithmetic_constraints,&
+                                       use_adaptive_constraints,&
+                                       use_user_constraints)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pc_setup)
 

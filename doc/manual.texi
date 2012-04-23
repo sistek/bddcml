@@ -17,7 +17,7 @@ END-INFO-DIR-ENTRY
 @title BDDCML
 @subtitle solver library based on Multi-Level Balancing Domain Decomposition by Constraints
 @subtitle copyright (C) 2010-2012 Jakub @v{S}@'{@dotless{i}}stek
-@subtitle version 1.3
+@subtitle version 2.0
 @author Jakub @v{S}@'{@dotless{i}}stek
 
 @end titlepage
@@ -587,19 +587,26 @@ The solver comes with fast assembly routine so the users might want to pass just
 @unnumberedsubsec C interface
 @code{
 void bddcml_setup_preconditioner( int *matrixtype, int *use_defaults_int,
-                                  int *parallel_division_int, int *use_arithmetic_int, int *use_adaptive_int );
+                                  int *parallel_division_int, 
+                                  int *use_arithmetic_constraints_int, 
+                                  int *use_adaptive_constraints_int,
+                                  int *use_user_constraints_int );
 }
 @unnumberedsubsec Fortran interface
 @code{
 subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
-                                       parallel_division_int, use_arithmetic_int,use_adaptive_int)
+                                       parallel_division_int, &
+                                       use_arithmetic_constraints_int, &
+                                       use_adaptive_constraints_int, &
+                                       use_user_constraints_int)
 }
 @verbatim
       integer,intent(in) :: matrixtype 
       integer,intent(in) :: use_defaults_int
       integer,intent(in) :: parallel_division_int
-      integer,intent(in) :: use_arithmetic_int
-      integer,intent(in) :: use_adaptive_int
+      integer,intent(in) :: use_arithmetic_constraints_int
+      integer,intent(in) :: use_adaptive_constraints_int
+      integer,intent(in) :: use_user_constraints_int
 @end verbatim
 
 @unnumberedsubsec Description
@@ -632,16 +639,20 @@ If @code{> 0}, solver will use @code{ParMETIS} to create division on first level
 This option is only used for global input (@code{bddcml_upload_global_data}) and only applies to the first level. Otherwise, @code{METIS} is used.
 Default is @code{1}.
 
-@item use_arithmetic_int
+@item use_arithmetic_constraints_int
 If @code{> 0}, solver will use continuity of arithmetic averages on faces in 2D and faces and edges in 3D to form the coarse space. 
 Default is @code{1}.
 
-@item use_adaptive_int
+@item use_adaptive_constraints_int
 If @code{> 0}, solver will use adaptive averages on faces in 2D and faces in 3D. 
 This might be costly and should be used for very ill-conditioned problems. A generalized eigenvalue problem is solved at each face and weighted averages are
 derived from eigenvectors. For solving individual eigenproblems, @code{BLOPEX} package is used.
 Default is @code{0}.
 
+@item use_user_constraints_int
+If @code{> 0}, solver will use array @code{USER_CONSTRAINTS} supplied in routine @code{bddcml_upload_subdomain_data} for construction of additional constraints on subdomain faces.
+This may be used e.g. for enforcing flux-based constraints for advection-diffusion problems.
+Default is @code{0}.
 @end table
 
 

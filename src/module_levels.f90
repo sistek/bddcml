@@ -522,7 +522,8 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         ifix,lifix, fixv,lfixv, &
                                         rhs,lrhs, is_rhs_complete, &
                                         sol,lsol, &
-                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled)
+                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled, &
+                                        user_constraints,luser_constraints1,luser_constraints2)
 !***********************************************************************************
 ! Subroutine for loading LOCAL data of one subdomain at first level
       use module_utils
@@ -562,6 +563,9 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       logical, intent(in)::  is_assembled  ! is the array assembled? 
                                            !  FALSE = no, it can contain repeated entries
                                            !  TRUE  = yes, it is sorted and doesn't contain repeated index pairs
+      integer, intent(in)::  luser_constraints1 ! number of rows in matrix of constraints
+      integer, intent(in)::  luser_constraints2 ! number of columns in matrix of constraints
+      real(kr), intent(in):: user_constraints(luser_constraints1*luser_constraints2) ! array for additional constraints
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_LOCAL_DATA'
@@ -637,6 +641,10 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
          call dd_assembly_local_matrix(levels(iactive_level)%subdomains(isub_loc))
       end if
 
+      ! load user's constraints
+      call dd_upload_sub_user_constraints(levels(iactive_level)%subdomains(isub_loc), &
+                                          user_constraints,luser_constraints1,luser_constraints2)
+
       ! initialize first level if all subdomains were loaded
       levels(iactive_level)%nelem   = nelem
       levels(iactive_level)%nnodc   = nnod
@@ -649,7 +657,10 @@ end subroutine
 
 !*************************************************************************************
 subroutine levels_pc_setup( parallel_division,&
-                            matrixtype, use_arithmetic, use_adaptive)
+                            matrixtype, &
+                            use_arithmetic_constraints,&
+                            use_adaptive_constraints,&
+                            use_user_constraints )
 !*************************************************************************************
 ! subroutine for multilevel BDDC preconditioner setup
       use module_pp
@@ -662,9 +673,11 @@ subroutine levels_pc_setup( parallel_division,&
 ! type of matrix (0 - nosymetric, 1 - SPD, 2 - general symmetric)
       integer,intent(in) :: matrixtype
 ! Use arithmetic averages on globs as constraints?
-      logical,intent(in) :: use_arithmetic
+      logical,intent(in) :: use_arithmetic_constraints
 ! Use adaptive constraints on faces?
-      logical,intent(in) :: use_adaptive
+      logical,intent(in) :: use_adaptive_constraints
+! Use user defined constraints on faces?
+      logical,intent(in) :: use_user_constraints
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_PC_SETUP'
@@ -676,7 +689,7 @@ subroutine levels_pc_setup( parallel_division,&
       !call levels_read_level_from_file(problemname,comm_all,iactive_level)
 
       ! check input
-      if (.not. (levels_load_globs .eqv. levels_load_pairs).and. use_adaptive) then
+      if (.not. (levels_load_globs .eqv. levels_load_pairs).and. use_adaptive_constraints) then
          call warning(routine_name,'loading globs while not loading pairs or vice versa may result in wrong constraints')
       end if
 
@@ -691,12 +704,14 @@ subroutine levels_pc_setup( parallel_division,&
             end if
             call levels_prepare_standard_level(parallel_division,&
                                                matrixtype,iactive_level,&
-                                               use_arithmetic,use_adaptive)
+                                               use_arithmetic_constraints,&
+                                               use_adaptive_constraints,&
+                                               use_user_constraints)
          end if
       end do
 
       ! prediction of condition number
-      if (use_adaptive) then
+      if (use_adaptive_constraints) then
          comm_all = levels(1)%comm_all
          ! orient in the communicator
          call MPI_COMM_RANK(comm_all,myid,ierr)
@@ -988,7 +1003,9 @@ end subroutine
 !*******************************************************************************
 subroutine levels_prepare_standard_level(parallel_division,&
                                          matrixtype,ilevel,&
-                                         use_arithmetic,use_adaptive)
+                                         use_arithmetic_constraints,&
+                                         use_adaptive_constraints,&
+                                         use_user_constraints)
 !*******************************************************************************
 ! Subroutine for building the standard level
       use module_pp
@@ -1002,9 +1019,11 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer,intent(in) :: matrixtype
       integer,intent(in) :: ilevel     ! index of level
       ! Use arithmetic averages on globs as constraints?
-      logical,intent(in) :: use_arithmetic
+      logical,intent(in) :: use_arithmetic_constraints
       ! Use adaptive constraints on faces?
-      logical,intent(in) :: use_adaptive
+      logical,intent(in) :: use_adaptive_constraints
+      ! Use user defined constraints on faces?
+      logical,intent(in) :: use_user_constraints
 
       ! local vars
       character(*),parameter:: routine_name = 'LEVELS_PREPARE_STANDARD_LEVEL'
@@ -2438,21 +2457,25 @@ subroutine levels_prepare_standard_level(parallel_division,&
 !-----profile
 
       ! BDDC data
-      ! load arithmetic averages on corners
-      glbtype = 3
       do isub_loc = 1,nsub_loc
+         ! load arithmetic averages on corners
+         glbtype = 3
          call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
-      end do
-      do isub_loc = 1,nsub_loc
          ! load arithmetic averages on edges
-         if (use_arithmetic) then
+         if (use_arithmetic_constraints) then
             glbtype = 2
             call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
          end if
          ! load arithmetic averages on faces if adaptivity is not active
-         if (.not.use_adaptive) then
+         if (.not.use_adaptive_constraints) then
             glbtype = 1
             call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+         end if
+         ! prepare user constraints on faces on the first level
+         if (use_user_constraints .and. ilevel.eq.1) then
+            glbtype = 1
+            call dd_load_user_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+            call dd_orthogonalize_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
          end if
       end do
 
@@ -2538,7 +2561,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
 
-      if (use_adaptive) then
+      if (use_adaptive_constraints) then
 !-----profile
          if (profile) then
             call MPI_BARRIER(comm_all,ierr)
@@ -2615,6 +2638,11 @@ subroutine levels_prepare_standard_level(parallel_division,&
 
          call adaptivity_finalize
          deallocate(pair2proc)
+
+         do isub_loc = 1,nsub_loc
+            glbtype = 1
+            call dd_orthogonalize_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+         end do
 
          call dd_embed_cnodes(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                               levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
