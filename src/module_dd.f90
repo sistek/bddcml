@@ -7106,7 +7106,7 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
 ! Subroutine for construction of array of interface and shared nodes with other subdomains
 ! based on subdomain data
       use module_utils
-      use module_pp, only : pp_get_proc_for_sub 
+      use module_pp, only : pp_get_proc_for_sub, pp_get_unique_tag
       implicit none
       include "mpif.h"
 
@@ -7189,11 +7189,6 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
 
       nsub = sub2proc(lsub2proc) - 1
 
-      ! check safety of MPI due to tag limitations (supposed 4-byte integer)
-      if (nsub .gt. 46340) then
-         call error(routine_name,'number of subdomains reaches the limit for safe computing of tag')
-      end if
-
       lsub_aux = lsuba
       allocate(sub_aux(lsub_aux))
 
@@ -7248,7 +7243,7 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
                ! interchange via MPI
       
                ! make a receiving request for his data
-               tag = isubadj*nsub + isub
+               call pp_get_unique_tag(isubadj,isub,comm_all,sub2proc,lsub2proc,tag)
                ireq = ireq + 1
                call MPI_IRECV(sub_aux(isub_loc)%nnodadj(ia),1,MPI_INTEGER,procadj,tag,comm_all,&
                               request(ireq),ierr)
@@ -7288,7 +7283,7 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
                ! interchange via MPI
       
                ! send him my data
-               tag = isub*nsub + isubadj
+               call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc,tag)
                call MPI_SEND(nnod,1,MPI_INTEGER,procadj,tag,comm_all,ierr)
                !print *, 'myid =',myid,'Sending', nnod,'to ',procadj,' tag',tag
             end if
@@ -7355,7 +7350,7 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
                ! interchange via MPI
    
                ! make a receiving request for his data
-               tag = isubadj*nsub + isub
+               call pp_get_unique_tag(isubadj,isub,comm_all,sub2proc,lsub2proc,tag)
                ireq = ireq + 1
                call MPI_IRECV(sub_aux(isub_loc)%isngnadj(kisngnadj + 1),nnodadj,MPI_INTEGER,&
                               procadj,tag,comm_all,request(ireq),ierr)
@@ -7394,7 +7389,7 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
             nnodadj = sub_aux(isub_loc)%nnodadj(ia)
             if (procadj .ne. myid) then
                ! send him my data
-               tag = isub*nsub + isubadj
+               call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc,tag)
                call MPI_SEND(sub_aux(isub_loc)%isngn(1),nnod,MPI_INTEGER, procadj,tag,comm_all,ierr)
                call MPI_SEND(sub_aux(isub_loc)%isnc(1), nnod,MPI_INTEGER, procadj,tag,comm_all,ierr)
             end if
@@ -9682,7 +9677,7 @@ subroutine dd_comm_swapdata(suba,lsuba, indexsub,lindexsub, sub2proc,lsub2proc,c
 !***************************************************************************************
 ! Subroutine for interchange of data at subdomain interfaces using MPI
       use module_utils
-      use module_pp, only : pp_get_proc_for_sub 
+      use module_pp, only : pp_get_proc_for_sub, pp_get_unique_tag
       implicit none
       include "mpif.h"
 
@@ -9720,11 +9715,6 @@ subroutine dd_comm_swapdata(suba,lsuba, indexsub,lindexsub, sub2proc,lsub2proc,c
       call MPI_COMM_SIZE(comm_all,nproc,ierr)
 
       nsub = sub2proc(nproc+1) - 1
-
-      ! check safety of MPI due to tag limitations (supposed 4-byte integer)
-      if (nsub .gt. 46340) then
-         call error(routine_name,'number of subdomains reaches the limit for safe computing of tag')
-      end if
 
       ! get number of requests
       ireq = 0
@@ -9777,7 +9767,7 @@ subroutine dd_comm_swapdata(suba,lsuba, indexsub,lindexsub, sub2proc,lsub2proc,c
                   ! interchange via MPI
    
                   ! raise a request to receive data
-                  tag = isubadj*nsub + isub
+                  call pp_get_unique_tag(isubadj,isub,comm_all,sub2proc,lsub2proc,tag)
                   ireq = ireq + 1
                   call MPI_IRECV(suba(isub_loc)%commvec_in(suba(isub_loc)%kshvadj(ia)),nsharedv,MPI_DOUBLE_PRECISION,&
                                  procadj,tag,comm_all,request(ireq),ierr)
@@ -9822,7 +9812,7 @@ subroutine dd_comm_swapdata(suba,lsuba, indexsub,lindexsub, sub2proc,lsub2proc,c
                   ! interchange via MPI
    
                   ! send him my data
-                  tag = isub*nsub + isubadj
+                  call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc,tag)
                   call MPI_SEND(suba(isub_loc)%commvec_out(suba(isub_loc)%kshvadj(ia)),nsharedv,MPI_DOUBLE_PRECISION,&
                                 procadj,tag,comm_all,ierr)
                end if
@@ -9924,7 +9914,7 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
 !*******************************************************************************************************
 ! Subroutine for preparing weight at interface matrix
       use module_utils
-      use module_pp, only : pp_get_proc_for_sub 
+      use module_pp, only : pp_get_proc_for_sub
       implicit none
       include "mpif.h"
 

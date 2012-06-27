@@ -366,7 +366,8 @@ void bddcml_upload_subdomain_data( int *nelem, int *nnod, int *ndof, int *ndim, 
                                    int *ifix, int *lifix, double *fixv, int *lfixv, 
                                    double *rhs, int *lrhs, int *is_rhs_complete,
                                    double *sol, int *lsol, 
-                                   int *matrixtype, int *i_sparse, int *j_sparse, double *a_sparse, int *la, int *is_assembled_int )
+                                   int *matrixtype, int *i_sparse, int *j_sparse, double *a_sparse, int *la, int *is_assembled_int, 
+                                   double *user_constraints, int *luser_constraints1, int *luser_constraints2)
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -378,7 +379,8 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         ifix,lifix, fixv,lfixv, &
                                         rhs,lrhs, is_rhs_complete_int, &
                                         sol,lsol, &
-                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int)
+                                        matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int,&
+                                        user_constraints,luser_constraints1,luser_constraints2)
 }
 @verbatim
       integer, intent(in):: nelem
@@ -419,6 +421,9 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       real(kr), intent(in):: a_sparse(la)  
       integer, intent(in)::  la            
       integer, intent(in)::  is_assembled_int 
+      integer, intent(in)::  luser_constraints1
+      integer, intent(in)::  luser_constraints2
+      real(kr), intent(in):: user_constraints(luser_constraints1*luser_constraints2) 
 @end verbatim
 
 @unnumberedsubsec Description
@@ -578,6 +583,11 @@ The solver comes with fast assembly routine so the users might want to pass just
 @item 1 - yes, it is sorted and does not contain repeated index pairs
 @end itemize 
 
+@item luser_contraints1, luser_constraints2
+dimension of array with user constraints, @code{luser_constraints2} should equal to @code{nnods} if user wants to use this feature. Otherwise both can be set to 0.
+
+@item user_contraints
+linearized matrix of user's constraints, one row per constraint, stored row-by-row. Each row has entries for all nodes (in columns) and may contain several constraints (at rows). It may be left empty if no additional contraints are demanded by call to @code{bddcml_setup_preconditioner}. 
 @end table
 
 

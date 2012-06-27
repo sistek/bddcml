@@ -55,7 +55,7 @@ program bddcml_local
       integer,parameter :: use_adaptive_constraints = 0
 
 ! use user constraints?
-      integer,parameter :: use_user_constraints = 1
+      integer,parameter :: use_user_constraints = 0
 
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1

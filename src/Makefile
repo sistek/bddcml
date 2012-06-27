@@ -25,7 +25,6 @@ OBJ = \
    divide_graph.o \
    module_parsing.o \
    module_sm.o \
-   module_tecplot.o \
    module_utils.o \
    lobpcg_driver.o \
    bddcml_interface_fortran.o

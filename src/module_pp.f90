@@ -2285,6 +2285,39 @@ call error('PP_GET_PROC_FOR_SUB','processor not found for subdomain',isub)
 
 end subroutine pp_get_proc_for_sub
 
+!******************************************************************
+subroutine pp_get_unique_tag(isub,jsub,comm,sub2proc,lsub2proc,tag)
+!******************************************************************
+! Subroutine for assigning unique tag
+implicit none
+! global numbers of subdomains
+integer, intent(in) :: isub
+integer, intent(in) :: jsub
+! MPI communicator
+integer,intent(in):: comm 
+! sub2proc(nproc + 1) SUB2PROC array (ParMETIS-like)
+integer,intent(in):: lsub2proc 
+integer,intent(in)::  sub2proc(lsub2proc) 
+
+! unique tag
+integer, intent(out):: tag
+
+! local variables
+integer:: iproc, jproc, nsub_loc_j, isub_loc, jsub_loc
+
+      call pp_get_proc_for_sub(isub,comm,sub2proc,lsub2proc,iproc)
+      call pp_get_proc_for_sub(jsub,comm,sub2proc,lsub2proc,jproc)
+      
+      isub_loc = isub - sub2proc(iproc+1) + 1
+      jsub_loc = jsub - sub2proc(jproc+1) + 1
+      
+      nsub_loc_j = sub2proc(jproc+2) - sub2proc(jproc+1)
+      
+      ! compute tag based on local numbers
+      tag = isub_loc*nsub_loc_j + jsub_loc
+
+end subroutine
+
 !********************************************************************
 subroutine pp_get_nevax(nelem,inet,linet,nnet,lnnet,nndf,lnndf,nevax)
 !********************************************************************
