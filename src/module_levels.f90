@@ -681,12 +681,44 @@ subroutine levels_pc_setup( parallel_division,&
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_PC_SETUP'
-      integer :: comm_all, ierr, myid
+      integer :: comm_all, ierr, myid, nproc
       real(kr) :: cond_est
 
+      real(kr) :: t_pc_setup
+
       ! no debug
-      !iactive_level = 1
       !call levels_read_level_from_file(problemname,comm_all,iactive_level)
+
+!-----profile
+      if (profile) then
+         comm_all = levels(0)%comm_all
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+
+      ! welcome screen
+      iactive_level = 1
+      comm_all = levels(iactive_level-1)%comm_all
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
+      if (myid.eq.0) then
+         call info( routine_name, '==========================================' )
+         call info( routine_name, 'Entering BDDCML library                   ' )
+         call info( routine_name, '==========================================' )
+         call info( routine_name, 'problem properties:                       ' )
+         call info( routine_name, 'number of unknowns:  ',levels(iactive_level-1)%ndofc )
+         call info( routine_name, 'number of nodes:     ',levels(iactive_level-1)%nnodc )
+         call info( routine_name, 'number of elements:  ',levels(iactive_level-1)%nsub )
+         call info( routine_name, 'number of subdomains:',levels(iactive_level)%nsub )
+         call info( routine_name, 'number of processors:',nproc )
+         if (levels(iactive_level)%global_loading) then
+            call info( routine_name, 'using mode with GLOBAL data loading' )
+         else
+            call info( routine_name, 'using mode with PER-SUBDOMAIN data loading' )
+         end if
+         call info( routine_name, '==========================================' )
+      end if
 
       ! check input
       if (.not. (levels_load_globs .eqv. levels_load_pairs).and. use_adaptive_constraints) then
@@ -736,6 +768,16 @@ subroutine levels_pc_setup( parallel_division,&
          call levels_prepare_last_level(matrixtype)
       end if
 
+!-----profile
+      if (profile) then
+         comm_all = levels(0)%comm_all
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_pc_setup)
+         if (myid.eq.0) then
+            call time_print('set-up of the preconditioner',t_pc_setup)
+         end if
+      end if
+!-----profile
 end subroutine
 
 !**************************************************************

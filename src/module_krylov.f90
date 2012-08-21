@@ -26,7 +26,7 @@ module module_krylov
 ! debugging 
       logical,parameter,private :: debug = .false.
 ! profiling 
-      logical,private :: profile = .false.
+      logical,private :: profile = .true.
 ! adjustable parameters ############################
 
       contains
@@ -109,6 +109,14 @@ module module_krylov
       ! time variables
       real(kr) :: t_sm_apply, t_pc_apply
       real(kr) :: t_postproc
+      real(kr) :: t_krylov_solve
+
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
 
       ! orient in the communicator
       call MPI_COMM_RANK(comm_all,myid,ierr)
@@ -511,6 +519,16 @@ module module_krylov
       end do
       deallocate(pcg_data)
 
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_krylov_solve)
+         if (myid.eq.0) then
+            call time_print('solution by Krylov method',t_krylov_solve)
+         end if
+      end if
+!-----profile
+
       end subroutine
 
 !*******************************************************************************************
@@ -583,7 +601,14 @@ module module_krylov
       integer :: ierr
 
       ! time variables
-      real(kr) :: t_postproc
+      real(kr) :: t_postproc, t_krylov_solve
+
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
 
       ! orient in the communicator
       call MPI_COMM_RANK(comm_all,myid,ierr)
@@ -1052,6 +1077,16 @@ module module_krylov
          deallocate(bicgstab_data(isub_loc)%t)
       end do
       deallocate(bicgstab_data)
+
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_krylov_solve)
+         if (myid.eq.0) then
+            call time_print('solution by Krylov method',t_krylov_solve)
+         end if
+      end if
+!-----profile
 
       end subroutine
 

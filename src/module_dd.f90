@@ -7783,6 +7783,9 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       integer :: idofn, ndofn, indeg, indfg, indivs 
       integer :: pifixi
 
+      integer::            ndofi_loc, ndofi_sub, ndofig
+      integer::            nnodi_loc, nnodi_sub, nnodig
+
       integer::             ldist,   larea
       real(kr),allocatable:: dist(:), area(:)
       integer::             lxyzsh1, lxyzsh2 
@@ -7836,6 +7839,10 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       ! prepare array of corners local to processor
       ncornerp = 0
 
+      ! processors number of unique unknowns on interface
+      ndofi_loc = 0
+      nnodi_loc = 0
+
       ! Compare data with neighbours to detect interface
       do isub_loc = 1,lindexsub
          isub = indexsub(isub_loc)
@@ -7873,6 +7880,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
                ! mark the node to array nsubnode
                nsubnode(indshn) = nsubnode(indshn) + 1
+
             end do
    
             kishnadj = kishnadj + nshn
@@ -7937,6 +7945,22 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          !do inodi = 1,nnodi
          !   print *,'isub = ',isub,'inodi',inodi,'nsubnode',(globsubs(inodi,i),i = 1,nsubnode(inodi))
          !end do
+
+         ndofi_sub = 0
+         nnodi_sub = 0
+         do inodi = 1,nnodi
+            if ( max( isub, maxval(globsubs(inodi,1:nsubnode(inodi),1)) ) .eq.  isub ) then
+               inds = suba(isub_loc)%iin(inodi)
+               ndofn = suba(isub_loc)%nndf(inds)
+
+               ndofi_sub = ndofi_sub + ndofn
+               nnodi_sub = nnodi_sub + 1
+            end if
+         end do
+
+         ! local contribution to global number of interface unknowns (without overlaps)
+         ndofi_loc = ndofi_loc + ndofi_sub
+         nnodi_loc = nnodi_loc + nnodi_sub
 
          ! Identify topology of globs
          lglobtypes = nnodi
@@ -9150,8 +9174,17 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       deallocate(inode)
       deallocate(inodf)
 
+      ! get global size of interface problem
+!*****************************************************************MPI
+      call MPI_ALLREDUCE(nnodi_loc,nnodig,1, MPI_INTEGER, MPI_SUM, comm_all, ierr) 
+      call MPI_ALLREDUCE(ndofi_loc,ndofig,1, MPI_INTEGER, MPI_SUM, comm_all, ierr) 
+!*****************************************************************MPI
+
       ! root print the summary of selection of globs
       if (myid.eq.0) then
+         call info( routine_name, '   Total size of interface problem: ' )
+         call info( routine_name, '    number of unknowns on interface  = ',ndofig )
+         call info( routine_name, '    number of nodes on interface     = ',nnodig )
          call info( routine_name, '   The following globs were recognized: ' )
          call info( routine_name, '    nface   = ',nface )
          call info( routine_name, '    nedge   = ',nedge )
