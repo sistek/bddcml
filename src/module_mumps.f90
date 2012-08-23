@@ -306,7 +306,7 @@ contains
       ! local vars
       character(*),parameter:: routine_name = 'MUMPS_FACTORIZE'
       integer :: myid, errproc, ierr, comm, errcode
-      integer,parameter :: mem_relax_lim = 300 ! limit of allowed memory relaxation (in percent)
+      integer,parameter :: mem_relax_lim = 1000 ! limit of allowed memory relaxation (in percent)
 
 
 ! Job type = 2 for factorization
@@ -341,7 +341,7 @@ contains
                if (myid.eq.errproc) then 
                   if (mumps%ICNTL(14) .lt. mem_relax_lim) then
                      ! add 20% to relaxation parameter up to limit
-                     mumps%ICNTL(14) = mumps%ICNTL(14) + 20
+                     mumps%ICNTL(14) = mumps%ICNTL(14) + 50
                      mumps%ICNTL(14) = min(mumps%ICNTL(14),mem_relax_lim)
                      if (debug) then
                         call warning(routine_name,'Reruning factorization with memory relaxation % ',mumps%ICNTL(14))
