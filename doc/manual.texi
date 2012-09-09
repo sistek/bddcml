@@ -423,7 +423,7 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       integer, intent(in)::  is_assembled_int 
       integer, intent(in)::  luser_constraints1
       integer, intent(in)::  luser_constraints2
-      real(kr), intent(in):: user_constraints(luser_constraints1*luser_constraints2) 
+      real(kr), intent(in):: user_constraints(luser_constraints1*luser_constraints2)
 @end verbatim
 
 @unnumberedsubsec Description
