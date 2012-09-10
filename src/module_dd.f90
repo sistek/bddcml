@@ -135,6 +135,13 @@ module module_dd
          integer ::              luser_constraints2 ! number of columns (=NNODS)
          real(kr),allocatable ::  user_constraints(:,:) ! array of user defined constraints
 
+         ! matrix of element data
+         logical :: is_element_data_loaded = .false.
+         integer ::              lelement_data1 ! number of additional data per element 
+         integer ::              lelement_data2 ! number of columns (=NELEMS)
+         real(kr),allocatable ::  element_data(:,:) ! array of element data (e.g. constants on elements, 
+                                                    ! possibly used for construction of weights)
+
          ! reactions at fixed variables
          logical :: is_reactions_ready = .false.
          integer ::         lrea = 0       ! length of REA array
@@ -2831,6 +2838,56 @@ subroutine dd_upload_sub_user_constraints(sub, user_constraints,luser_constraint
       end do
 
       sub%is_user_constraints_loaded = .true.
+   
+end subroutine
+
+!*****************************************************************************************************
+subroutine dd_upload_sub_element_data(sub, element_data,lelement_data1,lelement_data2)
+!*****************************************************************************************************
+! Subroutine for uploading solution to subdomain structure
+      use module_utils
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+      integer,intent(in) :: lelement_data1
+      integer,intent(in) :: lelement_data2
+      real(kr),intent(in)::  element_data(lelement_data1*lelement_data2)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_UPLOAD_SUB_ELEMENT_DATA'
+      integer :: i,j
+
+      ! check prerequisites
+      if (.not. sub%is_initialized) then
+         call error( routine_name,'Not initialized subdomain: ',sub%isub)
+      end if
+
+      ! check dimension
+      if (lelement_data2.ne.sub%nelem .and. lelement_data2.gt.0) then
+         call error(routine_name,'Array ELEMENT_DATA dimension mismatch.')
+      end if
+
+      ! is array allocated?
+      if (.not.allocated(sub%element_data)) then
+         ! if not, allocate it
+         sub%lelement_data1 = lelement_data1
+         sub%lelement_data2 = lelement_data2
+         allocate(sub%element_data(lelement_data1,lelement_data2))
+      else
+         ! if yes, check that it is allocated to correct dimension
+         if (lelement_data1.ne.sub%lelement_data1 .or. lelement_data2.ne.sub%lelement_data2) then
+            call error(routine_name,'Dimension of subdomain ELEMENT_DATA mismatch for subdomain:',sub%isub)
+         end if
+      end if
+      ! copy constraints and convert it from linear row-wise stored array to two-dimensional matrix
+      do i = 1,lelement_data1
+         do j = 1,lelement_data2
+            sub%element_data(i,j) = element_data((i-1)*lelement_data2 + j)
+         end do
+      end do
+
+      sub%is_element_data_loaded = .true.
    
 end subroutine
 
@@ -9963,7 +10020,8 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
       ! type of weights:
       ! 0 - weights by cardinality
       ! 1 - weights by diagonal stiffness
-      ! 2 - weights by Marta Certikova
+      ! 2 - weights based on first row of element data
+      ! 3 - weights by Marta Certikova
       integer,intent(in) :: weights_type 
 
       ! local vars
@@ -9976,6 +10034,13 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
       real(kr),allocatable :: rhoiaux(:)
       integer ::             lwi
       real(kr),allocatable :: wi(:)
+
+      integer :: myid, ierr
+
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      if (myid.eq.0) then
+          call info(routine_name,'Using weights type: ',weights_type)
+      end if
 
       ! Prepare data for communication
       do isub_loc = 1,lindexsub
@@ -9990,6 +10055,8 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
             end do
          else if (weights_type .eq. 1) then
             call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
+         else if (weights_type .eq. 2) then
+            call dd_get_interface_element_data(suba(isub_loc), rhoi,lrhoi)
          else
             call error(routine_name,'Type of weight not supported:',weights_type)
          end if
@@ -10021,6 +10088,8 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
             end do
          else if (weights_type .eq. 1) then
             call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
+         else if (weights_type .eq. 2) then
+            call dd_get_interface_element_data(suba(isub_loc), rhoi,lrhoi)
          end if
 
          ! compute weight
@@ -10178,6 +10247,90 @@ subroutine dd_get_interface_diagonal(sub, rhoi,lrhoi)
       end do
 
       deallocate(rho)
+end subroutine
+
+!********************************************************
+subroutine dd_get_interface_element_data(sub, rhoi,lrhoi)
+!********************************************************
+! Subroutine for getting subdomain diagonal from the structure
+      use module_utils
+      use module_graph
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+      integer,intent(in)  :: lrhoi
+      real(kr),intent(out) ::  rhoi(lrhoi)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GET_INTERFACE_ELEMENT_DATA'
+      integer :: nnod, nnodi, linet 
+      integer :: i, ind, nen, ien, ndofn, idofn, inde, indn, pointen
+
+      real(kr) :: average_coef, sum_coef, coef
+
+      integer             :: lnetn,  lietn,  lkietn
+      integer, allocatable :: netn(:),ietn(:),kietn(:)
+
+      ! check if mesh is loaded
+      if (.not. sub%is_mesh_loaded) then
+         call error(routine_name, 'Mesh not loaded for subdomain: ',sub%isub)
+      end if
+      ! check if matrix is loaded
+      if (.not. sub%is_element_data_loaded) then
+         call error(routine_name, 'Element data not loaded for subdomain: ',sub%isub)
+      end if
+      ! check dimensions
+      if (sub%ndofi.ne.lrhoi) then
+         call error(routine_name, 'Interface dimensions mismatch for subdomain ',sub%isub)
+      end if
+      if (sub%lelement_data1 .lt. 1) then
+         call error(routine_name, 'At least one row of element data needed for subdomain',sub%isub)
+      end if
+      if (sub%nelem.ne.sub%lelement_data2) then
+         call error(routine_name, 'Interface dimensions mismatch for subdomain ',sub%isub)
+      end if
+
+      ! load data
+      nnod  = sub%nnod
+      nnodi = sub%nnodi
+      linet = sub%linet
+
+      ! prepare dual mesh
+      lnetn  = nnod
+      lietn  = linet
+      lkietn = nnod
+      allocate(netn(lnetn),ietn(lietn),kietn(lkietn))
+      call graph_get_dual_mesh(sub%nelem,sub%nnod,&
+                               sub%inet,sub%linet,sub%nnet,sub%lnnet,&
+                               netn,lnetn,ietn,lietn,kietn,lkietn)
+
+      ind = 0
+      do i = 1,nnodi
+         indn = sub%iin(i)
+         ndofn = sub%nndf(indn)
+
+         pointen = kietn(indn)
+         nen     = netn(indn)
+         sum_coef = 0._kr 
+         do ien = 1,nen
+            inde = ietn(pointen + ien)
+            coef = sub%element_data(1,inde)
+
+            sum_coef = sum_coef + coef
+         end do
+         average_coef = sum_coef / nen
+
+         do idofn = 1,ndofn
+            ind = ind + 1
+            if (ind .gt. lrhoi) then
+               call error(routine_name, 'Index out of bounds for RHOI', ind)
+            end if
+            rhoi(ind) = average_coef
+         end do
+      end do
+      !write(*,*) 'rhoi', rhoi
+
+      deallocate(netn,ietn,kietn)
 end subroutine
 
 !**************************************************************************
@@ -10517,6 +10670,12 @@ subroutine dd_finalize(sub)
       sub%luser_constraints1 = 0
       sub%luser_constraints2 = 0
 
+      if (allocated(sub%element_data)) then
+         deallocate(sub%element_data)
+      end if
+      sub%lelement_data1 = 0
+      sub%lelement_data2 = 0
+
       if (allocated(sub%rea)) then
          deallocate(sub%rea)
       end if
@@ -10710,6 +10869,7 @@ subroutine dd_finalize(sub)
       sub%is_neighbouring_ready      = .false.
       sub%is_matrix_loaded           = .false.
       sub%is_user_constraints_loaded = .false.
+      sub%is_element_data_loaded     = .false.
       sub%is_c_loaded                = .false.
       sub%is_phis_prepared           = .false.
       sub%is_phisi_prepared          = .false.

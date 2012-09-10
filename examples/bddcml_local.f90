@@ -150,6 +150,11 @@ program bddcml_local
       integer ::              luser_constraints2
       real(kr),allocatable ::  user_constraints(:)
 
+      ! data for elements
+      integer ::              lelement_data1
+      integer ::              lelement_data2
+      real(kr),allocatable ::  element_data(:)
+
       integer :: lproblemname
       integer :: meshdim
 
@@ -534,6 +539,12 @@ program bddcml_local
          luser_constraints2 = 0
          allocate(user_constraints(luser_constraints1*luser_constraints2))
 
+         ! prepare user constraints
+         lelement_data1 = 1
+         lelement_data2 = nelems
+         allocate(element_data(lelement_data1*lelement_data2))
+         element_data = 2._kr
+
          ! experiment a bit
          call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                            isub, nelems, nnods, ndofs, &
@@ -544,7 +555,8 @@ program bddcml_local
                                            rhss,lrhss, is_rhs_complete_int, &
                                            sols,lsols, &
                                            matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int, &
-                                           user_constraints,luser_constraints1,luser_constraints2)
+                                           user_constraints,luser_constraints1,luser_constraints2, &
+                                           element_data,lelement_data1,lelement_data2)
          deallocate(inets,nnets,nndfs,xyzs)
          deallocate(kdofs)
          deallocate(rhss)
@@ -555,6 +567,7 @@ program bddcml_local
          deallocate(isegns)
          deallocate(i_sparse, j_sparse, a_sparse)
          deallocate(user_constraints)
+         deallocate(element_data)
       end do
       deallocate(inet,nnet,nndf,xyz)
       deallocate(iets)
