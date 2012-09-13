@@ -64,7 +64,7 @@ logical,parameter,private ::  try_harder = .false.
 ! F - load eigenvectors from file
 logical,parameter,private :: recompute_vectors = .true.
 ! debugging 
-logical,parameter,private :: debug = .false.
+logical,parameter,private :: debug = .true.
 logical,parameter,private :: profile = .true.
 
 ! maximal allowed length of file names
@@ -159,16 +159,21 @@ integer,private ::             lcoarsem_adapt2
 real(kr),allocatable,private :: coarsem_adapt(:,:)
 integer,private ::             lkceigval
 real(kr),allocatable,private :: kceigval(:)
-integer,private ::              comm_lresc
-real(kr),allocatable,private :: comm_resc(:)
-real(kr),allocatable,private :: comm_resc_i(:)
-real(kr),allocatable,private :: comm_resc_j(:)
+integer,private ::              comm_lresc1,comm_lresc2
+real(kr),allocatable,private :: comm_resc(:,:)
+real(kr),allocatable,private :: comm_resc_i(:,:)
+real(kr),allocatable,private :: comm_resc_j(:,:)
 
 ! auxiliary arrays (necessary in each LOBPCG iteration)
-integer ::             comm_lxaux
-real(kr),allocatable :: comm_xaux(:)
-integer ::             comm_lxaux2
-real(kr),allocatable :: comm_xaux2(:)
+integer ::             comm_lxaux_1, comm_lxaux_2
+real(kr),allocatable :: comm_xaux(:,:)
+integer ::             comm_lxaux2_1, comm_lxaux2_2
+real(kr),allocatable :: comm_xaux2(:,:)
+
+integer ::             comm_lchunk_i_1, comm_lchunk_i_2
+real(kr),allocatable :: comm_chunk_i(:,:)
+integer ::             comm_lchunk_j_1, comm_lchunk_j_2
+real(kr),allocatable :: comm_chunk_j(:,:)
 
 contains
 
@@ -978,7 +983,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             ! LAPACK arrays
             ltau = ldij2
             allocate(tau(ltau))
-            lwork = ldij2
+            lwork = max(ldij2,neigvecx)
             allocate(work(lwork))
             ! leading dimension
             lddij = max(1,ldij1)
@@ -1312,8 +1317,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             allocate(eigvec(leigvec),eigval(leigval))
 
             ! prepare space for buffers
-            lbufsend_i = ndofi_i
-            lbufsend_j = ndofi_j
+            lbufsend_i = ndofi_i * neigvecx
+            lbufsend_j = ndofi_j * neigvecx
             allocate(bufsend_i(lbufsend_i),bufsend_j(lbufsend_j))
 
             ! distribute sizes of chunks of eigenvectors
@@ -1353,9 +1358,16 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          else
             if (i_compute_pair) then
                ! prepare auxiliary space used in each iteration of eigensolver
-               comm_lxaux  = problemsize
-               comm_lxaux2 = problemsize
-               allocate(comm_xaux(comm_lxaux),comm_xaux2(comm_lxaux2))
+               comm_lxaux_1  = problemsize
+               comm_lxaux_2  = neigvecx
+               comm_lxaux2_1 = problemsize
+               comm_lxaux2_2 = neigvecx
+               allocate(comm_xaux(comm_lxaux_1,comm_lxaux_2),comm_xaux2(comm_lxaux2_1,comm_lxaux2_2))
+               comm_lchunk_i_1  = ndofi_i
+               comm_lchunk_i_2  = neigvecx
+               comm_lchunk_j_1  = ndofi_j
+               comm_lchunk_j_2  = neigvecx
+               allocate(comm_chunk_i(comm_lchunk_i_1,comm_lchunk_i_2),comm_chunk_j(comm_lchunk_j_1,comm_lchunk_j_2))
             end if
          end if
 
@@ -1386,11 +1398,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   allocate(bz(lbz1,lbz2))
 
                   ioper = 2 ! multiply by B
-                  do j = 1,lz2
-                     call adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub,&
-                                              problemsize,z(1,j),&
-                                              problemsize,bz(1,j),problemsize,ioper)
-                  end do
+                  call adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub,&
+                                           z,lz1,lz2, &
+                                           bz,lbz1,lbz2, &
+                                           ioper)
                end if
                call adaptivity_fake_lobpcg_driver
             end if
@@ -1620,18 +1631,18 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   xaux(jcol) = 1._kr
 
                   ! xaux = P xaux
-                  call adaptivity_apply_null_projection(xaux,lxaux)
+                  call adaptivity_apply_null_projection(xaux,lxaux,1)
 
                   do i = 1,problemsize
                      xaux2(i) = xaux(i)
                   end do
                   ! apply (I-RE) xaux = (I-RR'D_P) xaux
                   !  - apply weights
-                  call adaptivity_apply_weights(weight,lweight,xaux2,lxaux2)
+                  call adaptivity_apply_weights(weight,lweight,xaux2,lxaux2,1)
                   !  - apply the R^T operator
-                  call adaptivity_apply_RT(pairslavery,lpairslavery,xaux2,lxaux2)
+                  call adaptivity_apply_RT(pairslavery,lpairslavery,xaux2,lxaux2,1)
                   !  - apply the R operator
-                  call adaptivity_apply_R(pairslavery,lpairslavery,xaux2,lxaux2)
+                  call adaptivity_apply_R(pairslavery,lpairslavery,xaux2,lxaux2,1)
                   ! Ix - REx
                   do i = 1,problemsize
                      xaux(i) = xaux(i) - xaux2(i)
@@ -1644,17 +1655,17 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                      xaux(i) = xaux2(i)
                   end do
                   !  - apply the R^T operator
-                  call adaptivity_apply_RT(pairslavery,lpairslavery,xaux2,lxaux2)
+                  call adaptivity_apply_RT(pairslavery,lpairslavery,xaux2,lxaux2,1)
                   !  - apply the R operator
-                  call adaptivity_apply_R(pairslavery,lpairslavery,xaux2,lxaux2)
+                  call adaptivity_apply_R(pairslavery,lpairslavery,xaux2,lxaux2,1)
                   !  - apply weights
-                  call adaptivity_apply_weights(weight,lweight,xaux2,lxaux2)
+                  call adaptivity_apply_weights(weight,lweight,xaux2,lxaux2,1)
                   ! Ix - E'R'x
                   do i = 1,problemsize
                      xaux(i) = xaux(i) - xaux2(i)
                   end do
                   ! xaux = P xaux
-                  call adaptivity_apply_null_projection(xaux,lxaux)
+                  call adaptivity_apply_null_projection(xaux,lxaux,1)
 
                   ! make a copy
                   do i = 1,problemsize
@@ -1678,7 +1689,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   xaux(jcol) = 1._kr
 
                   ! xaux = P xaux
-                  call adaptivity_apply_null_projection(xaux,lxaux)
+                  call adaptivity_apply_null_projection(xaux,lxaux,1)
                   ! add a note of this vector t*(I-P)
                   do i = 1,problemsize
                      matb(i,jcol) = -stab*xaux(i)
@@ -1693,7 +1704,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                      xaux(i) = xaux2(i)
                   end do
                   ! xaux = P xaux
-                  call adaptivity_apply_null_projection(xaux,lxaux)
+                  call adaptivity_apply_null_projection(xaux,lxaux,1)
 
                   ! make a copy
                   do i = 1,problemsize
@@ -2004,10 +2015,11 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   end do
 
                   ! prepare memory for iterations
-                  comm_lresc = lcoarsem_adapt1
-                  allocate(comm_resc(comm_lresc))
-                  allocate(comm_resc_i(comm_lresc))
-                  allocate(comm_resc_j(comm_lresc))
+                  comm_lresc1 = lcoarsem_adapt1
+                  comm_lresc2 = neigvecx
+                  allocate(comm_resc(comm_lresc1,comm_lresc2))
+                  allocate(comm_resc_i(comm_lresc1,comm_lresc2))
+                  allocate(comm_resc_j(comm_lresc1,comm_lresc2))
 
 
                   if (debug) then
@@ -2184,18 +2196,18 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   end do
 
                   ! xaux = P xaux
-                  call adaptivity_apply_null_projection(xaux,lxaux)
+                  call adaptivity_apply_null_projection(xaux,lxaux,1)
 
                   do i = 1,problemsize
                      xaux2(i) = xaux(i)
                   end do
                   ! apply (I-RE) xaux = (I-RR'D_P) xaux
                   !  - apply weights
-                  call adaptivity_apply_weights(weight,lweight,xaux2,lxaux2)
+                  call adaptivity_apply_weights(weight,lweight,xaux2,lxaux2,1)
                   !  - apply the R^T operator
-                  call adaptivity_apply_RT(pairslavery,lpairslavery,xaux2,lxaux2)
+                  call adaptivity_apply_RT(pairslavery,lpairslavery,xaux2,lxaux2,1)
                   !  - apply the R operator
-                  call adaptivity_apply_R(pairslavery,lpairslavery,xaux2,lxaux2)
+                  call adaptivity_apply_R(pairslavery,lpairslavery,xaux2,lxaux2,1)
                   ! Ix - REx
                   do i = 1,problemsize
                      xaux(i) = xaux(i) - xaux2(i)
@@ -2208,17 +2220,17 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                      xaux(i) = xaux2(i)
                   end do
                   !  - apply the R^T operator
-                  call adaptivity_apply_RT(pairslavery,lpairslavery,xaux2,lxaux2)
+                  call adaptivity_apply_RT(pairslavery,lpairslavery,xaux2,lxaux2,1)
                   !  - apply the R operator
-                  call adaptivity_apply_R(pairslavery,lpairslavery,xaux2,lxaux2)
+                  call adaptivity_apply_R(pairslavery,lpairslavery,xaux2,lxaux2,1)
                   !  - apply weights
-                  call adaptivity_apply_weights(weight,lweight,xaux2,lxaux2)
+                  call adaptivity_apply_weights(weight,lweight,xaux2,lxaux2,1)
                   ! Ix - E'R'x
                   do i = 1,problemsize
                      xaux(i) = xaux(i) - xaux2(i)
                   end do
                   ! xaux = P xaux
-                  call adaptivity_apply_null_projection(xaux,lxaux)
+                  call adaptivity_apply_null_projection(xaux,lxaux,1)
 
                   ! make a copy
                   do i = 1,problemsize
@@ -2234,13 +2246,12 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             if (i_compute_pair) then
                ! construct constraints out of these eigenvectors
                ioper = 1 ! multiply by A
-               do j = 1,nadaptive
-                  call adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub,&
-                                           problemsize,eigvec((j-1)*problemsize + 1),&
-                                           problemsize,constraints(1,j),problemsize,ioper)
-               end do
+               call adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub,&
+                                        eigvec,problemsize,nadaptive,&
+                                        constraints,problemsize,nadaptive,ioper)
                ! clean auxiliary arrays
                deallocate(comm_xaux,comm_xaux2)
+               deallocate(comm_chunk_i,comm_chunk_j)
             end if
             call adaptivity_fake_lobpcg_driver
          end if
@@ -2487,7 +2498,7 @@ subroutine adaptivity_fake_lobpcg_driver
       integer :: idoper
 
       ! these have no meaning and are present only for matching the arguments
-      integer :: n = 0, lx = 0, ly = 0
+      integer :: lx1 = 0, lx2 = 0, ly1 = 0, ly2 = 0
       real(kr) :: x, y
 
 
@@ -2496,7 +2507,7 @@ subroutine adaptivity_fake_lobpcg_driver
       ! all other necessary data are obtained through modules
       idoper = 3
       do 
-         call lobpcg_mvecmult_f(n,x,lx,y,ly,idoper)
+         call lobpcg_mvecmult_f(x,lx1,lx2, y,ly1,ly2, idoper)
          ! stopping criterion
          if (idoper .eq. -3) then
             exit
@@ -2505,9 +2516,9 @@ subroutine adaptivity_fake_lobpcg_driver
 
 end subroutine
 
-!*******************************************************************************
-subroutine adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub,n,x,lx,y,ly,idoper)
-!*******************************************************************************
+!******************************************************************************************
+subroutine adaptivity_mvecmult(suba,lsuba,indexsub,lindexsub, x,lx1,lx2, y,ly1,ly2, idoper)
+!******************************************************************************************
 ! realizes the multiplications with the strange matrices in the local eigenvalue problems for adaptive BDDC
 
 use module_dd
@@ -2524,12 +2535,10 @@ real(kr),external :: ddot
       integer,intent(in) :: lindexsub
       integer,intent(in) ::  indexsub(lindexsub)
 
-! length of vector
-integer,intent(in) ::   n 
-integer,intent(in) ::  lx 
-real(kr),intent(in) ::  x(lx)
-integer,intent(in) ::  ly 
-real(kr),intent(out) :: y(ly)
+integer,intent(in) ::  lx1, lx2
+real(kr),intent(in) ::  x(lx1,lx2)
+integer,intent(in) ::  ly1, ly2 
+real(kr),intent(out) :: y(ly1,ly2)
 ! determine which matrix should be multiplied
 !  1 - A = P(I-RE)'S(I-RE)P
 !  2 - B = P_barPSPP_bar
@@ -2540,15 +2549,15 @@ integer,intent(inout) ::  idoper
 
 ! local vars
 character(*),parameter:: routine_name = 'ADAPTIVITY_MVECMULT'
-integer :: i
-integer :: iinstr, isub, isub_loc, owner, point1, point2, point, length, do_i_compute, is_active
+integer :: i, j
+integer :: iinstr, isub, isub_loc, owner, point1, point2, point, length, vector_size, do_i_compute, is_active
 logical :: solve_adjoint
 
 ! small BDDC related vars
 integer ::             laux2
 real(kr),allocatable :: aux2(:)
-integer ::             lrescs
-real(kr),allocatable :: rescs(:)
+integer ::             lrescs1,lrescs2
+real(kr),allocatable :: rescs(:,:)
 integer ::             lsolis
 real(kr),allocatable :: solis(:)
 integer ::             nrhs, nnods, nelems, ndofs, ndofaaugs, lindrowc, ndofi, nnodi
@@ -2566,8 +2575,8 @@ comm_calls = comm_calls + 1
 
 
 ! debug
-!print *,'myid = ',comm_myid,'idoper = ',idoper
-!call flush(6)
+print *,'myid = ',comm_myid,'idoper = ',idoper
+call flush(6)
 
 ! Check if all processors simply called the fake routine - if so, finalize
 if (idoper.eq.3) then
@@ -2610,6 +2619,7 @@ if (nreq.gt.0) then
    call MPI_WAITALL(nreq, request, statarray, ierr)
 end if
 
+
 ireq = 0
 ! What follows is performed independently on from where I was called
 ! obtain chunks of eigenvectors to multiply them
@@ -2626,33 +2636,36 @@ end do
 ! common operations for A and B - checks and projection to null(D_ij)
 if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5 ) then
    ! check the dimensions
-   if (n .ne. problemsize) then
-       call error(routine_name, 'Vector size mismatch.', n)
+   if (lx1 .ne. problemsize) then
+       call error(routine_name, 'Vector size mismatch.', lx1)
    end if
-   if (lx .ne. ly) then
-       call error(routine_name, 'Data size mismatch: lx =',lx)
+   if (lx1 .ne. ly1) then
+       call error(routine_name, 'Data size mismatch: lx1 =',lx1)
    end if
-   if (lx .ne. n) then
-       call error(routine_name, 'Data size mismatch. lx = ', lx)
+   if (lx2 .ne. ly2) then
+       call error(routine_name, 'Data size mismatch: lx2 =',lx2)
    end if
    ! are arrays allocated ?
    if (.not.allocated(comm_xaux) .or. .not.allocated(comm_xaux2)) then
        call error(routine_name, 'Auxiliary arrays not allocated. idoper =',idoper)
    end if
    ! correct size ?
-   if (comm_lxaux .ne. comm_lxaux2) then
-       call error(routine_name, 'Array size not match.',comm_lxaux2)
+   if (comm_lxaux_1 .ne. comm_lxaux2_1) then
+       call error(routine_name, 'Array size not match, comm_lxaux2_1 = ',comm_lxaux2_1)
+   end if
+   if (comm_lxaux_2 .ne. comm_lxaux2_2) then
+       call error(routine_name, 'Array size not match, comm_lxaux2_2 = ',comm_lxaux2_2)
    end if
    ! correct size ?
-   if (comm_lxaux .ne. lx) then
-       call error(routine_name, 'Array size not match.',comm_lxaux)
+   if (comm_lxaux_1 .ne. lx1) then
+       call error(routine_name, 'Array size not match, comm_lxaux_1 = ',comm_lxaux_1)
+   end if
+   if (comm_lxaux_2 .lt. lx2) then
+       call error(routine_name, 'Array size not match, comm_lxaux_2 = ',comm_lxaux_2)
    end if
 
-
    ! make temporary copy
-   do i = 1,lx
-      comm_xaux(i) = x(i)
-   end do
+   comm_xaux(:,1:lx2) = x
    
    ! debug
    !if (idoper.eq.5) then
@@ -2663,53 +2676,51 @@ if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5 ) then
    ! xaux = P_bar xaux
    if (idoper.eq.2) then
       if (is_nullB_ready) then
-         call adaptivity_apply_complementary_projection(comm_xaux,comm_lxaux)
+         call adaptivity_apply_complementary_projection(comm_xaux,comm_lxaux_1,comm_lxaux_2)
       end if
    end if
 
    ! apply projection Pi - to fulfill common constraints
    ! xaux = P xaux (in all regimes)
-   call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
+   call adaptivity_apply_null_projection(comm_xaux,comm_lxaux_1,comm_lxaux_2)
 
    if (idoper.eq.1) then
       ! make temporary copy
-      do i = 1,lx
-         comm_xaux2(i) = comm_xaux(i)
-      end do
+      comm_xaux2 = comm_xaux
       ! apply (I-RE) xaux = (I-RR'D_P) xaux
       !  - apply weights
-      call adaptivity_apply_weights(weight,lweight,comm_xaux2,comm_lxaux2)
+      call adaptivity_apply_weights(weight,lweight,comm_xaux2,comm_lxaux2_1,comm_lxaux2_2)
       !  - apply the R^T operator
-      call adaptivity_apply_RT(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2)
+      call adaptivity_apply_RT(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2_1,comm_lxaux2_2)
       !  - apply the R operator
-      call adaptivity_apply_R(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2)
+      call adaptivity_apply_R(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2_1,comm_lxaux2_2)
       ! Ix - REx
-      do i = 1,problemsize
-         comm_xaux(i) = comm_xaux(i) - comm_xaux2(i)
-      end do
+      comm_xaux = comm_xaux - comm_xaux2
    end if
 
-   ! distribute sizes of chunks of eigenvectors
-   point1 = 1
-   call MPI_SEND(comm_xaux(point1),ndofi_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,ierr)
+   ! cut the block of eienvectors into chunks for i and j subdomain
+   comm_chunk_i = comm_xaux(:ndofi_i,:)
+   comm_chunk_j = comm_xaux(ndofi_i+1:,:)
 
-   point2 = ndofi_i + 1
-   call MPI_SEND(comm_xaux(point2),ndofi_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,ierr)
+   ! distribute sizes of chunks of eigenvectors
+   call MPI_SEND(comm_chunk_i,ndofi_i*neigvecx,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,ierr)
+   call MPI_SEND(comm_chunk_j,ndofi_j*neigvecx,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,ierr)
 end if
 nreq = ireq
 if (nreq.gt.0) then
    call MPI_WAITALL(nreq, request, statarray, ierr)
 end if
 
+
 ! If I am preconditioning, get coarse residuals
 ireq = 0
 ! Continue only of I was called from LOBPCG
 if (idoper.eq.5) then
    ireq = ireq + 1
-   call MPI_IRECV(comm_resc_i,comm_lresc,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
+   call MPI_IRECV(comm_resc_i,lindrowc_adapt_i*neigvecx,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
 
    ireq = ireq + 1
-   call MPI_IRECV(comm_resc_j,comm_lresc,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
+   call MPI_IRECV(comm_resc_j,lindrowc_adapt_j*neigvecx,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
 end if
 ! Multiply subdomain vectors by Schur complement
 do iinstr = 1,ninstructions
@@ -2723,7 +2734,14 @@ do iinstr = 1,ninstructions
 
       ! Multiply by Schur complement
       call get_index(isub,indexsub,lindexsub,isub_loc)
-      call dd_multiply_by_schur(suba(isub_loc),bufrecv(point),length,bufsend(point),length)
+      vector_size = suba(isub_loc)%ndofi
+      if (length .ne. vector_size * neigvecx) then
+         call error(routine_name,'Size mismatch, lenght = ',length)
+      end if
+      do j = 1,neigvecx
+         call dd_multiply_by_schur(suba(isub_loc),bufrecv(point),vector_size,bufsend(point),vector_size)
+         point = point + vector_size
+      end do
    end if
    if (is_active .eq. 2) then
       point  = kbufsend(iinstr)
@@ -2732,34 +2750,40 @@ do iinstr = 1,ninstructions
       ! SUBDOMAIN CORRECTION
       ! prepare array of augmented size
       call get_index(isub,indexsub,lindexsub,isub_loc)
+      vector_size = suba(isub_loc)%ndofi
+      if (length .ne. vector_size * neigvecx) then
+         call error(routine_name,'Size mismatch, lenght = ',length)
+      end if
       call dd_get_aug_size(suba(isub_loc), ndofaaugs)
       laux2 = ndofaaugs
       allocate(aux2(laux2))
-      call zero(aux2,laux2)
       call dd_get_size(suba(isub_loc), ndofs,nnods,nelems)
-      ! truncate the vector for embedding - zeros at the end
-      call dd_map_subi_to_sub(suba(isub_loc), bufrecv(point),length, aux2,ndofs)
-
-      nrhs = 1
-      solve_adjoint = .false.
-      call dd_solve_aug(suba(isub_loc), aux2,laux2, nrhs, solve_adjoint)
-
       ! get interface part of the vector of preconditioned residual
       call dd_get_number_of_crows(suba(isub_loc),lindrowc)
 
-      lrescs = lindrowc
-      allocate(rescs(lrescs))
-      call zero(rescs,lrescs)
+      lrescs1 = lindrowc
+      lrescs2 = neigvecx
+      allocate(rescs(lrescs1,lrescs2))
+      rescs = 0._kr
+      do j = 1,neigvecx
+         call zero(aux2,laux2)
+         ! truncate the vector for embedding - zeros at the end
+         call dd_map_subi_to_sub(suba(isub_loc), bufrecv(point),vector_size, aux2,ndofs)
 
-      ! rc = phis_dual' * x
-      call dd_phisi_dual_apply(suba(isub_loc), bufrecv(point),length, rescs,lrescs)
+         nrhs = 1
+         solve_adjoint = .false.
+         call dd_solve_aug(suba(isub_loc), aux2,laux2, nrhs, solve_adjoint)
 
-      call MPI_SEND(rescs,lrescs,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,ierr)
+         ! rc = phis_dual' * x
+         call dd_phisi_dual_apply(suba(isub_loc), bufrecv(point),vector_size, rescs(1,j),lrescs1)
+
+         call dd_map_sub_to_subi(suba(isub_loc), aux2,ndofs, bufsend(point),vector_size)
+
+         point = point + vector_size
+      end do
+      call MPI_SEND(rescs,lrescs1*lrescs2,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,ierr)
       deallocate(rescs)
-
-      call dd_map_sub_to_subi(suba(isub_loc), aux2,ndofs, bufsend(point),length)
       deallocate(aux2)
-
    end if
 end do
 ! Wait for all vectors reach their place
@@ -2773,16 +2797,16 @@ ireq = 0
 if (idoper.eq.5) then
 
    ! assemble local residuals to single residual
-   call zero(comm_resc,comm_lresc)
+   comm_resc = 0._kr
    do i = 1,lindrowc_adapt_i
       indc = indrowc_adapt_i(i)
 
-      comm_resc(indc) = comm_resc(indc) + comm_resc_i(i)
+      comm_resc(indc,:) = comm_resc(indc,:) + comm_resc_i(i,:)
    end do
    do i = 1,lindrowc_adapt_j
       indc = indrowc_adapt_j(i)
 
-      comm_resc(indc) = comm_resc(indc) + comm_resc_j(i)
+      comm_resc(indc,:) = comm_resc(indc,:) + comm_resc_j(i,:)
    end do
 
    ! debug
@@ -2792,16 +2816,18 @@ if (idoper.eq.5) then
 
    ! solve the local coarse problem by BLAS
    ! u = V * Lambda^-1 * V' f
-   laux2 = comm_lresc
+   laux2 = comm_lresc1
    allocate(aux2(laux2))
-   ! apply V'
-   call DGEMV('Transpose',lcoarsem_adapt1,lcoarsem_adapt2,1._kr,coarsem_adapt,lcoarsem_adapt1,comm_resc,1,0._kr,aux2,1)
-   ! apply Lambda^-1
-   do i = 1,laux2
-      aux2(i) = kceigval(i) * aux2(i)
+   do j = 1,neigvecx
+      ! apply V'
+      call DGEMV('Transpose',lcoarsem_adapt1,lcoarsem_adapt2,1._kr,coarsem_adapt,lcoarsem_adapt1,comm_resc(1,j),1,0._kr,aux2,1)
+      ! apply Lambda^-1
+      do i = 1,laux2
+         aux2(i) = kceigval(i) * aux2(i)
+      end do
+      ! apply V
+      call DGEMV('Non-transpose',lcoarsem_adapt1,lcoarsem_adapt2,1._kr,coarsem_adapt,lcoarsem_adapt1,aux2,1,0._kr,comm_resc(1,j),1)
    end do
-   ! apply V
-   call DGEMV('Non-transpose',lcoarsem_adapt1,lcoarsem_adapt2,1._kr,coarsem_adapt,lcoarsem_adapt1,aux2,1,0._kr,comm_resc,1)
    deallocate(aux2)
 
    ! debug
@@ -2812,20 +2838,19 @@ if (idoper.eq.5) then
    do i = 1,lindrowc_adapt_i
       indc = indrowc_adapt_i(i)
 
-      comm_resc_i(i) = comm_resc(indc)
+      comm_resc_i(i,:) = comm_resc(indc,:)
    end do
    do i = 1,lindrowc_adapt_j
       indc = indrowc_adapt_j(i)
 
-      comm_resc_j(i) = comm_resc(indc)
+      comm_resc_j(i,:) = comm_resc(indc,:)
    end do
 
    ! distribute coarse solution
    ireq = ireq + 1
-   call MPI_ISEND(comm_resc_i,lindrowc_adapt_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
+   call MPI_ISEND(comm_resc_i,lindrowc_adapt_i*neigvecx,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
    ireq = ireq + 1
-   call MPI_ISEND(comm_resc_j,lindrowc_adapt_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
-
+   call MPI_ISEND(comm_resc_j,lindrowc_adapt_j*neigvecx,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
 end if
 
 ! Apply corrections at subdomain level
@@ -2844,37 +2869,48 @@ do iinstr = 1,ninstructions
       ! get interface part of the vector of preconditioned residual
       call dd_get_number_of_crows(suba(isub_loc),lindrowc)
 
-      lrescs = lindrowc
-      allocate(rescs(lrescs))
-      call MPI_RECV(rescs,lrescs,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,stat,ierr)
+      lrescs1 = lindrowc
+      lrescs2 = neigvecx
+      allocate(rescs(lrescs1,lrescs2))
+      call MPI_RECV(rescs,lrescs1*lrescs2,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,stat,ierr)
 
 ! COARSE CORRECTION
       call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
-      if (ndofi.ne.length) then
+      if (ndofi*neigvecx.ne.length) then
          call error(routine_name,'Interface size mismatch')
       end if
 
       lsolis = ndofi
       allocate(solis(lsolis))
-      call zero(solis,lsolis)
 
-      ! z_i = z_i + phis_i * uc_i
-      call dd_phisi_apply(suba(isub_loc), rescs,lrescs, solis,lsolis)
-      deallocate(rescs)
-
-      ! add coarse correction to already prepared subdomain correction
-      do i = 1,length
-         bufsend(point + i - 1) = bufsend(point + i - 1) + solis(i)
-      end do
-
-      deallocate(solis)
-
-      if (suppress_preconditioning) then
-         ! plain copy
-         do i = 1,length
-            bufsend(point + i - 1) = bufrecv(point + i - 1)
-         end do
+      vector_size = ndofi
+      if (length .ne. vector_size * neigvecx) then
+         call error(routine_name,'Size mismatch, lenght = ',length)
       end if
+
+      do j = 1,neigvecx
+         call zero(solis,lsolis)
+
+         ! z_i = z_i + phis_i * uc_i
+         call dd_phisi_apply(suba(isub_loc), rescs(1,j),lrescs1, solis,lsolis)
+
+         ! add coarse correction to already prepared subdomain correction
+         do i = 1,vector_size
+            bufsend(point + i - 1) = bufsend(point + i - 1) + solis(i)
+         end do
+
+
+         if (suppress_preconditioning) then
+            ! plain copy
+            do i = 1,vector_size
+               bufsend(point + i - 1) = bufrecv(point + i - 1)
+            end do
+         end if
+
+         point = point + vector_size
+      end do
+      deallocate(rescs)
+      deallocate(solis)
 
    end if
 end do
@@ -2889,13 +2925,12 @@ end if
 ireq = 0
 ! Continue only if I was called from LOBPCG
 if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
+   ! get the chunks of eigenvectors
    ireq = ireq + 1
-   point1 = 1
-   call MPI_IRECV(comm_xaux(point1),ndofi_i,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
+   call MPI_IRECV(comm_chunk_i,ndofi_i*neigvecx,MPI_DOUBLE_PRECISION,comm_myplace1,comm_myisub,comm_comm,request(ireq),ierr)
+   ireq = ireq + 1
+   call MPI_IRECV(comm_chunk_j,ndofi_j*neigvecx,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
 
-   ireq = ireq + 1
-   point2 = ndofi_i + 1
-   call MPI_IRECV(comm_xaux(point2),ndofi_j,MPI_DOUBLE_PRECISION,comm_myplace2,comm_myjsub,comm_comm,request(ireq),ierr)
 end if
 do iinstr = 1,ninstructions
    owner     = instructions(iinstr,1)
@@ -2913,50 +2948,48 @@ if (nreq.gt.0) then
    call MPI_WAITALL(nreq, request, statarray, ierr)
 end if
 
+if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
+   ! combine the chunks of eigenvectors into the big array
+   comm_xaux(:ndofi_i,:)   = comm_chunk_i 
+   comm_xaux(ndofi_i+1:,:) = comm_chunk_j 
+end if
+
 
 ! Continue only of I was called from LOBPCG
 if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
 
    ! reverse sign of vector if this is the A (required for LOBPCG)
    if (idoper.eq.1) then
-      do i = 1,problemsize
-         comm_xaux(i) = -comm_xaux(i)
-      end do
+      comm_xaux = -comm_xaux
    end if
 
    if (idoper.eq.1) then
       ! apply (I-RE)^T = (I - E^T R^T) = (I - D_P^T * R * R^T)
       ! copy the array
-      do i = 1,problemsize
-         comm_xaux2(i) = comm_xaux(i)
-      end do
+      comm_xaux2 = comm_xaux
       !  - apply the R^T operator
-      call adaptivity_apply_RT(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2)
+      call adaptivity_apply_RT(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2_1,comm_lxaux2_2)
       !  - apply the R operator
-      call adaptivity_apply_R(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2)
+      call adaptivity_apply_R(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2_1,comm_lxaux2_2)
       !  - apply weights
-      call adaptivity_apply_weights(weight,lweight,comm_xaux2,comm_lxaux2)
+      call adaptivity_apply_weights(weight,lweight,comm_xaux2,comm_lxaux2_1,comm_lxaux2_2)
       ! Ix - E'R'x
-      do i = 1,problemsize
-         comm_xaux(i) = comm_xaux(i) - comm_xaux2(i)
-      end do
+      comm_xaux = comm_xaux - comm_xaux2
    end if
 
    ! apply projection Pi - to fulfill common constraints
    ! xaux = P xaux (in all regimes)
-   call adaptivity_apply_null_projection(comm_xaux,comm_lxaux)
+   call adaptivity_apply_null_projection(comm_xaux,comm_lxaux_1,comm_lxaux_2)
 
    ! xaux = P_bar xaux
    if (idoper.eq.2) then
       if (is_nullB_ready) then
-         call adaptivity_apply_complementary_projection(comm_xaux,comm_lxaux)
+         call adaptivity_apply_complementary_projection(comm_xaux,comm_lxaux_1,comm_lxaux_2)
       end if
    end if
 
    ! copy result to y
-   do i = 1,lx
-      y(i) = comm_xaux(i)
-   end do
+   y = comm_xaux(:,1:ly2)
 
    ! debug
    !if (idoper.eq.5) then
@@ -2967,11 +3000,14 @@ if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
 
 end if
 
+! debug !!!!
+!y = x
+
 end subroutine
 
-!*************************************************************
-subroutine adaptivity_apply_complementary_projection(vec,lvec)
-!*************************************************************
+!***********************************************************************************
+subroutine adaptivity_apply_complementary_projection(blockvec,lblockvec1,lblockvec2)
+!***********************************************************************************
 ! Subroutine for application of projection onto complement of null(B)
 ! P = I - nullB (nullB' nullB) nullB' = I - Q_1Q_1'
 ! where nullB = QR = [ Q_1 | Q_2 ] R, is the FULL QR decomposition of nullB, Q_1 has
@@ -2979,41 +3015,43 @@ subroutine adaptivity_apply_complementary_projection(vec,lvec)
       use module_utils, only: zero, error
 
       implicit none
-      integer, intent(in) ::    lvec
-      real(kr), intent(inout) :: vec(lvec)
+      integer, intent(in) ::    lblockvec1, lblockvec2
+      real(kr), intent(inout) :: blockvec(lblockvec1,lblockvec2)
 
 ! local variables
       character(*),parameter:: routine_name = 'ADAPTIVITY_APPLY_COMPLEMENTARY_PROJECTION'
       integer :: lapack_info
 
       ! check dimension
-      if (lvec.ne.lnullB1 .or. lvec.ne.problemsize) then
+      if (lblockvec1.ne.lnullB1 .or. lblockvec1.ne.problemsize) then
          call error(routine_name,'input dimension mismatch')
       end if
 
       ! apply prepared projection using LAPACK as P = (I-Q_1Q_1') as P = Q_2Q_2',
       ! where Q
       ! xaux = Q_2' * xaux
-      call DORMQR( 'Left', 'Transpose',     lvec, 1, lnullB2, nullB, ldnullB, &
-                   tau3, vec, lvec, &
+      call DORMQR( 'Left', 'Transpose',     lblockvec1, lblockvec2, lnullB2, nullB, ldnullB, &
+                   tau3, blockvec, lblockvec1, &
                    work3,lwork3, lapack_info)
       if (lapack_info.ne.0) then
          call error(routine_name,'in LAPACK during first application of Q',lapack_info)
       end if
+
       ! put zeros in first N positions of vec
-      call zero(vec,lnullB2)
+      blockvec(1:lnullB2,:) = 0._kr
+
       ! xaux = Q_2 * xaux
-      call DORMQR( 'Left', 'Non-Transpose', lvec, 1, lnullB2, nullB, ldnullB, &
-                   tau3, vec, lvec, &
+      call DORMQR( 'Left', 'Non-Transpose', lblockvec1, lblockvec2, lnullB2, nullB, ldnullB, &
+                   tau3, blockvec, lblockvec1, &
                    work3,lwork3, lapack_info)
       if (lapack_info.ne.0) then
          call error(routine_name,'in LAPACK during second application of Q',lapack_info)
       end if
 end subroutine
 
-!****************************************************
-subroutine adaptivity_apply_null_projection(vec,lvec)
-!****************************************************
+!**************************************************************************
+subroutine adaptivity_apply_null_projection(blockvec,lblockvec1,lblockvec2)
+!**************************************************************************
 ! Subroutine for application of projection onto null(D_ij)
 ! P = I - D' (DD')^-1 D = I - Q_1Q_1'
 ! where D' = QR = [ Q_1 | Q_2 ] R, is the FULL QR decomposition of D', Q_1 has
@@ -3021,8 +3059,8 @@ subroutine adaptivity_apply_null_projection(vec,lvec)
       use module_utils, only: zero
 
       implicit none
-      integer, intent(in) ::    lvec
-      real(kr), intent(inout) :: vec(lvec)
+      integer, intent(in) ::    lblockvec1, lblockvec2
+      real(kr), intent(inout) :: blockvec(lblockvec1,lblockvec2)
 
 ! local variables
       integer :: ldvec, lapack_info
@@ -3031,20 +3069,22 @@ subroutine adaptivity_apply_null_projection(vec,lvec)
       ! where Q
       ldvec = problemsize
       ! xaux = Q_2' * xaux
-      call DORMQR( 'Left', 'Transpose',     ldij1, 1, ldij2, dij, lddij, &
-                   tau, vec, ldvec, &
+      call DORMQR( 'Left', 'Transpose',     ldij1, lblockvec2, ldij2, dij, lddij, &
+                   tau, blockvec, ldvec, &
                    work,lwork, lapack_info)
+
       ! put zeros in first N positions of vec
-      call zero(vec,ldij2)
+      blockvec(1:ldij2,:) = 0._kr
+
       ! xaux = Q_2 * xaux
-      call DORMQR( 'Left', 'Non-Transpose', ldij1, 1, ldij2, dij, lddij, &
-                   tau, vec, ldvec, &
+      call DORMQR( 'Left', 'Non-Transpose', ldij1, lblockvec2, ldij2, dij, lddij, &
+                   tau, blockvec, ldvec, &
                    work,lwork, lapack_info)
 end subroutine
 
-!***************************************************
-subroutine adaptivity_apply_weights(dp,ldp,vec,lvec)
-!***************************************************
+!**************************************************************************
+subroutine adaptivity_apply_weights(dp,ldp, blockvec,lblockvec1,lblockvec2)
+!**************************************************************************
 ! Subroutine for application of weight matrix D_P on vector VEC 
 ! D_P - stored as diagonal
 ! vec_out = D_P * vec_in
@@ -3052,26 +3092,26 @@ subroutine adaptivity_apply_weights(dp,ldp,vec,lvec)
       implicit none
       integer, intent(in)  :: ldp
       real(kr), intent(in) ::  dp(ldp)
-      integer, intent(in)  ::    lvec
-      real(kr), intent(inout) ::  vec(lvec)
+      integer, intent(in)  ::    lblockvec1, lblockvec2
+      real(kr), intent(inout) ::  blockvec(lblockvec1,lblockvec2)
 
 ! local variables
-      integer :: i
+      integer :: j
 
       ! check the length of vector for data
-      if (ldp .ne. lvec) then
+      if (ldp .ne. lblockvec1) then
          write(*,*) 'ADAPTIVITY_APPLY_WEIGHTS: Data size does not match.'
          call error_exit
       end if
 
-      do i = 1,lvec
-         vec(i) = dp(i) * vec(i) 
+      do j = 1,lblockvec2
+         blockvec(:,j) = dp * blockvec(:,j)
       end do
 end subroutine
 
-!*******************************************************
-subroutine adaptivity_apply_R(slavery,lslavery,vec,lvec)
-!*******************************************************
+!*****************************************************************************
+subroutine adaptivity_apply_R(slavery,lslavery,blockvec,lblockvec1,lblockvec2)
+!*****************************************************************************
 ! Subroutine for application of operator R from domain decomposition
 ! R : W_hat -> W
 ! copies values of master variables to slave variables
@@ -3080,29 +3120,31 @@ subroutine adaptivity_apply_R(slavery,lslavery,vec,lvec)
       implicit none
       integer, intent(in) :: lslavery
       integer, intent(in) ::  slavery(lslavery)
-      integer, intent(in)  ::   lvec
-      real(kr), intent(inout) :: vec(lvec)
+      integer, intent(in)  ::   lblockvec1, lblockvec2
+      real(kr), intent(inout) :: blockvec(lblockvec1,lblockvec2)
 
 ! local variables
-      integer :: i, indi
+      integer :: i, indi, j
 
       ! check the length of vector for data
-      if (lslavery .ne. lvec ) then
+      if (lslavery .ne. lblockvec1 ) then
          write(*,*) 'ADAPTIVITY_APPLY_R: Data size does not match.'
          call error_exit
       end if
 
-      do i = 1,lvec
+      do i = 1,lblockvec1
          if (slavery(i).ne.0.and.slavery(i).ne.i) then
             indi = pairslavery(i)
-            vec(i) = vec(indi)
+            do j = 1,lblockvec2
+               blockvec(i,j) = blockvec(indi,j)
+            end do
          end if
       end do
 end subroutine
 
-!********************************************************
-subroutine adaptivity_apply_RT(slavery,lslavery,vec,lvec)
-!********************************************************
+!******************************************************************************
+subroutine adaptivity_apply_RT(slavery,lslavery,blockvec,lblockvec1,lblockvec2)
+!******************************************************************************
 ! Subroutine for application of operator R^T from domain decomposition
 ! R^T : W -> W_hat
 ! works as sum of disconnected entries on master variables, 
@@ -3112,22 +3154,24 @@ subroutine adaptivity_apply_RT(slavery,lslavery,vec,lvec)
       implicit none
       integer, intent(in) :: lslavery
       integer, intent(in) ::  slavery(lslavery)
-      integer, intent(in)  ::   lvec
-      real(kr), intent(inout) :: vec(lvec)
+      integer, intent(in)  ::   lblockvec1,lblockvec2
+      real(kr), intent(inout) :: blockvec(lblockvec1,lblockvec2)
 
 ! local variables
-      integer :: i, indi
+      integer :: i, indi, j
 
       ! check the length of vector for data
-      if (lslavery .ne. lvec ) then
+      if (lslavery .ne. lblockvec1) then
          write(*,*) 'ADAPTIVITY_APPLY_RT: Data size does not match.'
          call error_exit
       end if
 
-      do i = 1,lvec
+      do i = 1,lblockvec1
          if (slavery(i).ne.0.and.slavery(i).ne.i) then
             indi = slavery(i)
-            vec(indi) = vec(indi) + vec(i) 
+            do j = 1,lblockvec2
+               blockvec(indi,j) = blockvec(indi,j) + blockvec(i,j) 
+            end do
          end if
       end do
 end subroutine

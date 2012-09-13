@@ -55,7 +55,9 @@ int dpotrf_gen (char *uplo, int *n, double *a, int *
 
 #define lobpcg_mvecmult_f \
     F_SYMBOL(lobpcg_mvecmult_f,LOBPCG_MVECMULT_F)
-void lobpcg_mvecmult_f(int *n, real *x, int *lx, real *y, int *ly, int *idmatrix);
+void lobpcg_mvecmult_f( real *x,int *lx1,int *lx2, 
+                        real *y,int *ly1,int *ly2, 
+                        int *idmatrix);
 /* end prototypes */
 
 void mvecmult_c (void * data, void * x_p, void * y_p, int idmatrix)
@@ -64,36 +66,32 @@ void mvecmult_c (void * data, void * x_p, void * y_p, int idmatrix)
    serial_Multi_Vector *y = (serial_Multi_Vector *) y_p;
    double  *x_data; 
    double  *y_data;
-   double * src;
-   double * dest;
-   int * x_active_ind;
-   int * y_active_ind;
-   int i;
-   int size;
-   int num_active_vectors;
-   int lx;
-   int ly;
+   int lx1,lx2;
+   int ly1,ly2;
 
-   assert (x->size == y->size && x->num_active_vectors == y->num_active_vectors);
-   assert (x->size>1);
-   
-   x_data = x->data;
-   y_data = y->data;
-   size = x->size;
-   lx = size;
-   ly = size;
-   num_active_vectors = x->num_active_vectors;
-   x_active_ind = x->active_indices;
-   y_active_ind = y->active_indices;
-   
-   for(i=0; i<num_active_vectors; i++)
-   {
-      src = x_data + x_active_ind[i]*size;
-      dest = y_data + y_active_ind[i]*size;
+   assert (x->size == y->size && x->num_vectors == y->num_vectors);
+   //assert (x->size>1);
 
-      /* call Fortran function */
-      lobpcg_mvecmult_f(&size,src,&lx,dest,&ly,&idmatrix);
-   }
+   x_data      = x->data;
+   lx1         = x->size;
+   lx2         = x->num_vectors;
+
+   y_data      = y->data;
+   ly1         = x->size;
+   ly2         = x->num_vectors;
+
+   //num_active_vectors = x->num_active_vectors;
+   //x_active_ind = x->active_indices;
+   //y_active_ind = y->active_indices;
+   
+   //for(i=0; i<num_active_vectors; i++)
+   //{
+   //src  = x_data + x_active_ind[i]*size;
+   //dest = y_data + y_active_ind[i]*size;
+
+   /* call Fortran function */
+   lobpcg_mvecmult_f(x_data,&lx1,&lx2, y_data,&ly1,&ly2, &idmatrix);
+   //}
    
 }
 

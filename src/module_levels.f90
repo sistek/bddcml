@@ -4281,9 +4281,9 @@ subroutine levels_dd_fix_bc_interface_dual(ilevel,isub_loc,resi,lresi)
 
 end subroutine
 
-!********************************************************
-subroutine levels_adaptivity_mvecmult(n,x,lx,y,ly,idoper)
-!********************************************************
+!******************************************************************
+subroutine levels_adaptivity_mvecmult(x,lx1,lx2, y,ly1,ly2, idoper)
+!******************************************************************
 ! Subroutine used inside generation of adaptive constraints,
 ! helps eigensolver with multiplication of vector x by local Schur complement
 ! and storing result in y.
@@ -4291,18 +4291,16 @@ subroutine levels_adaptivity_mvecmult(n,x,lx,y,ly,idoper)
       use module_adaptivity
       implicit none
 
-      ! length of vector
-      integer,intent(in) ::   n 
-      integer,intent(in) ::  lx 
-      real(kr),intent(in) ::  x(lx)
-      integer,intent(in) ::  ly 
-      real(kr),intent(out) :: y(ly)
+      integer,intent(in) ::  lx1, lx2
+      real(kr),intent(in) ::  x(lx1,lx2)
+      integer,intent(in) ::  ly1, ly2 
+      real(kr),intent(out) :: y(ly1,ly2)
       integer,intent(inout) ::  idoper 
 
       ! add data from module and call function from adaptive module
       call adaptivity_mvecmult(levels(iactive_level)%subdomains,levels(iactive_level)%lsubdomains,&
                                levels(iactive_level)%indexsub,levels(iactive_level)%lindexsub,&
-                               n,x,lx,y,ly,idoper)
+                               x,lx1,lx2, y,ly1,ly2, idoper)
 end subroutine
 
 !************************************

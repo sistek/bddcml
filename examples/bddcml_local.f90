@@ -52,7 +52,7 @@ program bddcml_local
       integer,parameter :: use_arithmetic_constraints = 1
 
 ! use adaptive constraints?
-      integer,parameter :: use_adaptive_constraints = 0
+      integer,parameter :: use_adaptive_constraints = 1
 
 ! use user constraints?
       integer,parameter :: use_user_constraints = 0
