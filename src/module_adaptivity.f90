@@ -64,7 +64,7 @@ logical,parameter,private ::  try_harder = .false.
 ! F - load eigenvectors from file
 logical,parameter,private :: recompute_vectors = .true.
 ! debugging 
-logical,parameter,private :: debug = .true.
+logical,parameter,private :: debug = .false.
 logical,parameter,private :: profile = .true.
 
 ! maximal allowed length of file names
@@ -1268,6 +1268,10 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                allocate(z(lz1,lz2))
                call zero(z,lz1,lz2)
 
+               lwork = max(lz2,lwork)
+               deallocate(work)
+               allocate(work(lwork))
+
                ! copy phisi_i into Z
                do j = 1,lphisi2_i
                   do i = 1,lphisi1_i
@@ -1358,15 +1362,22 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          else
             if (i_compute_pair) then
                ! prepare auxiliary space used in each iteration of eigensolver
-               comm_lxaux_1  = problemsize
-               comm_lxaux_2  = neigvecx
-               comm_lxaux2_1 = problemsize
-               comm_lxaux2_2 = neigvecx
-               allocate(comm_xaux(comm_lxaux_1,comm_lxaux_2),comm_xaux2(comm_lxaux2_1,comm_lxaux2_2))
+               comm_lxaux_1     = problemsize
+               comm_lxaux2_1    = problemsize
                comm_lchunk_i_1  = ndofi_i
-               comm_lchunk_i_2  = neigvecx
                comm_lchunk_j_1  = ndofi_j
-               comm_lchunk_j_2  = neigvecx
+               if (apply_null_projection) then
+                  comm_lxaux_2     = max(neigvecx,lz2)
+                  comm_lxaux2_2    = max(neigvecx,lz2)
+                  comm_lchunk_i_2  = max(neigvecx,lz2)
+                  comm_lchunk_j_2  = max(neigvecx,lz2)
+               else
+                  comm_lxaux_2     = neigvecx
+                  comm_lxaux2_2    = neigvecx
+                  comm_lchunk_i_2  = neigvecx
+                  comm_lchunk_j_2  = neigvecx
+               end if
+               allocate(comm_xaux(comm_lxaux_1,comm_lxaux_2),comm_xaux2(comm_lxaux2_1,comm_lxaux2_2))
                allocate(comm_chunk_i(comm_lchunk_i_1,comm_lchunk_i_2),comm_chunk_j(comm_lchunk_j_1,comm_lchunk_j_2))
             end if
          end if
@@ -1496,7 +1507,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                ! LAPACK arrays
                ltau3 = null_dim
                allocate(tau3(ltau3))
-               lwork3 = max(1,null_dim)
+               lwork3 = max(1,max(lz2,neigvecx))
                allocate(work3(lwork3))
                call DGEQRF( lnullB1, lnullB2, nullB(:,:), ldnullB, tau3, work3, lwork3, lapack_info)
                if (lapack_info.ne.0) then
@@ -2550,7 +2561,7 @@ integer,intent(inout) ::  idoper
 ! local vars
 character(*),parameter:: routine_name = 'ADAPTIVITY_MVECMULT'
 integer :: i, j
-integer :: iinstr, isub, isub_loc, owner, point1, point2, point, length, vector_size, do_i_compute, is_active
+integer :: iinstr, isub, isub_loc, owner, point, length, vector_size, do_i_compute, is_active
 logical :: solve_adjoint
 
 ! small BDDC related vars
@@ -2575,8 +2586,8 @@ comm_calls = comm_calls + 1
 
 
 ! debug
-print *,'myid = ',comm_myid,'idoper = ',idoper
-call flush(6)
+!print *,'myid = ',comm_myid,'idoper = ',idoper
+!call flush(6)
 
 ! Check if all processors simply called the fake routine - if so, finalize
 if (idoper.eq.3) then
@@ -2664,13 +2675,16 @@ if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5 ) then
        call error(routine_name, 'Array size not match, comm_lxaux_2 = ',comm_lxaux_2)
    end if
 
+
    ! make temporary copy
+   comm_xaux = 0._kr
    comm_xaux(:,1:lx2) = x
+
+   ! debug
+   !comm_xaux = 1._kr
    
    ! debug
    !if (idoper.eq.5) then
-   !   print *, 'comm_xaux before'
-   !   print '(f9.3)',comm_xaux
    !end if
 
    ! xaux = P_bar xaux
@@ -2711,7 +2725,6 @@ if (nreq.gt.0) then
    call MPI_WAITALL(nreq, request, statarray, ierr)
 end if
 
-
 ! If I am preconditioning, get coarse residuals
 ireq = 0
 ! Continue only of I was called from LOBPCG
@@ -2734,7 +2747,8 @@ do iinstr = 1,ninstructions
 
       ! Multiply by Schur complement
       call get_index(isub,indexsub,lindexsub,isub_loc)
-      vector_size = suba(isub_loc)%ndofi
+      call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
+      vector_size = ndofi
       if (length .ne. vector_size * neigvecx) then
          call error(routine_name,'Size mismatch, lenght = ',length)
       end if
@@ -2750,7 +2764,8 @@ do iinstr = 1,ninstructions
       ! SUBDOMAIN CORRECTION
       ! prepare array of augmented size
       call get_index(isub,indexsub,lindexsub,isub_loc)
-      vector_size = suba(isub_loc)%ndofi
+      call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)
+      vector_size = ndofi
       if (length .ne. vector_size * neigvecx) then
          call error(routine_name,'Size mismatch, lenght = ',length)
       end if
@@ -2834,12 +2849,14 @@ if (idoper.eq.5) then
    !print *, 'resc after'
    !print '(e15.6)',comm_resc
 
+   comm_resc_i = 0._kr
    ! pick local solutions
    do i = 1,lindrowc_adapt_i
       indc = indrowc_adapt_i(i)
 
       comm_resc_i(i,:) = comm_resc(indc,:)
    end do
+   comm_resc_j = 0._kr
    do i = 1,lindrowc_adapt_j
       indc = indrowc_adapt_j(i)
 
@@ -2990,6 +3007,13 @@ if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5) then
 
    ! copy result to y
    y = comm_xaux(:,1:ly2)
+
+   !if (comm_myid.eq.0) then
+   !   do i = 1,comm_lxaux_1
+   !      write(10,'(10f16.4)') comm_xaux(i,:)
+   !   end do
+   !   call flush(10)
+   !end if
 
    ! debug
    !if (idoper.eq.5) then
