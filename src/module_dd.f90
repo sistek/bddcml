@@ -4099,9 +4099,10 @@ subroutine dd_append_cnode_constraits(cnode,matrix,lmatrix1,lmatrix2, nnz)
       nnz_old   = cnode%nnz 
 
       ! store existing matrix
-      lmatrix_old1 = cnode%lmatrix1
-      lmatrix_old2 = cnode%lmatrix2
+      lmatrix_old1 = 0
       if (allocated(cnode%matrix)) then
+         lmatrix_old1 = cnode%lmatrix1
+         lmatrix_old2 = cnode%lmatrix2
          allocate(matrix_old(lmatrix_old1,lmatrix_old2))
          matrix_old = cnode%matrix
          deallocate(cnode%matrix)
@@ -4150,7 +4151,7 @@ subroutine dd_orthogonalize_constraints(sub,itype)
       real(kr),allocatable ::  work(:)
       integer              :: ltau
       real(kr),allocatable ::  tau(:)
-      integer             :: lapack_info, ldconstraints
+      integer             :: lapack_info = 0, ldconstraints
 
       real(kr) :: normval, thresh_diag
 
@@ -4215,7 +4216,10 @@ subroutine dd_orthogonalize_constraints(sub,itype)
 
             ldconstraints = max(1,lconstraints1)
             ! QR decomposition
-            call DGEQP3( lconstraints1, lconstraints2, constraints, ldconstraints, ipiv, tau, work, lwork, lapack_info )
+            if (lconstraints2.gt.0) then
+               call DGEQP3( lconstraints1, lconstraints2, constraints, ldconstraints, ipiv, tau, work, lwork, lapack_info )
+            end if
+
 
             !write (*,*) 'constraints after QR factorization'
             !do i = 1,lconstraints1
@@ -4245,7 +4249,10 @@ subroutine dd_orthogonalize_constraints(sub,itype)
             !write (*,*) 'Number of constraints to really use nvalid',nvalid
 
             ! construct Q in constraints array
-            call DORGQR( lconstraints1, nvalid, nvalid, constraints, ldconstraints, tau, work, lwork, lapack_info )
+            lapack_info = 0
+            if (lconstraints2.gt.0) then
+               call DORGQR( lconstraints1, nvalid, nvalid, constraints, ldconstraints, tau, work, lwork, lapack_info )
+            end if
 
             deallocate(work)
             deallocate(tau)
@@ -5839,9 +5846,9 @@ subroutine dd_construct_interior_residual(sub,sol,lsol,reso,lreso)
 end subroutine
 
 
-!*********************************************
-subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
-!*********************************************
+!**************************************************
+subroutine dd_multiply_by_schur(sub,x,lx,y,ly,ncol)
+!**************************************************
 ! Subroutine for multiplication of interface vector by Schur complement
       use module_utils
       use module_mumps
@@ -5859,7 +5866,12 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
       integer,intent(in)   :: ly
       real(kr),intent(out) ::  y(ly)
 
+      ! number of columns in x and y
+      integer,intent(in)   :: ncol
+
+
       ! local vars
+      character(*),parameter:: routine_name = 'DD_MULTIPLY_BY_SCHUR'
       integer ::              laux1
       real(kr),allocatable ::  aux1(:)
       integer ::              laux2
@@ -5867,23 +5879,22 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
 
       integer :: ndofi, ndofo, nnza12, la12, nnza21, la21, nnza22, la22, &
                  matrixtype_aux, matrixtype
-      integer :: i
+      integer :: j
       logical :: is_symmetric_storage
 
       ! check the prerequisities
       if (.not. (sub%is_interior_factorized)) then
-         write(*,*) 'DD_PREPARE_SCHUR: Interior block not factorized yet.',sub%isub
-         call error_exit
+         call error( routine_name, 'Interior block not factorized yet.', sub%isub)
       end if
-      if (.not. (sub%ndofi .eq. lx .or. .not. lx .eq. ly)) then
-         write(*,*) 'DD_PREPARE_SCHUR: Inconsistent data size.'
-         call error_exit
+      if (.not. (sub%ndofi .eq. lx/ncol .or. .not. lx .eq. ly)) then
+         call error( routine_name, 'Inconsistent data size.', sub%isub)
       end if
  
       ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
+      ndofi = sub%ndofi
       ndofo = sub%ndofo
       if (ndofo.gt.0) then
-         laux1 = ndofo
+         laux1 = ndofo * ncol
          allocate(aux1(laux1))
    
          ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
@@ -5891,12 +5902,15 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
          matrixtype_aux = 0
          nnza12     = sub%nnza12
          la12       = sub%la12
-         call sm_vec_mult(matrixtype_aux, nnza12, &
-                          sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
-                          x,lx, aux1,laux1)
+
+         do j = 1,ncol
+            call sm_vec_mult(matrixtype_aux, nnza12, &
+                             sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
+                             x((j-1)*ndofi + 1),ndofi, aux1((j-1)*ndofo + 1),ndofo)
+         end do
    
          ! resolve interior problem by MUMPS
-         call mumps_resolve(sub%mumps_interior_block,aux1,laux1)
+         call mumps_resolve(sub%mumps_interior_block,aux1,laux1,ncol)
    
          if (sub%istorage .eq. 4) then
             is_symmetric_storage = .true.
@@ -5906,41 +5920,43 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
    
          ! prepare auxiliary vector for multiplication
          ndofi = sub%ndofi
-         laux2 = ndofi
+         laux2 = ndofi * ncol
          allocate(aux2(laux2))
    
          ! get aux2 = A_21*aux1, i.e. aux2 = A_21 * (A_11)^-1 * A_12 * x
-         if (is_symmetric_storage) then
-            matrixtype_aux = 0
-            nnza12     = sub%nnza12
-            la12       = sub%la12
-            ! use the matrix with transposed indices in the call sm_vec_mult
-            call sm_vec_mult(matrixtype_aux, nnza12, &
-                             sub%j_a12_sparse, sub%i_a12_sparse, sub%a12_sparse, la12, &
-                             aux1,laux1, aux2,laux2)
-         else
-            matrixtype_aux = 0
-            nnza21     = sub%nnza21
-            la21       = sub%la21
-            call sm_vec_mult(matrixtype_aux, nnza21, &
-                             sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, la21, &
-                             aux1,laux1, aux2,laux2)
-         end if
+         do j = 1,ncol
+            if (is_symmetric_storage) then
+               matrixtype_aux = 0
+               nnza12     = sub%nnza12
+               la12       = sub%la12
+               ! use the matrix with transposed indices in the call sm_vec_mult
+               call sm_vec_mult(matrixtype_aux, nnza12, &
+                                sub%j_a12_sparse, sub%i_a12_sparse, sub%a12_sparse, la12, &
+                                aux1((j-1)*ndofo + 1),ndofo, aux2((j-1)*ndofi + 1),ndofi)
+            else
+               matrixtype_aux = 0
+               nnza21     = sub%nnza21
+               la21       = sub%la21
+               call sm_vec_mult(matrixtype_aux, nnza21, &
+                                sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, la21, &
+                                aux1((j-1)*ndofo + 1),ndofo, aux2((j-1)*ndofi + 1),ndofi)
+            end if
+         end do
       end if
 
       ! get y = A_22*x
       matrixtype = sub%matrixtype
       nnza22     = sub%nnza22
       la22       = sub%la22
-      call sm_vec_mult(matrixtype, nnza22, &
-                       sub%i_a22_sparse, sub%j_a22_sparse, sub%a22_sparse, la22, &
-                       x,lx, y,ly)
+      do j = 1,ncol
+         call sm_vec_mult(matrixtype, nnza22, &
+                          sub%i_a22_sparse, sub%j_a22_sparse, sub%a22_sparse, la22, &
+                          x((j-1)*ndofi + 1),ndofi, y((j-1)*ndofi + 1),ndofi)
+      end do
 
       ! add results together to get y = y - aux2, i.e. y = A_22 * x - A_21 * (A_11)^-1 * A_12 * x, or y = (A_22 - A_21 * (A_11)^-1 * A_12) * x
       if (ndofo.gt.0) then
-         do i = 1,ly
-            y(i) = y(i) - aux2(i)
-         end do
+         y = y - aux2
  
          deallocate(aux1)
          deallocate(aux2)
@@ -7082,7 +7098,7 @@ subroutine dd_prepare_explicit_schur(sub)
          e(j) = 1._kr
 
          ! get column of S*I
-         call dd_multiply_by_schur(sub,e,le,sub%schur(1:lschur1,j),le)
+         call dd_multiply_by_schur(sub,e,le,sub%schur(1:lschur1,j),le,1)
 
       end do
       deallocate(e)

@@ -472,7 +472,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       real(kr),external :: ddot
 
       ! LAPACK QR related variables
-      integer :: lapack_info
+      integer :: lapack_info = 0
       ! LAPACK eigenproblems
       integer::              lwork2
       real(kr),allocatable :: work2(:)
@@ -525,6 +525,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       allocate(pair_data(lpair_data))
       ! unit for local reading/writing from/to file
       idmyunit = idbase + myid
+
+      ! initialize estimate of condition number
+      est = -1._kr
 
       ! Loop over rounds of eigenvalue solves
       do iround = 1,npair_locx
@@ -987,6 +990,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             allocate(work(lwork))
             ! leading dimension
             lddij = max(1,ldij1)
+            lapack_info = 0
             call DGEQRF( ldij1, ldij2, dij, lddij, tau, work, lwork, lapack_info)
             if (lapack_info.ne.0) then
                call error(routine_name,' in LAPACK QR factorization of matrix D_ij^T: ', lapack_info)
@@ -1456,6 +1460,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                allocate(work2(lwork2))
                lwork2 = -1
                ! first call routine just to find optimal size of WORK2
+               lapack_info = 0
                call DSYEV( 'Vectors', 'Upper', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
                if (lapack_info.ne.0) then
                   call error(routine_name,'in LAPACK during finding size for nullspace eigenproblem solution:',lapack_info)
@@ -1464,6 +1469,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                deallocate(work2)
                allocate(work2(lwork2))
                ! now call LAPACK to solve the eigenproblem
+               lapack_info = 0
                call DSYEV( 'Vectors', 'Upper', lzbz1, zbz(:,:), lzbz1, zbzeigval, work2, lwork2, lapack_info )
                deallocate(work2)
                if (lapack_info.ne.0) then
@@ -1509,6 +1515,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                allocate(tau3(ltau3))
                lwork3 = max(1,max(lz2,neigvecx))
                allocate(work3(lwork3))
+               lapack_info = 0
                call DGEQRF( lnullB1, lnullB2, nullB(:,:), ldnullB, tau3, work3, lwork3, lapack_info)
                if (lapack_info.ne.0) then
                   call error(routine_name,' in LAPACK QR factorization of matrix null(B): ', lapack_info)
@@ -1731,6 +1738,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                allocate(work2(lwork2))
                lwork2 = -1
                ! first call routine just to find optimal size of WORK2
+               lapack_info = 0
                call DSYGV( 1,'V','U', problemsize, mata, problemsize, matb, problemsize, eiglap, work2,lwork2, lapack_info)
                if (lapack_info.ne.0) then
                   call error(routine_name,'in LAPACK during finding size for eigenproblem solution:',lapack_info)
@@ -1740,9 +1748,11 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                print *,'I am here, LAPACK OK, lwork2:',lwork2
                allocate(work2(lwork2))
                ! now call LAPACK to solve the eigenproblem
+               lapack_info = 0
                call DSYGV( 1,'V','U', problemsize, mata, problemsize, matb, problemsize, eiglap, work2,lwork2, lapack_info)
                deallocate(work2)
                print *,'I am here 2, LAPACK OK, lwork2:',lwork2
+               lapack_info = 0
                if (lapack_info.ne.0) then
                   call error(routine_name,'in LAPACK during solving eigenproblems:',lapack_info)
                end if
@@ -2510,7 +2520,7 @@ subroutine adaptivity_fake_lobpcg_driver
 
       ! these have no meaning and are present only for matching the arguments
       integer :: lx1 = 0, lx2 = 0, ly1 = 0, ly2 = 0
-      real(kr) :: x, y
+      real(kr) :: x(1), y(1)
 
 
       ! repeat loop until idmat not equal 3
@@ -2752,10 +2762,8 @@ do iinstr = 1,ninstructions
       if (length .ne. vector_size * neigvecx) then
          call error(routine_name,'Size mismatch, lenght = ',length)
       end if
-      do j = 1,neigvecx
-         call dd_multiply_by_schur(suba(isub_loc),bufrecv(point),vector_size,bufsend(point),vector_size)
-         point = point + vector_size
-      end do
+
+      call dd_multiply_by_schur(suba(isub_loc),bufrecv(point),length,bufsend(point),length,neigvecx)
    end if
    if (is_active .eq. 2) then
       point  = kbufsend(iinstr)
@@ -2833,15 +2841,17 @@ if (idoper.eq.5) then
    ! u = V * Lambda^-1 * V' f
    laux2 = comm_lresc1
    allocate(aux2(laux2))
-   do j = 1,neigvecx
+   do j = 1,comm_lresc2
       ! apply V'
-      call DGEMV('Transpose',lcoarsem_adapt1,lcoarsem_adapt2,1._kr,coarsem_adapt,lcoarsem_adapt1,comm_resc(1,j),1,0._kr,aux2,1)
+      call DGEMV('Transpose',lcoarsem_adapt1,lcoarsem_adapt2,1._kr,coarsem_adapt,lcoarsem_adapt1,comm_resc(1,j),1,&
+                 0._kr,aux2(1),1)
       ! apply Lambda^-1
       do i = 1,laux2
          aux2(i) = kceigval(i) * aux2(i)
       end do
       ! apply V
-      call DGEMV('Non-transpose',lcoarsem_adapt1,lcoarsem_adapt2,1._kr,coarsem_adapt,lcoarsem_adapt1,aux2,1,0._kr,comm_resc(1,j),1)
+      call DGEMV('Non-transpose',lcoarsem_adapt1,lcoarsem_adapt2,1._kr,coarsem_adapt,lcoarsem_adapt1,aux2(1),1,&
+                 0._kr,comm_resc(1,j),1)
    end do
    deallocate(aux2)
 
@@ -3087,23 +3097,25 @@ subroutine adaptivity_apply_null_projection(blockvec,lblockvec1,lblockvec2)
       real(kr), intent(inout) :: blockvec(lblockvec1,lblockvec2)
 
 ! local variables
-      integer :: ldvec, lapack_info
+      integer :: ldvec, lapack_info = 0
 
       ! apply prepared projection using LAPACK as P = (I-Q_1Q_1') as P = Q_2Q_2',
       ! where Q
       ldvec = problemsize
       ! xaux = Q_2' * xaux
+      lapack_info = 0
       call DORMQR( 'Left', 'Transpose',     ldij1, lblockvec2, ldij2, dij, lddij, &
                    tau, blockvec, ldvec, &
-                   work,lwork, lapack_info)
+                   work(1),lwork, lapack_info)
 
       ! put zeros in first N positions of vec
       blockvec(1:ldij2,:) = 0._kr
 
       ! xaux = Q_2 * xaux
+      lapack_info = 0
       call DORMQR( 'Left', 'Non-Transpose', ldij1, lblockvec2, ldij2, dij, lddij, &
                    tau, blockvec, ldvec, &
-                   work,lwork, lapack_info)
+                   work(1),lwork, lapack_info)
 end subroutine
 
 !**************************************************************************

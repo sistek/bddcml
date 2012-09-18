@@ -3738,7 +3738,7 @@ subroutine levels_sm_apply(common_krylov_data,lcommon_krylov_data)
 
          call dd_multiply_by_schur(levels(ilevel)%subdomains(isub_loc),&
                                    common_krylov_data(isub_loc)%vec_in,common_krylov_data(isub_loc)%lvec_in, &
-                                   common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
+                                   common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out, 1)
 
          call dd_comm_upload(levels(ilevel)%subdomains(isub_loc), &
                              common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
