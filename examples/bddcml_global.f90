@@ -50,7 +50,7 @@ program bddcml_global
       integer,parameter :: use_arithmetic_constraints = 1
 
 ! use adaptive constraints?
-      integer,parameter :: use_adaptive_constraints = 0
+      integer,parameter :: use_adaptive_constraints = 1
 
 ! use user constraints?
       integer,parameter :: use_user_constraints = 0
@@ -59,7 +59,7 @@ program bddcml_global
       integer, parameter :: numbase = 1
 
 ! use prepared division into subdomains on first level in file *.ES?
-      integer,parameter :: load_division = 0
+      integer,parameter :: load_division = 1
 ! use prepared selection of corners in file *.CN and description of globs for first level in file *.GLB?
       integer,parameter :: load_globs = 0
 ! use prepared file with pairs for adaptivity (*.PAIR) on first level?

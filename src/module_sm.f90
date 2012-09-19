@@ -938,8 +938,8 @@ subroutine sm_vec_mult_full(nnz, i_sparse, j_sparse, a_sparse, la, &
 
 ! Vectors
       integer,intent(in)  :: lvec_in, lvec_out
-      real(kr),intent(in) :: vec_in(lvec_in)
-      real(kr),intent(out):: vec_out(lvec_out)
+      real(kr),intent(in) ::   vec_in(lvec_in)
+      real(kr),intent(inout):: vec_out(lvec_out)
 
 ! local variables
       integer:: ia, indi, indj
@@ -972,8 +972,8 @@ subroutine sm_vec_mult_full_mask(nnz, i_sparse, j_sparse, a_sparse, la, &
 
 ! Vectors
       integer,intent(in)  :: lvec_in, lvec_out
-      real(kr),intent(in) :: vec_in(lvec_in)
-      real(kr),intent(out):: vec_out(lvec_out)
+      real(kr),intent(in) ::   vec_in(lvec_in)
+      real(kr),intent(inout):: vec_out(lvec_out)
 
 ! Blocks of matrix
       ! selects a block of matrix, e.g. corresponding to interface
@@ -1036,7 +1036,7 @@ subroutine sm_vec_mult_sym(nnz, i_sparse, j_sparse, a_sparse, la, &
 ! Vectors
       integer,intent(in)  :: lvec_in, lvec_out
       real(kr),intent(in) :: vec_in(lvec_in)
-      real(kr),intent(out):: vec_out(lvec_out)
+      real(kr),intent(inout):: vec_out(lvec_out)
 
 ! Blocks of matrix
       ! selects a block of matrix, e.g. corresponding to interface
@@ -1134,8 +1134,8 @@ subroutine sm_vec_mult_sym_mask(nnz, i_sparse, j_sparse, a_sparse, la, &
 
 ! Vectors
       integer,intent(in)  :: lvec_in, lvec_out
-      real(kr),intent(in) :: vec_in(lvec_in)
-      real(kr),intent(out):: vec_out(lvec_out)
+      real(kr),intent(in) ::   vec_in(lvec_in)
+      real(kr),intent(inout):: vec_out(lvec_out)
 
 ! Blocks of matrix
       ! selects a block of matrix, e.g. corresponding to interface
@@ -1230,8 +1230,8 @@ subroutine sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
 ! Dense matrices
       integer,intent(in)   :: lmat_in1, lmat_in2
       real(kr),intent(in)  :: mat_in(lmat_in1, lmat_in2)
-      integer,intent(in)   :: lmat_out1, lmat_out2
-      real(kr),intent(out) :: mat_out(lmat_out1, lmat_out2)
+      integer,intent(in)   ::  lmat_out1, lmat_out2
+      real(kr),intent(inout) :: mat_out(lmat_out1, lmat_out2)
 
 ! Local variables
       integer :: icol
