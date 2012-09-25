@@ -2067,9 +2067,12 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                      write(*,*) 'myid =',myid,', I am calling eigensolver for pair ',my_pair
                      write(*,*) 'myid =',myid,', LOBPCG tolerance: ',lobpcg_tol
                   end if
-                  call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,use_vec_values,&
-                                     lobpcg_preconditioner,&
-                                     eigval,eigvec,lobpcg_iter,ierr)
+                  ierr = 0
+                  if (neigvec.gt.0) then
+                     call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,use_vec_values,&
+                                        lobpcg_preconditioner,&
+                                        eigval,eigvec,lobpcg_iter,ierr)
+                  end if
                   if (ierr.ne.0) then
                      call warning(routine_name,'LOBPCG exited with nonzero code for pair',my_pair)
                      if (debug) then
