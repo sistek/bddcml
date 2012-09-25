@@ -1199,6 +1199,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       logical :: is_comm_parmetis_created
       integer ::             nproc_used, kranks, iproc
       integer ::             nelem_loc_min
+      integer ::             lkadjsub_row
 
       ! variables for matrix distribution among levels
       integer ::            comm_prev, myid_prev, nproc_prev
@@ -1869,7 +1870,12 @@ subroutine levels_prepare_standard_level(parallel_division,&
             isub = levels(ilevel)%indexsub(isub_loc)
             pkadjsub = (isub-1)*nsub
          end if
-         call dd_localize_adj(levels(ilevel)%subdomains(isub_loc),nsub,kadjsub(pkadjsub+1),nsub)
+         if (.not.allocated(kadjsub)) then
+            lkadjsub_row = 0
+         else
+            lkadjsub_row = nsub
+         end if
+         call dd_localize_adj(levels(ilevel)%subdomains(isub_loc),nsub,kadjsub(pkadjsub+1),lkadjsub_row)
       end do
       if (allocated(kadjsub)) then
          deallocate(kadjsub)

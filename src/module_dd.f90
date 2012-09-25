@@ -311,7 +311,7 @@ module module_dd
          ! subdomain coarse matrix 
          logical :: is_coarse_prepared = .false.
          integer ::               coarse_matrixtype
-         integer ::               lcoarsem
+         integer ::               lcoarsem = 0
          real(kr),allocatable ::   coarsem(:)
          ! embedded into global coarse matrix by array INDROWC
 
@@ -1853,7 +1853,7 @@ subroutine dd_localize_adj(sub,nsub,kadjsub,lkadjsub)
 
       ! check dimension
       if (nsub.ne.lkadjsub) then
-         call error('DD_LOCALIZE_ADJ','array dimension mismatch.')
+         call warning('DD_LOCALIZE_ADJ','zero kadjsub length.')
       end if
       if (nsub.ne.sub%nsub) then
          call error('DD_LOCALIZE_ADJ','number of subdomains mismatch.')
@@ -1862,11 +1862,13 @@ subroutine dd_localize_adj(sub,nsub,kadjsub,lkadjsub)
       isub = sub%isub
 
       nadjs = 0
-      do jsub = 1,nsub
-         if (kadjsub(jsub).eq.1) then
-            nadjs = nadjs + 1
-         end if
-      end do
+      if (lkadjsub.gt.0) then
+         do jsub = 1,nsub
+            if (kadjsub(jsub).eq.1) then
+               nadjs = nadjs + 1
+            end if
+         end do
+      end if
       ! debug
       !print *,'nadjs for sub',isub,':',nadjs
 
@@ -1874,12 +1876,14 @@ subroutine dd_localize_adj(sub,nsub,kadjsub,lkadjsub)
       liadjs = nadjs
       allocate(iadjs(liadjs))
       indadjs = 0
-      do jsub = 1,nsub
-         if (kadjsub(jsub).eq.1) then
-            indadjs = indadjs + 1
-            iadjs(indadjs) = jsub
-         end if
-      end do
+      if (lkadjsub.gt.0) then
+         do jsub = 1,nsub
+            if (kadjsub(jsub).eq.1) then
+               indadjs = indadjs + 1
+               iadjs(indadjs) = jsub
+            end if
+         end do
+      end if
       ! debug
       !print *,'iadjs for sub',isub,':',iadjs
       call flush(6)
@@ -2364,7 +2368,9 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
          ! prepare kinet
          lkinet = nelem
          allocate(kinet(lkinet))
-         kinet(1) = 0
+         if (lkinet.gt.0) then
+            kinet(1) = 0
+         end if
          do i = 2,lkinet
             kinet(i) = kinet(i-1) + nnet(i-1)
          end do
@@ -4032,11 +4038,11 @@ subroutine dd_append_cnode_constraits(cnode,matrix,lmatrix1,lmatrix2, nnz)
       if (cnode%nvar .ne. lmatrix2) then
          call error(routine_name, 'Matrix size mismatch for coarse node',cnode%global_cnode_number)
       end if
-      if (count(matrix.ne.0._kr) .ne. nnz) then
-         call info( routine_name, 'nnz = ',nnz )
-         call info( routine_name, 'count(matrix.ne.0._kr) = ',count(matrix.ne.0._kr) )
-         call error(routine_name, 'Matrix number of nonzeros mismatch for coarse node',cnode%global_cnode_number)
-      end if
+      !if (count(matrix.ne.0._kr) .ne. nnz) then
+      !   call info( routine_name, 'nnz = ',nnz )
+      !   call info( routine_name, 'count(matrix.ne.0._kr) = ',count(matrix.ne.0._kr) )
+      !   call error(routine_name, 'Matrix number of nonzeros mismatch for coarse node',cnode%global_cnode_number)
+      !end if
 
       ncdof_old = cnode%ncdof
       nnz_old   = cnode%nnz 
@@ -4852,7 +4858,7 @@ subroutine dd_prepare_coarse(sub,keep_global)
          return
       end if
       if (.not.sub%is_aug_factorized) then
-         call error(routine_name, 'Augmented matrix in not factorized for subdomain:', sub%isub)
+         call error(routine_name, 'Augmented matrix is not factorized for subdomain:', sub%isub)
       end if
       if (.not.sub%is_mumps_aug_active) then
          call error(routine_name, 'Augmented matrix solver in not ready for subdomain:', sub%isub)
@@ -5131,6 +5137,10 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs, solve_adjoint)
       ! local vars
       integer ::  ndofaaug
 
+      if (sub%is_degenerated) then
+         return
+      end if
+
       ! check the prerequisities
       if (.not.sub%is_aug_factorized) then
          write(*,*) 'DD_SOLVE_AUG: Augmented matrix in not factorized for subdomain:', sub%isub
@@ -5152,9 +5162,7 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs, solve_adjoint)
       end if
 
       ! solve the system with multiple RHS
-      if (.not.sub%is_degenerated) then
-         call mumps_resolve(sub%mumps_aug,vec,lvec,nrhs,solve_adjoint)
-      end if
+      call mumps_resolve(sub%mumps_aug,vec,lvec,nrhs,solve_adjoint)
 
 end subroutine
 
@@ -5661,6 +5669,7 @@ subroutine dd_get_my_coarsem(suba,lsuba,matrixtype,indexsub,lindexsub,i_sparse, 
          else if (matrixtype.eq.1 .or. matrixtype.eq.2) then
             ! symmetric matrix
             if (lcoarsem .ne. ((lindrowc+1) * lindrowc)/2) then
+               write(*,*) 'lcoarsem:', lcoarsem, 'lindrowc', lindrowc
                write(*,*) 'DD_GET_MY_COARSEM: Error in coarse matrix length for symmetric matrix.'
                call error_exit
             end if

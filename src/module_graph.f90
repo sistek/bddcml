@@ -62,7 +62,9 @@ integer :: ie, indinet, indnode, ine, nne, indelmn, pointietn, inod
       end do
 
       ! Create array of pointers into ietn (transpose of inet)
-      kietn(1) = 0
+      if (lkietn.gt.0) then
+         kietn(1) = 0
+      end if
       do inod = 2,nnod
          kietn(inod) = kietn(inod-1) + netn(inod-1)
       end do

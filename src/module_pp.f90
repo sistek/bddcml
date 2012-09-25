@@ -280,7 +280,8 @@ integer :: ierr
          ! check number of elements
          if (sum(nelempa).ne.nelem) then
             if (myid.eq.0) then
-               write(*,'(a)') 'Error in number of elements for processors.'
+               write(*,*) 'Error in number of elements for processors, sum(nelempa), nelem:', sum(nelempa), nelem
+               write(*,*) 'nelempa:', nelempa
                call flush(6)
                call error_exit
             end if
