@@ -156,21 +156,36 @@ void mv_extract_values (serial_Multi_Vector * x_p, double * eigvec, int nvec)
 void mv_load_values (double * eigvec, int nvec, int size, serial_Multi_Vector * x_p)
 {
    serial_Multi_Vector *x = (serial_Multi_Vector *) x_p;
-   int i, j;
+   double  *x_data; 
+   double * src;
+   double * dest;
+   int * x_active_ind;
+   int i;
+   int j;
+   int idest;
 
    /* Perform checks */
-   assert(x->size = size);
+   assert(x->size == size);
+   assert(x->num_active_vectors == nvec);
 
-   /* copy eigenvectors */
-   for(j=0; j<nvec; j++)
+
+   x_data = x->data;
+   x_active_ind = x->active_indices;
+
+   idest = 0;
+   for(i=0; i<nvec; i++)
    {
-      for(i=0; i<size; i++)
+      src  = eigvec + idest*size;
+      dest = x_data + x_active_ind[i]*size;
+
+      /* copy particular eigenvector */
+      for(j=0; j<size; j++)
       {
-	 x->data[j*size + i] = eigvec[j*size + i];
+	 dest[j] = src[j];
       }
-      x->active_indices[j] = j;
-      x->num_active_vectors = nvec;
+      idest = idest + 1;
    }
+   
 }
 
 /* Fortran callable subroutine arguments are passed by reference */
