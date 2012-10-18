@@ -77,9 +77,9 @@ integer,parameter,private :: idbase = 100 ! basic unit to add myid for independe
 
 ! table of pairs of eigenproblems to compute
 ! structure:
-!  IGLOB | ISUB | JSUB 
+!  IGLOB | ISUB | JSUB | IPROC | JPROC | IS_COMPUTED
 integer,private            :: lpair_subdomains1 
-integer,parameter,private  :: lpair_subdomains2 = 3
+integer,parameter,private  :: lpair_subdomains2 = 6
 integer,allocatable,private :: pair_subdomains(:,:)
 
 logical,private :: i_compute_pair
@@ -177,16 +177,20 @@ real(kr),allocatable :: comm_chunk_j(:,:)
 
 contains
 
-!************************************************************
-subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
-!************************************************************
+!*******************************************************************************
+subroutine adaptivity_init(comm,sub2proc,lsub2proc,pairs,lpairs1,lpairs2, npair)
+!*******************************************************************************
 ! Subroutine for initialization of adaptive search of constraints
       use module_utils
+      use module_pp
       implicit none
       include "mpif.h"
 
 ! communicator
       integer,intent(in) :: comm
+! division of subdomains to processors
+      integer,intent(in) :: lsub2proc
+      integer,intent(in) ::  sub2proc(lsub2proc)
 ! pairs of subdomains
       integer,intent(in) :: lpairs1
       integer,intent(in) :: lpairs2
@@ -200,9 +204,11 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
       integer :: myid
       integer :: ierr
 
-      integer :: ipair, j
+      integer :: ipair
       integer :: idthresh
       real(kr) :: threshold_file
+
+      integer :: gglob, isub, jsub, iproc, jproc
 
       ! orient in the communicator
       call MPI_COMM_RANK(comm,myid,ierr)
@@ -212,10 +218,24 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
       allocate(pair_subdomains(lpair_subdomains1,lpair_subdomains2))
       call zero(pair_subdomains,lpair_subdomains1,lpair_subdomains2)
       do ipair = 1,npair
-         ! first column is associated with processors - initialize it to -1 = no processor assigned
-         do j = 1,3
-            pair_subdomains(ipair,j) = pairs(ipair,j)
-         end do
+
+         gglob = pairs(ipair,1)
+         pair_subdomains(ipair,1) = gglob
+
+         isub = pairs(ipair,2)
+         jsub = pairs(ipair,3)
+
+         pair_subdomains(ipair,2) = isub
+         pair_subdomains(ipair,3) = jsub
+
+         call pp_get_proc_for_sub(isub,comm,sub2proc,lsub2proc,iproc)
+         call pp_get_proc_for_sub(jsub,comm,sub2proc,lsub2proc,jproc)
+
+         pair_subdomains(ipair,4) = iproc
+         pair_subdomains(ipair,5) = jproc
+
+         ! set pair as unsolved
+         pair_subdomains(ipair,6) = 0
       end do
  
 ! set threshold
@@ -250,20 +270,15 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
 
 end subroutine
 
-!******************************************************************************************************************
-subroutine adaptivity_get_active_pairs(iround,nproc,pair2proc,lpair2proc, active_pairs,lactive_pairs,nactive_pairs)
-!******************************************************************************************************************
+!*************************************************************************************
+subroutine adaptivity_get_active_pairs(nproc,active_pairs,lactive_pairs,nactive_pairs)
+!*************************************************************************************
 ! Subroutine for activating and deactivating pairs
       use module_utils
       implicit none
 
-! number of round 
-      integer,intent(in) :: iround
 ! number of processors
       integer,intent(in) :: nproc
-! distribution of pairs
-      integer,intent(in) :: lpair2proc
-      integer,intent(in) ::  pair2proc(lpair2proc)
 ! indices of active pairs
       integer,intent(in) :: lactive_pairs
       integer,intent(out) :: active_pairs(lactive_pairs)
@@ -272,37 +287,93 @@ subroutine adaptivity_get_active_pairs(iround,nproc,pair2proc,lpair2proc, active
 
 ! local variables
       character(*),parameter:: routine_name = 'ADAPTIVITY_GET_ACTIVE_PAIRS'
-      integer :: iproc, indpair
+      integer :: iproc, ipair
+      integer :: a_pair(lpair_subdomains2)
+
+      integer ::            lnum_subdomains_compute
+      integer,allocatable :: num_subdomains_compute(:)
+
+      integer :: the_winner, min_max_value, max_value
+      integer :: proci, procj
 
       ! check length
-      if (lpair2proc.ne.nproc+1) then
-         call error(routine_name,'array dimension mismatch for pairs')
-      end if
       if (lactive_pairs.ne.nproc) then
          call error(routine_name,'array dimension mismatch for active pairs')
       end if
 
+! old version with linear distribution of pairs
+!      nactive_pairs = 0
+!      do iproc = 0,nproc-1
+!         indpair = pair2proc(iproc+1) + iround - 1
+!         if (indpair.lt.pair2proc(iproc+2)) then
+!            nactive_pairs = nactive_pairs + 1
+!            active_pairs(iproc+1) = indpair
+!         else
+!            active_pairs(iproc+1) = -1 
+!         end if
+!      end do
+
+! new version with some optimization of load
+      ! array with number of subdomains individual processors compute
+      lnum_subdomains_compute = nproc
+      allocate(num_subdomains_compute(lnum_subdomains_compute))
+      num_subdomains_compute = 0
+
       nactive_pairs = 0
       do iproc = 0,nproc-1
-         indpair = pair2proc(iproc+1) + iround - 1
-         if (indpair.lt.pair2proc(iproc+2)) then
+
+         ! search for a new suitable active pair
+         min_max_value = lpair_subdomains1*2
+         the_winner    = -1
+         do ipair = 1,lpair_subdomains1 
+            call adaptivity_get_pair_data(ipair,a_pair,lpair_subdomains2)
+            if (a_pair(6) .eq. 0 ) then
+               ! the pair is a candidate for new active pair
+
+               ! compute criterion 
+               proci = a_pair(4)
+               procj = a_pair(5)
+               num_subdomains_compute(proci+1) = num_subdomains_compute(proci+1) + 1
+               num_subdomains_compute(procj+1) = num_subdomains_compute(procj+1) + 1
+
+               max_value = maxval(num_subdomains_compute)
+
+               num_subdomains_compute(proci+1) = num_subdomains_compute(proci+1) - 1
+               num_subdomains_compute(procj+1) = num_subdomains_compute(procj+1) - 1
+
+               ! find minima in criterion
+               if (max_value .lt. min_max_value) then
+                  min_max_value = max_value
+                  the_winner    = ipair
+               end if
+            end if
+         end do
+         if (the_winner .ne. -1) then
             nactive_pairs = nactive_pairs + 1
-            active_pairs(iproc+1) = indpair
-         else
-            active_pairs(iproc+1) = -1 
+            active_pairs(nactive_pairs) = the_winner
+
+            pair_subdomains(the_winner,6) = 1
+
+            call adaptivity_get_pair_data(the_winner,a_pair,lpair_subdomains2)
+            proci = a_pair(4)
+            procj = a_pair(5)
+
+            ! mark the active pair as solved or being solved
+            num_subdomains_compute(proci+1) = num_subdomains_compute(proci+1) + 1
+            num_subdomains_compute(procj+1) = num_subdomains_compute(procj+1) + 1
          end if
       end do
 
+      deallocate(num_subdomains_compute)
 end subroutine
 
 !******************************************************************************************
-subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexsub,&
+subroutine adaptivity_solve_eigenvectors(suba,lsuba,indexsub,lindexsub,&
                                          pair2proc,lpair2proc,comm_all,&
                                          use_explicit_schurs,matrixtype, est)
 !******************************************************************************************
 ! Subroutine for parallel solution of distributed eigenproblems
       use module_dd
-      use module_pp
       use module_utils
       implicit none
       include "mpif.h"
@@ -311,9 +382,6 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       integer,intent(in) ::                lsuba
       type(subdomain_type),intent(inout) :: suba(lsuba)
 
-! division of subdomains to processors
-      integer,intent(in) :: lsub2proc
-      integer,intent(in) ::  sub2proc(lsub2proc)
 ! global indices of local subdomains
       integer,intent(in) :: lindexsub
       integer,intent(in) ::  indexsub(lindexsub)
@@ -534,7 +602,11 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          comm_calls = 0
 
          ! each round of eigenproblems has its structure - determine active pairs
-         call adaptivity_get_active_pairs(iround,nproc,pair2proc,lpair2proc, active_pairs,lactive_pairs,nactive_pairs)
+         call adaptivity_get_active_pairs(nproc, active_pairs,lactive_pairs,nactive_pairs)
+         if (myid.eq.0) then
+            write(*,*) 'Active pairs'
+            write(*,'(i7)') active_pairs(1:nactive_pairs)
+         end if
 
          ! determine which pair I compute
          my_pair = active_pairs(myid+1)
@@ -554,8 +626,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             comm_myjsub  = pair_data(3)
 
             ! where are these subdomains ?
-            call pp_get_proc_for_sub(comm_myisub,comm_all,sub2proc,lsub2proc,comm_myplace1)
-            call pp_get_proc_for_sub(comm_myjsub,comm_all,sub2proc,lsub2proc,comm_myplace2)
+            comm_myplace1 = pair_data(4)
+            comm_myplace2 = pair_data(5)
          else
             comm_myisub   = -1
             comm_myjsub   = -1
@@ -577,8 +649,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                jsub   = pair_data(3)
 
                ! where are these subdomains ?
-               call pp_get_proc_for_sub(isub,comm_all,sub2proc,lsub2proc,place1)
-               call pp_get_proc_for_sub(jsub,comm_all,sub2proc,lsub2proc,place2)
+               place1 = pair_data(4)
+               place2 = pair_data(5)
 
                if (myid.eq.place1) then
                   ! add instruction
@@ -2481,6 +2553,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                call info(routine_name, 'number of calls to matrix multiply',comm_calls)
             end if
          end if
+
       end do ! loop over rounds of eigenvalue pairs
 
       if (profile) then
@@ -3241,10 +3314,6 @@ subroutine adaptivity_get_pair_data(idpair,pair_data,lpair_data)
       end if
       if (pair_subdomains(idpair,1).eq.-1) then
          write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - processor not assigned.'
-         call error_exit
-      end if
-      if (any(pair_subdomains(idpair,1:lpair_subdomains2).eq.0)) then
-         write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - zeros in subdomain data.'
          call error_exit
       end if
 

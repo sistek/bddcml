@@ -2675,7 +2675,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
             call warning(routine_name,'number of found pairs different from number of faces')
          end if
 
-         call adaptivity_init(comm_all,pairs,lpairs1,lpairs2, npair)
+         call adaptivity_init(comm_all, levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                              pairs,lpairs1,lpairs2, npair)
          deallocate(pairs)
 
          lpair2proc = nproc + 1
@@ -2688,7 +2689,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
             end do
          end if
          call adaptivity_solve_eigenvectors(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
-                                            levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                                             levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
                                             pair2proc,lpair2proc, comm_all, use_explicit_schurs,&
                                             matrixtype, levels(ilevel)%adaptivity_estimate)
