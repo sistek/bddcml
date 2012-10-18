@@ -2165,10 +2165,14 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             end if
 
             ! find estimator of condition number
-            if (nadaptive.lt.neigvec) then
-               est_loc = eigval(nadaptive + 1)
+            if (neigvec.gt.0) then
+               if (nadaptive.lt.neigvec) then
+                  est_loc = eigval(nadaptive + 1)
+               else
+                  est_loc = eigval(nadaptive)
+               end if
             else
-               est_loc = eigval(nadaptive)
+               est_loc = 1.0_kr
             end if
 
             lconstraints1 = problemsize

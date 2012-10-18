@@ -568,7 +568,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       real(kr), intent(in):: user_constraints(luser_constraints1*luser_constraints2) ! array for additional constraints
 
       ! local vars 
-      character(*),parameter:: routine_name = 'LEVELS_UPLOAD_LOCAL_DATA'
+      character(*),parameter:: routine_name = 'LEVELS_UPLOAD_SUBDOMAIN_DATA'
 
       logical :: is_mesh_loaded 
       integer :: isub_loc
@@ -610,7 +610,6 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
          call error( routine_name, 'Index of subdomain not found among local subdomains: ', isub )
       end if
 
-! check that there is one and only one active subdomain
       if (.not. allocated(levels(iactive_level)%subdomains)) then
          call error( routine_name,'memory not prepared for subdomain', isub )
       end if
@@ -632,6 +631,13 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       call dd_upload_solution(levels(iactive_level)%subdomains(isub_loc), sol,lsol)
       levels(iactive_level)%use_initial_solution = .true.
 
+      ! check matrix format
+      ! type of matrix (0 - nosymetric, 1 - SPD, 2 - general symmetric)
+      if ( ( matrixtype.eq.1 .or. matrixtype.eq.2 ) .and. any( i_sparse .gt. j_sparse ) ) then
+         call error( routine_name, &
+                     'Matrix in wrong format - only upper triangle is expected for symmetric problems, matrixtype = ', &
+                     matrixtype )
+      end if
       ! load matrix to our structure
       call dd_load_matrix_triplet(levels(iactive_level)%subdomains(isub_loc), matrixtype, levels_numshift, &
                                   i_sparse,j_sparse,a_sparse,la,la,is_assembled)
@@ -1210,6 +1216,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
 
       logical,parameter :: use_explicit_schurs = .false.
 
+      character(1) :: levelstring
+
 
       ! time variables
       real(kr) :: t_division, t_globs, t_matrix_import, t_adjacency, t_loc_mesh,&
@@ -1249,6 +1257,10 @@ subroutine levels_prepare_standard_level(parallel_division,&
             call error ( routine_name, 'Unsupported mesh dimension :', levels(ilevel)%meshdim )
          end if
       end if
+      ! for debugging purposes
+      !if (ilevel.gt.1) then
+      !   levels(ilevel)%load_division = levels(ilevel-1)%load_division
+      !end if
 
       levels(ilevel)%linet = levels(ilevel-1)%linetc  
       levels(ilevel)%inet  => levels(ilevel-1)%inetc  
@@ -1301,10 +1313,16 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 
       ! this could be generalized to more levels if needed
-      if (ilevel.eq.1 .and. levels(ilevel)%load_division) then
+      !if (ilevel.eq.1 .and. levels(ilevel)%load_division) then
+      if (levels(ilevel)%load_division) then
          ! read the division from file *.ES
          if (myid.eq.0) then
-            filename = 'partition_l1.ES'
+            if (ilevel.lt.10) then
+               write(levelstring,'(i1)') ilevel
+            else
+               call error(routine_name,'Index of level too large for reading from file:',ilevel)
+            end if
+            filename = 'partition_l'//levelstring//'.ES'
             call allocate_unit(ides)
             open (unit=ides,file=filename,status='old',form='formatted')
             rewind ides
@@ -1317,7 +1335,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
                call info(routine_name, 'Mesh division loaded from file '//trim(filename))
             end if
          end if
-      else
+      else ! create partition and not load it from file
          ! distribute the mesh among processors
 !-----profile
          if (profile) then
@@ -1518,7 +1536,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             nullify(liets)
   
   123       continue     
-         else
+         else ! divide mesh serially on root process
             if (myid.eq.0) then
                call pp_divide_mesh(graphtype,levels_correct_division,levels(ilevel)%neighbouring,&
                                    levels(ilevel)%nelem,levels(ilevel)%nnod,&
@@ -1546,15 +1564,15 @@ subroutine levels_prepare_standard_level(parallel_division,&
          end if
 !-----profile
       end if
-      ! populate IETS along previous communicator
+      ! populate IETS along previous communicator from root processor
 !************************************************************PARALLEL
       call MPI_BCAST(levels(ilevel)%iets,levels(ilevel)%liets, MPI_INTEGER, 0, comm_all, ierr)
 !************************************************************PARALLEL
       ! check division - that number of subdomains equal largest entry in partition array IETS
-      if (maxval(levels(ilevel)%iets).ne.nsub) then
-         !write(*,*) 'IETS:',levels(ilevel)%iets
-         call error(routine_name,'Partition does not contain all subdomains.')
-      end if
+      !if (maxval(levels(ilevel)%iets).ne.nsub) then
+      !   !write(*,*) 'IETS:',levels(ilevel)%iets
+      !   call warning(routine_name,'Partition does not contain all subdomains.')
+      !end if
 
 !-----profile 
       if (profile) then
