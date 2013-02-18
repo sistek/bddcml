@@ -201,9 +201,11 @@ module module_dd
          integer ::              lwi
          real(kr),allocatable ::  wi(:)                ! weights at interface
          integer ::               weights_type         ! type of weights:
-                                                       ! 0 - cardinality
-                                                       ! 1 - diagonal stiffness 
-                                                       ! 2 - Marta Certikova's version
+                                                       ! 0 - weights by cardinality
+                                                       ! 1 - weights by diagonal stiffness
+                                                       ! 2 - weights based on first row of element data
+                                                       ! 3 - weights based on dof data
+                                                       ! 4 - weights by Marta Certikova
          logical ::               is_weights_ready = .false. ! are weights ready?
 
          ! common description of joint coarse nodes/dofs
@@ -10115,6 +10117,8 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
             call dd_get_interface_element_data(suba(isub_loc), rhoi,lrhoi)
          else if (weights_type .eq. 3) then
             call dd_get_interface_dof_data(suba(isub_loc), rhoi,lrhoi)
+         else if (weights_type .eq. 4) then
+            call dd_generate_interface_unit_load(suba(isub_loc), rhoi,lrhoi)
          else
             call error(routine_name,'Type of weight not supported:',weights_type)
          end if
@@ -10150,8 +10154,19 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
             call dd_get_interface_element_data(suba(isub_loc), rhoi,lrhoi)
          else if (weights_type .eq. 3) then
             call dd_get_interface_dof_data(suba(isub_loc), rhoi,lrhoi)
+         else if (weights_type .eq. 4) then
+            call dd_generate_interface_unit_load(suba(isub_loc), rhoi,lrhoi)
          else
             call error(routine_name,'Type of weight not supported:',weights_type)
+         end if
+
+         ! check that denominator is nonzero
+         if (any(abs(rhoi + rhoiaux) .le. numerical_zero)) then
+             write(*,*) 'rhoi' 
+             write(*,*) rhoi 
+             write(*,*) 'rhoiaux' 
+             write(*,*) rhoiaux 
+             call error( routine_name, 'Zero in denominator in computation of weights for subdomain:', suba(isub_loc)%isub )
          end if
 
          ! compute weight
@@ -10400,7 +10415,6 @@ subroutine dd_get_interface_dof_data(sub, rhoi,lrhoi)
 !****************************************************
 ! Subroutine for getting weights from data in subdomain dof_data 
       use module_utils
-      use module_graph
       implicit none
 ! Subdomain structure
       type(subdomain_type),intent(in) :: sub
@@ -10438,6 +10452,85 @@ subroutine dd_get_interface_dof_data(sub, rhoi,lrhoi)
          rhoi(i) = sub%dof_data(indv)
       end do
       !write(*,*) 'rhoi', rhoi
+end subroutine
+
+!******************************************************
+subroutine dd_generate_interface_unit_load(sub, vi,lvi)
+!******************************************************
+! Subroutine for generating weights as a solution to local problems with unit
+! load.
+! Based on the paper
+! M. Certikova, J. Sistek, P. Burda: On selection of interface weights in domain decomposition methods,
+! Proceedings of Programs and Algorithms of Numerical Mathematics 16, Institute
+! of Mathematics AS CR, pp. 35-44, 2013
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+      integer,intent(in)  :: lvi
+      real(kr),intent(out) :: vi(lvi)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GENERATE_INTERFACE_UNIT_LOAD'
+      integer :: i, ndof, ndofi, ndofaug
+      integer :: lri, lr, lvaug
+      integer :: nrhs
+      logical :: solve_adjoint
+
+      real(kr), allocatable :: ri(:)
+      real(kr), allocatable :: r(:)
+      real(kr), allocatable :: vaug(:)
+
+      ! check if mesh is loaded
+      if (.not. sub%is_mesh_loaded) then
+         call error(routine_name, 'Mesh not loaded for subdomain: ',sub%isub)
+      end if
+      ! check if dof data are loaded
+      if (.not. sub%is_coarse_prepared) then
+         call error(routine_name, 'Coarse problem is not factorized for subdomain: ',sub%isub)
+      end if
+      ! check dimensions
+      if (sub%ndofi.ne.lvi) then
+         call error(routine_name, 'Interface dimensions mismatch for subdomain ',sub%isub)
+      end if
+
+      ! prepare unit load vector at subdomain interface
+      ndofi = sub%ndofi
+      lri = ndofi
+      allocate(ri(lri))
+      ri = 1.e+10_kr
+
+      ! make new residual on whole subdomain from ri
+      ndof = sub%ndof
+      lr = ndof
+      allocate(r(lr))
+      r = 0._kr
+
+      call dd_map_subi_to_sub(sub, ri,lri, r,lr)
+
+      ! prepare array of augmented size
+      call dd_get_aug_size(sub, ndofaug)
+      lvaug = ndofaug
+      allocate(vaug(lvaug))
+      vaug = 0._kr
+
+      ! subdomain data are the first part of the augmented vector
+      do i = 1,ndof
+         vaug(i) = r(i)
+      end do
+
+      ! solve augmented problem
+      nrhs = 1
+      solve_adjoint = .false.
+      call dd_solve_aug(sub, vaug,lvaug, nrhs, solve_adjoint)
+
+      ! extract interface values
+      call zero(vi,lvi)
+      call dd_map_sub_to_subi(sub, vaug,ndof, vi,lvi)
+
+      deallocate(ri)
+      deallocate(r)
+      deallocate(vaug)
 end subroutine
 
 !**************************************************************************

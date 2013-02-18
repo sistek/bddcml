@@ -624,7 +624,8 @@ void bddcml_setup_preconditioner( int *matrixtype, int *use_defaults_int,
                                   int *parallel_division_int, 
                                   int *use_arithmetic_constraints_int, 
                                   int *use_adaptive_constraints_int,
-                                  int *use_user_constraints_int );
+                                  int *use_user_constraints_int,
+                                  int *weights_type );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -632,7 +633,8 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
                                        parallel_division_int, &
                                        use_arithmetic_constraints_int, &
                                        use_adaptive_constraints_int, &
-                                       use_user_constraints_int)
+                                       use_user_constraints_int, &
+                                       weights_type)
 }
 @verbatim
       integer,intent(in) :: matrixtype 
@@ -641,6 +643,7 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       integer,intent(in) :: use_arithmetic_constraints_int
       integer,intent(in) :: use_adaptive_constraints_int
       integer,intent(in) :: use_user_constraints_int
+      integer,intent(in) :: weights_type
 @end verbatim
 
 @unnumberedsubsec Description
@@ -689,6 +692,24 @@ This may be used e.g. for enforcing flux-based constraints for advection-diffusi
 Default is @code{0}.
 @end table
 
+@item weights_type
+Type of weights to be used on interface. Possible choices
+@itemize
+@item 0 -- weights computed by cardinality, i.e. arithmetic average, the mean value of solution from neighbouring subdomains.
+Good choice for many problem types except those with large variations in material coefficients and/or sizes of elements.
+@item 1 -- weights from diagonal stiffness, corresponding diagonal entry in the matrix. 
+Good choice for symmetric positive definite problems with large variations in material coefficients and/or sizes of elements.
+Not good for homogenous problems with irregular subdomains, such as those from graph partitioners, in combination with nodal elements.
+This option takes into account different sizes of elements and material coefficients.
+@item 2 -- weights based on loaded element data. For this choice, the first row of array @code{element_data}
+from function @code{bddcml_upload_subdomain_data} must contain element coefficients to be used here.
+This allows definition of the so called @math{\rho}-scaling.
+Good choice for problems with large variations in material coefficients if irregular subdomains from graph partitioners are used in combination
+with nodal finite elements. 
+@item 3 -- weights based on loaded data for degees of freedom. For this choice, array @code{dof_data}
+from function @code{bddcml_upload_subdomain_data} must contain coefficients for each subdomain degree of freedom.
+This allows definition of general user-defined weigths on degrees of freedom tailored to particular applications.
+@end itemize
 
 @page
 @section @code{bddcml_solve}

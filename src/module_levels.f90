@@ -681,7 +681,8 @@ subroutine levels_pc_setup( parallel_division,&
                             matrixtype, &
                             use_arithmetic_constraints,&
                             use_adaptive_constraints,&
-                            use_user_constraints )
+                            use_user_constraints, &
+                            weights_type )
 !*************************************************************************************
 ! subroutine for multilevel BDDC preconditioner setup
       use module_pp
@@ -699,6 +700,14 @@ subroutine levels_pc_setup( parallel_division,&
       logical,intent(in) :: use_adaptive_constraints
 ! Use user defined constraints on faces?
       logical,intent(in) :: use_user_constraints
+! what type of weights should be used on the interface ?
+! 0 - weights by cardinality, i.e. arithmetic average
+! 1 - weights by diagonal stiffness
+! 2 - weights based on first row of element data
+! 3 - weights based on dof data
+! 4 - weights by Marta Certikova
+      integer,intent(in) :: weights_type
+
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_PC_SETUP'
@@ -759,7 +768,8 @@ subroutine levels_pc_setup( parallel_division,&
                                                matrixtype,iactive_level,&
                                                use_arithmetic_constraints,&
                                                use_adaptive_constraints,&
-                                               use_user_constraints)
+                                               use_user_constraints,&
+                                               weights_type)
          end if
       end do
 
@@ -1068,7 +1078,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
                                          matrixtype,ilevel,&
                                          use_arithmetic_constraints,&
                                          use_adaptive_constraints,&
-                                         use_user_constraints)
+                                         use_user_constraints,&
+                                         weights_type)
 !*******************************************************************************
 ! Subroutine for building the standard level
       use module_pp
@@ -1087,6 +1098,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       logical,intent(in) :: use_adaptive_constraints
       ! Use user defined constraints on faces?
       logical,intent(in) :: use_user_constraints
+      ! type of weights
+      integer,intent(in) :: weights_type
 
       ! local vars
       character(*),parameter:: routine_name = 'LEVELS_PREPARE_STANDARD_LEVEL'
@@ -1100,9 +1113,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer :: ncorner, nedge, nface, isub, nnodc, ndofc, nelem, nnod, nnodi
       integer :: edgecut, ncornermin
       integer :: nsub_loc, isub_loc, nsub, glbtype, nglb, sub_start
-
-      ! type of weights
-      integer ::   weights_type
 
       !  division variables
       integer :: stat(MPI_STATUS_SIZE)
@@ -2478,74 +2488,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
 
-      ! weights
-!-----profile
-      if (profile) then
-         call MPI_BARRIER(comm_all,ierr)
-         call time_start
-      end if
-!-----profile
-
-      ! set type of weights
-      if (matrixtype.eq.1) then
-         ! use diagonal stiffness for SPD problems
-         weights_type = 1
-      else
-         if      (all(levels(ilevel)%subdomains%ldof_data .gt. 0)) then
-            ! use dof data if they are available
-            weights_type = 3
-         else if (all(levels(ilevel)%subdomains%lelement_data1 .gt. 0)) then
-            ! use element data if they are available
-            weights_type = 2
-         else
-            ! use simple cardinality otherwise
-            weights_type = 0
-         end if
-      end if
-      call dd_weights_prepare(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
-                              levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
-                              levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
-                              comm_all, weights_type)
-!-----profile
-      if (profile) then
-         call MPI_BARRIER(comm_all,ierr)
-         call time_end(t_weights_prepare)
-         if (myid.eq.0) then
-            call time_print('preparing weights',t_weights_prepare)
-         end if
-      end if
-!-----profile
-
-      if (ilevel.eq.1) then
-         ! prepare reduced RHS
-!-----profile
-         if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_start
-         end if
-!-----profile
-         call dd_prepare_reduced_rhs_all(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
-                                         levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
-                                         levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
-                                         comm_all)
-!-----profile
-         if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_end(t_reduced_rhs_prepare)
-            if (myid.eq.0) then
-               call time_print('preparing reduced right-hand side',t_reduced_rhs_prepare)
-            end if
-         end if
-!-----profile
-      end if
-
-!-----profile
-      if (profile) then
-         call MPI_BARRIER(comm_all,ierr)
-         call time_start
-      end if
-!-----profile
-
       ! BDDC data
       do isub_loc = 1,nsub_loc
          ! load arithmetic averages on corners
@@ -2762,6 +2704,75 @@ subroutine levels_prepare_standard_level(parallel_division,&
       !do isub_loc = 1,nsub_loc
       !   call dd_print_sub(levels(ilevel)%subdomains(isub_loc))
       !end do
+
+      ! weights
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+
+      ! set type of weights
+      !if (matrixtype.eq.1) then
+      !   ! use diagonal stiffness for SPD problems
+      !   !weights_type = 1
+      !   weights_type = 4
+      !else
+      !   if      (all(levels(ilevel)%subdomains%ldof_data .gt. 0)) then
+      !      ! use dof data if they are available
+      !      weights_type = 3
+      !   else if (all(levels(ilevel)%subdomains%lelement_data1 .gt. 0)) then
+      !      ! use element data if they are available
+      !      weights_type = 2
+      !   else
+      !      ! use simple cardinality otherwise
+      !      weights_type = 0
+      !   end if
+      !end if
+      call dd_weights_prepare(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                              levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                              levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
+                              comm_all, weights_type)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_weights_prepare)
+         if (myid.eq.0) then
+            call time_print('preparing weights',t_weights_prepare)
+         end if
+      end if
+!-----profile
+
+      if (ilevel.eq.1) then
+         ! prepare reduced RHS
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
+         call dd_prepare_reduced_rhs_all(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                                         levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                                         levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
+                                         comm_all)
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(t_reduced_rhs_prepare)
+            if (myid.eq.0) then
+               call time_print('preparing reduced right-hand side',t_reduced_rhs_prepare)
+            end if
+         end if
+!-----profile
+      end if
+
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
 
       ! upload coarse mesh
       ndofc = sum(nndfc)

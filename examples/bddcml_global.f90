@@ -55,6 +55,14 @@ program bddcml_global
 ! use user constraints?
       integer,parameter :: use_user_constraints = 0
 
+! what type of weights use on interface?
+! 0 - weights by cardinality
+! 1 - weights by diagonal stiffness
+! 2 - weights based on first row of element data
+! 3 - weights based on dof data
+! 4 - weights by Marta Certikova
+      integer,parameter :: weights_type = 0
+
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1
 
@@ -383,7 +391,8 @@ program bddcml_global
                                        parallel_division,&
                                        use_arithmetic_constraints,&
                                        use_adaptive_constraints,&
-                                       use_user_constraints)
+                                       use_user_constraints,&
+                                       weights_type)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pc_setup)
 

@@ -298,7 +298,8 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
                                        parallel_division_int, &
                                        use_arithmetic_constraints_int, &
                                        use_adaptive_constraints_int, &
-                                       use_user_constraints_int)
+                                       use_user_constraints_int, &
+                                       weights_type)
 !************************************************************************************************
 ! setup multilevel preconditioner
       use module_levels
@@ -327,6 +328,14 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       ! use user constraints?
       integer,intent(in) :: use_user_constraints_int
 
+      ! what type of weights should be used on the interface ?
+      ! 0 - weights by cardinality, i.e. arithmetic average
+      ! 1 - weights by diagonal stiffness
+      ! 2 - weights based on first row of element data
+      ! 3 - weights based on dof data
+      ! 4 - weights by Marta Certikova
+      integer,intent(in) :: weights_type
+
       ! local variables
       ! ######################################
       ! default values of levels parameters
@@ -334,6 +343,7 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       logical :: levels_use_arithmetic_constraints = .true.
       logical :: levels_use_adaptive_constraints   = .false. ! experimental - not used by default
       logical :: levels_use_user_constraints       = .false. ! experimental - not used by default
+      integer :: levels_weights_type               = 0       ! arithmetic averaging - should always work
       ! ######################################
       logical :: use_defaults
       logical :: parallel_division
@@ -357,6 +367,7 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
          levels_use_arithmetic_constraints = use_arithmetic_constraints
          levels_use_adaptive_constraints   = use_adaptive_constraints
          levels_use_user_constraints       = use_user_constraints         
+         levels_weights_type               = weights_type
       end if
 
       ! setup preconditioner
@@ -364,7 +375,8 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
                            matrixtype,&
                            levels_use_arithmetic_constraints,&
                            levels_use_adaptive_constraints,&
-                           levels_use_user_constraints)
+                           levels_use_user_constraints,&
+                           levels_weights_type)
 
 end subroutine
 

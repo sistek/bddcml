@@ -47,7 +47,8 @@ void bddcml_setup_preconditioner( int *matrixtype, int *use_defaults_int,
                                   int *parallel_division_int, 
                                   int *use_arithmetic_constraints_int, 
                                   int *use_adaptive_constraints_int,
-                                  int *use_user_constraints_int );
+                                  int *use_user_constraints_int,
+                                  int *weights_type );
 
 #define bddcml_solve F_SYMBOL(bddcml_solve, BDDCML_SOLVE)
 void bddcml_solve( int *comm_all, int *method, double *tol, int *maxit, int *ndecrmax, 
