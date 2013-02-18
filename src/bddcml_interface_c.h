@@ -39,7 +39,8 @@ void bddcml_upload_subdomain_data( int *nelem, int *nnod, int *ndof, int *ndim, 
                                    double *sol, int *lsol, 
                                    int *matrixtype, int *i_sparse, int *j_sparse, double *a_sparse, int *la, int *is_assembled_int,
                                    double *user_constraints, int *luser_constraints1, int *luser_constraints2,
-                                   double *element_data, int *lelement_data1, int *lelement_data2 );
+                                   double *element_data, int *lelement_data1, int *lelement_data2,
+                                   double *dof_data, int *ldof_data );
 
 #define bddcml_setup_preconditioner F_SYMBOL(bddcml_setup_preconditioner, BDDCML_SETUP_PRECONDITIONER)
 void bddcml_setup_preconditioner( int *matrixtype, int *use_defaults_int,

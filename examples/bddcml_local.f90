@@ -52,7 +52,7 @@ program bddcml_local
       integer,parameter :: use_arithmetic_constraints = 1
 
 ! use adaptive constraints?
-      integer,parameter :: use_adaptive_constraints = 1
+      integer,parameter :: use_adaptive_constraints = 0
 
 ! use user constraints?
       integer,parameter :: use_user_constraints = 0
@@ -154,6 +154,10 @@ program bddcml_local
       integer ::              lelement_data1
       integer ::              lelement_data2
       real(kr),allocatable ::  element_data(:)
+
+      ! data for dofs
+      integer ::              ldof_data
+      real(kr),allocatable ::  dof_data(:)
 
       integer :: lproblemname
       integer :: meshdim
@@ -539,11 +543,17 @@ program bddcml_local
          luser_constraints2 = 0
          allocate(user_constraints(luser_constraints1*luser_constraints2))
 
-         ! prepare user constraints
+         ! prepare element data
          lelement_data1 = 1
          lelement_data2 = nelems
          allocate(element_data(lelement_data1*lelement_data2))
          element_data = 2._kr
+
+         ! prepare dof data
+         ldof_data = ndofs 
+         allocate(dof_data(ldof_data))
+         dof_data = 3._kr
+
 
          ! experiment a bit
          call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
@@ -556,7 +566,8 @@ program bddcml_local
                                            sols,lsols, &
                                            matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int, &
                                            user_constraints,luser_constraints1,luser_constraints2, &
-                                           element_data,lelement_data1,lelement_data2)
+                                           element_data,lelement_data1,lelement_data2,&
+                                           dof_data,ldof_data)
          deallocate(inets,nnets,nndfs,xyzs)
          deallocate(kdofs)
          deallocate(rhss)
@@ -568,6 +579,7 @@ program bddcml_local
          deallocate(i_sparse, j_sparse, a_sparse)
          deallocate(user_constraints)
          deallocate(element_data)
+         deallocate(dof_data)
       end do
       deallocate(inet,nnet,nndf,xyz)
       deallocate(iets)
