@@ -17,7 +17,7 @@ END-INFO-DIR-ENTRY
 @title BDDCML
 @subtitle solver library based on Multi-Level Balancing Domain Decomposition by Constraints
 @subtitle copyright (C) 2010-2012 Jakub @v{S}@'{@dotless{i}}stek
-@subtitle version 2.0
+@subtitle version 2.1
 @author Jakub @v{S}@'{@dotless{i}}stek
 
 @end titlepage
@@ -367,7 +367,9 @@ void bddcml_upload_subdomain_data( int *nelem, int *nnod, int *ndof, int *ndim, 
                                    double *rhs, int *lrhs, int *is_rhs_complete,
                                    double *sol, int *lsol, 
                                    int *matrixtype, int *i_sparse, int *j_sparse, double *a_sparse, int *la, int *is_assembled_int, 
-                                   double *user_constraints, int *luser_constraints1, int *luser_constraints2)
+                                   double *user_constraints, int *luser_constraints1, int *luser_constraints2,
+                                   double *element_data, int *lelement_data1, int *lelement_data2,
+                                   double *dof_data, int *ldof_data );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -380,7 +382,9 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         rhs,lrhs, is_rhs_complete_int, &
                                         sol,lsol, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int,&
-                                        user_constraints,luser_constraints1,luser_constraints2)
+                                        user_constraints,luser_constraints1,luser_constraints2,&
+                                        element_data,lelement_data1,lelement_data2, &
+                                        dof_data,ldof_data)
 }
 @verbatim
       integer, intent(in):: nelem
@@ -423,7 +427,14 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       integer, intent(in)::  is_assembled_int 
       integer, intent(in)::  luser_constraints1
       integer, intent(in)::  luser_constraints2
-      real(kr), intent(in):: user_constraints(luser_constraints1*luser_constraints2)
+      real(kr), intent(in)::user_constraints(luser_constraints1*&
+                                             luser_constraints2)
+      integer, intent(in)::  lelement_data1 
+      integer, intent(in)::  lelement_data2 
+      real(kr), intent(in):: element_data(lelement_data1*lelement_data2) 
+      integer, intent(in)::  ldof_data  
+      real(kr), intent(in):: dof_data(ldof_data) 
+
 @end verbatim
 
 @unnumberedsubsec Description
@@ -588,7 +599,20 @@ dimension of array with user constraints, @code{luser_constraints2} should equal
 
 @item user_contraints
 linearized matrix of user's constraints, one row per constraint, stored row-by-row. Each row has entries for all nodes (in columns) and may contain several constraints (at rows). It may be left empty if no additional contraints are demanded by call to @code{bddcml_setup_preconditioner}. 
-@end table
+
+@item lelement_data1, lelement_data2
+dimension of array with data for elements, @code{lelement_data2} should equal to @code{nelems} if user wants to use this feature. Otherwise both can be set to 0.
+
+@item element_data
+linearized matrix with element data, one row per field, stored row-by-row. Each row has entries for all elements (in columns).
+Single row is currently optionally used for generating interface weigths in the BDDC method, so called @math{\rho}-scaling.
+
+@item ldof_data
+dimension of array with data for subdomain degrees of freedom, @code{ldof_data} should equal to @code{ndofs} if user wants to use this feature. Otherwise it can be set to 0.
+
+@item dof_data
+coefficients for each local degree of freedom currently optionally used for generating interface weigths in the BDDC method. 
+The array should be positive, @code{dof_data} > 0.
 
 
 @page
