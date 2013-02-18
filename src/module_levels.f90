@@ -523,7 +523,9 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         rhs,lrhs, is_rhs_complete, &
                                         sol,lsol, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled, &
-                                        user_constraints,luser_constraints1,luser_constraints2)
+                                        user_constraints,luser_constraints1,luser_constraints2, &
+                                        element_data,lelement_data1,lelement_data2, &
+                                        dof_data,ldof_data )
 !***********************************************************************************
 ! Subroutine for loading LOCAL data of one subdomain at first level
       use module_utils
@@ -566,6 +568,11 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       integer, intent(in)::  luser_constraints1 ! number of rows in matrix of constraints
       integer, intent(in)::  luser_constraints2 ! number of columns in matrix of constraints
       real(kr), intent(in):: user_constraints(luser_constraints1*luser_constraints2) ! array for additional constraints
+      integer, intent(in)::  lelement_data1 ! number of rows in matrix of element data
+      integer, intent(in)::  lelement_data2 ! number of columns in matrix of element data
+      real(kr), intent(in):: element_data(lelement_data1*lelement_data2) ! array for additional data about elements
+      integer, intent(in)::  ldof_data           ! length of array DOF_DATA
+      real(kr), intent(in):: dof_data(ldof_data) ! array for additional data on dofs      
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_SUBDOMAIN_DATA'
@@ -650,6 +657,14 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       ! load user's constraints
       call dd_upload_sub_user_constraints(levels(iactive_level)%subdomains(isub_loc), &
                                           user_constraints,luser_constraints1,luser_constraints2)
+
+      ! load element data 
+      call dd_upload_sub_element_data(levels(iactive_level)%subdomains(isub_loc), &
+                                      element_data,lelement_data1,lelement_data2)
+
+      ! load dof data 
+      call dd_upload_sub_dof_data(levels(iactive_level)%subdomains(isub_loc), dof_data,ldof_data)
+
 
       ! initialize first level if all subdomains were loaded
       levels(iactive_level)%nelem   = nelem
@@ -2470,13 +2485,22 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call time_start
       end if
 !-----profile
+
       ! set type of weights
       if (matrixtype.eq.1) then
          ! use diagonal stiffness for SPD problems
          weights_type = 1
       else
-         ! use simple cardinality for others
-         weights_type = 0
+         if      (all(levels(ilevel)%subdomains%ldof_data .gt. 0)) then
+            ! use dof data if they are available
+            weights_type = 3
+         else if (all(levels(ilevel)%subdomains%lelement_data1 .gt. 0)) then
+            ! use element data if they are available
+            weights_type = 2
+         else
+            ! use simple cardinality otherwise
+            weights_type = 0
+         end if
       end if
       call dd_weights_prepare(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                               levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&

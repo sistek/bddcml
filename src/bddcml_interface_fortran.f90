@@ -159,7 +159,9 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         rhs,lrhs, is_rhs_complete_int, &
                                         sol,lsol, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int,&
-                                        user_constraints,luser_constraints1,luser_constraints2)
+                                        user_constraints,luser_constraints1,luser_constraints2,&
+                                        element_data,lelement_data1,lelement_data2, &
+                                        dof_data,ldof_data)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
       use module_levels
@@ -259,6 +261,14 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       integer, intent(in)::  luser_constraints2 ! number of columns in matrix of constraints, ( = NNODS)
       real(kr), intent(in):: user_constraints(luser_constraints1*luser_constraints2) ! array for additional constraints
 
+      ! LOCAL array of additional element data - can be used e.g. for construction of averaging operator E
+      integer, intent(in)::  lelement_data1 ! number of rows in matrix of element data, i.e. number of data per element
+      integer, intent(in)::  lelement_data2 ! number of columns in matrix of constraints, ( = NELEMS)
+      real(kr), intent(in):: element_data(lelement_data1*lelement_data2) ! array for data on elements
+
+      ! LOCAL array of additional data at degrees of freedom 
+      integer, intent(in)::  ldof_data  ! number of entries in dof_data ( = NDOFS)
+      real(kr), intent(in):: dof_data(ldof_data) ! array for data on degrees of freedom
 
       ! local vars
       logical :: is_assembled
@@ -277,7 +287,9 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         rhs,lrhs, is_rhs_complete, &
                                         sol,lsol, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled, &
-                                        user_constraints,luser_constraints1,luser_constraints2)
+                                        user_constraints,luser_constraints1,luser_constraints2, &
+                                        element_data,lelement_data1,lelement_data2, &
+                                        dof_data,ldof_data )
 
 end subroutine
 
