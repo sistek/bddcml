@@ -693,7 +693,7 @@ Default is @code{0}.
 @end table
 
 @item weights_type
-Type of weights to be used on interface. Possible choices
+Type of weights to be used on interface (default 0). Possible choices
 @itemize
 @item 0 -- weights computed by cardinality, i.e. arithmetic average, the mean value of solution from neighbouring subdomains.
 Good choice for many problem types except those with large variations in material coefficients and/or sizes of elements.
