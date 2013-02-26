@@ -177,6 +177,11 @@ module module_dd
          integer, allocatable :: igvsivn(:,:)          ! IGVSIVN array - indices of glob variables in subdomain interface numbering
          integer ::             lglob_type             ! length of array GLOB_TYPE
          integer, allocatable :: glob_type(:)          ! type of globs ( 1 - face, 2 - edge)
+         integer ::             lnsubglobs             ! length of array NSUBGLOBS
+         integer, allocatable :: nsubglobs(:)          ! number of subdomains in glob (only neighbours)
+         integer ::             lglob_subs1            ! number of rows of GLOB_SUBS array
+         integer ::             lglob_subs2            ! number of cols of GLOB_SUBS array
+         integer, allocatable :: glob_subs(:,:)        ! indices of subdomains in glob (only neighbours)
 
          ! description of neighbouring of subdomain for data interchange
          logical ::             is_adj_loaded = .false. ! is adjacency of subdomains known?
@@ -378,375 +383,375 @@ subroutine dd_init(sub,indsub,nsub,comm)
 
 end subroutine
 
-!*************************************************
-subroutine dd_read_mesh_from_file(sub,problemname)
-!*************************************************
-! Subroutine for reading of subdomain data from separate SMD file
-      use module_utils
-      implicit none
+!!*************************************************
+!subroutine dd_read_mesh_from_file(sub,problemname)
+!!*************************************************
+!! Subroutine for reading of subdomain data from separate SMD file
+!      use module_utils
+!      implicit none
+!
+!! Subdomain structure
+!      type(subdomain_type),intent(inout) :: sub
+!! name of problem
+!      character(*),intent(in) :: problemname
+!
+!! local variables
+!      integer :: isub
+!      integer :: idsmd, iglob, ivar, ignode
+!      character(lfnamex):: fname
+!
+!      integer :: nelem, nnod, ndof, ndim, ncorner, nglob, nadj
+!      integer ::             lnndf,   lnnet,   linet 
+!      integer, allocatable :: nndf(:), nnet(:), inet(:)
+!      integer ::             lisngn
+!      integer, allocatable :: isngn(:)
+!      integer ::             lisvgvn
+!      integer, allocatable :: isvgvn(:)
+!      integer ::             lisegn
+!      integer, allocatable :: isegn(:)
+!      integer ::              lxyz1, lxyz2
+!      real(kr), allocatable :: xyz(:,:)
+!      integer :: nnodi, ndofi, ndofo
+!      integer ::             liin,   liivsvn,   liovsvn
+!      integer, allocatable :: iin(:), iivsvn(:), iovsvn(:)
+!      integer ::             lifix
+!      integer, allocatable :: ifix(:)
+!      integer ::              lfixv
+!      real(kr), allocatable :: fixv(:)
+!      integer ::             liadj
+!      integer, allocatable :: iadj(:)
+!      integer ::              lglobal_corner_number
+!      integer, allocatable ::  global_corner_number(:)
+!      integer ::              licnsin 
+!      integer, allocatable ::  icnsin(:)
+!      integer ::              lglobal_glob_number
+!      integer, allocatable ::  global_glob_number(:)
+!      integer ::              lglob_type
+!      integer, allocatable ::  glob_type(:)
+!      integer ::              lnglobnodes 
+!      integer, allocatable ::  nglobnodes(:)
+!      integer ::              lignsin1, lignsin2
+!      integer, allocatable ::  ignsin(:,:)
+!      integer ::              lnglobvar 
+!      integer, allocatable ::  nglobvar(:)
+!      integer ::              ligvsivn1, ligvsivn2
+!      integer, allocatable ::  igvsivn(:,:)
+!      integer ::              lrhss
+!      real(kr), allocatable :: rhss(:)
+!
+!      if (.not.sub%is_initialized) then
+!         call error('DD_READ_MESH_FROM_FILE','subdomain not initialized')
+!      end if
+!
+!      isub = sub%isub
+!
+!      ! open subdomain SMD file with mesh description
+!      call getfname(problemname,isub,'SMD',fname)
+!      if (debug) then
+!         write(*,*) 'DD_READ_MESH_FROM_FILE: Opening file fname: ', trim(fname)
+!      end if
+!      call allocate_unit(idsmd)
+!      open (unit=idsmd,file=trim(fname),status='old',form='formatted')
+!
+!      ! read data from file
+!      ! ---header
+!      read(idsmd,*) nelem, nnod, ndof, ndim
+!
+!      ! ---NNDF array
+!      ! ---NNET array
+!      lnndf = nnod
+!      lnnet = nelem
+!      allocate (nndf(lnndf),nnet(lnnet))
+!      read(idsmd,*) nndf
+!      read(idsmd,*) nnet
+!
+!      ! ---INET array
+!      linet = sum(nnet)
+!      allocate (inet(linet))
+!      read(idsmd,*) inet
+!
+!      ! ---ISNGN array
+!      lisngn = nnod
+!      allocate (isngn(lisngn))
+!      read(idsmd,*) isngn
+!
+!      ! ---ISVNGVN array
+!      lisvgvn = ndof
+!      allocate (isvgvn(lisvgvn))
+!      call zero(isvgvn,lisvgvn)
+!
+!      ! ---ISEGN array
+!      lisegn = nelem
+!      allocate (isegn(lisegn))
+!      read(idsmd,*) isegn
+!
+!      ! --- coordinates
+!      lxyz1 = nnod
+!      lxyz2 = ndim
+!      allocate(xyz(lxyz1,lxyz2))
+!      read(idsmd,*) xyz
+!
+!      ! ---interface data
+!      read(idsmd,*) nnodi
+!      read(idsmd,*) ndofi
+!      read(idsmd,*) ndofo
+!
+!      liin    = nnodi
+!      liivsvn = ndofi
+!      liovsvn = ndofo
+!      allocate (iin(liin), iivsvn(liivsvn), iovsvn(liovsvn))
+!      read(idsmd,*) iin
+!      read(idsmd,*) iivsvn
+!      read(idsmd,*) iovsvn
+!
+!      ! --- boundary conditions
+!      lifix = ndof
+!      lfixv = ndof
+!      allocate(ifix(lifix),fixv(lfixv))
+!      read(idsmd,*) ifix
+!      read(idsmd,*) fixv
+!
+!      ! --- neighbouring
+!      read(idsmd,*) nadj
+!      liadj = nadj
+!      allocate(iadj(liadj))
+!      read(idsmd,*) iadj
+!
+!      ! --- corners 
+!      read(idsmd,*) ncorner
+!      lglobal_corner_number = ncorner
+!      licnsin               = ncorner
+!      allocate(global_corner_number(lglobal_corner_number),icnsin(licnsin))
+!      read(idsmd,*) global_corner_number
+!      read(idsmd,*) icnsin
+!
+!      ! --- globs
+!      read(idsmd,*) nglob
+!      lglobal_glob_number = nglob
+!      lnglobvar           = nglob
+!      lnglobnodes         = nglob
+!      allocate(global_glob_number(lglobal_glob_number),nglobvar(lnglobvar),nglobnodes(lnglobnodes))
+!      read(idsmd,*) global_glob_number
+!
+!      read(idsmd,*) nglobnodes
+!      lignsin1 = nglob
+!      lignsin2 = maxval(nglobnodes)
+!      allocate(ignsin(lignsin1,lignsin2))
+!      do iglob = 1,nglob
+!         ! read glob variables
+!         read(idsmd,*) (ignsin(iglob,ignode),ignode = 1,nglobnodes(iglob))
+!         ! pad the glob with zeros
+!         do ignode = nglobnodes(iglob) + 1,lignsin2
+!            ignsin(iglob,ignode) = 0
+!         end do
+!      end do
+!      read(idsmd,*) nglobvar
+!      ligvsivn1 = nglob
+!      ligvsivn2 = maxval(nglobvar)
+!      allocate(igvsivn(ligvsivn1,ligvsivn2))
+!      do iglob = 1,nglob
+!         ! read glob variables
+!         read(idsmd,*) (igvsivn(iglob,ivar),ivar = 1,nglobvar(iglob))
+!         ! pad the glob with zeros
+!         do ivar = nglobvar(iglob) + 1,ligvsivn2
+!            igvsivn(iglob,ivar) = 0
+!         end do
+!      end do
+!      lglob_type = nglob
+!      allocate(glob_type(lglob_type))
+!      read(idsmd,*) glob_type
+!
+!      ! --- right hand side
+!      lrhss = ndof
+!      allocate(rhss(lrhss))
+!      read(idsmd,*) rhss
+!
+!      close(idsmd)
+!      if (debug) then
+!         write(*,*) 'DD_READ_MESH_FROM_FILE: Data read successfully.'
+!      end if
+!
+!      ! load data to structure
+!      call dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
+!                              nndf,lnndf, nnet,lnnet, 0, inet,linet, &
+!                              isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
+!                              xyz,lxyz1,lxyz2)
+!      call dd_upload_sub_adj(sub, nadj, iadj,liadj)
+!      !call dd_upload_sub_interface(sub, nnodi, ndofi, ndofo, &
+!      !                             iin,liin, iivsvn,liivsvn, iovsvn,liovsvn)
+!      call dd_upload_sub_corners(sub, ncorner,&
+!                                 global_corner_number,lglobal_corner_number, icnsin,licnsin)
+!      call dd_upload_sub_globs(sub, nglob, &
+!                               global_glob_number,lglobal_glob_number, &
+!                               nglobnodes,lnglobnodes, nglobvar,lnglobvar,&
+!                               ignsin,lignsin1,lignsin2, igvsivn,ligvsivn1,ligvsivn2,&
+!                               glob_type,lglob_type)
+!      call dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
+!      call dd_upload_rhs(sub, rhss,lrhss, .true.)
+!
+!      if (debug) then
+!         write(*,*) 'DD_READ_MESH_FROM_FILE: Data loaded successfully.'
+!      end if
+!
+!      deallocate (nndf,nnet)
+!      deallocate (inet)
+!      deallocate (isngn)
+!      deallocate (isegn)
+!      deallocate (xyz)
+!      deallocate (iin, iivsvn, iovsvn)
+!      deallocate (iadj)
+!      deallocate (ifix,fixv)
+!      deallocate (glob_type)
+!      deallocate (global_glob_number,nglobvar,nglobnodes)
+!      deallocate (ignsin)
+!      deallocate (igvsivn)
+!      deallocate (global_corner_number,icnsin)
+!      deallocate (rhss)
+!
+!end subroutine
 
-! Subdomain structure
-      type(subdomain_type),intent(inout) :: sub
-! name of problem
-      character(*),intent(in) :: problemname
-
-! local variables
-      integer :: isub
-      integer :: idsmd, iglob, ivar, ignode
-      character(lfnamex):: fname
-
-      integer :: nelem, nnod, ndof, ndim, ncorner, nglob, nadj
-      integer ::             lnndf,   lnnet,   linet 
-      integer, allocatable :: nndf(:), nnet(:), inet(:)
-      integer ::             lisngn
-      integer, allocatable :: isngn(:)
-      integer ::             lisvgvn
-      integer, allocatable :: isvgvn(:)
-      integer ::             lisegn
-      integer, allocatable :: isegn(:)
-      integer ::              lxyz1, lxyz2
-      real(kr), allocatable :: xyz(:,:)
-      integer :: nnodi, ndofi, ndofo
-      integer ::             liin,   liivsvn,   liovsvn
-      integer, allocatable :: iin(:), iivsvn(:), iovsvn(:)
-      integer ::             lifix
-      integer, allocatable :: ifix(:)
-      integer ::              lfixv
-      real(kr), allocatable :: fixv(:)
-      integer ::             liadj
-      integer, allocatable :: iadj(:)
-      integer ::              lglobal_corner_number
-      integer, allocatable ::  global_corner_number(:)
-      integer ::              licnsin 
-      integer, allocatable ::  icnsin(:)
-      integer ::              lglobal_glob_number
-      integer, allocatable ::  global_glob_number(:)
-      integer ::              lglob_type
-      integer, allocatable ::  glob_type(:)
-      integer ::              lnglobnodes 
-      integer, allocatable ::  nglobnodes(:)
-      integer ::              lignsin1, lignsin2
-      integer, allocatable ::  ignsin(:,:)
-      integer ::              lnglobvar 
-      integer, allocatable ::  nglobvar(:)
-      integer ::              ligvsivn1, ligvsivn2
-      integer, allocatable ::  igvsivn(:,:)
-      integer ::              lrhss
-      real(kr), allocatable :: rhss(:)
-
-      if (.not.sub%is_initialized) then
-         call error('DD_READ_MESH_FROM_FILE','subdomain not initialized')
-      end if
-
-      isub = sub%isub
-
-      ! open subdomain SMD file with mesh description
-      call getfname(problemname,isub,'SMD',fname)
-      if (debug) then
-         write(*,*) 'DD_READ_MESH_FROM_FILE: Opening file fname: ', trim(fname)
-      end if
-      call allocate_unit(idsmd)
-      open (unit=idsmd,file=trim(fname),status='old',form='formatted')
-
-      ! read data from file
-      ! ---header
-      read(idsmd,*) nelem, nnod, ndof, ndim
-
-      ! ---NNDF array
-      ! ---NNET array
-      lnndf = nnod
-      lnnet = nelem
-      allocate (nndf(lnndf),nnet(lnnet))
-      read(idsmd,*) nndf
-      read(idsmd,*) nnet
-
-      ! ---INET array
-      linet = sum(nnet)
-      allocate (inet(linet))
-      read(idsmd,*) inet
-
-      ! ---ISNGN array
-      lisngn = nnod
-      allocate (isngn(lisngn))
-      read(idsmd,*) isngn
-
-      ! ---ISVNGVN array
-      lisvgvn = ndof
-      allocate (isvgvn(lisvgvn))
-      call zero(isvgvn,lisvgvn)
-
-      ! ---ISEGN array
-      lisegn = nelem
-      allocate (isegn(lisegn))
-      read(idsmd,*) isegn
-
-      ! --- coordinates
-      lxyz1 = nnod
-      lxyz2 = ndim
-      allocate(xyz(lxyz1,lxyz2))
-      read(idsmd,*) xyz
-
-      ! ---interface data
-      read(idsmd,*) nnodi
-      read(idsmd,*) ndofi
-      read(idsmd,*) ndofo
-
-      liin    = nnodi
-      liivsvn = ndofi
-      liovsvn = ndofo
-      allocate (iin(liin), iivsvn(liivsvn), iovsvn(liovsvn))
-      read(idsmd,*) iin
-      read(idsmd,*) iivsvn
-      read(idsmd,*) iovsvn
-
-      ! --- boundary conditions
-      lifix = ndof
-      lfixv = ndof
-      allocate(ifix(lifix),fixv(lfixv))
-      read(idsmd,*) ifix
-      read(idsmd,*) fixv
-
-      ! --- neighbouring
-      read(idsmd,*) nadj
-      liadj = nadj
-      allocate(iadj(liadj))
-      read(idsmd,*) iadj
-
-      ! --- corners 
-      read(idsmd,*) ncorner
-      lglobal_corner_number = ncorner
-      licnsin               = ncorner
-      allocate(global_corner_number(lglobal_corner_number),icnsin(licnsin))
-      read(idsmd,*) global_corner_number
-      read(idsmd,*) icnsin
-
-      ! --- globs
-      read(idsmd,*) nglob
-      lglobal_glob_number = nglob
-      lnglobvar           = nglob
-      lnglobnodes         = nglob
-      allocate(global_glob_number(lglobal_glob_number),nglobvar(lnglobvar),nglobnodes(lnglobnodes))
-      read(idsmd,*) global_glob_number
-
-      read(idsmd,*) nglobnodes
-      lignsin1 = nglob
-      lignsin2 = maxval(nglobnodes)
-      allocate(ignsin(lignsin1,lignsin2))
-      do iglob = 1,nglob
-         ! read glob variables
-         read(idsmd,*) (ignsin(iglob,ignode),ignode = 1,nglobnodes(iglob))
-         ! pad the glob with zeros
-         do ignode = nglobnodes(iglob) + 1,lignsin2
-            ignsin(iglob,ignode) = 0
-         end do
-      end do
-      read(idsmd,*) nglobvar
-      ligvsivn1 = nglob
-      ligvsivn2 = maxval(nglobvar)
-      allocate(igvsivn(ligvsivn1,ligvsivn2))
-      do iglob = 1,nglob
-         ! read glob variables
-         read(idsmd,*) (igvsivn(iglob,ivar),ivar = 1,nglobvar(iglob))
-         ! pad the glob with zeros
-         do ivar = nglobvar(iglob) + 1,ligvsivn2
-            igvsivn(iglob,ivar) = 0
-         end do
-      end do
-      lglob_type = nglob
-      allocate(glob_type(lglob_type))
-      read(idsmd,*) glob_type
-
-      ! --- right hand side
-      lrhss = ndof
-      allocate(rhss(lrhss))
-      read(idsmd,*) rhss
-
-      close(idsmd)
-      if (debug) then
-         write(*,*) 'DD_READ_MESH_FROM_FILE: Data read successfully.'
-      end if
-
-      ! load data to structure
-      call dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
-                              nndf,lnndf, nnet,lnnet, 0, inet,linet, &
-                              isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
-                              xyz,lxyz1,lxyz2)
-      call dd_upload_sub_adj(sub, nadj, iadj,liadj)
-      !call dd_upload_sub_interface(sub, nnodi, ndofi, ndofo, &
-      !                             iin,liin, iivsvn,liivsvn, iovsvn,liovsvn)
-      call dd_upload_sub_corners(sub, ncorner,&
-                                 global_corner_number,lglobal_corner_number, icnsin,licnsin)
-      call dd_upload_sub_globs(sub, nglob, &
-                               global_glob_number,lglobal_glob_number, &
-                               nglobnodes,lnglobnodes, nglobvar,lnglobvar,&
-                               ignsin,lignsin1,lignsin2, igvsivn,ligvsivn1,ligvsivn2,&
-                               glob_type,lglob_type)
-      call dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
-      call dd_upload_rhs(sub, rhss,lrhss, .true.)
-
-      if (debug) then
-         write(*,*) 'DD_READ_MESH_FROM_FILE: Data loaded successfully.'
-      end if
-
-      deallocate (nndf,nnet)
-      deallocate (inet)
-      deallocate (isngn)
-      deallocate (isegn)
-      deallocate (xyz)
-      deallocate (iin, iivsvn, iovsvn)
-      deallocate (iadj)
-      deallocate (ifix,fixv)
-      deallocate (glob_type)
-      deallocate (global_glob_number,nglobvar,nglobnodes)
-      deallocate (ignsin)
-      deallocate (igvsivn)
-      deallocate (global_corner_number,icnsin)
-      deallocate (rhss)
-
-end subroutine
-
-!**************************************************************
-subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
-!**************************************************************
-! Subroutine for initialization of subdomain data
-      use module_utils
-      use module_sm
-      implicit none
-      include "mpif.h"
-
-! Subdomain structure
-      type(subdomain_type),intent(inout) :: sub
-! type of matrix
-      integer,intent(in) :: matrixtype
-! name of problem
-      character(*),intent(in) :: problemname
-
-! local variables
-      character(lfnamex):: fname
-
-      integer :: isub
-      integer :: idelm, nelem, nnod, ndof
-
-!     Matrix in IJA sparse format - triplet
-      integer::  la, nnza
-      integer,allocatable  :: i_sparse(:), j_sparse(:)
-      real(kr),allocatable :: a_sparse(:)
-      logical :: is_assembled
-
-
-!     kdof array
-      integer::              lkdof
-      integer,allocatable  :: kdof(:)
-
-!     BC array
-      integer::              lbc
-      real(kr),allocatable :: bc(:)
-
-      integer :: inod
-      integer :: ios
-
-! check prerequisites
-      if (.not.sub%is_initialized) then
-         call error('DD_READ_MATRIX_FROM_FILE','Subdomain is not initialized.')
-      end if
-
-! get data from subdomain
-      isub  = sub%isub
-      nelem = sub%nelem
-      nnod  = sub%nnod
-
-! check prerequisites
-      if (.not.sub%is_mesh_loaded) then
-         write(*,*) 'DD_READ_MATRIX_FROM_FILE: Mesh is not loaded for subdomain:', isub
-         call error_exit
-      end if
-      if (.not.sub%is_bc_loaded) then
-         write(*,*) 'DD_READ_MATRIX_FROM_FILE: BC not loaded for subdomain:', isub
-         call error_exit
-      end if
-
-      ! import PMD file to memory
-      call sm_pmd_get_length(matrixtype,nelem,sub%inet,sub%linet,&
-                             sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
-                             la)
-      ! allocate memory for triplet
-      allocate(i_sparse(la), j_sparse(la), a_sparse(la))
-
-      ! Creation of field KDOF(NNOD) with addresses before first global dof of node
-      lkdof = nnod
-      allocate(kdof(lkdof))
-      kdof(1) = 0
-      do inod = 2,nnod
-         kdof(inod) = kdof(inod-1) + sub%nndf(inod-1)
-      end do
-
-      ! try with subdomain ELM file with element matrices
-      call allocate_unit(idelm)
-      call getfname(problemname,isub,'ELM',fname)
-      open (unit=idelm,file=trim(fname),status='old',form='unformatted',iostat=ios)
-      if (ios.eq.0) then
-         ! the subdomain file should exist, try reading it
-         call sm_pmd_load(matrixtype,idelm,nelem,sub%inet,sub%linet,&
-                          sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
-                          kdof,lkdof,&
-                          i_sparse, j_sparse, a_sparse, la)
-         close (idelm)
-      else
-         write(*,*) 'WARNING: File ',trim(fname), ' does not open. Trying with global ELM file...'
-         ! (this could have a negative impact on performance)
-
-         ! use global filename
-         fname = trim(problemname)//'.ELM'
-         open (unit=idelm,file=trim(fname),status='old',form='unformatted')
-         call sm_pmd_load_masked(matrixtype,idelm,nelem,sub%inet,sub%linet,&
-                                 sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
-                                 kdof,lkdof,sub%isegn,sub%lisegn,&
-                                 i_sparse, j_sparse, a_sparse, la)
-         close (idelm)
-      end if
-      if (debug) then
-         write(*,*) 'DD_READ_MATRIX_FROM_FILE: File with element matrices read.'
-      end if
-
-      nnza = la
-
-      ! eliminate boundary conditions
-      if (sub%is_bc_present) then
-         ndof =  sub%ndof
-         if (sub%is_bc_nonzero) then
-            lbc = ndof
-            allocate(bc(lbc))
-         else
-            lbc = 0
-         end if
-
-         ! eliminate natural BC
-         call sm_apply_bc(matrixtype,sub%ifix,sub%lifix,sub%fixv,sub%lfixv,&
-                          nnza, i_sparse,j_sparse,a_sparse,la, bc,lbc, .false., 0)
-         if (sub%is_bc_nonzero) then
-            call dd_load_eliminated_bc(sub, bc,lbc)
-         else
-            sub%lbc = 0
-         end if
-      end if
-
-      ! load matrix to our structure
-      is_assembled = .false.
-      call dd_load_matrix_triplet(sub, matrixtype, 0, &
-                                  i_sparse,j_sparse,a_sparse,la,nnza,is_assembled)
-
-
-      if (debug) then
-         write(*,*) 'DD_READ_MATRIX_FROM_FILE: isub =',isub,' matrix loaded.'
-      end if
-
-      deallocate(kdof)
-      deallocate(i_sparse, j_sparse, a_sparse)
-      if (allocated(bc)) then
-         deallocate(bc)
-      end if
-
-end subroutine
+!!**************************************************************
+!subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
+!!**************************************************************
+!! Subroutine for initialization of subdomain data
+!      use module_utils
+!      use module_sm
+!      implicit none
+!      include "mpif.h"
+!
+!! Subdomain structure
+!      type(subdomain_type),intent(inout) :: sub
+!! type of matrix
+!      integer,intent(in) :: matrixtype
+!! name of problem
+!      character(*),intent(in) :: problemname
+!
+!! local variables
+!      character(lfnamex):: fname
+!
+!      integer :: isub
+!      integer :: idelm, nelem, nnod, ndof
+!
+!!     Matrix in IJA sparse format - triplet
+!      integer::  la, nnza
+!      integer,allocatable  :: i_sparse(:), j_sparse(:)
+!      real(kr),allocatable :: a_sparse(:)
+!      logical :: is_assembled
+!
+!
+!!     kdof array
+!      integer::              lkdof
+!      integer,allocatable  :: kdof(:)
+!
+!!     BC array
+!      integer::              lbc
+!      real(kr),allocatable :: bc(:)
+!
+!      integer :: inod
+!      integer :: ios
+!
+!! check prerequisites
+!      if (.not.sub%is_initialized) then
+!         call error('DD_READ_MATRIX_FROM_FILE','Subdomain is not initialized.')
+!      end if
+!
+!! get data from subdomain
+!      isub  = sub%isub
+!      nelem = sub%nelem
+!      nnod  = sub%nnod
+!
+!! check prerequisites
+!      if (.not.sub%is_mesh_loaded) then
+!         write(*,*) 'DD_READ_MATRIX_FROM_FILE: Mesh is not loaded for subdomain:', isub
+!         call error_exit
+!      end if
+!      if (.not.sub%is_bc_loaded) then
+!         write(*,*) 'DD_READ_MATRIX_FROM_FILE: BC not loaded for subdomain:', isub
+!         call error_exit
+!      end if
+!
+!      ! import PMD file to memory
+!      call sm_pmd_get_length(matrixtype,nelem,sub%inet,sub%linet,&
+!                             sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
+!                             la)
+!      ! allocate memory for triplet
+!      allocate(i_sparse(la), j_sparse(la), a_sparse(la))
+!
+!      ! Creation of field KDOF(NNOD) with addresses before first global dof of node
+!      lkdof = nnod
+!      allocate(kdof(lkdof))
+!      kdof(1) = 0
+!      do inod = 2,nnod
+!         kdof(inod) = kdof(inod-1) + sub%nndf(inod-1)
+!      end do
+!
+!      ! try with subdomain ELM file with element matrices
+!      call allocate_unit(idelm)
+!      call getfname(problemname,isub,'ELM',fname)
+!      open (unit=idelm,file=trim(fname),status='old',form='unformatted',iostat=ios)
+!      if (ios.eq.0) then
+!         ! the subdomain file should exist, try reading it
+!         call sm_pmd_load(matrixtype,idelm,nelem,sub%inet,sub%linet,&
+!                          sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
+!                          kdof,lkdof,&
+!                          i_sparse, j_sparse, a_sparse, la)
+!         close (idelm)
+!      else
+!         write(*,*) 'WARNING: File ',trim(fname), ' does not open. Trying with global ELM file...'
+!         ! (this could have a negative impact on performance)
+!
+!         ! use global filename
+!         fname = trim(problemname)//'.ELM'
+!         open (unit=idelm,file=trim(fname),status='old',form='unformatted')
+!         call sm_pmd_load_masked(matrixtype,idelm,nelem,sub%inet,sub%linet,&
+!                                 sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
+!                                 kdof,lkdof,sub%isegn,sub%lisegn,&
+!                                 i_sparse, j_sparse, a_sparse, la)
+!         close (idelm)
+!      end if
+!      if (debug) then
+!         write(*,*) 'DD_READ_MATRIX_FROM_FILE: File with element matrices read.'
+!      end if
+!
+!      nnza = la
+!
+!      ! eliminate boundary conditions
+!      if (sub%is_bc_present) then
+!         ndof =  sub%ndof
+!         if (sub%is_bc_nonzero) then
+!            lbc = ndof
+!            allocate(bc(lbc))
+!         else
+!            lbc = 0
+!         end if
+!
+!         ! eliminate natural BC
+!         call sm_apply_bc(matrixtype,sub%ifix,sub%lifix,sub%fixv,sub%lfixv,&
+!                          nnza, i_sparse,j_sparse,a_sparse,la, bc,lbc, .false., 0)
+!         if (sub%is_bc_nonzero) then
+!            call dd_load_eliminated_bc(sub, bc,lbc)
+!         else
+!            sub%lbc = 0
+!         end if
+!      end if
+!
+!      ! load matrix to our structure
+!      is_assembled = .false.
+!      call dd_load_matrix_triplet(sub, matrixtype, 0, &
+!                                  i_sparse,j_sparse,a_sparse,la,nnza,is_assembled)
+!
+!
+!      if (debug) then
+!         write(*,*) 'DD_READ_MATRIX_FROM_FILE: isub =',isub,' matrix loaded.'
+!      end if
+!
+!      deallocate(kdof)
+!      deallocate(i_sparse, j_sparse, a_sparse)
+!      if (allocated(bc)) then
+!         deallocate(bc)
+!      end if
+!
+!end subroutine
 
 !****************************************************************************************
 subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,idelm,nsub,nelem,matrixtype,&
@@ -1906,271 +1911,271 @@ subroutine dd_localize_adj(sub,nsub,kadjsub,lkadjsub)
 
 end subroutine
 
-!*********************************************************************************
-subroutine dd_localize_cornersglobs(sub,ncorner,inodc,linodc,&
-                                    nedge,nface,nnglb,lnnglb,inglb,linglb, nnodcs)
-!*********************************************************************************
-! Subroutine for localization of corners and globs to particular subdomain
-! loads the data directly to the structure
-      use module_utils
-      implicit none
-
-! Subdomain structure
-      type(subdomain_type),intent(inout) :: sub
-! number of corners
-      integer,intent(in) :: ncorner
-! global indices of corners
-      integer,intent(in) :: linodc
-      integer,intent(in) ::  inodc(linodc)
-! number of edges
-      integer,intent(in) :: nedge
-! number of faces
-      integer,intent(in) :: nface
-! number of nodes in globs
-      integer,intent(in) :: lnnglb
-      integer,intent(in) ::  nnglb(lnnglb)
-! global indices of nodes in globs (lenght sum(nnglb))
-      integer,intent(in) :: linglb
-      integer,intent(in) ::  inglb(linglb)
-
-! number of coarse pseudonodes (corners and globs) at subdomain
-      integer,intent(out) ::  nnodcs
-
-      ! local vars
-      integer :: nglb
-
-      integer ::            lglobal_corner_numbers,   licnsins
-      integer,allocatable :: global_corner_numbers(:), icnsins(:)
-      integer::            lglobal_glob_numbers
-      integer,allocatable:: global_glob_numbers(:)
-      integer::            lglob_types
-      integer,allocatable:: glob_types(:)
-      integer::            lnglobnodess
-      integer,allocatable:: nglobnodess(:)
-      integer::            lnglobvars
-      integer,allocatable:: nglobvars(:)
-      integer::            lignsins1, lignsins2
-      integer,allocatable:: ignsins(:,:)
-      integer::            ligvsivns1, ligvsivns2
-      integer,allocatable:: igvsivns(:,:)
-      integer ::            liingns
-      integer,allocatable :: iingns(:)
-      integer ::            lkdofs
-      integer,allocatable :: kdofs(:)
-
-      integer :: idofn, inods, iglb, iglbn, iglbv, iglobs, inc, indnc, &
-                 indng, indns, indvs, inodcs, pointinglb
-      integer :: indins, indivs, indn1
-      integer :: ncorners, nglobs
-      integer :: nnods, ndofs, nelems, nnodis, ndofis, ndofn, nglbn, nglbv
-
-      ! check dimension
-      if (ncorner.ne.linodc) then
-         call error('DD_LOCALIZE_CORNERSGLOBS','array dimension mismatch INODC.')
-      end if
-      nglb = nedge + nface
-      if (nglb.ne.lnnglb) then
-         call error('DD_LOCALIZE_CORNERSGLOBS','array dimension mismatch NNGLB.')
-      end if
-      if (.not.sub%is_interface_loaded) then
-         call error('DD_LOCALIZE_CORNERSGLOBS','Interface not loaded yet.')
-      end if
-
-      ! prepare array for global indices of interface nodes 
-      call dd_get_interface_size(sub,ndofis,nnodis)
-      liingns = nnodis
-      allocate(iingns(liingns))
-      call dd_get_interface_global_numbers(sub, iingns,liingns)
-
-! find number of coarse nodes on subdomain NCORNERS
-      ncorners = 0
-      do inc = 1,ncorner
-         indnc = inodc(inc)
-         if (any(iingns.eq.indnc)) then
-            ncorners = ncorners + 1
-         end if
-      end do
-
-! create array kdofs
-      call dd_get_size(sub, ndofs,nnods,nelems)
-      lkdofs = nnods
-      allocate(kdofs(lkdofs))
-      if (nnods.gt.0) then
-         kdofs(1) = 0
-         do inods = 2,nnods
-            kdofs(inods) = kdofs(inods-1) + sub%nndf(inods-1)
-         end do
-      end if
-      !print *,'kdofs:',kdofs
-      !call flush(6)
-
-
-      ! find mapping of corners
-      lglobal_corner_numbers = ncorners
-      allocate(global_corner_numbers(lglobal_corner_numbers))
-      licnsins = ncorners
-      allocate(icnsins(licnsins))
-
-      inodcs = 0
-      do inc = 1,ncorner
-         indnc = inodc(inc)
-         if (any(iingns.eq.indnc)) then
-            inodcs = inodcs + 1
-
-            ! mapping to global corner numbers
-            global_corner_numbers(inodcs) = inc
-            ! mapping to subdomain interface numbers
-            call get_index(indnc,iingns,nnodis,indins)
-            if (indins .eq. -1) then
-               write(*,*) 'Index of subdomain interface node not found.', indnc
-               write(*,*) 'iingns',iingns
-               call error_exit
-            end if
-            icnsins(inodcs) = indins
-         end if
-      end do
-
-      call dd_upload_sub_corners(sub, ncorners, global_corner_numbers,lglobal_corner_numbers, icnsins,licnsins)
-      deallocate(icnsins)
-      deallocate(global_corner_numbers)
-
-      ! find local number of globs NGLOBS
-      nglobs     = 0
-      pointinglb = 0
-      do iglb = 1,nglb
-         nglbn = nnglb(iglb)
-
-         ! touch first node in glob
-         indn1 = inglb(pointinglb + 1)
-
-         if (any(iingns.eq.indn1)) then
-            nglobs = nglobs + 1
-         end if
-
-         pointinglb = pointinglb + nglbn
-      end do
-
-      ! get array of interface 
-
-      ! mapping of globs
-      lglobal_glob_numbers = nglobs
-      allocate(global_glob_numbers(lglobal_glob_numbers))
-      lnglobvars = nglobs
-      allocate(nglobvars(lnglobvars))
-      lnglobnodess = nglobs
-      allocate(nglobnodess(lnglobnodess))
-      lglob_types = nglobs
-      allocate(glob_types(lglob_types))
-
-      iglobs     = 0
-      pointinglb = 0
-      do iglb = 1,nglb
-         nglbn = nnglb(iglb)
-
-         ! touch first node in glob
-         indn1 = inglb(pointinglb + 1)
-
-         if (any(iingns.eq.indn1)) then
-
-            iglobs = iglobs + 1
-
-            nglbv = 0
-            do iglbn = 1,nglbn
-               indng = inglb(pointinglb + iglbn)
-               call get_index(indng,iingns,liingns,indins)
-               if (indins .eq. -1) then
-                  write(*,*) ' Index of interface node not found for global ', indng
-                  call error_exit
-               end if
-               indns = sub%iin(indins)
-
-               ndofn = sub%nndf(indns)
-
-               nglbv = nglbv + ndofn
-            end do
-
-            nglobvars(iglobs)   = nglbv
-            nglobnodess(iglobs) = nglbn
-            global_glob_numbers(iglobs) = iglb
-         end if
-
-         pointinglb = pointinglb + nglbn
-      end do
-
-      ! set type of glob
-      glob_types = 1
-      where (global_glob_numbers .le. nedge) glob_types = 2
-      ! shift numbering behind corners
-      global_glob_numbers = global_glob_numbers + ncorner
-
-      ligvsivns1 = nglobs
-      ligvsivns2 = maxval(nglobvars)
-      allocate(igvsivns(ligvsivns1,ligvsivns2))
-      lignsins1 = nglobs
-      lignsins2 = maxval(nglobnodess)
-      allocate(ignsins(lignsins1,lignsins2))
-      iglobs     = 0
-      pointinglb = 0
-      do iglb = 1,nglb
-         nglbn = nnglb(iglb)
-
-         ! touch first node in glob
-         indn1 = inglb(pointinglb + 1)
-
-         if (any(iingns.eq.indn1)) then
-
-            iglobs = iglobs + 1
-
-            iglbv = 0
-            do iglbn = 1,nglbn
-               
-               indng = inglb(pointinglb + iglbn)
-               call get_index(indng,iingns,nnodis,indins)
-               if (indins .eq. -1) then
-                  write(*,*) ' Index of interface node not found.', indng
-                  call error_exit
-               end if
-
-               ignsins(iglobs,iglbn) = indins
-
-               indns = sub%iin(indins)
-               ndofn = sub%nndf(indns)
-
-               do idofn = 1,ndofn
-                  iglbv = iglbv + 1
-
-                  indvs = kdofs(indns) + idofn
-                  call get_index(indvs,sub%iivsvn,sub%liivsvn,indivs)
-                  if (indivs .eq. -1) then
-                     write(*,*) 'DD_LOCALIZE_CORNERSGLOBS: Index of subdomain interface dof not found.'
-                     write(*,*) 'indng =',indng,'indns =',indns,'indvs = ',indvs,'indivs = ',indivs, 'isub = ',sub%isub
-                     call error_exit
-                  end if
-
-                  igvsivns(iglobs,iglbv) = indivs
-               end do
-            end do
-         end if
-
-         pointinglb = pointinglb + nglbn
-      end do
-      deallocate(iingns)
-      deallocate(kdofs)
-
-      call dd_upload_sub_globs(sub, nglobs, global_glob_numbers,lglobal_glob_numbers,&
-                               nglobnodess,lnglobnodess, nglobvars,lnglobvars,&
-                               ignsins,lignsins1,lignsins2, igvsivns,ligvsivns1,ligvsivns2,&
-                               glob_types,lglob_types)
-      deallocate(ignsins)
-      deallocate(igvsivns)
-      deallocate(glob_types)
-      deallocate(nglobnodess)
-      deallocate(nglobvars)
-      deallocate(global_glob_numbers)
-
-      nnodcs = ncorners + nglobs
-
-end subroutine
+!!*********************************************************************************
+!subroutine dd_localize_cornersglobs(sub,ncorner,inodc,linodc,&
+!                                    nedge,nface,nnglb,lnnglb,inglb,linglb, nnodcs)
+!!*********************************************************************************
+!! Subroutine for localization of corners and globs to particular subdomain
+!! loads the data directly to the structure
+!      use module_utils
+!      implicit none
+!
+!! Subdomain structure
+!      type(subdomain_type),intent(inout) :: sub
+!! number of corners
+!      integer,intent(in) :: ncorner
+!! global indices of corners
+!      integer,intent(in) :: linodc
+!      integer,intent(in) ::  inodc(linodc)
+!! number of edges
+!      integer,intent(in) :: nedge
+!! number of faces
+!      integer,intent(in) :: nface
+!! number of nodes in globs
+!      integer,intent(in) :: lnnglb
+!      integer,intent(in) ::  nnglb(lnnglb)
+!! global indices of nodes in globs (lenght sum(nnglb))
+!      integer,intent(in) :: linglb
+!      integer,intent(in) ::  inglb(linglb)
+!
+!! number of coarse pseudonodes (corners and globs) at subdomain
+!      integer,intent(out) ::  nnodcs
+!
+!      ! local vars
+!      integer :: nglb
+!
+!      integer ::            lglobal_corner_numbers,   licnsins
+!      integer,allocatable :: global_corner_numbers(:), icnsins(:)
+!      integer::            lglobal_glob_numbers
+!      integer,allocatable:: global_glob_numbers(:)
+!      integer::            lglob_types
+!      integer,allocatable:: glob_types(:)
+!      integer::            lnglobnodess
+!      integer,allocatable:: nglobnodess(:)
+!      integer::            lnglobvars
+!      integer,allocatable:: nglobvars(:)
+!      integer::            lignsins1, lignsins2
+!      integer,allocatable:: ignsins(:,:)
+!      integer::            ligvsivns1, ligvsivns2
+!      integer,allocatable:: igvsivns(:,:)
+!      integer ::            liingns
+!      integer,allocatable :: iingns(:)
+!      integer ::            lkdofs
+!      integer,allocatable :: kdofs(:)
+!
+!      integer :: idofn, inods, iglb, iglbn, iglbv, iglobs, inc, indnc, &
+!                 indng, indns, indvs, inodcs, pointinglb
+!      integer :: indins, indivs, indn1
+!      integer :: ncorners, nglobs
+!      integer :: nnods, ndofs, nelems, nnodis, ndofis, ndofn, nglbn, nglbv
+!
+!      ! check dimension
+!      if (ncorner.ne.linodc) then
+!         call error('DD_LOCALIZE_CORNERSGLOBS','array dimension mismatch INODC.')
+!      end if
+!      nglb = nedge + nface
+!      if (nglb.ne.lnnglb) then
+!         call error('DD_LOCALIZE_CORNERSGLOBS','array dimension mismatch NNGLB.')
+!      end if
+!      if (.not.sub%is_interface_loaded) then
+!         call error('DD_LOCALIZE_CORNERSGLOBS','Interface not loaded yet.')
+!      end if
+!
+!      ! prepare array for global indices of interface nodes 
+!      call dd_get_interface_size(sub,ndofis,nnodis)
+!      liingns = nnodis
+!      allocate(iingns(liingns))
+!      call dd_get_interface_global_numbers(sub, iingns,liingns)
+!
+!! find number of coarse nodes on subdomain NCORNERS
+!      ncorners = 0
+!      do inc = 1,ncorner
+!         indnc = inodc(inc)
+!         if (any(iingns.eq.indnc)) then
+!            ncorners = ncorners + 1
+!         end if
+!      end do
+!
+!! create array kdofs
+!      call dd_get_size(sub, ndofs,nnods,nelems)
+!      lkdofs = nnods
+!      allocate(kdofs(lkdofs))
+!      if (nnods.gt.0) then
+!         kdofs(1) = 0
+!         do inods = 2,nnods
+!            kdofs(inods) = kdofs(inods-1) + sub%nndf(inods-1)
+!         end do
+!      end if
+!      !print *,'kdofs:',kdofs
+!      !call flush(6)
+!
+!
+!      ! find mapping of corners
+!      lglobal_corner_numbers = ncorners
+!      allocate(global_corner_numbers(lglobal_corner_numbers))
+!      licnsins = ncorners
+!      allocate(icnsins(licnsins))
+!
+!      inodcs = 0
+!      do inc = 1,ncorner
+!         indnc = inodc(inc)
+!         if (any(iingns.eq.indnc)) then
+!            inodcs = inodcs + 1
+!
+!            ! mapping to global corner numbers
+!            global_corner_numbers(inodcs) = inc
+!            ! mapping to subdomain interface numbers
+!            call get_index(indnc,iingns,nnodis,indins)
+!            if (indins .eq. -1) then
+!               write(*,*) 'Index of subdomain interface node not found.', indnc
+!               write(*,*) 'iingns',iingns
+!               call error_exit
+!            end if
+!            icnsins(inodcs) = indins
+!         end if
+!      end do
+!
+!      call dd_upload_sub_corners(sub, ncorners, global_corner_numbers,lglobal_corner_numbers, icnsins,licnsins)
+!      deallocate(icnsins)
+!      deallocate(global_corner_numbers)
+!
+!      ! find local number of globs NGLOBS
+!      nglobs     = 0
+!      pointinglb = 0
+!      do iglb = 1,nglb
+!         nglbn = nnglb(iglb)
+!
+!         ! touch first node in glob
+!         indn1 = inglb(pointinglb + 1)
+!
+!         if (any(iingns.eq.indn1)) then
+!            nglobs = nglobs + 1
+!         end if
+!
+!         pointinglb = pointinglb + nglbn
+!      end do
+!
+!      ! get array of interface 
+!
+!      ! mapping of globs
+!      lglobal_glob_numbers = nglobs
+!      allocate(global_glob_numbers(lglobal_glob_numbers))
+!      lnglobvars = nglobs
+!      allocate(nglobvars(lnglobvars))
+!      lnglobnodess = nglobs
+!      allocate(nglobnodess(lnglobnodess))
+!      lglob_types = nglobs
+!      allocate(glob_types(lglob_types))
+!
+!      iglobs     = 0
+!      pointinglb = 0
+!      do iglb = 1,nglb
+!         nglbn = nnglb(iglb)
+!
+!         ! touch first node in glob
+!         indn1 = inglb(pointinglb + 1)
+!
+!         if (any(iingns.eq.indn1)) then
+!
+!            iglobs = iglobs + 1
+!
+!            nglbv = 0
+!            do iglbn = 1,nglbn
+!               indng = inglb(pointinglb + iglbn)
+!               call get_index(indng,iingns,liingns,indins)
+!               if (indins .eq. -1) then
+!                  write(*,*) ' Index of interface node not found for global ', indng
+!                  call error_exit
+!               end if
+!               indns = sub%iin(indins)
+!
+!               ndofn = sub%nndf(indns)
+!
+!               nglbv = nglbv + ndofn
+!            end do
+!
+!            nglobvars(iglobs)   = nglbv
+!            nglobnodess(iglobs) = nglbn
+!            global_glob_numbers(iglobs) = iglb
+!         end if
+!
+!         pointinglb = pointinglb + nglbn
+!      end do
+!
+!      ! set type of glob
+!      glob_types = 1
+!      where (global_glob_numbers .le. nedge) glob_types = 2
+!      ! shift numbering behind corners
+!      global_glob_numbers = global_glob_numbers + ncorner
+!
+!      ligvsivns1 = nglobs
+!      ligvsivns2 = maxval(nglobvars)
+!      allocate(igvsivns(ligvsivns1,ligvsivns2))
+!      lignsins1 = nglobs
+!      lignsins2 = maxval(nglobnodess)
+!      allocate(ignsins(lignsins1,lignsins2))
+!      iglobs     = 0
+!      pointinglb = 0
+!      do iglb = 1,nglb
+!         nglbn = nnglb(iglb)
+!
+!         ! touch first node in glob
+!         indn1 = inglb(pointinglb + 1)
+!
+!         if (any(iingns.eq.indn1)) then
+!
+!            iglobs = iglobs + 1
+!
+!            iglbv = 0
+!            do iglbn = 1,nglbn
+!               
+!               indng = inglb(pointinglb + iglbn)
+!               call get_index(indng,iingns,nnodis,indins)
+!               if (indins .eq. -1) then
+!                  write(*,*) ' Index of interface node not found.', indng
+!                  call error_exit
+!               end if
+!
+!               ignsins(iglobs,iglbn) = indins
+!
+!               indns = sub%iin(indins)
+!               ndofn = sub%nndf(indns)
+!
+!               do idofn = 1,ndofn
+!                  iglbv = iglbv + 1
+!
+!                  indvs = kdofs(indns) + idofn
+!                  call get_index(indvs,sub%iivsvn,sub%liivsvn,indivs)
+!                  if (indivs .eq. -1) then
+!                     write(*,*) 'DD_LOCALIZE_CORNERSGLOBS: Index of subdomain interface dof not found.'
+!                     write(*,*) 'indng =',indng,'indns =',indns,'indvs = ',indvs,'indivs = ',indivs, 'isub = ',sub%isub
+!                     call error_exit
+!                  end if
+!
+!                  igvsivns(iglobs,iglbv) = indivs
+!               end do
+!            end do
+!         end if
+!
+!         pointinglb = pointinglb + nglbn
+!      end do
+!      deallocate(iingns)
+!      deallocate(kdofs)
+!
+!      call dd_upload_sub_globs(sub, nglobs, global_glob_numbers,lglobal_glob_numbers,&
+!                               nglobnodess,lnglobnodess, nglobvars,lnglobvars,&
+!                               ignsins,lignsins1,lignsins2, igvsivns,ligvsivns1,ligvsivns2,&
+!                               glob_types,lglob_types)
+!      deallocate(ignsins)
+!      deallocate(igvsivns)
+!      deallocate(glob_types)
+!      deallocate(nglobnodess)
+!      deallocate(nglobvars)
+!      deallocate(global_glob_numbers)
+!
+!      nnodcs = ncorners + nglobs
+!
+!end subroutine
 
 !*********************************************************************************
 subroutine dd_load_matrix_triplet(sub, matrixtype, numshift,&
@@ -2546,7 +2551,9 @@ subroutine dd_upload_sub_globs(sub, nglob, &
                                global_glob_number,lglobal_glob_number, &
                                nglobnodes,lnglobnodes, nglobvar,lnglobvar,&
                                ignsin,lignsin1,lignsin2, igvsivn,ligvsivn1,ligvsivn2,&
-                               glob_type,lglob_type)
+                               glob_type,lglob_type, &
+                               nsubglobs,lnsubglobs, &
+                               glob_subs,lglob_subs1,lglob_subs2)
 !*************************************************************************************
 ! Subroutine for loading globs data into sub structure
       implicit none
@@ -2562,6 +2569,10 @@ subroutine dd_upload_sub_globs(sub, nglob, &
       integer,intent(in) ::  igvsivn(ligvsivn1,ligvsivn2)
       integer,intent(in) :: lglob_type
       integer,intent(in) ::  glob_type(lglob_type)
+      integer,intent(in) :: lnsubglobs
+      integer,intent(in) ::  nsubglobs(lnsubglobs)
+      integer,intent(in) :: lglob_subs1, lglob_subs2
+      integer,intent(in) ::  glob_subs(lglob_subs1,lglob_subs2)
 
       ! local vars
       integer :: i, j
@@ -2609,6 +2620,21 @@ subroutine dd_upload_sub_globs(sub, nglob, &
       allocate(sub%glob_type(lglob_type))
       do i = 1,lglob_type
          sub%glob_type(i) = glob_type(i)
+      end do
+
+      sub%lnsubglobs = lnsubglobs
+      allocate(sub%nsubglobs(lnsubglobs))
+      do i = 1,lnsubglobs
+         sub%nsubglobs(i) = nsubglobs(i)
+      end do
+
+      sub%lglob_subs1 = lglob_subs1
+      sub%lglob_subs2 = lglob_subs2
+      allocate(sub%glob_subs(lglob_subs1,lglob_subs2))
+      do i = 1,lglob_subs1
+         do j = 1,lglob_subs2
+            sub%glob_subs(i,j) = glob_subs(i,j)
+         end do
       end do
 
       sub%is_globs_loaded = .true.
@@ -7897,6 +7923,12 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       integer :: idofn, ndofn, indeg, indfg, indivs 
       integer :: pifixi
 
+      integer ::            lnsubglobs
+      integer,allocatable :: nsubglobs(:)
+      integer ::            lglob_subs1, lglob_subs2
+      integer,allocatable :: glob_subs(:,:)
+      integer ::             iglob
+
       integer::            ndofi_loc, ndofi_sub, ndofig
       integer::            nnodi_loc, nnodi_sub, nnodig
 
@@ -9265,10 +9297,40 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          !   print *,(igvsivns(i,j),j = 1,nglobvars(i))
          !end do
 
+         lnsubglobs = nglobs
+         allocate(nsubglobs(lnsubglobs))
+         do iglob = 1,nglobs
+            if (nglobnodess(iglob) .eq. 0) then
+               call error( routine_name, 'Glob with no nodes?' )
+            end if
+            indi = ignsins(iglob,1)
+
+            nsubglobs(iglob) = nsubnode(indi)
+         end do
+
+         lglob_subs1 = nglobs
+         lglob_subs2 = maxval(nsubglobs)
+         allocate(glob_subs(lglob_subs1,lglob_subs2))
+         glob_subs = 0
+         do iglob = 1,nglobs
+            indi = ignsins(iglob,1)
+
+            do i = 1,nsubnode(indi)
+               glob_subs(iglob,i) = globsubs(indi,i,1)
+            end do
+         end do
+
+         !print *, 'nsubglobs', nsubglobs
+         !print *, 'glob_subs', glob_subs
+
          call dd_upload_sub_globs(suba(isub_loc), nglobs, global_glob_numbers,lglobal_glob_numbers,&
                                   nglobnodess,lnglobnodess, nglobvars,lnglobvars,&
                                   ignsins,lignsins1,lignsins2, igvsivns,ligvsivns1,ligvsivns2,&
-                                  glob_types,lglob_types)
+                                  glob_types,lglob_types, &
+                                  nsubglobs,lnsubglobs,&
+                                  glob_subs,lglob_subs1,lglob_subs2)
+         deallocate(nsubglobs)
+         deallocate(glob_subs)
          deallocate(ignsins)
          deallocate(igvsivns)
          deallocate(glob_types)
@@ -10161,7 +10223,7 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          end if
 
          ! check that denominator is nonzero
-         if (any(abs(rhoi + rhoiaux) .le. numerical_zero)) then
+         if (any(abs(rhoi + rhoiaux) .eq. 0._kr)) then
              write(*,*) 'rhoi' 
              write(*,*) rhoi 
              write(*,*) 'rhoiaux' 
@@ -10472,14 +10534,22 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_GENERATE_INTERFACE_UNIT_LOAD'
-      integer :: i, ndof, ndofi, ndofaug
-      integer :: lri, lr, lvaug
+      integer :: i, j, ndof, nnodi, ndofi, ndofaug, ndofn, nglob, nnadj, ncorner
+      integer :: ndofnx 
+      integer :: lri1, lr1, lvaug1
+      integer :: lri2, lr2, lvaug2
       integer :: nrhs
       logical :: solve_adjoint
 
-      real(kr), allocatable :: ri(:)
-      real(kr), allocatable :: r(:)
-      real(kr), allocatable :: vaug(:)
+      integer :: isubadj, jsub, ia, idofn, iglob, inadj, indn, indshni, kishnadj, nadj, icorner, &
+                 indi, ind, inodi
+
+      real(kr), allocatable :: ri(:,:)
+      real(kr), allocatable :: r(:,:)
+      real(kr), allocatable :: vaug(:,:)
+
+      integer ::            lkdofi
+      integer,allocatable :: kdofi(:)
 
       ! check if mesh is loaded
       if (.not. sub%is_mesh_loaded) then
@@ -10494,43 +10564,157 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
          call error(routine_name, 'Interface dimensions mismatch for subdomain ',sub%isub)
       end if
 
+      ! prepare array kdofi
+      nnodi = sub%nnodi
+      lkdofi = nnodi + 1
+      allocate(kdofi(lkdofi))
+      kdofi(1) = 1
+      do i = 1,nnodi
+         indn = sub%iin(i)
+         ndofn = sub%nndf(indn)
+         
+         kdofi(i + 1) = kdofi(i) + ndofn
+      end do
+
+      ndofnx = minval(sub%nndf)
+
       ! prepare unit load vector at subdomain interface
       ndofi = sub%ndofi
-      lri = ndofi
-      allocate(ri(lri))
-      ri = 1.e+10_kr
+      lri1 = ndofi
+      lri2 = ndofnx
+      allocate(ri(lri1,lri2))
 
-      ! make new residual on whole subdomain from ri
       ndof = sub%ndof
-      lr = ndof
-      allocate(r(lr))
-      r = 0._kr
-
-      call dd_map_subi_to_sub(sub, ri,lri, r,lr)
+      lr1 = ndof
+      lr2 = ndofnx
+      allocate(r(lr1,lr2))
 
       ! prepare array of augmented size
       call dd_get_aug_size(sub, ndofaug)
-      lvaug = ndofaug
-      allocate(vaug(lvaug))
-      vaug = 0._kr
+      lvaug1 = ndofaug
+      lvaug2 = ndofnx
+      allocate(vaug(lvaug1,lvaug2))
 
-      ! subdomain data are the first part of the augmented vector
-      do i = 1,ndof
-         vaug(i) = r(i)
+      call zero(vi,lvi)
+
+      ! loop over globs and identify faces
+      nglob = sub%nglob
+      nadj  = sub%nadj
+      do iglob = 1,nglob
+
+         ! only select faces 
+         if (sub%glob_type(iglob) .eq. 1) then
+
+            ! the second subdomain
+            if (sub%nsubglobs(iglob).lt.1) then
+               call error(routine_name,'Face appears to have no neighbour for subdomain:',sub%isub)
+            end if
+            if (sub%lglob_subs2.lt.1) then
+               call error(routine_name,'Wrong dimension of array glob_subs for subdomain:',sub%isub)
+            end if
+            jsub = sub%glob_subs(iglob,1)
+
+            ! find all nodes shared with this subdomain
+            kishnadj = 0
+            do ia = 1,nadj
+               nnadj = sub%nshnadj(ia)
+
+               ! get index of neighbour
+               isubadj = sub%iadj(ia)
+               ! perform the solves only if the subdomain matches the face neighbour
+               if (isubadj .eq. jsub) then
+
+                  ! fill in ones in selected direction
+                  ri = 0._kr
+                  do inadj = 1,nnadj
+                     indshni = sub%ishnadj(kishnadj + inadj)
+
+                     do idofn = 1,ndofnx
+                        ri(kdofi(indshni)-1 + idofn,idofn) = 1._kr
+                     end do
+                  end do
+
+                  !print *, 'ri before'
+                  !do i = 1,lri1
+                  !   write (*,'(i2,2x,10e7.1)') i, ri(i,:)
+                  !end do
+
+                  r = 0._kr
+                  do idofn = 1,ndofnx
+                     call dd_map_subi_to_sub(sub, ri(1,idofn),lri1, r(1,idofn),lr1)
+                  end do
+
+                  vaug = 0._kr
+
+                  ! subdomain data are the first part of the augmented vector
+                  do j = 1,ndofnx
+                     do i = 1,ndof
+                        vaug(i,j) = r(i,j)
+                     end do
+                  end do
+
+                  ! solve augmented problem
+                  nrhs = ndofnx
+                  solve_adjoint = .false.
+                  call dd_solve_aug(sub, vaug,lvaug1*lvaug2, nrhs, solve_adjoint)
+
+                  ! extract interface values
+                  ri = 0._kr
+                  do idofn = 1,ndofnx
+                     call dd_map_sub_to_subi(sub, vaug(1,idofn),ndof, ri(1,idofn),lri1)
+                  end do
+
+                  ! fill in ones in selected direction
+                  do inadj = 1,nnadj
+                     indshni = sub%ishnadj(kishnadj + inadj)
+
+                     do idofn = 1,ndofnx
+                        vi(kdofi(indshni)-1 + idofn) = vi(kdofi(indshni)-1 + idofn) + ri(kdofi(indshni)-1 + idofn,idofn)
+                     end do
+                  end do
+
+                  !print *, 'ri after'
+                  !do i = 1,lri1
+                  !   write (*,'(i2,2x,10e7.1)') i, ri(i,:), vi(i)
+                  !end do
+
+               end if
+               kishnadj = kishnadj + nnadj
+            end do
+         end if
       end do
 
-      ! solve augmented problem
-      nrhs = 1
-      solve_adjoint = .false.
-      call dd_solve_aug(sub, vaug,lvaug, nrhs, solve_adjoint)
+      ! add ones to corners
+      ncorner = sub%ncorner  
+      do icorner = 1,ncorner
+         indi = sub%icnsin(icorner) 
 
-      ! extract interface values
-      call zero(vi,lvi)
-      call dd_map_sub_to_subi(sub, vaug,ndof, vi,lvi)
+         do idofn = 1,ndofnx
+            vi(kdofi(indi)-1+idofn) = 1._kr
+         end do
+      end do
+
+      !print *, 'vi with corners'
+      !do i = 1,lvi
+      !   write (*,'(i2,2x,10e7.1)') i, vi(i)
+      !end do
+
+      ! add ones to dofs above the ndofnx
+      do inodi = 1,nnodi
+         ind = sub%iin(inodi)
+         ndofn = sub%nndf(ind)
+         do idofn = ndofnx+1,ndofn
+            vi(kdofi(inodi)-1+idofn) = 1._kr
+         end do
+      end do
+
+      ! avoid negative weights
+      vi = abs(vi)
 
       deallocate(ri)
       deallocate(r)
       deallocate(vaug)
+      deallocate(kdofi)
 end subroutine
 
 !**************************************************************************
@@ -10910,6 +11094,12 @@ subroutine dd_finalize(sub)
       end if
       if (allocated(sub%glob_type)) then
          deallocate(sub%glob_type)
+      end if
+      if (allocated(sub%nsubglobs)) then
+         deallocate(sub%nsubglobs)
+      end if
+      if (allocated(sub%glob_subs)) then
+         deallocate(sub%glob_subs)
       end if
       if (allocated(sub%iadj)) then
          deallocate(sub%iadj)

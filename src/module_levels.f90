@@ -1108,11 +1108,11 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer :: nproc
       integer :: comm_all, comm_self, ierr
       integer :: graphtype 
-      integer :: ides, idcn, idglb
+      integer :: ides
 
-      integer :: ncorner, nedge, nface, isub, nnodc, ndofc, nelem, nnod, nnodi
-      integer :: edgecut, ncornermin
-      integer :: nsub_loc, isub_loc, nsub, glbtype, nglb, sub_start
+      integer :: ncorner, nedge, nface, isub, nnodc, ndofc, nelem, nnod
+      integer :: edgecut
+      integer :: nsub_loc, isub_loc, nsub, glbtype, sub_start
 
       !  division variables
       integer :: stat(MPI_STATUS_SIZE)
@@ -1161,21 +1161,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer,allocatable:: iets_linear(:)
       integer ::            indiets
 
-      integer ::           lkglobs
-      integer,allocatable:: kglobs(:)
-      integer ::           ltypeglobs
-      integer,allocatable:: typeglobs(:)
-      integer :: indglob, indinodc
-
-      integer ::            linodc
-      integer,allocatable :: inodc(:)
-      integer ::            lnnglb
-      integer,allocatable :: nnglb(:)
-      integer ::            linglb
-      integer,allocatable :: inglb(:)
-      integer ::            lkglb
-      integer,allocatable :: kglb(:)
-      
       integer ::             lifixs
       integer,allocatable ::  ifixs(:)
 
@@ -1203,7 +1188,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       real(kr),allocatable :: xyzcs(:,:)
       real(kr) :: init_value
 
-      integer :: iglb, inc, inod, indc, indcs
+      integer :: inc, indc, indcs
       integer :: ndofcs, nnodcs, pointinetc
 
       ! data concerning pairs for adaptivity
@@ -1245,8 +1230,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
 
 
       ! time variables
-      real(kr) :: t_division, t_globs, t_matrix_import, t_adjacency, t_loc_mesh,&
-                  t_loc_interface, t_loc_globs, t_loc_bc, t_loc_adjacency,&
+      real(kr) :: t_division, t_matrix_import, t_adjacency, t_loc_mesh,&
+                  t_loc_interface, t_loc_bc, t_loc_adjacency,&
                   t_matrix_assembly, t_schur_prepare, t_weights_prepare,&
                   t_reduced_rhs_prepare, t_prepare_c, t_prepare_aug,&
                   t_prepare_coarse, t_standard_coarse_prepare, t_adaptive_coarse_prepare,&
@@ -1957,264 +1942,42 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
 
-      if (ilevel.eq.1 .and. levels_load_globs) then
-         ! read list of corners from *.CN file
-         ! read list of globs from *.GLB file
-
-         if (myid.eq.0) then
-            filename = 'corners_l1.CN'
-            call allocate_unit(idcn)
-            open (unit=idcn,file=filename,status='old',form='formatted')
-            rewind idcn
-
-            read(idcn,*) ncorner
-         end if
-!***************************************************************PARALLEL
-         call MPI_BCAST(ncorner,1, MPI_INTEGER, 0, comm_all, ierr)
-!***************************************************************PARALLEL
-         linodc = ncorner
-         allocate(inodc(linodc))
-         if (myid.eq.0) then
-            read(idcn,*) inodc
-            close(idcn)
-         end if
-!***************************************************************PARALLEL
-         call MPI_BCAST(inodc,linodc, MPI_INTEGER, 0, comm_all, ierr)
-!***************************************************************PARALLEL
-         if (debug) then
-            if (myid.eq.0) then
-               call info(routine_name, 'Corners loaded from file '//trim(filename))
-            end if
-         end if
-
-         if (myid.eq.0) then
-            filename = 'globs_l1.GLB'
-            call allocate_unit(idglb)
-            open (unit=idglb,file=filename,status='old',form='formatted')
-            rewind idglb
-
-            read(idglb,*) nglb, linglb
-         end if
-!***************************************************************PARALLEL
-         call MPI_BCAST(nglb,  1, MPI_INTEGER, 0, comm_all, ierr)
-         call MPI_BCAST(linglb,1, MPI_INTEGER, 0, comm_all, ierr)
-!***************************************************************PARALLEL
-         lnnglb = nglb
-         allocate (inglb(linglb),nnglb(lnnglb))
-         if (myid.eq.0) then
-            read(idglb,*) inglb
-            read(idglb,*) nnglb
-            read(idglb,*) nedge, nface
-            close(idglb)
-         end if
-!***************************************************************PARALLEL
-         call MPI_BCAST(inglb,linglb, MPI_INTEGER, 0, comm_all, ierr)
-         call MPI_BCAST(nnglb,lnnglb, MPI_INTEGER, 0, comm_all, ierr)
-         call MPI_BCAST(nedge, 1,     MPI_INTEGER, 0, comm_all, ierr)
-         call MPI_BCAST(nface, 1,     MPI_INTEGER, 0, comm_all, ierr)
-!***************************************************************PARALLEL
-         nnodc = ncorner + nedge + nface
-         if (debug) then
-            if (myid.eq.0) then
-               call info(routine_name, 'Globs loaded from file '//trim(filename))
-            end if
-         end if
-!-----profile 
-         if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_start
-         end if
-!-----profile
-
-         ! localize subdomain corners and globs
-         do isub_loc = 1,nsub_loc
-            call dd_localize_cornersglobs(levels(ilevel)%subdomains(isub_loc),ncorner,inodc,linodc,nedge,nface,&
-                                          nnglb,lnnglb,inglb,linglb,nnodcs)
-         end do
-
-!-----profile
-         if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_end(t_loc_globs)
-            if (myid.eq.0) then
-               call time_print('localization of globs',t_loc_globs)
-            end if
-         end if
-!-----profile
-         deallocate(nnglb)
-         deallocate(inglb)
-         deallocate(inodc)
       ! PARALLEL IDENTIFICATION OF GLOBS
-      else if (levels_parallel_globs) then
 !-----profile 
-         if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_start
-         end if
-!-----profile
-
-         ! generate globs on level
-         ! on the first level, remove nodes at boundary consitions from globs
-         if (ilevel.eq.1) then
-            remove_bc_nodes = .true.
-         else
-            remove_bc_nodes = .false.
-         end if
-         call dd_create_globs(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains,&
-                              levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
-                              levels(ilevel)%indexsub,levels(ilevel)%lindexsub, &
-                              comm_all,remove_bc_nodes, &
-                              damp_corners, ilevel, levels(ilevel)%meshdim, &
-                              ncorner,nedge,nface)
-         nnodc = ncorner + nedge + nface
-!-----profile
-         if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_end(t_par_globs_search)
-            if (myid.eq.0) then
-               call time_print('generating globs',t_par_globs_search)
-            end if
-         end if
-!-----profile
-      ! SERIAL IDENTIFICATION OF GLOBS
-      else
-         ! select globs by serial algorithm (slow for large number of subdomains)
-!-----profile 
-         if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_start
-         end if
-!-----profile
-         ! find corners
-         lkglobs    = nnod
-         ltypeglobs = nnod
-         ! on the first level, remove nodes at boundary consitions from globs
-         if (ilevel.eq.1) then
-            remove_bc_nodes = .true.
-         else
-            remove_bc_nodes = .false.
-         end if
-         ncornermin = 0 ! do not add anything randomly
-         allocate(kglobs(lkglobs),typeglobs(ltypeglobs))
-         if (myid.eq.0) then
-            call pp_get_globs(levels(ilevel)%ndim,levels(ilevel)%meshdim,nelem,nnod,nsub,&
-                              levels(ilevel)%inet,levels(ilevel)%linet,levels(ilevel)%nnet,levels(ilevel)%lnnet,&
-                              levels(ilevel)%nndf,levels(ilevel)%lnndf,&
-                              levels(ilevel)%xyz,levels(ilevel)%lxyz1,levels(ilevel)%lxyz2,&
-                              remove_bc_nodes,levels(ilevel)%ifix,levels(ilevel)%lifix,&
-                              levels(ilevel)%iets,levels(ilevel)%liets,ncornermin,&
-                              nnodi, ncorner,nedge,nface,&
-                              kglobs,lkglobs, typeglobs,ltypeglobs)
-         end if
-!***************************************************************PARALLEL
-         call MPI_BCAST(nnodi,  1,       MPI_INTEGER, 0, comm_all, ierr)
-         call MPI_BCAST(ncorner,1,       MPI_INTEGER, 0, comm_all, ierr)
-         call MPI_BCAST(nedge,  1,       MPI_INTEGER, 0, comm_all, ierr)
-         call MPI_BCAST(nface,  1,       MPI_INTEGER, 0, comm_all, ierr)
-         call MPI_BCAST(kglobs,lkglobs,       MPI_INTEGER, 0, comm_all, ierr)
-         call MPI_BCAST(typeglobs,ltypeglobs, MPI_INTEGER, 0, comm_all, ierr)
-!***************************************************************PARALLEL
-         nnodc = ncorner + nedge + nface
-
-         !debug
-         !print *,'kglobs',kglobs
-         !print *,'typeglobs',typeglobs
-         ! create array INODC
-         linodc = ncorner
-         allocate(inodc(linodc))
-         indinodc = 0
-         do inod = 1,nnod
-            if (typeglobs(inod).eq.3) then
-               indinodc = indinodc + 1
-               inodc(indinodc) = inod
-            end if
-         end do
-         if (damp_corners) then
-            if (myid.eq.0) then
-               call levels_damp_corners(ilevel,inodc,linodc)
-            end if
-         end if
-         ! arrays NNGLB and INGLB
-         nglb = nedge + nface
-         lnnglb = nglb
-         linglb = count(typeglobs.eq.1 .or. typeglobs.eq.2)
-         allocate(nnglb(lnnglb))
-         allocate(inglb(linglb))
-         call zero(nnglb,lnnglb)
-         call zero(inglb,linglb)
-         do inod = 1,nnod
-            if (typeglobs(inod).eq.1 .or. typeglobs(inod).eq.2) then
-               indglob = kglobs(inod) - ncorner
-               ! now use array nnglb as pointers to inglb
-               nnglb(indglob) = nnglb(indglob) + 1
-            end if
-         end do
-         lkglb = nglb
-         allocate(kglb(lkglb))
-         if (nglb.gt.0) then
-            kglb(1) = 0
-            do iglb = 2,nglb
-               kglb(iglb) = kglb(iglb-1) + nnglb(iglb-1)
-            end do
-         end if
-         call zero(nnglb,lnnglb)
-         do inod = 1,nnod
-            if (typeglobs(inod).eq.1 .or. typeglobs(inod).eq.2) then
-               indglob = kglobs(inod) - ncorner
-               ! now use array nnglb as pointers to inglb
-               nnglb(indglob) = nnglb(indglob) + 1
-               inglb(kglb(indglob) + nnglb(indglob)) = inod
-            end if
-         end do
-         deallocate(kglb)
-         deallocate(kglobs,typeglobs)
-         if (debug) then
-            if (myid.eq.0) then
-               call info(routine_name, 'Corners and globs identified.')
-            end if
-         end if
-!-----profile
-         if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_end(t_globs)
-            if (myid.eq.0) then
-               call time_print('generating globs',t_globs)
-            end if
-         end if
-!-----profile
-!-----profile 
-         if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_start
-         end if
-!-----profile
-
-         ! localize subdomain corners and globs
-         do isub_loc = 1,nsub_loc
-            call dd_localize_cornersglobs(levels(ilevel)%subdomains(isub_loc),ncorner,inodc,linodc,nedge,nface,&
-                                          nnglb,lnnglb,inglb,linglb,nnodcs)
-         end do
-
-!-----profile
-         if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_end(t_loc_globs)
-            if (myid.eq.0) then
-               call time_print('localization of globs',t_loc_globs)
-            end if
-         end if
-!-----profile
-         deallocate(nnglb)
-         deallocate(inglb)
-         deallocate(inodc)
-
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
       end if
+!-----profile
+
+      ! generate globs on level
+      ! on the first level, remove nodes at boundary consitions from globs
+      if (ilevel.eq.1) then
+         remove_bc_nodes = .true.
+      else
+         remove_bc_nodes = .false.
+      end if
+      call dd_create_globs(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains,&
+                           levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                           levels(ilevel)%indexsub,levels(ilevel)%lindexsub, &
+                           comm_all,remove_bc_nodes, &
+                           damp_corners, ilevel, levels(ilevel)%meshdim, &
+                           ncorner,nedge,nface)
+      nnodc = ncorner + nedge + nface
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_par_globs_search)
+         if (myid.eq.0) then
+            call time_print('generating globs',t_par_globs_search)
+         end if
+      end if
+!-----profile
 
       ! debug
       !write(*,*) 'nnodc, ncorner, nedge, nface'
       !write(*,*) nnodc, ncorner, nedge, nface
       !write(*,*) 'inodc',inodc
-      !write(*,*) 'nnglb',nnglb
       !write(*,*) 'inglb',inglb
       !call flush(6)
 
