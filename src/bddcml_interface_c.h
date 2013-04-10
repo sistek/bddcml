@@ -66,6 +66,18 @@ void bddcml_download_local_reactions( int *isub, double *reas, int *lreas );
 #define bddcml_download_global_reactions F_SYMBOL(bddcml_download_global_reactions, BDDCML_DOWNLOAD_GLOBAL_REACTIONS)
 void bddcml_download_global_reactions( double *rea, int *lrea );
 
+#define bddcml_change_global_data F_SYMBOL(bddcml_change_global_data, BDDCML_CHANGE_GLOBAL_DATA)
+void bddcml_change_global_data( int *ifix, int *lifix, double *fixv, int *lfixv, double *rhs, int *lrhs, double *sol, int *lsol);
+
+#define bddcml_change_subdomain_data F_SYMBOL(bddcml_change_subdomain_data, BDDCML_CHANGE_SUBDOMAIN_DATA)
+void bddcml_change_subdomain_data( int *isub, 
+                                   int *ifix, int *lifix, double *fixv, int *lfixv, 
+                                   double *rhs, int *lrhs, int *is_rhs_complete, 
+                                   double *sol, int *lsol );
+
+#define bddcml_setup_new_data F_SYMBOL(bddcml_setup_new_data, BDDCML_SETUP_NEW_DATA)
+void bddcml_setup_new_data( );
+
 #define bddcml_dotprod_subdomain F_SYMBOL(bddcml_dotprod_subdomain, BDDCML_DOTPROD_SUBDOMAIN)
 void bddcml_dotprod_subdomain( int *isub, double *vec1, int *lvec1, double *vec2, int *lvec2, double *dotprod );
 

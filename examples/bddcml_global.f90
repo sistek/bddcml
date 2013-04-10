@@ -60,7 +60,8 @@ program bddcml_global
 ! 1 - weights by diagonal stiffness
 ! 2 - weights based on first row of element data
 ! 3 - weights based on dof data
-! 4 - weights by Marta Certikova
+! 4 - weights by Marta Certikova - unit load
+! 5 - weights by Marta Certikova - unit jump
       integer,parameter :: weights_type = 0
 
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
@@ -119,6 +120,8 @@ program bddcml_global
       real(kr),allocatable:: fixv(:)
       integer ::            lrhs
       real(kr),allocatable:: rhs(:)
+      integer ::            linisol
+      real(kr),allocatable:: inisol(:)
       integer ::            lsol
       real(kr),allocatable:: sol(:)
       integer ::            lrea
@@ -139,6 +142,10 @@ program bddcml_global
       ! data about resulting convergence
       integer :: num_iter, converged_reason 
       real(kr) :: condition_number
+
+      ! use recycling of Krylov subspace
+      integer :: recycling_int = 1
+      integer :: max_number_of_stored_vectors = 500
 
       ! time variables
       real(kr) :: t_total, t_import, t_distribute, t_init, t_load, t_pc_setup, t_pcg
@@ -196,8 +203,6 @@ program bddcml_global
       call MPI_BCAST(problemname, lproblemname, MPI_CHARACTER, 0, comm_all, ierr)
       call MPI_BCAST(neighbouring, 1,           MPI_INTEGER,   0, comm_all, ierr)
 !***************************************************************PARALLEL
-
-
 
 ! measuring time
       call MPI_BARRIER(comm_all,ierr)
@@ -330,9 +335,9 @@ program bddcml_global
       call time_end(t_distribute)
 
       ! prepare initial solution
-      lsol = ndof
-      allocate(sol(lsol))
-      sol = 0._kr
+      linisol = ndof
+      allocate(inisol(linisol))
+      inisol = 0._kr
 
       if (myid.eq.0) then
          write (*,'(a)') 'Initializing LEVELS ...'
@@ -366,7 +371,7 @@ program bddcml_global
       call time_start
       call bddcml_upload_global_data(nelem,nnod,ndof,ndim, meshdim, &
                                      inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                                     ifix,lifix,fixv,lfixv,rhs,lrhs,sol,lsol, idelm, neighbouring,load_division)
+                                     ifix,lifix,fixv,lfixv,rhs,lrhs,inisol,linisol, idelm, neighbouring,load_division)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_load)
       if (myid.eq.0) then
@@ -374,9 +379,6 @@ program bddcml_global
          call flush(6)
       end if
       deallocate(inet,nnet,xyz)
-      deallocate(ifix,fixv)
-      deallocate(rhs)
-      deallocate(sol)
 
       if (myid.eq.0) then
          write (*,'(a)') 'Preconditioner SETUP ...'
@@ -405,7 +407,7 @@ program bddcml_global
       call MPI_BARRIER(comm_all,ierr)
       call time_start
       ! call with setting of iterative properties
-      call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax, &
+      call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax, recycling_int, max_number_of_stored_vectors, &
                         num_iter, converged_reason, condition_number)
       if (myid.eq.0) then
           write(*,*) 'Number of iterations: ', num_iter
@@ -467,6 +469,27 @@ program bddcml_global
       end if
       deallocate(nndf)
 
+      ! load the data again
+      call bddcml_change_global_data(ifix,lifix,fixv,lfixv,rhs,lrhs,inisol,linisol)
+      call bddcml_setup_new_data
+
+      ! call PCG method
+      call MPI_BARRIER(comm_all,ierr)
+      call time_start
+      ! call with setting of iterative properties
+      call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax, recycling_int, max_number_of_stored_vectors, &
+                        num_iter, converged_reason, condition_number)
+      if (myid.eq.0) then
+          write(*,*) 'Number of iterations: ', num_iter
+          write(*,*) 'Convergence reason: ', converged_reason
+          if ( condition_number .ge. 0._kr ) then 
+             write(*,*) 'Condition number: ', condition_number
+          end if
+      end if
+      call MPI_BARRIER(comm_all,ierr)
+      call time_end(t_pcg)
+
+
       if (myid.eq.0) then
          write (*,'(a)') 'Finalizing LEVELS ...'
          call flush(6)
@@ -497,6 +520,10 @@ program bddcml_global
       if (myid.eq.0) then
          close(idelm)
       end if
+
+      deallocate(ifix,fixv)
+      deallocate(rhs)
+      deallocate(inisol)
 
       ! MPI finalization
 !***************************************************************PARALLEL

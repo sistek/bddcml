@@ -62,7 +62,8 @@ program bddcml_local
 ! 1 - weights by diagonal stiffness
 ! 2 - weights based on first row of element data
 ! 3 - weights based on dof data
-! 4 - weights by Marta Certikova
+! 4 - weights by Marta Certikova - unit load
+! 5 - weights by Marta Certikova - unit jump
       integer,parameter :: weights_type = 0
 
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
@@ -182,6 +183,10 @@ program bddcml_local
       integer :: num_iter, converged_reason 
       real(kr) :: condition_number
       real(kr) :: norm_sol, norm2, norm2_loc, norm2_sub 
+
+      ! use recycling of Krylov subspace
+      integer :: recycling_int = 0
+      integer :: max_number_of_stored_vectors = 500
 
       ! time variables
       real(kr) :: t_total, t_import, t_distribute, t_init, t_load, t_pc_setup, t_pcg
@@ -589,12 +594,6 @@ program bddcml_local
          deallocate(element_data)
          deallocate(dof_data)
       end do
-      deallocate(inet,nnet,nndf,xyz)
-      deallocate(iets)
-      deallocate(kdof)
-      deallocate(ifix,fixv)
-      deallocate(rhs)
-      deallocate(sol)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_load)
       if (myid.eq.0) then
@@ -628,7 +627,7 @@ program bddcml_local
       call MPI_BARRIER(comm_all,ierr)
       call time_start
       ! call with setting of iterative properties
-      call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax, &
+      call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax, recycling_int, max_number_of_stored_vectors, &
                         num_iter, converged_reason, condition_number)
       if (myid.eq.0) then
           write(*,*) 'Number of iterations: ', num_iter
@@ -639,8 +638,6 @@ program bddcml_local
       end if
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_pcg)
-
-      deallocate(nsublev)
 
       norm2_loc = 0._kr
       do isub = sub2proc(myid+1), sub2proc(myid+2) - 1
@@ -681,6 +678,311 @@ program bddcml_local
           write(*,*) 'Norm of solution is: ', norm_sol
       end if
 
+      do isub = sub2proc(myid+1), sub2proc(myid+2) - 1
+         ! localize mesh
+
+         nelems = 0
+         linets = 0
+         do ie = 1,nelem
+            if (iets(ie).eq.isub) then
+               nelems = nelems + 1
+               linets = linets + nnet(ie)
+            end if
+         end do
+         lnnets  = nelems
+         lisegns = nelems
+         lisngns = linets
+         allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
+
+         call pp_create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                                nnods,inets,linets,nnets,lnnets,&
+                                isegns,lisegns,isngns,lisngns)
+
+         ! correct lisngns
+         lisngns = nnods
+         lnndfs  = nnods
+         allocate(nndfs(lnndfs))
+
+         ! get array nndfs
+         do inods = 1,nnods
+            nndfs(inods) = nndf(isngns(inods))
+         end do
+! find local number of DOF on subdomain NDOFS
+         ndofs = sum(nndfs)
+
+! create array kdofs
+         lkdofs = nnods
+         allocate(kdofs(lkdofs))
+         if (nnods.gt.0) then
+            kdofs(1) = 0
+            do inods = 2,nnods
+               kdofs(inods) = kdofs(inods-1) + nndfs(inods-1)
+            end do
+         end if
+
+         ! prepare array ISVGVN
+         lisvgvns = ndofs
+         allocate(isvgvns(lisvgvns))
+         indvs = 0
+         do inods = 1,nnods
+            inod = isngns(inods)
+
+            ndofn   = nndfs(inods)
+            indvg   = kdof(inod)
+            ! in lack of memory for kdof array, this can be altered by indvg = sum(nndf(1:inod-1))
+            do idofn = 1,ndofn
+               indvs = indvs + 1
+               indvg = indvg + 1
+
+               isvgvns(indvs) = indvg
+            end do
+         end do
+         lrhss = ndofs
+         allocate(rhss(lrhss))
+         lifixs = ndofs
+         allocate(ifixs(lifixs))
+         lfixvs = ndofs
+         allocate(fixvs(lfixvs))
+         lsols = ndofs
+         allocate(sols(lsols))
+
+         ! localize RHS, IFIX and FIXV
+         do i = 1,ndofs
+            ind = isvgvns(i)
+
+            rhss(i)  = rhs(ind)
+
+            ifixs(i) = ifix(ind)
+            fixvs(i) = fixv(ind)
+
+            sols(i)  = sol(i)
+         end do
+         is_rhs_complete_int = 1
+
+         ! experiment a bit
+         call bddcml_change_subdomain_data(isub, &
+                                           ifixs,lifixs, fixvs,lfixvs, &
+                                           rhss,lrhss, is_rhs_complete_int, &
+                                           sols,lsols)
+         deallocate(inets,nnets,nndfs)
+         deallocate(kdofs)
+         deallocate(rhss)
+         deallocate(ifixs,fixvs)
+         deallocate(sols)
+         deallocate(isvgvns)
+         deallocate(isngns)
+         deallocate(isegns)
+      end do
+
+      ! call PCG method
+      call MPI_BARRIER(comm_all,ierr)
+      call time_start
+      ! call with setting of iterative properties
+      call bddcml_setup_new_data
+      call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax, recycling_int, max_number_of_stored_vectors, &
+                        num_iter, converged_reason, condition_number)
+      if (myid.eq.0) then
+          write(*,*) 'Number of iterations: ', num_iter
+          write(*,*) 'Convergence reason: ', converged_reason
+          if ( condition_number .ge. 0._kr ) then 
+             write(*,*) 'Condition number: ', condition_number
+          end if
+      end if
+      call MPI_BARRIER(comm_all,ierr)
+      call time_end(t_pcg)
+
+      norm2_loc = 0._kr
+      do isub = sub2proc(myid+1), sub2proc(myid+2) - 1
+         ! download local solution
+         ndofs = ndofsa(isub - sub2proc(myid+1) + 1)
+         lsols = ndofs
+         allocate(sols(lsols))
+         call bddcml_download_local_solution(isub, sols,lsols)
+
+         ! write solution to separate file
+         ! open subdomain SOLS file for solution
+         call getfname(problemname(1:lproblemname),isub,'SOLS',filename)
+         call info(routine_name,' Opening file fname: '//trim(filename))
+         call allocate_unit(idsols)
+         open (unit=idsols,file=trim(filename),status='replace',form='unformatted')
+
+         rewind idsols
+         write(idsols) (sols(i),i=1,lsols)
+         
+         if (print_solution) then
+            write(*,*) 'isub =',isub,' solution: '
+            write(*,'(e15.7)') sols
+         end if
+         close(idsols)
+
+         call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, norm2_sub )
+
+         norm2_loc = norm2_loc + norm2_sub
+
+         deallocate(sols)
+      end do
+
+      ! find global norm of solution
+      call MPI_ALLREDUCE(norm2_loc, norm2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr)
+      norm_sol = sqrt( norm2 )
+
+      if (myid.eq.0) then
+          write(*,*) 'Norm of solution is: ', norm_sol
+      end if
+
+      do isub = sub2proc(myid+1), sub2proc(myid+2) - 1
+         ! localize mesh
+
+         nelems = 0
+         linets = 0
+         do ie = 1,nelem
+            if (iets(ie).eq.isub) then
+               nelems = nelems + 1
+               linets = linets + nnet(ie)
+            end if
+         end do
+         lnnets  = nelems
+         lisegns = nelems
+         lisngns = linets
+         allocate(inets(linets),nnets(lnnets),isegns(lisegns),isngns(lisngns))
+
+         call pp_create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
+                                nnods,inets,linets,nnets,lnnets,&
+                                isegns,lisegns,isngns,lisngns)
+
+         ! correct lisngns
+         lisngns = nnods
+         lnndfs  = nnods
+         allocate(nndfs(lnndfs))
+
+         ! get array nndfs
+         do inods = 1,nnods
+            nndfs(inods) = nndf(isngns(inods))
+         end do
+! find local number of DOF on subdomain NDOFS
+         ndofs = sum(nndfs)
+
+! create array kdofs
+         lkdofs = nnods
+         allocate(kdofs(lkdofs))
+         if (nnods.gt.0) then
+            kdofs(1) = 0
+            do inods = 2,nnods
+               kdofs(inods) = kdofs(inods-1) + nndfs(inods-1)
+            end do
+         end if
+
+         ! prepare array ISVGVN
+         lisvgvns = ndofs
+         allocate(isvgvns(lisvgvns))
+         indvs = 0
+         do inods = 1,nnods
+            inod = isngns(inods)
+
+            ndofn   = nndfs(inods)
+            indvg   = kdof(inod)
+            ! in lack of memory for kdof array, this can be altered by indvg = sum(nndf(1:inod-1))
+            do idofn = 1,ndofn
+               indvs = indvs + 1
+               indvg = indvg + 1
+
+               isvgvns(indvs) = indvg
+            end do
+         end do
+         lrhss = ndofs
+         allocate(rhss(lrhss))
+         lifixs = ndofs
+         allocate(ifixs(lifixs))
+         lfixvs = ndofs
+         allocate(fixvs(lfixvs))
+         lsols = ndofs
+         allocate(sols(lsols))
+
+         ! localize RHS, IFIX and FIXV
+         do i = 1,ndofs
+            ind = isvgvns(i)
+
+            rhss(i)  = rhs(ind)
+
+            ifixs(i) = ifix(ind)
+            fixvs(i) = fixv(ind)
+
+            sols(i)  = sol(i)
+         end do
+         is_rhs_complete_int = 1
+
+         ! experiment a bit
+         call bddcml_change_subdomain_data(isub, &
+                                           ifixs,lifixs, fixvs,lfixvs, &
+                                           rhss,lrhss, is_rhs_complete_int, &
+                                           sols,lsols)
+         deallocate(inets,nnets,nndfs)
+         deallocate(kdofs)
+         deallocate(rhss)
+         deallocate(ifixs,fixvs)
+         deallocate(sols)
+         deallocate(isvgvns)
+         deallocate(isngns)
+         deallocate(isegns)
+      end do
+
+      ! call PCG method
+      call MPI_BARRIER(comm_all,ierr)
+      call time_start
+      ! call with setting of iterative properties
+      call bddcml_setup_new_data
+      call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax, recycling_int, max_number_of_stored_vectors, &
+                        num_iter, converged_reason, condition_number)
+      if (myid.eq.0) then
+          write(*,*) 'Number of iterations: ', num_iter
+          write(*,*) 'Convergence reason: ', converged_reason
+          if ( condition_number .ge. 0._kr ) then 
+             write(*,*) 'Condition number: ', condition_number
+          end if
+      end if
+      call MPI_BARRIER(comm_all,ierr)
+      call time_end(t_pcg)
+
+      norm2_loc = 0._kr
+      do isub = sub2proc(myid+1), sub2proc(myid+2) - 1
+         ! download local solution
+         ndofs = ndofsa(isub - sub2proc(myid+1) + 1)
+         lsols = ndofs
+         allocate(sols(lsols))
+         call bddcml_download_local_solution(isub, sols,lsols)
+
+         ! write solution to separate file
+         ! open subdomain SOLS file for solution
+         call getfname(problemname(1:lproblemname),isub,'SOLS',filename)
+         call info(routine_name,' Opening file fname: '//trim(filename))
+         call allocate_unit(idsols)
+         open (unit=idsols,file=trim(filename),status='replace',form='unformatted')
+
+         rewind idsols
+         write(idsols) (sols(i),i=1,lsols)
+         
+         if (print_solution) then
+            write(*,*) 'isub =',isub,' solution: '
+            write(*,'(e15.7)') sols
+         end if
+         close(idsols)
+
+         call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, norm2_sub )
+
+         norm2_loc = norm2_loc + norm2_sub
+
+         deallocate(sols)
+      end do
+
+      ! find global norm of solution
+      call MPI_ALLREDUCE(norm2_loc, norm2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr)
+      norm_sol = sqrt( norm2 )
+
+      if (myid.eq.0) then
+          write(*,*) 'Norm of solution is: ', norm_sol
+      end if
+
+      deallocate(nsublev)
       deallocate (ndofsa)
       deallocate(sub2proc)
 
@@ -710,6 +1012,12 @@ program bddcml_local
          write(*,'(a,f11.3,a)') '  total             ',t_total,    ' s'
       end if
 
+      deallocate(inet,nnet,nndf,xyz)
+      deallocate(iets)
+      deallocate(kdof)
+      deallocate(ifix,fixv)
+      deallocate(rhs)
+      deallocate(sol)
 
       ! MPI finalization
 !***************************************************************PARALLEL

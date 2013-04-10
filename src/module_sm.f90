@@ -658,18 +658,18 @@ subroutine sm_assembly(i_sparse, j_sparse, a_sparse, la, nnz)
       do ia = 2,la
          indi = i_sparse(ia)
          indj = j_sparse(ia)
-         if (abs(a_sparse(ia)).gt.numerical_zero) then
-            if (indi.ne.indi_old.or.indj.ne.indj_old) then
-               inz = inz + 1
-               a_sparse(inz) = a_sparse(ia)
-               i_sparse(inz) = i_sparse(ia)
-               j_sparse(inz) = j_sparse(ia)
-               indi_old = indi
-               indj_old = indj
-            else
-               a_sparse(inz) = a_sparse(inz) + a_sparse(ia)
-            end if
+         !if (abs(a_sparse(ia)).gt.numerical_zero) then
+         if (indi.ne.indi_old.or.indj.ne.indj_old) then
+            inz = inz + 1
+            a_sparse(inz) = a_sparse(ia)
+            i_sparse(inz) = i_sparse(ia)
+            j_sparse(inz) = j_sparse(ia)
+            indi_old = indi
+            indj_old = indj
+         else
+            a_sparse(inz) = a_sparse(inz) + a_sparse(ia)
          end if
+         !end if
       end do
       nnz = inz
 

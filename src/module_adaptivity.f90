@@ -2558,7 +2558,7 @@ integer ::             lrescs
 real(kr),allocatable :: rescs(:)
 integer ::             lsolis
 real(kr),allocatable :: solis(:)
-integer ::             nrhs, nnods, nelems, ndofs, ndofaaugs, lindrowc, ndofi, nnodi
+integer ::             nrhs, ncol, nnods, nelems, ndofs, ndofaaugs, lindrowc, ndofi, nnodi
 integer :: stat(MPI_STATUS_SIZE)
 
 integer :: indc
@@ -2730,7 +2730,8 @@ do iinstr = 1,ninstructions
 
       ! Multiply by Schur complement
       call get_index(isub,indexsub,lindexsub,isub_loc)
-      call dd_multiply_by_schur(suba(isub_loc),bufrecv(point),length,bufsend(point),length)
+      ncol = 1
+      call dd_multiply_by_schur(suba(isub_loc),bufrecv(point),length,bufsend(point),length,ncol)
    end if
    if (is_active .eq. 2) then
       point  = kbufsend(iinstr)

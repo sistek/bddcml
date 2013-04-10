@@ -513,6 +513,66 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
 
 end subroutine
 
+!*******************************************************************************
+subroutine levels_change_global_data(ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
+!*******************************************************************************
+! Subroutine for changing global data as zero level
+      use module_utils
+      implicit none
+
+      integer, intent(in):: lifix
+      integer, intent(in)::  ifix(lifix)
+      integer, intent(in):: lfixv
+      real(kr), intent(in):: fixv(lfixv)
+      integer, intent(in):: lrhs
+      real(kr), intent(in):: rhs(lrhs)
+      integer, intent(in):: lsol
+      real(kr), intent(in):: sol(lsol)
+
+      ! local vars 
+      character(*),parameter:: routine_name = 'LEVELS_CHANGE_GLOBAL_DATA'
+      integer :: i
+
+      ! set active level to zero
+      iactive_level = 0
+
+      ! verify that IFIX did not change
+      if (levels(iactive_level)%lifixc .ne. lifix) then
+         call error( routine_name, 'Dimension mismatch in IFIX')
+      end if
+      if ( .not. allocated(levels(iactive_level)%ifixc)) then
+         call error( routine_name, 'IFIX not allocated')
+      end if
+      if ( any(levels(iactive_level)%ifixc.ne.ifix)) then
+         call error( routine_name, 'IFIX cannot be changed when loading new data')
+      end if
+      if ( .not. allocated(levels(iactive_level)%fixvc)) then
+         allocate(levels(iactive_level)%fixvc(levels(iactive_level)%lfixvc))
+      end if
+      do i = 1,levels(iactive_level)%lfixvc
+         levels(iactive_level)%fixvc(i) = fixv(i)
+      end do
+      levels(iactive_level)%lrhsc = lrhs
+      if ( .not. allocated(levels(iactive_level)%rhsc)) then
+         allocate(levels(iactive_level)%rhsc(levels(iactive_level)%lrhsc))
+      end if
+      do i = 1,levels(iactive_level)%lrhsc
+         levels(iactive_level)%rhsc(i) = rhs(i)
+      end do
+      levels(iactive_level)%lsolc = lsol
+      if ( .not. allocated(levels(iactive_level)%solc)) then
+         allocate(levels(iactive_level)%solc(levels(iactive_level)%lsolc))
+      end if
+      do i = 1,levels(iactive_level)%lsolc
+         levels(iactive_level)%solc(i) = sol(i)
+      end do
+      levels(iactive_level)%use_initial_solution = .true.
+
+      ! new global data loaded, now localize them to subdomains
+      call levels_localize_new_data
+
+end subroutine
+
 !***********************************************************************************
 subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isub, nelems, nnods, ndofs, &
@@ -676,6 +736,126 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
 
 end subroutine
 
+!***********************************************************************************
+subroutine levels_change_subdomain_data(isub, &
+                                        ifix,lifix, fixv,lfixv, &
+                                        rhs,lrhs, is_rhs_complete, &
+                                        sol,lsol)
+!***********************************************************************************
+! Subroutine for loading new LOCAL data - right-hand side, new values of Dirichlet
+! boundary conditions LOCAL data of one subdomain at first level
+      use module_utils
+      implicit none
+
+      integer, intent(in):: isub
+      integer, intent(in):: lifix
+      integer, intent(in)::  ifix(lifix)
+      integer, intent(in):: lfixv
+      real(kr), intent(in):: fixv(lfixv)
+      integer, intent(in):: lrhs
+      real(kr), intent(in):: rhs(lrhs)
+      logical, intent(in):: is_rhs_complete
+      integer, intent(in):: lsol
+      real(kr), intent(in):: sol(lsol)
+
+      ! local vars 
+      character(*),parameter:: routine_name = 'LEVELS_CHANGE_SUBDOMAIN_DATA'
+      logical :: is_mesh_loaded
+      integer :: isub_loc
+
+      ! set active level to one
+      iactive_level = 1
+
+      ! check prerequisites
+      if ( .not. levels(iactive_level)%is_level_prepared ) then
+         call error(routine_name, 'Cannot change data at this moment, level is not ready.')
+      end if
+      ! note that no global data are loaded
+      if (levels(iactive_level)%global_loading) then
+         call error(routine_name, 'Global loading should be used.')
+      end if
+
+      ! local index of subdomain
+      call get_index(isub+levels_numshift, levels(iactive_level)%indexsub,levels(iactive_level)%lindexsub, isub_loc)
+      if ( isub_loc .eq. -1 ) then
+         call error( routine_name, 'Index of subdomain not found among local subdomains: ', isub )
+      end if
+
+      if (.not. allocated(levels(iactive_level)%subdomains)) then
+         call error( routine_name,'memory not prepared for subdomain', isub )
+      end if
+
+      ! check that the subdomain is loaded
+      call dd_is_mesh_loaded( levels(iactive_level)%subdomains(isub_loc), is_mesh_loaded )
+      if ( .not. is_mesh_loaded ) then
+         call error( routine_name, 'It appears that mesh is not loaded for subdomain', isub )
+      end if
+
+      ! set new boundary conditions
+      call dd_upload_bc(levels(iactive_level)%subdomains(isub_loc), ifix,lifix, fixv,lfixv)
+
+      ! set new right hand side 
+      call dd_upload_rhs(levels(iactive_level)%subdomains(isub_loc), rhs,lrhs, is_rhs_complete)
+
+      ! set new initial solution 
+      call dd_upload_solution(levels(iactive_level)%subdomains(isub_loc), sol,lsol)
+      levels(iactive_level)%use_initial_solution = .true.
+      
+end subroutine
+
+!*******************************
+subroutine levels_setup_new_data
+!*******************************
+! Subroutine for building new reduced right-hand side and boundary conditions
+      use module_utils
+      implicit none
+
+
+      ! local vars 
+      character(*),parameter:: routine_name = 'LEVELS_SETUP_NEW_DATA'
+      integer :: comm_all, myid, ierr
+
+      ! time variables
+      real(kr) :: t_reduced_rhs_prepare
+
+      ! set active level to one
+      iactive_level = 1
+
+      ! orient in the communicator
+      comm_all  = levels(iactive_level)%comm_all
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+
+      ! check prerequisites
+      if ( .not. levels(iactive_level)%is_level_prepared ) then
+         call error(routine_name, 'Cannot change data at this moment, level is not ready.')
+      end if
+
+      call dd_fix_constraints(levels(iactive_level)%subdomains,levels(iactive_level)%lsubdomains, comm_all,&
+                              levels(iactive_level)%sub2proc,levels(iactive_level)%lsub2proc,&
+                              levels(iactive_level)%indexsub,levels(iactive_level)%lindexsub)
+
+      ! prepare reduced RHS
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+      call dd_prepare_reduced_rhs_all(levels(iactive_level)%subdomains,levels(iactive_level)%lsubdomains, &
+                                      levels(iactive_level)%sub2proc,levels(iactive_level)%lsub2proc,&
+                                      levels(iactive_level)%indexsub,levels(iactive_level)%lindexsub,& 
+                                      comm_all)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_reduced_rhs_prepare)
+         if (myid.eq.0) then
+            call time_print('preparing new reduced right-hand side',t_reduced_rhs_prepare)
+         end if
+      end if
+!-----profile
+      
+end subroutine
 !*************************************************************************************
 subroutine levels_pc_setup( parallel_division,&
                             matrixtype, &
@@ -705,7 +885,8 @@ subroutine levels_pc_setup( parallel_division,&
 ! 1 - weights by diagonal stiffness
 ! 2 - weights based on first row of element data
 ! 3 - weights based on dof data
-! 4 - weights by Marta Certikova
+! 4 - weights by Marta Certikova - unit load
+! 5 - weights by Marta Certikova - unit jump
       integer,intent(in) :: weights_type
 
 
@@ -1160,12 +1341,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer ::           liets_linear
       integer,allocatable:: iets_linear(:)
       integer ::            indiets
-
-      integer ::             lifixs
-      integer,allocatable ::  ifixs(:)
-
-      integer ::            lrhss,   lfixvs
-      real(kr),allocatable:: rhss(:), fixvs(:)
 
       integer ::            linetc
       integer,allocatable :: inetc(:)
@@ -1625,29 +1800,9 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
 
-      ! create subdomain BC and RHS on first level
+      ! create subdomain BC, RHS, and SOL on first level
       if (ilevel.eq.1) then
-         do isub_loc = 1,nsub_loc
-   
-            ! find size of subdomain
-            call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
-   
-            ! make subdomain boundary conditions - IFIXS and FIXVS
-            lifixs = ndofs
-            lfixvs = ndofs
-            allocate(ifixs(lifixs),fixvs(lfixvs))
-            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%ifix,levels(ilevel)%lifix, ifixs,lifixs)
-            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%fixv,levels(ilevel)%lfixv, fixvs,lfixvs)
-            call dd_upload_bc(levels(ilevel)%subdomains(isub_loc), ifixs,lifixs, fixvs,lfixvs)
-            deallocate(ifixs,fixvs)
-   
-            ! load subdomain RHS
-            lrhss = ndofs
-            allocate(rhss(lrhss))
-            call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%rhs,levels(ilevel)%lrhs, rhss,lrhss)
-            call dd_upload_rhs(levels(ilevel)%subdomains(isub_loc), rhss,lrhss, .true. )
-            deallocate(rhss)
-         end do
+         call levels_localize_new_data
       end if
 
 !-----profile
@@ -2720,6 +2875,59 @@ subroutine levels_prepare_last_level(matrixtype)
 
 end subroutine
 
+!**********************************
+subroutine levels_localize_new_data
+!**********************************
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+      ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_LOCALIZE_NEW_DATA'
+      integer :: ilevel
+      integer :: nsub_loc, isub_loc
+      integer :: nelems, nnods, ndofs
+
+      integer ::             lifixs
+      integer,allocatable ::  ifixs(:)
+
+      integer ::            lrhss,   lfixvs,   lsols
+      real(kr),allocatable:: rhss(:), fixvs(:), sols(:)
+
+      ilevel = 1
+      nsub_loc = levels(ilevel)%nsub_loc
+      do isub_loc = 1,nsub_loc
+   
+         ! find size of subdomain
+         call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+   
+         ! make subdomain boundary conditions - IFIXS and FIXVS
+         lifixs = ndofs
+         lfixvs = ndofs
+         allocate(ifixs(lifixs),fixvs(lfixvs))
+         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%ifix,levels(ilevel)%lifix, ifixs,lifixs)
+         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%fixv,levels(ilevel)%lfixv, fixvs,lfixvs)
+         call dd_upload_bc(levels(ilevel)%subdomains(isub_loc), ifixs,lifixs, fixvs,lfixvs)
+         deallocate(ifixs,fixvs)
+   
+         ! load subdomain RHS
+         lrhss = ndofs
+         allocate(rhss(lrhss))
+         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%rhs,levels(ilevel)%lrhs, rhss,lrhss)
+         call dd_upload_rhs(levels(ilevel)%subdomains(isub_loc), rhss,lrhss, .true. )
+         deallocate(rhss)
+
+         ! load subdomain SOLS
+         lsols = ndofs
+         allocate(sols(lsols))
+         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), levels(ilevel)%sol,levels(ilevel)%lsol, sols,lsols)
+         call dd_upload_solution(levels(ilevel)%subdomains(isub_loc), sols,lsols)
+         deallocate(sols)
+
+      end do
+
+end subroutine
+
 !*****************************************************************
 subroutine levels_pc_apply(common_krylov_data,lcommon_krylov_data)
 !*****************************************************************
@@ -3518,6 +3726,8 @@ subroutine levels_sm_apply(common_krylov_data,lcommon_krylov_data)
       integer :: ierr, myid
       integer :: isub_loc
 
+      integer :: ncol
+
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
          call error(routine_name,'Level is not prepared:',ilevel)
@@ -3537,9 +3747,10 @@ subroutine levels_sm_apply(common_krylov_data,lcommon_krylov_data)
 
          call zero(common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
 
+         ncol = 1
          call dd_multiply_by_schur(levels(ilevel)%subdomains(isub_loc),&
                                    common_krylov_data(isub_loc)%vec_in,common_krylov_data(isub_loc)%lvec_in, &
-                                   common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
+                                   common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out,ncol)
 
          call dd_comm_upload(levels(ilevel)%subdomains(isub_loc), &
                              common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)

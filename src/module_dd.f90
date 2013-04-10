@@ -210,7 +210,8 @@ module module_dd
                                                        ! 1 - weights by diagonal stiffness
                                                        ! 2 - weights based on first row of element data
                                                        ! 3 - weights based on dof data
-                                                       ! 4 - weights by Marta Certikova
+                                                       ! 4 - weights by Marta Certikova - unit load
+                                                       ! 5 - weights by Marta Certikova - unit jump
          logical ::               is_weights_ready = .false. ! are weights ready?
 
          ! common description of joint coarse nodes/dofs
@@ -1035,7 +1036,8 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
       integer::              lbci
       real(kr),allocatable :: bci(:)
 
-      integer :: isub, isub_loc, nnza, la, ndofs, ndofis
+      integer :: isub, isub_loc, nnza, la, ndofs, ndofis, ia, irow
+      real(kr) :: aval, fixedval
 
       logical,parameter :: store_fixed_rows = .true.
       integer :: la_fixed
@@ -1069,38 +1071,72 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
             call zero(bc,lbc)
          end if
 
-         ! eliminate natural BC
-         la_fixed = 0
-         if (suba(isub_loc)%is_bc_present) then
+         if (suba(isub_loc)%is_fixed_rows_matrix_loaded) then
+            ! already eliminated rows of the matrix, just recreate bc by
+            ! multiplication of such matrix entries with prescribed values of solution
+            if (suba(isub_loc)%is_bc_present) then
+               call sm_vec_mult(suba(isub_loc)%matrixtype, suba(isub_loc)%nnza_fixed, &
+                                suba(isub_loc)%i_a_fixed_sparse, &
+                                suba(isub_loc)%j_a_fixed_sparse, &
+                                suba(isub_loc)%a_fixed_sparse, & 
+                                suba(isub_loc)%la_fixed, &
+                                suba(isub_loc)%fixv,suba(isub_loc)%lfixv, &
+                                bc,lbc)
+               ! flip sign
+               bc = -bc
+
+               ! correct entries on diagonal
+               do ia = 1,suba(isub_loc)%nnza
+                  if (suba(isub_loc)%i_a_sparse(ia).eq.suba(isub_loc)%j_a_sparse(ia)) then
+                     irow  = suba(isub_loc)%i_a_sparse(ia)
+                     if (size(suba(isub_loc)%ifix).gt.0) then
+                        if (suba(isub_loc)%ifix(irow).gt.0) then
+                           aval     = suba(isub_loc)%a_sparse(ia)
+                           fixedval = suba(isub_loc)%fixv(irow)
+
+                           bc(irow) = aval*fixedval
+                        end if
+                     end if
+                  end if
+               end do
+            end if
+         else
+            ! first elimination of the matrix, store the eliminated entries of the matrix
+            ! eliminate natural BC
             la_fixed = 0
-            if ( store_fixed_rows ) then
-                call sm_count_fixed_rows_matrix_size(suba(isub_loc)%matrixtype,suba(isub_loc)%ifix,suba(isub_loc)%lifix,nnza,&
-                                                     suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse, la, la_fixed)
+            if (suba(isub_loc)%is_bc_present) then
+               la_fixed = 0
+               if ( store_fixed_rows ) then
+                   call sm_count_fixed_rows_matrix_size(suba(isub_loc)%matrixtype,suba(isub_loc)%ifix,suba(isub_loc)%lifix,nnza,&
+                                                        suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse, la, la_fixed)
+               end if
             end if
-         end if
-         suba(isub_loc)%la_fixed   = la_fixed
-         suba(isub_loc)%nnza_fixed = la_fixed
-         allocate( suba(isub_loc)%i_a_fixed_sparse(la_fixed), &
-                   suba(isub_loc)%j_a_fixed_sparse(la_fixed), &
-                   suba(isub_loc)%a_fixed_sparse(la_fixed) )
-         if (suba(isub_loc)%is_bc_present) then
-            call sm_apply_bc(suba(isub_loc)%matrixtype,&
-                             suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
-                             nnza, suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc, &
-                             store_fixed_rows, suba(isub_loc)%la_fixed,&
-                             suba(isub_loc)%i_a_fixed_sparse,&
-                             suba(isub_loc)%j_a_fixed_sparse,&
-                             suba(isub_loc)%a_fixed_sparse)
-            if ( store_fixed_rows ) then
-                !print *, 'la_fixed, nnza_fixed',suba(isub_loc)%la_fixed,suba(isub_loc)%nnza_fixed
-                !call sm_print(6, suba(isub_loc)%i_a_fixed_sparse, suba(isub_loc)%j_a_fixed_sparse, suba(isub_loc)%a_fixed_sparse, &
-                !              suba(isub_loc)%la_fixed, suba(isub_loc)%la_fixed)
-                !call flush(6)
-                call sm_assembly(suba(isub_loc)%i_a_fixed_sparse, suba(isub_loc)%j_a_fixed_sparse, suba(isub_loc)%a_fixed_sparse,& 
-                                 suba(isub_loc)%la_fixed, suba(isub_loc)%nnza_fixed)
+            suba(isub_loc)%la_fixed   = la_fixed
+            suba(isub_loc)%nnza_fixed = la_fixed
+            allocate( suba(isub_loc)%i_a_fixed_sparse(la_fixed), &
+                      suba(isub_loc)%j_a_fixed_sparse(la_fixed), &
+                      suba(isub_loc)%a_fixed_sparse(la_fixed) )
+            if (suba(isub_loc)%is_bc_present) then
+               call sm_apply_bc(suba(isub_loc)%matrixtype,&
+                                suba(isub_loc)%ifix,suba(isub_loc)%lifix,suba(isub_loc)%fixv,suba(isub_loc)%lfixv,&
+                                nnza, suba(isub_loc)%i_a_sparse,suba(isub_loc)%j_a_sparse,suba(isub_loc)%a_sparse,la, bc,lbc, &
+                                store_fixed_rows, suba(isub_loc)%la_fixed,&
+                                suba(isub_loc)%i_a_fixed_sparse,&
+                                suba(isub_loc)%j_a_fixed_sparse,&
+                                suba(isub_loc)%a_fixed_sparse)
+               if ( store_fixed_rows ) then
+                   !print *, 'la_fixed, nnza_fixed',suba(isub_loc)%la_fixed,suba(isub_loc)%nnza_fixed
+                   !call sm_print(6, suba(isub_loc)%i_a_fixed_sparse, suba(isub_loc)%j_a_fixed_sparse, suba(isub_loc)%a_fixed_sparse, &
+                   !              suba(isub_loc)%la_fixed, suba(isub_loc)%la_fixed)
+                   !call flush(6)
+                   call sm_assembly(suba(isub_loc)%i_a_fixed_sparse, &
+                                    suba(isub_loc)%j_a_fixed_sparse, &
+                                    suba(isub_loc)%a_fixed_sparse,& 
+                                    suba(isub_loc)%la_fixed, suba(isub_loc)%nnza_fixed)
+               end if
             end if
+            suba(isub_loc)%is_fixed_rows_matrix_loaded = .true.
          end if
-         suba(isub_loc)%is_fixed_rows_matrix_loaded = .true.
 
          if (is_bc_present) then
             ndofis = suba(isub_loc)%ndofi
@@ -1206,7 +1242,9 @@ subroutine dd_compute_reactions(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsu
 
          lrea = ndofs
          suba(isub_loc)%lrea = lrea
-         allocate(suba(isub_loc)%rea(lrea))
+         if (.not.allocated(suba(isub_loc)%rea)) then
+            allocate(suba(isub_loc)%rea(lrea))
+         end if
          call zero(suba(isub_loc)%rea,suba(isub_loc)%lrea)
 
          ! eliminate natural BC
@@ -2265,8 +2303,15 @@ subroutine dd_load_eliminated_bc(sub, bc,lbc)
       end if
 
       ! load eliminated boundary conditions if they are present
-      sub%lbc = lbc
-      allocate(sub%bc(lbc))
+      if (allocated(sub%bc)) then
+         ! just check the size
+         if (sub%lbc.ne.lbc) then
+            call error(routine_name,'Array size mismatch for subdomain ',sub%isub)
+         end if
+      else
+         sub%lbc = lbc
+         allocate(sub%bc(lbc))
+      end if
       if (lbc .gt. 0) then
          do i = 1,lbc
             sub%bc(i) = bc(i)
@@ -2645,6 +2690,7 @@ end subroutine
 subroutine dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
 !***************************************************
 ! Subroutine for loading boundary conditions on subdomain
+      use module_utils
       implicit none
 
 ! Subdomain structure
@@ -2655,11 +2701,14 @@ subroutine dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
       real(kr),intent(in)::  fixv(lfixv)
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_UPLOAD_BC'
       integer :: i
       logical :: import_bc
 
       if (any(ifix.ne.0)) then
-         sub%is_bc_present = .true.
+         if (.not. sub%is_bc_loaded) then
+            sub%is_bc_present = .true.
+         end if
          import_bc = .true.
          if (any(fixv.ne.0.0_kr)) then
             sub%is_bc_nonzero = .true.
@@ -2667,24 +2716,40 @@ subroutine dd_upload_bc(sub, ifix,lifix, fixv,lfixv)
             sub%is_bc_nonzero = .false.
          end if
       else
-         sub%is_bc_present = .false.
-         import_bc = .false.
+         if (.not. sub%is_bc_loaded) then
+            sub%is_bc_present = .false.
+         end if
          sub%is_bc_nonzero = .false.
+         import_bc = .false.
       end if
 
       ! boundary conditions
       if (import_bc) then
-         sub%lifix = lifix
-         sub%lfixv = lfixv
+         ! check sizes
+         if (sub%is_bc_loaded) then
+            if ( sub%lifix .ne. lifix .or.  sub%lfixv .ne. lfixv ) then
+               call error( routine_name, 'Size mismatch for subdomain', sub%isub )
+            end if
+            if (any(sub%ifix .ne. ifix)) then
+               call error( routine_name, 'Indices of fixed variables IFIX cannot be changed for subdomain', sub%isub )
+            end if
+         else
+            sub%lifix = lifix
+            sub%lfixv = lfixv
+
+            allocate(sub%ifix(sub%lifix))
+            allocate(sub%fixv(sub%lfixv))
+         end if
       else
          sub%lifix = 0
          sub%lfixv = 0
+         if (.not. sub%is_bc_loaded) then
+            allocate(sub%ifix(sub%lifix))
+            allocate(sub%fixv(sub%lfixv))
+         end if
+         sub%ifix = 0
+         sub%fixv = 0._kr
       end if
-
-      allocate(sub%ifix(sub%lifix))
-      allocate(sub%fixv(sub%lfixv))
-      sub%ifix = 0
-      sub%fixv = 0._kr
 
       if (import_bc) then
          do i = 1,lifix
@@ -2733,6 +2798,8 @@ subroutine dd_upload_rhs(sub, rhs,lrhs, is_rhs_complete)
 
       sub%is_rhs_loaded = .true.
       sub%is_rhs_complete = is_rhs_complete
+
+      sub%is_reduced_rhs_loaded = .false.
    
 end subroutine
 
@@ -5921,10 +5988,9 @@ subroutine dd_construct_interior_residual(sub,sol,lsol,reso,lreso)
 
 end subroutine
 
-
-!*********************************************
-subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
-!*********************************************
+!**************************************************
+subroutine dd_multiply_by_schur(sub,x,lx,y,ly,ncol)
+!**************************************************
 ! Subroutine for multiplication of interface vector by Schur complement
       use module_utils
       use module_mumps
@@ -5942,7 +6008,11 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
       integer,intent(in)   :: ly
       real(kr),intent(out) ::  y(ly)
 
+      ! number of columns in x and y
+      integer,intent(in)   :: ncol
+
       ! local vars
+      character(*),parameter:: routine_name = 'DD_MULTIPLY_BY_SCHUR'
       integer ::              laux1
       real(kr),allocatable ::  aux1(:)
       integer ::              laux2
@@ -5950,23 +6020,22 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
 
       integer :: ndofi, ndofo, nnza12, la12, nnza21, la21, nnza22, la22, &
                  matrixtype_aux, matrixtype
-      integer :: i
+      integer :: j
       logical :: is_symmetric_storage
 
       ! check the prerequisities
       if (.not. (sub%is_interior_factorized)) then
-         write(*,*) 'DD_PREPARE_SCHUR: Interior block not factorized yet.',sub%isub
-         call error_exit
+         call error( routine_name, 'Interior block not factorized yet.', sub%isub)
       end if
-      if (.not. (sub%ndofi .eq. lx .or. .not. lx .eq. ly)) then
-         write(*,*) 'DD_PREPARE_SCHUR: Inconsistent data size.'
-         call error_exit
+      if (.not. (sub%ndofi .eq. lx/ncol .or. .not. lx .eq. ly)) then
+         call error( routine_name, 'Inconsistent data size.', sub%isub)
       end if
  
       ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
+      ndofi = sub%ndofi
       ndofo = sub%ndofo
       if (ndofo.gt.0) then
-         laux1 = ndofo
+         laux1 = ndofo * ncol
          allocate(aux1(laux1))
    
          ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
@@ -5974,12 +6043,15 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
          matrixtype_aux = 0
          nnza12     = sub%nnza12
          la12       = sub%la12
-         call sm_vec_mult(matrixtype_aux, nnza12, &
-                          sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
-                          x,lx, aux1,laux1)
+
+         do j = 1,ncol
+            call sm_vec_mult(matrixtype_aux, nnza12, &
+                             sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
+                             x((j-1)*ndofi + 1),ndofi, aux1((j-1)*ndofo + 1),ndofo)
+         end do
    
          ! resolve interior problem by MUMPS
-         call mumps_resolve(sub%mumps_interior_block,aux1,laux1)
+         call mumps_resolve(sub%mumps_interior_block,aux1,laux1,ncol)
    
          if (sub%istorage .eq. 4) then
             is_symmetric_storage = .true.
@@ -5989,47 +6061,158 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
    
          ! prepare auxiliary vector for multiplication
          ndofi = sub%ndofi
-         laux2 = ndofi
+         laux2 = ndofi * ncol
          allocate(aux2(laux2))
    
          ! get aux2 = A_21*aux1, i.e. aux2 = A_21 * (A_11)^-1 * A_12 * x
-         if (is_symmetric_storage) then
-            matrixtype_aux = 0
-            nnza12     = sub%nnza12
-            la12       = sub%la12
-            ! use the matrix with transposed indices in the call sm_vec_mult
-            call sm_vec_mult(matrixtype_aux, nnza12, &
-                             sub%j_a12_sparse, sub%i_a12_sparse, sub%a12_sparse, la12, &
-                             aux1,laux1, aux2,laux2)
-         else
-            matrixtype_aux = 0
-            nnza21     = sub%nnza21
-            la21       = sub%la21
-            call sm_vec_mult(matrixtype_aux, nnza21, &
-                             sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, la21, &
-                             aux1,laux1, aux2,laux2)
-         end if
+         do j = 1,ncol
+            if (is_symmetric_storage) then
+               matrixtype_aux = 0
+               nnza12     = sub%nnza12
+               la12       = sub%la12
+               ! use the matrix with transposed indices in the call sm_vec_mult
+               call sm_vec_mult(matrixtype_aux, nnza12, &
+                                sub%j_a12_sparse, sub%i_a12_sparse, sub%a12_sparse, la12, &
+                                aux1((j-1)*ndofo + 1),ndofo, aux2((j-1)*ndofi + 1),ndofi)
+            else
+               matrixtype_aux = 0
+               nnza21     = sub%nnza21
+               la21       = sub%la21
+               call sm_vec_mult(matrixtype_aux, nnza21, &
+                                sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, la21, &
+                                aux1((j-1)*ndofo + 1),ndofo, aux2((j-1)*ndofi + 1),ndofi)
+            end if
+         end do
       end if
 
       ! get y = A_22*x
       matrixtype = sub%matrixtype
       nnza22     = sub%nnza22
       la22       = sub%la22
-      call sm_vec_mult(matrixtype, nnza22, &
-                       sub%i_a22_sparse, sub%j_a22_sparse, sub%a22_sparse, la22, &
-                       x,lx, y,ly)
+      do j = 1,ncol
+         call sm_vec_mult(matrixtype, nnza22, &
+                          sub%i_a22_sparse, sub%j_a22_sparse, sub%a22_sparse, la22, &
+                          x((j-1)*ndofi + 1),ndofi, y((j-1)*ndofi + 1),ndofi)
+      end do
 
       ! add results together to get y = y - aux2, i.e. y = A_22 * x - A_21 * (A_11)^-1 * A_12 * x, or y = (A_22 - A_21 * (A_11)^-1 * A_12) * x
       if (ndofo.gt.0) then
-         do i = 1,ly
-            y(i) = y(i) - aux2(i)
-         end do
+         y = y - aux2
  
          deallocate(aux1)
          deallocate(aux2)
       end if
 
 end subroutine
+
+!!*********************************************
+!subroutine dd_multiply_by_schur(sub,x,lx,y,ly)
+!!*********************************************
+!! Subroutine for multiplication of interface vector by Schur complement
+!      use module_utils
+!      use module_mumps
+!      use module_sm
+!      implicit none
+!
+!! Subdomain structure
+!      type(subdomain_type),intent(inout) :: sub
+!
+!      ! input vector
+!      integer,intent(in)  :: lx
+!      real(kr),intent(in) ::  x(lx)
+!
+!      ! output vector
+!      integer,intent(in)   :: ly
+!      real(kr),intent(out) ::  y(ly)
+!
+!      ! local vars
+!      integer ::              laux1
+!      real(kr),allocatable ::  aux1(:)
+!      integer ::              laux2
+!      real(kr),allocatable ::  aux2(:)
+!
+!      integer :: ndofi, ndofo, nnza12, la12, nnza21, la21, nnza22, la22, &
+!                 matrixtype_aux, matrixtype
+!      integer :: i
+!      logical :: is_symmetric_storage
+!
+!      ! check the prerequisities
+!      if (.not. (sub%is_interior_factorized)) then
+!         write(*,*) 'DD_PREPARE_SCHUR: Interior block not factorized yet.',sub%isub
+!         call error_exit
+!      end if
+!      if (.not. (sub%ndofi .eq. lx .or. .not. lx .eq. ly)) then
+!         write(*,*) 'DD_PREPARE_SCHUR: Inconsistent data size.'
+!         call error_exit
+!      end if
+! 
+!      ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
+!      ndofo = sub%ndofo
+!      if (ndofo.gt.0) then
+!         laux1 = ndofo
+!         allocate(aux1(laux1))
+!   
+!         ! prepare rhs vector for backsubstitution to problem A_11*aux1 = -A_12*x
+!         ! with offdiagonal blocks, use as nonsymmetric
+!         matrixtype_aux = 0
+!         nnza12     = sub%nnza12
+!         la12       = sub%la12
+!         call sm_vec_mult(matrixtype_aux, nnza12, &
+!                          sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
+!                          x,lx, aux1,laux1)
+!   
+!         ! resolve interior problem by MUMPS
+!         call mumps_resolve(sub%mumps_interior_block,aux1,laux1)
+!   
+!         if (sub%istorage .eq. 4) then
+!            is_symmetric_storage = .true.
+!         else
+!            is_symmetric_storage = .false.
+!         end if
+!   
+!         ! prepare auxiliary vector for multiplication
+!         ndofi = sub%ndofi
+!         laux2 = ndofi
+!         allocate(aux2(laux2))
+!   
+!         ! get aux2 = A_21*aux1, i.e. aux2 = A_21 * (A_11)^-1 * A_12 * x
+!         if (is_symmetric_storage) then
+!            matrixtype_aux = 0
+!            nnza12     = sub%nnza12
+!            la12       = sub%la12
+!            ! use the matrix with transposed indices in the call sm_vec_mult
+!            call sm_vec_mult(matrixtype_aux, nnza12, &
+!                             sub%j_a12_sparse, sub%i_a12_sparse, sub%a12_sparse, la12, &
+!                             aux1,laux1, aux2,laux2)
+!         else
+!            matrixtype_aux = 0
+!            nnza21     = sub%nnza21
+!            la21       = sub%la21
+!            call sm_vec_mult(matrixtype_aux, nnza21, &
+!                             sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, la21, &
+!                             aux1,laux1, aux2,laux2)
+!         end if
+!      end if
+!
+!      ! get y = A_22*x
+!      matrixtype = sub%matrixtype
+!      nnza22     = sub%nnza22
+!      la22       = sub%la22
+!      call sm_vec_mult(matrixtype, nnza22, &
+!                       sub%i_a22_sparse, sub%j_a22_sparse, sub%a22_sparse, la22, &
+!                       x,lx, y,ly)
+!
+!      ! add results together to get y = y - aux2, i.e. y = A_22 * x - A_21 * (A_11)^-1 * A_12 * x, or y = (A_22 - A_21 * (A_11)^-1 * A_12) * x
+!      if (ndofo.gt.0) then
+!         do i = 1,ly
+!            y(i) = y(i) - aux2(i)
+!         end do
+! 
+!         deallocate(aux1)
+!         deallocate(aux2)
+!      end if
+!
+!end subroutine
 
 !********************************************
 subroutine dd_resolve_interior(sub,x,lx,y,ly)
@@ -6271,6 +6454,7 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
             do i = 1,ndof
                bc(i) = suba(isub_loc)%bc(i)
             end do
+
             ! apply weights on interface
             call dd_weights_apply(suba(isub_loc), bc,lbc)
             call sm_prepare_rhs(suba(isub_loc)%ifix,suba(isub_loc)%lifix,&
@@ -6442,18 +6626,17 @@ subroutine dd_get_reduced_rhs(sub, g,lg)
       real(kr),intent(out) :: g(lg)
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_GET_REDUCED_RHS'
       integer :: i
 
 
       ! check the prerequisities
       if (.not.sub%is_reduced_rhs_loaded) then
-         write(*,*) 'DD_GET_REDUCED_RHS: Reduced RHS is not loaded for subdomain:', sub%isub
-         call error_exit
+         call error(routine_name,'Reduced RHS is not loaded, perhaps missing call to BDDCML_SETUP_NEW_DATA', sub%isub)
       end if
       ! check the size
       if (lg .ne. sub%lg) then
-         write(*,*) 'DD_GET_REDUCED_RHS: RHS size mismatch for subdomain:', sub%isub
-         call error_exit
+         call error(routine_name,'RHS size mismatch for subdomain:', sub%isub)
       end if
  
       ! copy g
@@ -7165,7 +7348,7 @@ subroutine dd_prepare_explicit_schur(sub)
          e(j) = 1._kr
 
          ! get column of S*I
-         call dd_multiply_by_schur(sub,e,le,sub%schur(1:lschur1,j),le)
+         call dd_multiply_by_schur(sub,e,le,sub%schur(1:lschur1,j),le,1)
 
       end do
       deallocate(e)
@@ -10141,7 +10324,8 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
       ! 1 - weights by diagonal stiffness
       ! 2 - weights based on first row of element data
       ! 3 - weights based on dof data
-      ! 4 - weights by Marta Certikova
+      ! 4 - weights by Marta Certikova - unit load
+      ! 5 - weights by Marta Certikova - unit jump
       integer,intent(in) :: weights_type 
 
       ! local vars
@@ -10181,6 +10365,8 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
             call dd_get_interface_dof_data(suba(isub_loc), rhoi,lrhoi)
          else if (weights_type .eq. 4) then
             call dd_generate_interface_unit_load(suba(isub_loc), rhoi,lrhoi)
+         else if (weights_type .eq. 5) then
+            call dd_generate_interface_unit_jump(suba(isub_loc), rhoi,lrhoi)
          else
             call error(routine_name,'Type of weight not supported:',weights_type)
          end if
@@ -10218,6 +10404,8 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
             call dd_get_interface_dof_data(suba(isub_loc), rhoi,lrhoi)
          else if (weights_type .eq. 4) then
             call dd_generate_interface_unit_load(suba(isub_loc), rhoi,lrhoi)
+         else if (weights_type .eq. 5) then
+            call dd_generate_interface_unit_jump(suba(isub_loc), rhoi,lrhoi)
          else
             call error(routine_name,'Type of weight not supported:',weights_type)
          end if
@@ -10708,12 +10896,189 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
          end do
       end do
 
+      if (any(vi.le.0._kr)) then
+         call warning(routine_name,'zeros in weights for subdomain',sub%isub)
+         print *, 'vi', vi
+      end if
+
       ! avoid negative weights
       vi = abs(vi)
 
       deallocate(ri)
       deallocate(r)
       deallocate(vaug)
+      deallocate(kdofi)
+end subroutine
+
+!******************************************************
+subroutine dd_generate_interface_unit_jump(sub, vi,lvi)
+!******************************************************
+! Subroutine for generating weights as a solution to local problems with unit jump.
+! Based on the paper
+! M. Certikova, P. Burda, J. Sistek: Numerical comparison of different choices 
+! of interface weights in the BDDC method,
+! Proceedings of Applications of Mathematics 2012, Institute of Mathematics AS CR, pp. 55-61, 2012
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+      integer,intent(in)  :: lvi
+      real(kr),intent(out) :: vi(lvi)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GENERATE_INTERFACE_UNIT_JUMP'
+      integer :: i, nnodi, ndofi, ndofn, nglob, nnadj
+      integer :: ndofnx 
+      integer :: lri1, lri2 
+      real(kr), allocatable :: ri(:)
+      integer :: lsi1, lsi2 
+      real(kr), allocatable :: si(:)
+      integer :: ncol
+
+      integer :: isubadj, jsub, ia, idofn, iglob, inadj, indn, indshni, kishnadj, nadj, ind, inodi
+
+      integer ::            lkdofi
+      integer,allocatable :: kdofi(:)
+
+      ! check if mesh is loaded
+      if (.not. sub%is_mesh_loaded) then
+         call error(routine_name, 'Mesh not loaded for subdomain: ',sub%isub)
+      end if
+      ! check if dof data are loaded
+      if (.not. sub%is_interior_factorized) then
+         call error(routine_name, 'Interior problem is not factorized for subdomain: ',sub%isub)
+      end if
+      ! check dimensions
+      if (sub%ndofi.ne.lvi) then
+         call error(routine_name, 'Interface dimensions mismatch for subdomain ',sub%isub)
+      end if
+
+      ! prepare array kdofi
+      nnodi = sub%nnodi
+      lkdofi = nnodi + 1
+      allocate(kdofi(lkdofi))
+      kdofi(1) = 1
+      do i = 1,nnodi
+         indn = sub%iin(i)
+         ndofn = sub%nndf(indn)
+         
+         kdofi(i + 1) = kdofi(i) + ndofn
+      end do
+
+      ndofnx = minval(sub%nndf)
+
+      ! prepare unit load vector at subdomain interface
+      ndofi = sub%ndofi
+      lri1 = ndofi
+      lri2 = ndofnx
+      allocate(ri(lri1*lri2))
+      lsi1 = ndofi
+      lsi2 = ndofnx
+      allocate(si(lsi1*lsi2))
+
+      call zero(vi,lvi)
+
+      ! loop over globs and identify faces
+      nglob = sub%nglob
+      nadj  = sub%nadj
+      do iglob = 1,nglob
+
+         ! only select faces 
+         if (sub%glob_type(iglob) .eq. 1) then
+
+            ! the second subdomain
+            if (sub%nsubglobs(iglob).lt.1) then
+               call error(routine_name,'Face appears to have no neighbour for subdomain:',sub%isub)
+            end if
+            if (sub%lglob_subs2.lt.1) then
+               call error(routine_name,'Wrong dimension of array glob_subs for subdomain:',sub%isub)
+            end if
+            jsub = sub%glob_subs(iglob,1)
+
+            ! find all nodes shared with this subdomain
+            kishnadj = 0
+            do ia = 1,nadj
+               nnadj = sub%nshnadj(ia)
+
+               ! get index of neighbour
+               isubadj = sub%iadj(ia)
+               ! perform the solves only if the subdomain matches the face neighbour
+               if (isubadj .eq. jsub) then
+
+                  ! fill in ones in selected direction
+                  ri = 0._kr
+                  do inadj = 1,nnadj
+                     indshni = sub%ishnadj(kishnadj + inadj)
+
+                     do idofn = 1,ndofnx
+                        ri((idofn-1)*lri1 + (kdofi(indshni)-1 + idofn)) = 1._kr
+                     end do
+                  end do
+
+                  !print *, 'ri before'
+                  !do i = 1,lri1
+                  !   write (*,'(i2,2x,10e7.1)') i, ri(i,:)
+                  !end do
+
+                  ! multiply the vectors by Schur complement
+                  ncol = ndofnx
+                  call dd_multiply_by_schur(sub, ri,lri1*lri2, si,lsi1*lsi2, ncol)
+
+                  ! fill in ones in selected direction
+                  do inadj = 1,nnadj
+                     indshni = sub%ishnadj(kishnadj + inadj)
+
+                     do idofn = 1,ndofnx
+                        vi(kdofi(indshni)-1 + idofn) = vi(kdofi(indshni)-1 + idofn) + si((idofn-1)*lsi1 + kdofi(indshni)-1 + idofn)
+                     end do
+                  end do
+
+                  !print *, 'ri after'
+                  !do i = 1,lri1
+                  !   write (*,'(i2,2x,10e7.1)') i, ri(i,:), vi(i)
+                  !end do
+
+               end if
+               kishnadj = kishnadj + nnadj
+            end do
+         end if
+      end do
+
+      ! add ones to corners
+      !ncorner = sub%ncorner  
+      !do icorner = 1,ncorner
+      !   indi = sub%icnsin(icorner) 
+
+      !   do idofn = 1,ndofnx
+      !      vi(kdofi(indi)-1+idofn) = 1._kr
+      !   end do
+      !end do
+
+      !print *, 'vi with corners'
+      !do i = 1,lvi
+      !   write (*,'(i2,2x,10e7.1)') i, vi(i)
+      !end do
+
+      ! add ones to dofs above the ndofnx
+      do inodi = 1,nnodi
+         ind = sub%iin(inodi)
+         ndofn = sub%nndf(ind)
+         do idofn = ndofnx+1,ndofn
+            vi(kdofi(inodi)-1+idofn) = 1._kr
+         end do
+      end do
+
+      !if (any(vi.le.0._kr)) then
+      !   call warning(routine_name,'zeros in weights for subdomain',sub%isub)
+      !   print *, 'vi', vi
+      !end if
+
+      ! avoid negative weights
+      vi = abs(vi)
+      where (vi.lt.numerical_zero) vi = numerical_zero
+
+      deallocate(ri)
+      deallocate(si)
       deallocate(kdofi)
 end subroutine
 
@@ -11250,7 +11615,6 @@ subroutine dd_finalize(sub)
          sub%is_mumps_aug_active = .false.
       end if
 
-!     Krylov vectors on subdomain
       if (allocated(sub%sol)) then
          deallocate(sub%sol)
       end if

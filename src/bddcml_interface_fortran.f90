@@ -333,7 +333,8 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       ! 1 - weights by diagonal stiffness
       ! 2 - weights based on first row of element data
       ! 3 - weights based on dof data
-      ! 4 - weights by Marta Certikova
+      ! 4 - weights by Marta Certikova - unit load
+      ! 5 - weights by Marta Certikova - unit jump
       integer,intent(in) :: weights_type
 
       ! local variables
@@ -383,6 +384,7 @@ end subroutine
 
 !******************************************************************
 subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
+                        recycling_int, max_number_of_stored_vectors, &
                         num_iter,converged_reason,condition_number)
 !******************************************************************
 ! solution of problem by a Krylov subspace iterative method
@@ -410,6 +412,14 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       ! limit on iterations with increasing residual
       integer, intent(in) :: ndecrmax
 
+      ! Should the Krylov subspace be recycled? If yes, basis will be stored and
+      ! used for subsequent right hand sides. It also launches re-orthogonalization 
+      ! of the Krylov basis.
+      integer, intent(in) :: recycling_int
+
+      ! If the Krylov subspace is recycled, what is the upper bound for the number of stored vectors?
+      ! With increasing number, the memory consumption also increases.
+      integer, intent(in) :: max_number_of_stored_vectors
 
       ! resulting number of iterations
       integer,intent(out) :: num_iter
@@ -427,19 +437,26 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       ! ######################################
       ! default values of krylov parameters
 
-      integer ::  krylov_method   = 1
-      real(kr) :: krylov_tol      = 1.e-6_kr
-      integer ::  krylov_maxit    = 1000
-      integer ::  krylov_ndecrmax = 30
+      integer ::  krylov_method                       = 1
+      real(kr) :: krylov_tol                          = 1.e-6_kr
+      integer ::  krylov_maxit                        = 1000
+      integer ::  krylov_ndecrmax                     = 30
+      logical ::  krylov_recycling                    = .true.
+      integer ::  krylov_max_number_of_stored_vectors = 100
       ! ######################################
       character(*),parameter:: routine_name = 'BDDCML_SOLVE'
+      logical :: recycling
+
+      call logical2integer(recycling_int,recycling)
 
       ! determine Krylov method and parameters
       if (method .ne. -1) then
-         krylov_method   = method
-         krylov_tol      = tol
-         krylov_maxit    = maxit
-         krylov_ndecrmax = ndecrmax
+         krylov_method    = method
+         krylov_tol       = tol
+         krylov_maxit     = maxit
+         krylov_ndecrmax  = ndecrmax
+         krylov_recycling = recycling
+         krylov_max_number_of_stored_vectors = max_number_of_stored_vectors
       else
          call info(routine_name,'using default Krylov solver parameters')
       end if
@@ -447,6 +464,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       if (krylov_method.eq.0) then 
          ! use PCG 
          call krylov_bddcpcg(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
+                             krylov_recycling, krylov_max_number_of_stored_vectors, &
                              num_iter, converged_reason, condition_number)
       else if (krylov_method.eq.1) then 
          ! use BICGSTAB 
@@ -536,6 +554,95 @@ subroutine bddcml_download_global_reactions(rea, lrea)
 end subroutine
 
 !*******************************************************************************
+subroutine bddcml_change_global_data(ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
+!*******************************************************************************
+! Subroutine for changing global RHS, and values of Dirichlet boundary conditions
+      use module_levels
+      use module_utils
+      implicit none
+      integer,parameter :: kr = kind(1.D0)
+
+      ! GLOBAL Indices of FIXed variables - all dof with Dirichlet BC are marked with its number
+      integer, intent(in):: lifix
+      integer, intent(in)::  ifix(lifix)
+
+      ! GLOBAL FIXed Variables - where IFIX is nonzero, value of Dirichlet BC
+      integer, intent(in):: lfixv
+      real(kr), intent(in):: fixv(lfixv)
+
+      ! GLOBAL Right-Hand Side
+      integer, intent(in):: lrhs
+      real(kr), intent(in):: rhs(lrhs)
+
+      ! GLOBAL initial SOLution - initial approximation for iterative method
+      integer, intent(in):: lsol
+      real(kr), intent(in):: sol(lsol)
+
+      call levels_change_global_data(ifix,lifix,fixv,lfixv,rhs,lrhs, sol,lsol)
+
+end subroutine
+
+!***********************************************************************
+subroutine bddcml_change_subdomain_data(isub, &
+                                        ifix,lifix, fixv,lfixv, &
+                                        rhs,lrhs, is_rhs_complete_int, &
+                                        sol,lsol)
+!***********************************************************************
+! Subroutine for loading global data as zero level
+      use module_levels
+      use module_utils
+      implicit none
+      integer,parameter :: kr = kind(1.D0)
+
+      ! GLOBAL index of subdomain
+      integer, intent(in):: isub
+
+      ! LOCAL Indices of FIXed variables - all dof with Dirichlet BC are marked with its local number
+      ! cannot change - just for reference
+      integer, intent(in):: lifix
+      integer, intent(in)::  ifix(lifix)
+
+      ! LOCAL FIXed Variables - where IFIX is nonzero, value of Dirichlet BC
+      integer, intent(in):: lfixv
+      real(kr), intent(in):: fixv(lfixv)
+
+      ! LOCAL Right-Hand Side (where nodes of subdomains coincide, values are repeated)
+      integer, intent(in):: lrhs
+      real(kr), intent(in):: rhs(lrhs)
+
+      ! LOCAL initial SOLution - initial approximation for iterative method
+      integer, intent(in):: lsol
+      real(kr), intent(in):: sol(lsol)
+      integer, intent(in)::  is_rhs_complete_int  ! is the right-hand side complete?  
+                                                  !  0 = no, e.g. if it is assembled subdomain-by-subdomain 
+                                                  !      and the interface entries are not interchanged
+                                                  !  1 = yes, e.g. if it was created as a restriction of
+                                                  !      the global RHS array and so entries on interface are
+                                                  !      contained in several subdomains - weights will be applied
+
+      ! local vars
+      logical :: is_rhs_complete
+
+      ! translate integer to logical
+      call logical2integer(is_rhs_complete_int, is_rhs_complete)
+
+      call levels_change_subdomain_data(isub, &
+                                        ifix,lifix, fixv,lfixv, &
+                                        rhs,lrhs, is_rhs_complete, &
+                                        sol,lsol)
+end subroutine
+
+!*******************************
+subroutine bddcml_setup_new_data
+!*******************************
+! finalization of LEVELS module
+      use module_levels
+      implicit none
+
+      call levels_setup_new_data
+end subroutine
+
+!*******************************************************************************
 subroutine bddcml_dotprod_subdomain( isub, vec1,lvec1, vec2,lvec2, dotprod )
 !*******************************************************************************
 ! Auxiliary subroutine to compute scalar product of two vectors of lenght of
@@ -571,8 +678,10 @@ subroutine bddcml_finalize
 !*************************
 ! finalization of LEVELS module
       use module_levels
+      use module_krylov
       implicit none
 
       call levels_finalize
+      call krylov_finalize
 end subroutine
 

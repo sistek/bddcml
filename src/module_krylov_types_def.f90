@@ -68,4 +68,15 @@ module module_krylov_types_def
          real(kr),allocatable :: t(:)      
       end type bicgstab_data_type
 
+! type for storing data for recycling of Krylov subspaces
+      type krylov_recycling_data_type
+         integer ::             lv1
+         integer ::             lv2
+         real(kr),allocatable :: v(:,:)   ! array of all search directions p on interface
+         integer ::             lw1
+         integer ::             lw2
+         real(kr),allocatable :: w(:,:)   ! array of all A*p at interface
+      end type krylov_recycling_data_type
+
 end module
+
