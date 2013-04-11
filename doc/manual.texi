@@ -739,6 +739,7 @@ void bddcml_solve( int *comm_all, int *method, double *tol, int *maxit, int *nde
 @unnumberedsubsec Fortran interface
 @code{
 subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
+                        recycling_int, max_number_of_stored_vectors, &
                         num_iter,converged_reason,condition_number)
 }
 @verbatim
@@ -747,6 +748,8 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       real(kr), intent(in) :: tol
       integer, intent(in) :: maxit
       integer, intent(in) :: ndecrmax
+      integer, intent(in) :: recycling_int
+      integer, intent(in) :: max_number_of_stored_vectors
       integer, intent(out) :: num_iter
       integer, intent(out) :: converged_reason
       real(kr), intent(out) :: condition_number
@@ -778,6 +781,21 @@ limit on number of iterations (default 1000).
 
 @item ndecrmax
 limit on number of iterations with non-decreasing residual (default 30) - used to stop a diverging process.
+
+@item recycling_int
+If @code{> 0}, the Krylov subspace will be recycled in the Krylov subspace method (default 1). 
+This can save time for solutions for many right-hand sides.
+If this option is used with just one right-hand side solve, 
+an explicit orthogonalization is performed with respect to previous Krylov basis vectors.
+This can help the convergence for numerically complicated problems, 
+where natural orthogonality of the basis may be lost.
+The approach to recycling is based on 
+Farhat, C., Crivelli, L., Roux, X.: Extending substructure based iterative solvers to multiple load and repeated analyses.
+Comput. Methods in Appl. Mech. Engrg. 117 (1994), 195-209.
+
+@item max_number_of_stored_vectors 
+limit on the size of the Krylov subspace basis explicitly kept in the solver (default 100).
+Only meaningful if @code{recycling_int > 0}.
 
 @item num_iter
 on output, resulting number of iterations.
