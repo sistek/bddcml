@@ -16,7 +16,7 @@ END-INFO-DIR-ENTRY
 @titlepage
 @title BDDCML
 @subtitle solver library based on Multi-Level Balancing Domain Decomposition by Constraints
-@subtitle copyright (C) 2010-2012 Jakub @v{S}@'{@dotless{i}}stek
+@subtitle copyright (C) 2010-2013 Jakub @v{S}@'{@dotless{i}}stek
 @subtitle version 2.1
 @author Jakub @v{S}@'{@dotless{i}}stek
 
@@ -95,6 +95,20 @@ Optionally, one can ask for nodal reactions at Dirichlet boundary conditions by
 @item @code{bddcml_download_global_reactions} -- get the global reactions from the solver (use for global loading)
 @end itemize
 
+The solver supports efficient handling of multiple-right hand side, 
+for which the matrix as well as preconditioner are reused.
+Moreover, the Krylov method is accelerated by storing some of the Krylov basis.
+One can re-run the Krylov method for a new right-hand side and/or values of Dirichlet boundary conditions as
+@enumerate
+@item 
+@itemize
+@item @code{bddcml_change_global_data} -- changing global data about right-hand side or Dirichlet b.c. (use for global loading)
+@item @code{bddcml_change_subdomain_data} -- changing data for one subdomain about right-hand side or Dirichlet b.c. (use for local loading)
+@end itemize
+@item @code{bddcml_setup_new_data} -- after right-hand side or Dirichlet b.c. has changed, recreate related internal arrays
+@item @code{bddcml_solve} -- solve the system again for the new data
+@end enumerate
+
 @chapter Notes for C/C++ users
 
 Since @code{BDDCML} is written in Fortran 95 language, users who want to use BDDCML from C/C++ need to 
@@ -150,7 +164,7 @@ In this chapter, detailed description of the solver interface functions with exp
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase )
+void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -218,7 +232,7 @@ void bddcml_upload_global_data( int *nelem, int *nnod, int *ndof, int *ndim, int
                                 int *inet, int *linet, int *nnet, int *lnnet, int *nndf, int *lnndf, 
                                 double *xyz, int *lxyz1, int *lxyz2,
                                 int *ifix, int *lifix, double *fixv, int *lfixv, double *rhs, int *lrhs, double *sol, int *lsol, int *idelm, 
-                                int *neighbouring, int *load_division_int )
+                                int *neighbouring, int *load_division_int );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -614,6 +628,8 @@ dimension of array with data for subdomain degrees of freedom, @code{ldof_data} 
 coefficients for each local degree of freedom currently optionally used for generating interface weigths in the BDDC method. 
 The array should be positive, @code{dof_data} > 0.
 
+@end table
+
 
 @page
 @section @code{bddcml_setup_preconditioner}
@@ -690,7 +706,6 @@ Default is @code{0}.
 If @code{> 0}, solver will use array @code{USER_CONSTRAINTS} supplied in routine @code{bddcml_upload_subdomain_data} for construction of additional constraints on subdomain faces.
 This may be used e.g. for enforcing flux-based constraints for advection-diffusion problems.
 Default is @code{0}.
-@end table
 
 @item weights_type
 Type of weights to be used on interface (default 0). Possible choices
@@ -709,7 +724,9 @@ with nodal finite elements.
 @item 3 -- weights based on loaded data for degees of freedom. For this choice, array @code{dof_data}
 from function @code{bddcml_upload_subdomain_data} must contain coefficients for each subdomain degree of freedom.
 This allows definition of general user-defined weigths on degrees of freedom tailored to particular applications.
+
 @end itemize
+
 
 @page
 @section @code{bddcml_solve}
@@ -784,7 +801,7 @@ on output, estimated condition number ( for PCG only ).
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_download_local_solution( int *isub, double *sols, int *lsols )
+void bddcml_download_local_solution( int *isub, double *sols, int *lsols );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -819,7 +836,7 @@ length of array @code{sols}, equal to @code{ndofs}.
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_download_global_solution( double *sol, int *lsol )
+void bddcml_download_global_solution( double *sol, int *lsol );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -850,7 +867,7 @@ length of array @code{sol}, equal to @code{ndof}
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_download_local_reactions( int *isub, double *reas, int *lreas )
+void bddcml_download_local_reactions( int *isub, double *reas, int *lreas );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -887,7 +904,7 @@ length of array @code{reas}, equal to @code{ndofs}.
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_download_global_reactions( double *rea, int *lrea )
+void bddcml_download_global_reactions( double *rea, int *lrea );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -915,13 +932,185 @@ length of array @code{rea}, equal to @code{ndof}
 
 @end table
 
+
+@page
+@section @code{bddcml_change_global_data}
+
+@unnumberedsubsec C interface
+@code{
+void bddcml_change_global_data( int *ifix, int *lifix, double *fixv, int *lfixv, double *rhs, int *lrhs, double *sol, int *lsol);
+}
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_change_global_data(ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
+}
+@verbatim
+      integer, intent(in):: lifix
+      integer, intent(in)::  ifix(lifix)
+      integer, intent(in):: lfixv
+      real(kr), intent(in):: fixv(lfixv)
+      integer, intent(in):: lrhs
+      real(kr), intent(in):: rhs(lrhs)
+      integer, intent(in):: lsol
+      real(kr), intent(in):: sol(lsol)
+@end verbatim
+
+@unnumberedsubsec Description
+
+A function for loading another right hand side, when global loading is used.
+Position of fixed variables, the @code{IFIX} array, is not allowed to change.
+Parameters correspond to routine @code{bddcml_upload_global_data}.
+
+
+@unnumberedsubsec Parameters
+
+@table @code
+
+@item ifix
+GLOBAL array of Indices of FIXed variables - all degrees of freedom with Dirichlet boundary condition are marked by 1, degrees of freedom not prescribed are marked by 0,
+i.e. non-zero entries determine fixed degrees of freedom. 
+The values of prescribed boundary conditions are given by corresponding entries of array @code{fixv}.
+
+@item lifix
+length of array @code{ifix}, equal to @code{ndof}.
+
+@item fixv
+GLOBAL array of FIXed Variables - where @code{ifix} is non-zero, @code{fixv} stores value of Dirichlet boundary condition. Where @code{ifix} is zero, corresponding value in @code{fixv} is meaningless.
+
+@item lfixv
+length of array @code{fixv}, equal to @code{ndof}.
+
+@item rhs
+GLOBAL array with Right-Hand Side
+
+@item lrhs
+length of array @code{rhs}, equal to @code{ndof}.
+
+@item sol
+GLOBAL array with initial SOLution guess. This is used as initial approximation for iterative method.
+
+@item lsol
+length of array @code{sol}, equal to @code{ndof}.
+
+@end table
+
+@page
+@section @code{bddcml_change_subdomain_data}
+
+@unnumberedsubsec C interface
+@code{
+void bddcml_change_subdomain_data( int *isub, 
+                                   int *ifix, int *lifix, double *fixv, int *lfixv, 
+                                   double *rhs, int *lrhs, int *is_rhs_complete, 
+                                   double *sol, int *lsol );
+}
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_change_subdomain_data(isub, &
+                                        ifix,lifix, fixv,lfixv, &
+                                        rhs,lrhs, is_rhs_complete_int, &
+                                        sol,lsol)
+}
+@verbatim
+      integer, intent(in):: isub
+      integer, intent(in):: lifix
+      integer, intent(in)::  ifix(lifix)
+      integer, intent(in):: lfixv
+      real(kr), intent(in):: fixv(lfixv)
+      integer, intent(in):: lrhs
+      real(kr), intent(in):: rhs(lrhs)
+      integer, intent(in)::  is_rhs_complete_int  
+      integer, intent(in):: lsol
+      real(kr), intent(in):: sol(lsol)
+@end verbatim
+
+@unnumberedsubsec Description
+A function for loading another right hand side, when subdomain-by-subdomain loading is used.
+Position of fixed variables, the @code{IFIX} array, is not allowed to change.
+Parameters correspond to routine @code{bddcml_upload_subdomain_data}.
+It should be called repeatedly by each process if more than one subdomain are assigned to that process.
+This call should be followed by calling @code{bddcml_setup_new_data} before another call to 
+@code{bddcml_solve}.
+
+If partitionining into subdomains does not exist in user's application, 
+routine @code{bddcml_change_global_data} should be preferred.
+
+
+
+@unnumberedsubsec Parameters
+
+@table @code
+
+@item isub
+GLOBAL index of subdomain which is loaded
+
+@item ifix
+LOCAL array of Indices of FIXed variables - all degrees of freedom with Dirichlet boundary condition are marked by 1, degrees of freedom not prescribed are marked by 0,
+i.e. non-zero entries determine fixed degrees of freedom.
+The values of prescribed boundary conditions are given by corresponding entries of array @code{fixv}.
+
+@item lifix
+length of array @code{ifix}, equal to @code{ndofs}.
+
+@item fixv
+LOCAL array of FIXed Variables - where @code{ifix} is non-zero, @code{fixv} stores value of Dirichlet boundary condition. Where @code{ifix} is zero, corresponding value in @code{fixv} is meaningless.
+
+@item lfixv
+length of array @code{fixv}, equal to @code{ndofs}.
+
+@item rhs
+LOCAL array with Right-Hand Side. Values at nodes repeated among subdomains are copied and not weighted. 
+
+@item lrhs
+length of array @code{rhs}, equal to @code{ndofs}.
+
+@item is_rhs_complete
+is the subdomain right-hand side complete? 
+@itemize 
+@item 0 - no, e.g. if only local subassembly of right-hand side was performed - interface values are not fully assembled,
+solver does not apply weights
+@item 1 - yes, e.g. if local right-hand side is a restriction of the global array to the subdomain - interface values are
+complete and repeated for more subdomains, solver applies weights to handle multiplicity of these entries
+@end itemize 
+
+@item sol
+LOCAL array with initial SOLution guess. This is used as initial approximation for iterative method. 
+
+@item lsol
+length of array @code{sol}, equal to @code{ndofs}.
+@end table
+
+
+@page
+@section @code{bddcml_setup_new_data}
+
+@unnumberedsubsec C interface
+@code{
+void bddcml_setup_new_data( );
+}
+@unnumberedsubsec Fortran interface
+@code{
+subroutine bddcml_setup_new_data
+}
+
+@unnumberedsubsec Description
+Setting up internal data-structures for handling new values of Dirichlet boundary conditions and
+right hand side --- creating new reduced right-hand side.
+
+Needs to be called after calling @code{bddcml_change_subdomain_data} 
+or @code{bddcml_change_global_data} and before another call to @code{bddcml_solve}.
+
+@unnumberedsubsec Parameters
+This routine currently does not take any arguments.
+
+
 @page
 
 @section @code{bddcml_dotprod_subdomain}
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_dotprod_subdomain( int *isub, double *vec1, int *lvec1, double *vec2, int *lvec2, double *dotprod )
+void bddcml_dotprod_subdomain( int *isub, double *vec1, int *lvec1, double *vec2, int *lvec2, double *dotprod );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -973,7 +1162,7 @@ on exit, returns vec1' * weights * vec2
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_finalize( )
+void bddcml_finalize( );
 }
 @unnumberedsubsec Fortran interface
 @code{
