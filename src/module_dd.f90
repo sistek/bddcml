@@ -8124,13 +8124,12 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          integer ::             lifgcn
          integer,allocatable ::  ifgcn(:)
 
-         integer ::             lnneibcorners
-         integer,allocatable ::  nneibcorners(:)
          integer ::            lineibcorners
          integer,allocatable :: ineibcorners(:)
 
-         integer,pointer     :: comm_array1(:)
-         integer,pointer     :: comm_array2(:)
+         integer,pointer     :: global_indices(:)
+         integer,pointer     :: global_coarse_indices(:)
+
          integer,pointer     :: comm_array_numbers(:)
          integer,allocatable :: comm_gathered_array1(:)
          integer,allocatable :: comm_gathered_array2(:)
@@ -8140,8 +8139,6 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          integer,pointer     :: comm_array_in(:)
          integer,pointer     :: comm_array_out(:)
 
-         integer,pointer     :: global_indices(:)
-         integer,pointer     :: global_coarse_indices(:)
       end type
 
       integer :: lsub_aux
@@ -9081,8 +9078,12 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
 contains
 
+!**********************************************
       subroutine dd_create_globs_select_corners
-      ! this routine makes selection of corners for one subdomain
+!**********************************************
+      ! routine for selection of corners for one subdomain
+      ! This is a local subroutine with access to global data of DD_CREATE_GLOBS
+
       implicit none
 
       ! now with subdomains sharing a face, run the corner selecting algorithm
@@ -9389,7 +9390,11 @@ contains
       end do
       end subroutine
 
+!***************************************************************************
       subroutine dd_create_globs_number_coarse_quantity_dofs(shift, ncoarse)
+!***************************************************************************
+! routine for distributed numbering of coarse degrees of freedom
+! This is a local subroutine with access to global data of DD_CREATE_GLOBS
 
       implicit none
       ! shift of coarse numbering 
@@ -9401,6 +9406,9 @@ contains
       integer, intent(out) :: ncoarse
       ! local vars
       integer :: nsub, icoarses
+
+      integer ::            array_length
+      integer ::            indnc
 
       integer ::             ncoarse_unique
       integer ::             lncoarse_uniquea
@@ -9507,39 +9515,17 @@ contains
             end if
          end do
 
-         ! debug
-         !print *, 'isub',isub,'ICGN ', sub_aux(isub_loc)%icgn
-         !print *, 'isub',isub,'ICGCN', sub_aux(isub_loc)%icgcn
-         !call flush(6)
-
-         sub_aux(isub_loc)%comm_array1         => sub_aux(isub_loc)%global_indices
-         sub_aux(isub_loc)%comm_array2         => sub_aux(isub_loc)%global_coarse_indices
-
          nullify(globtypes)
          nullify(globsubs)
       end do
-      ! debug
-      !print *, 'number of coarse entities ',ncarse 
-      !call flush(6)
-      
-      call dd_create_globs_interchange_coarse_dofs
 
       deallocate(ncoarse_uniquea)
-
-      end subroutine
-
-      subroutine dd_create_globs_interchange_coarse_dofs
-
-      implicit none
-      integer ::            array_length
-      integer ::            indnc
-
 
       ! now we need to exchange the arrays of corners among all neighbours - first exchange their numbers
       do isub_loc = 1,lindexsub
          isub = indexsub(isub_loc)
 
-         sub_aux(isub_loc)%comm_array_in => sub_aux(isub_loc)%comm_array1
+         sub_aux(isub_loc)%comm_array_in => sub_aux(isub_loc)%global_indices
       end do
 
       call dd_create_globs_communicate
@@ -9555,7 +9541,7 @@ contains
 
       do isub_loc = 1,lindexsub
          isub = indexsub(isub_loc)
-         sub_aux(isub_loc)%comm_array_in => sub_aux(isub_loc)%comm_array2
+         sub_aux(isub_loc)%comm_array_in => sub_aux(isub_loc)%global_coarse_indices
       end do
 
       call dd_create_globs_communicate
@@ -9601,10 +9587,10 @@ contains
                                        sub_aux(isub_loc)%comm_array_result2, size(sub_aux(isub_loc)%comm_array_result2))
 
          ! now get through my array and fill the holes
-         do i = 1,size(sub_aux(isub_loc)%comm_array1)
-            indg  = sub_aux(isub_loc)%comm_array1(i)
+         do i = 1,size(sub_aux(isub_loc)%global_indices)
+            indg  = sub_aux(isub_loc)%global_indices(i)
 
-            if (sub_aux(isub_loc)%comm_array2(i).eq.0) then
+            if (sub_aux(isub_loc)%global_coarse_indices(i).eq.0) then
                ! this point was numbered by a neighbour
                call get_index_sorted(indg,sub_aux(isub_loc)%comm_array_result1, size(sub_aux(isub_loc)%comm_array_result1),icscn)
                if (icscn .eq. -1) then
@@ -9612,7 +9598,7 @@ contains
                   call error(routine_name,'Global index not found in COMM_ARRAY_RESULT1 ', indg)
                end if
 
-               sub_aux(isub_loc)%comm_array2(i) = sub_aux(isub_loc)%comm_array_result2(icscn)
+               sub_aux(isub_loc)%global_coarse_indices(i) = sub_aux(isub_loc)%comm_array_result2(icscn)
             end if
          end do
 
@@ -9624,7 +9610,11 @@ contains
 
       end subroutine
 
+!*******************************************
       subroutine dd_create_globs_communicate
+!*******************************************
+! Procedure for distributed interchange of integer data of subdomain and its neighbours. 
+! This is a local subroutine with access to global data of DD_CREATE_GLOBS
 
       implicit none
       ! local vars
