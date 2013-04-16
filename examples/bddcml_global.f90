@@ -67,12 +67,13 @@ program bddcml_global
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1
 
+! use recycling of Krylov subspace
+      integer :: recycling_int = 1
+      integer :: max_number_of_stored_vectors = 500
+
+
 ! use prepared division into subdomains on first level in file *.ES?
       integer,parameter :: load_division = 0
-! use prepared selection of corners in file *.CN and description of globs for first level in file *.GLB?
-      integer,parameter :: load_globs = 0
-! use prepared file with pairs for adaptivity (*.PAIR) on first level?
-      integer,parameter :: load_pairs = 0
 ! should parallel division be used (ParMETIS instead of METIS)?
       integer,parameter :: parallel_division = 1
 ! maximal length of problemname
@@ -142,10 +143,6 @@ program bddcml_global
       ! data about resulting convergence
       integer :: num_iter, converged_reason 
       real(kr) :: condition_number
-
-      ! use recycling of Krylov subspace
-      integer :: recycling_int = 1
-      integer :: max_number_of_stored_vectors = 500
 
       ! time variables
       real(kr) :: t_total, t_import, t_distribute, t_init, t_load, t_pc_setup, t_pcg

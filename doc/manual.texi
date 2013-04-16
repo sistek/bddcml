@@ -785,9 +785,9 @@ limit on number of iterations with non-decreasing residual (default 30) - used t
 @item recycling_int
 If @code{> 0}, the Krylov subspace will be recycled in the Krylov subspace method (default 1). 
 This can save time for solutions for many right-hand sides.
-If this option is used with just one right-hand side solve, 
-an explicit orthogonalization is performed with respect to previous Krylov basis vectors.
-This can help the convergence for numerically complicated problems, 
+The option triggers explicit orthogonalization to the stored Krylov basis.
+Therefore, even if this option is used with just one right-hand side solve, 
+it can help the convergence for numerically complicated problems, 
 where natural orthogonality of the basis may be lost.
 The approach to recycling is based on 
 Farhat, C., Crivelli, L., Roux, X.: Extending substructure based iterative solvers to multiple load and repeated analyses.

@@ -35,8 +35,6 @@ module module_levels
       logical,private :: profile = .true.
 ! damping division
       logical,parameter,private :: damp_division = .false.
-! damping selected corners  
-      logical,parameter,private :: damp_corners = .false.
 ! maximal allowed length of file names
       integer,parameter,private :: lfnamex = 130
 ! should parallel search of globs be used? (some corrections on globs may not be available)
@@ -1143,43 +1141,6 @@ subroutine levels_damp_division(ilevel,iets,liets)
       close(idlevel)
 end subroutine
 
-!**************************************************
-subroutine levels_damp_corners(ilevel,inodc,linodc)
-!**************************************************
-! Subroutine for damping corners at level to file
-
-      use module_utils
-      implicit none
-
-! index of level to import
-      integer,intent(in) :: ilevel
-! global indices of corners
-      integer,intent(in) :: linodc
-      integer,intent(in) ::  inodc(linodc)
-
-! local variables
-      character(*),parameter:: routine_name = 'LEVELS_DAMP_CORNERS'
-      character(lfnamex) :: filename
-      character(1) :: levelstring
-      integer :: idlevel
-
-      if (ilevel.lt.10) then
-         write(levelstring,'(i1)') ilevel
-      else
-         call error(routine_name,'Index of level too large for reading from file:',ilevel)
-      end if
-      filename = 'corners_l'//levelstring//'.CN'
-      if (debug) then
-         call info(routine_name,' Damping division to file '//trim(filename))
-      end if
-      call allocate_unit(idlevel)
-      open (unit=idlevel,file=filename,status='replace',form='formatted')
-
-! write division into file 
-      write(idlevel,*) inodc
-      close(idlevel)
-end subroutine
-
 !***********************************************************************************************
 subroutine levels_upload_level_mesh(ilevel,ncorner,nedge,nface,nnodc,ndofc,&
                                     inetc,linetc,nnetc,lnnetc,nndfc,lnndfc,xyzc,lxyzc1,lxyzc2)
@@ -2116,8 +2077,15 @@ subroutine levels_prepare_standard_level(parallel_division,&
                            levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                            levels(ilevel)%indexsub,levels(ilevel)%lindexsub, &
                            comm_all,remove_bc_nodes, &
-                           damp_corners, ilevel, levels(ilevel)%meshdim, &
+                           levels(ilevel)%meshdim, &
                            ncorner,nedge,nface)
+!      call dd_create_globs2(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains,&
+!                           levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+!                           levels(ilevel)%indexsub,levels(ilevel)%lindexsub, &
+!                           comm_all,remove_bc_nodes, &
+!                           .false., ilevel, &
+!                           levels(ilevel)%meshdim, &
+!                           ncorner,nedge,nface)
       nnodc = ncorner + nedge + nface
 !-----profile
       if (profile) then

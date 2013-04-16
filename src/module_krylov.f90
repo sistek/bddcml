@@ -142,6 +142,7 @@
           real(kr) :: t_sm_apply, t_pc_apply
           real(kr) :: t_postproc
           real(kr) :: t_krylov_solve
+          real(kr) :: t_recycling_projection
 
     !-----profile
           if (profile) then
@@ -237,7 +238,7 @@
           call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
           call MPI_BARRIER(comm_all,ierr)
           call time_end(t_sm_apply)
-          if (myid.eq.0) then
+          if (myid.eq.0 .and. profile) then
              call time_print('application of system matrix',t_sm_apply)
           end if
 
@@ -329,6 +330,10 @@
                 deallocate(vtw)
              end if 
 
+             ! Initial projection of the right-hand side onto the Krylov basis
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+
              ! project the right-hand side onto the stored Krylov space
              lvtb     = nactive_cols_recycling_basis
              allocate(vtb_loc(lvtb))
@@ -382,7 +387,7 @@
              call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
              call MPI_BARRIER(comm_all,ierr)
              call time_end(t_sm_apply)
-             if (myid.eq.0) then
+             if (myid.eq.0 .and. profile) then
                 call time_print('application of system matrix',t_sm_apply)
              end if
 
@@ -417,6 +422,12 @@
                 end if
              end if
 
+             call MPI_BARRIER(comm_all,ierr)
+             call time_end(t_recycling_projection)
+             if (myid.eq.0 .and. profile) then
+                call time_print('RHS projection onto existing Krylov basis',t_recycling_projection)
+             end if
+
              ! Evaluation of stopping criterion
              relres = normres/normrhs
              if (relres.lt.tol) then
@@ -426,10 +437,10 @@
                 end if
                 num_iter = iter
                 converged_reason = 0
+                nw = 0
                 goto 123
              end if
           end if
-
 
     ! Initial action of the preconditioner M on residual vector RESI
     ! M*resi => p
@@ -450,7 +461,7 @@
           call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
           call MPI_BARRIER(comm_all,ierr)
           call time_end(t_pc_apply)
-          if (myid.eq.0) then
+          if (myid.eq.0 .and. profile) then
              call time_print('application of preconditioner',t_pc_apply)
           end if
           ! produced new p
