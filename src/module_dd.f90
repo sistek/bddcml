@@ -2453,7 +2453,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
          ngraph_vertex = nnod
          lxadj = nnod + 1
          allocate(xadj(lxadj))
-         call graph_from_mesh_size(ngraph_vertex,graphtype,node_neighbouring,&
+         call graph_from_mesh_size(ngraph_vertex,node_neighbouring,&
                                    ietn,lietn, netn,lnetn,&
                                    sub%inet,sub%linet,&
                                    sub%nnet,sub%lnnet,&

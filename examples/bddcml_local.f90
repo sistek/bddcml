@@ -84,7 +84,7 @@ program bddcml_local
 
 ! use recycling of Krylov subspace
       integer :: recycling_int = 1
-      integer :: max_number_of_stored_vectors = 500
+      integer :: max_number_of_stored_vectors = 50
 
 !######### END OF PARAMETERS TO SET
       character(*),parameter:: routine_name = 'BDDCML_LOCAL'
@@ -414,7 +414,7 @@ program bddcml_local
       lsub2proc = nproc + 1
       allocate(sub2proc(lsub2proc))
 !***************************************************************PARALLEL
-      call MPI_ALLGATHER( nsub_loc_1, 1, MPI_INTEGER, sub2proc, 1, MPI_INTEGER, comm_all, ierr)
+      call MPI_ALLGATHER( nsub_loc_1, 1, MPI_INTEGER, sub2proc(1), 1, MPI_INTEGER, comm_all, ierr)
 !***************************************************************PARALLEL
       ! the array now contains counts, change it to starts
       do i = 2,nproc

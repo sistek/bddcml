@@ -87,15 +87,13 @@ integer :: ie, indinet, indnode, ine, nne, indelmn, pointietn, inod
       end do
 end subroutine graph_get_dual_mesh
 
-subroutine graph_from_mesh_size(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
+subroutine graph_from_mesh_size(nelem,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
                                 xadj,lxadj, nedge, ladjncy, ladjwgt)
 ! find size for graph from mesh in PMD format 
 use module_utils
 implicit none
 ! number of elements in mesh
 integer, intent(in) :: nelem
-! type of output graph
-integer, intent(in) :: graphtype
 ! prescribed value of number of shared nodes between two neighbours
 integer, intent(in) :: neighbouring
 
@@ -161,11 +159,11 @@ integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionero
          call error_exit
       end if
       nedge = ladjncy / 2
-      if (graphtype.eq.1) then
-         ladjwgt = ladjncy
-      else
-         ladjwgt = 0
-      end if
+      !if (graphtype.eq.1) then
+      ladjwgt = ladjncy
+      !else
+      !   ladjwgt = 0
+      !end if
 
       deallocate(onerow,onerowweig)
 end subroutine graph_from_mesh_size
@@ -237,6 +235,9 @@ integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionero
             adjwgt(xadj(ie):xadj(ie+1)-1) = onerowweig(1:lorout)
          end if
       end do
+      if (graphtype.eq.0) then
+         adjwgt = 1
+      end if
 
       deallocate(onerow,onerowweig)
 end subroutine graph_from_mesh
@@ -468,7 +469,7 @@ implicit none
 integer, intent(in) :: graphtype
 integer, intent(in) :: nvertex
 integer, intent(in) ::   lxadj
-integer*4, intent(in) ::  xadj(lxadj)
+integer*4, intent(inout) ::  xadj(lxadj)
 integer, intent(in) ::   ladjncy
 integer*4, intent(in) ::  adjncy(ladjncy)
 integer, intent(in) ::   lvwgt
@@ -482,8 +483,9 @@ integer*4, intent(out) ::  part(lpart)
 
 ! local vars
 character(*),parameter:: routine_name = 'GRAPH_DIVIDE'
-integer*4,parameter :: numflag = 1 !( 1 - Fortran-like arrays (0 - C-like arrays) 
+integer*4 :: numflag !( 1 - Fortran-like arrays (0 - C-like arrays) 
 
+numflag = 1
 call graph_divide_c( numflag, graphtype, nvertex, xadj, lxadj, adjncy, ladjncy, &
                      vwgt, lvwgt, adjwgt, ladjwgt, nsub, &
                      edgecut, part, lpart )

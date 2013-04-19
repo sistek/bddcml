@@ -431,7 +431,7 @@ integer :: graphtype = 0
       lxadj = nelem + 1
       allocate(xadj(lxadj))
       
-      call graph_from_mesh_size(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
+      call graph_from_mesh_size(nelem,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
                                 xadj,lxadj, n_graph_edge, ladjncy, ladjwgt)
       call info( routine_name, 'done.' )
 
@@ -1098,7 +1098,7 @@ logical :: one_more_check_needed = .false.
       lxadj = nelem + 1
       allocate(xadj(lxadj))
       
-      call graph_from_mesh_size(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
+      call graph_from_mesh_size(nelem,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
                                 xadj,lxadj, nedge, ladjncy, ladjwgt)
       call info( routine_name, 'done.' )
 
@@ -1191,7 +1191,7 @@ logical :: one_more_check_needed = .false.
          lxadjs = nelems + 1
          allocate(xadjs(lxadjs))
       
-         call graph_from_mesh_size(nelems,graphtype,neighbouring,inets,linets,nnets,lnnets,&
+         call graph_from_mesh_size(nelems,neighbouring,inets,linets,nnets,lnnets,&
                                    ietns,lietns,netns,lnetns,kietns,lkietns,&
                                    xadjs,lxadjs, nedges, ladjncys, ladjwgts)
 

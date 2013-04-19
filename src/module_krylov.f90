@@ -482,11 +482,11 @@
     !***************************************************************PARALLEL
 
     ! Control of positive definiteness of preconditioner matrix
-          if (rmp.le.0._kr) then
-             if (myid.eq.0) then
-                call warning(routine_name,'Preconditioner not positive definite!')
-             end if
-          end if
+          !if (rmp.le.0._kr) then
+          !   if (myid.eq.0) then
+          !      call warning(routine_name,'Preconditioner not positive definite!')
+          !   end if
+          !end if
 
           if (debug) then
              if (myid.eq.0) then
@@ -765,7 +765,11 @@
     123   continue
 
     ! Condition number estimation on root processor
-          call condsparse(nw,diag,nw,subdiag,nw-1, cond)
+          if (nw.gt.0) then
+             call condsparse(nw,diag,nw,subdiag,nw-1, cond)
+          else
+             cond = 1._kr
+          end if
           if (myid.eq.0) then
              call info(routine_name, '================================================')
              call info(routine_name, 'ESTIMATION OF CONDITION NUMBER BY LANCZOS METHOD')
