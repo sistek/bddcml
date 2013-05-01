@@ -783,7 +783,7 @@ limit on number of iterations (default 1000).
 limit on number of iterations with non-decreasing residual (default 30) - used to stop a diverging process.
 
 @item recycling_int
-If @code{> 0}, the Krylov subspace will be recycled in the Krylov subspace method (default 1). 
+If @code{> 0}, the Krylov subspace will be recycled in the Krylov subspace method (default 0). 
 This can save time for solutions for many right-hand sides.
 The option triggers explicit orthogonalization to the stored Krylov basis.
 Therefore, even if this option is used with just one right-hand side solve, 
