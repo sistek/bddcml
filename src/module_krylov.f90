@@ -128,10 +128,6 @@
           real(kr), allocatable :: vtb(:)
           real(kr), allocatable :: vtb_loc(:)
           real(kr) :: vtb_sub
-          integer ::              lwtp
-          real(kr), allocatable :: wtp(:)
-          real(kr), allocatable :: wtp_loc(:)
-          real(kr) :: wtp_sub
           integer ::              lvtw
           real(kr), allocatable :: vtw(:,:)
           real(kr), allocatable :: vtw_loc(:,:)
@@ -283,7 +279,7 @@
              return 
           end if
 
-          if (recycling) then 
+          if (recycling .and. nactive_cols_recycling_basis .gt. 0) then 
 
              if (debug) then
                 ! check orthogonality of basis
@@ -503,42 +499,13 @@
     !***********************************************************************
           do iter = 1,maxit
 
-             if (recycling) then
-                ! project vector P onto the stored Krylov space A*p
-                lwtp     = nactive_cols_recycling_basis 
-                allocate(wtp_loc(lwtp))
-                wtp_loc = 0._kr
-                allocate(wtp(lwtp))
-
-                ! W'*p
-                do ibasis = 1,nactive_cols_recycling_basis
-                   do isub_loc = 1,nsub_loc
-                      call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                                   recycling_basis(isub_loc)%w(:,ibasis),recycling_basis(isub_loc)%lw1, &
-                                                   pcg_data(isub_loc)%p,pcg_data(isub_loc)%lp, &
-                                                   wtp_sub)
-                      wtp_loc(ibasis) = wtp_loc(ibasis) + wtp_sub
-                   end do
-                end do
-    !***************************************************************PARALLEL
-                call MPI_ALLREDUCE(wtp_loc,wtp, lwtp, MPI_DOUBLE_PRECISION,&
-                                   MPI_SUM, comm_all, ierr) 
-    !***************************************************************PARALLEL
-                deallocate(wtp_loc)
-
-                ! inv(D) * W' * p
-                wtp = wtp * recycling_idiag(1:nactive_cols_recycling_basis)
-
-                ! correct search direction vector
-                ! p <- p - V*inv(D)+W'p = p - V*IDIAG*W'p
+             if (recycling .and. nactive_cols_recycling_basis.gt.0) then
+                ! orthogonalize vector P with respect to the columns the stored Krylov space directions
                 do isub_loc = 1,nsub_loc
-                   pcg_data(isub_loc)%p = pcg_data(isub_loc)%p &
-                                        - matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
-                                                 wtp(1:nactive_cols_recycling_basis) )
+                   common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%p
+                   common_krylov_data(isub_loc)%lvec_in =  pcg_data(isub_loc)%lp
                 end do
-
-                deallocate(wtp)
-
+                call krylov_orthogonalize_gs( comm_all, common_krylov_data, lcommon_krylov_data)
              end if
 
              ! multiply by system matrix
@@ -1373,6 +1340,139 @@
          end if
       end if
 !-----profile
+
+      end subroutine
+
+
+  !************************************************************************
+      subroutine krylov_orthogonalize_gs(comm_all,krylov_data,lkrylov_data)
+  !************************************************************************
+      ! project vector P onto the stored Krylov space A*p
+      ! using classical Gram-Schmidt orthogonalization
+      use module_levels
+      use module_utils
+
+      implicit none
+      
+      include "mpif.h"
+
+      ! parallel variables
+      integer,intent(in) :: comm_all 
+
+      ! data for PCG
+      integer,intent(in) ::                         lkrylov_data
+      type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data) 
+
+      ! local vars
+      character(*),parameter:: routine_name = 'KRYLOV_ORTHOGONALIZE_GS'
+      integer,parameter :: ilevel = 1
+
+      integer ::              lwtp
+      real(kr), allocatable :: wtp(:)
+      real(kr), allocatable :: wtp_loc(:)
+      real(kr) :: wtp_sub
+
+      integer :: isub_loc, ibasis, nsub, nsub_loc 
+      integer :: ierr
+
+      ! find number of subdomains
+      call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
+
+      lwtp     = nactive_cols_recycling_basis 
+      allocate(wtp_loc(lwtp))
+      wtp_loc = 0._kr
+      allocate(wtp(lwtp))
+
+      ! W'*p
+      do ibasis = 1,nactive_cols_recycling_basis
+         do isub_loc = 1,nsub_loc
+            call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                         recycling_basis(isub_loc)%w(:,ibasis),recycling_basis(isub_loc)%lw1, &
+                                         krylov_data(isub_loc)%vec_in,krylov_data(isub_loc)%lvec_in, &
+                                         wtp_sub)
+            wtp_loc(ibasis) = wtp_loc(ibasis) + wtp_sub
+         end do
+      end do
+!***************************************************************PARALLEL
+      call MPI_ALLREDUCE(wtp_loc,wtp, lwtp, MPI_DOUBLE_PRECISION,&
+                         MPI_SUM, comm_all, ierr) 
+!***************************************************************PARALLEL
+      deallocate(wtp_loc)
+
+      ! inv(D) * W' * p
+      wtp = wtp * recycling_idiag(1:nactive_cols_recycling_basis)
+
+      ! correct search direction vector
+      ! p <- p - V*inv(D)+W'p = p - V*IDIAG*W'p
+      do isub_loc = 1,nsub_loc
+         krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
+                              - matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
+                                       wtp(1:nactive_cols_recycling_basis) )
+      end do
+
+      deallocate(wtp)
+
+      end subroutine
+
+  !*************************************************************************
+      subroutine krylov_orthogonalize_mgs(comm_all,krylov_data,lkrylov_data)
+  !*************************************************************************
+      ! project vector P onto the stored Krylov space A*p
+      ! using modified Gram-Schmidt orthogonalization
+      ! this algorithm needs a lot of synchronization by global MPI functions
+      use module_levels
+      use module_utils
+
+      implicit none
+      
+      include "mpif.h"
+
+      ! parallel variables
+      integer,intent(in) :: comm_all 
+
+      ! data for PCG
+      integer,intent(in) ::                         lkrylov_data
+      type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data) 
+
+      ! local vars
+      character(*),parameter:: routine_name = 'KRYLOV_ORTHOGONALIZE_MGS'
+      integer,parameter :: ilevel = 1
+
+      real(kr) :: wtp
+      real(kr) :: wtp_loc
+      real(kr) :: wtp_sub
+
+      integer :: isub_loc, ibasis, nsub, nsub_loc 
+      integer :: ierr
+
+      ! find number of subdomains
+      call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
+
+      ! W'*p
+      do ibasis = 1,nactive_cols_recycling_basis
+         wtp_loc = 0._kr
+         do isub_loc = 1,nsub_loc
+            call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                         recycling_basis(isub_loc)%w(:,ibasis),recycling_basis(isub_loc)%lw1, &
+                                         krylov_data(isub_loc)%vec_in,krylov_data(isub_loc)%lvec_in, &
+                                         wtp_sub)
+            wtp_loc = wtp_loc + wtp_sub
+         end do
+!***************************************************************PARALLEL
+         call MPI_ALLREDUCE(wtp_loc,wtp, 1, MPI_DOUBLE_PRECISION,&
+                            MPI_SUM, comm_all, ierr) 
+!***************************************************************PARALLEL
+
+         ! inv(D) * W' * p
+         wtp = wtp * recycling_idiag(ibasis)
+
+         ! correct search direction vector
+         ! p <- p - V*inv(D)+W'p = p - V*IDIAG*W'p
+         do isub_loc = 1,nsub_loc
+            krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
+                                         - wtp * recycling_basis(isub_loc)%v(:,ibasis) 
+         end do
+      end do
 
       end subroutine
 

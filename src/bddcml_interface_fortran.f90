@@ -441,7 +441,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       real(kr) :: krylov_tol                          = 1.e-6_kr
       integer ::  krylov_maxit                        = 1000
       integer ::  krylov_ndecrmax                     = 30
-      logical ::  krylov_recycling                    = .true.
+      logical ::  krylov_recycling                    = .false.
       integer ::  krylov_max_number_of_stored_vectors = 100
       ! ######################################
       character(*),parameter:: routine_name = 'BDDCML_SOLVE'

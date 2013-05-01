@@ -56,6 +56,7 @@ contains
 
 ! Initialize an instance of the package
       mumps%JOB = -1
+      mumps%KEEP = 0
 
       CALL DMUMPS(mumps)
 

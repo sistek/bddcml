@@ -63,7 +63,8 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
   real_t ubvec[1];
   ubvec[0] = 1.001;
   /*int *options = NULL;*/
-  int options[METIS_NOPTIONS];
+  int * options = malloc(METIS_NOPTIONS * sizeof(int));
+
   for (i = 0;i < METIS_NOPTIONS;i++) {
      options[i] = -1;
   }
@@ -132,5 +133,8 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
 #endif
   }
 
+#if (METIS_VER_MAJOR >= 5)
+  free(options);
+#endif
   return;
 }

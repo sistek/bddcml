@@ -420,10 +420,13 @@ program bddcml_global
 
       if (myid.eq.0) then
          lsol = ndof
-         allocate(sol(lsol))
          lrea = ndof
-         allocate(rea(lrea))
+      else 
+         lsol = 0
+         lrea = 0
       end if
+      allocate(rea(lrea))
+      allocate(sol(lsol))
 
       ! download global solution - all processors have to call this
       call bddcml_download_global_solution(sol,lsol)
@@ -461,10 +464,10 @@ program bddcml_global
             write(*,*) ' sums of reactions into coordinate axes: ',sum_rea
          end if
 
-         deallocate(sol)
-         deallocate(rea)
       end if
       deallocate(nndf)
+      deallocate(sol)
+      deallocate(rea)
 
       ! load the data again
       call bddcml_change_global_data(ifix,lifix,fixv,lfixv,rhs,lrhs,inisol,linisol)

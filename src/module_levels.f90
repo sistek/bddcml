@@ -371,6 +371,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,nu
             levels(iactive_level)%lsubdomains = 0
             allocate(levels(iactive_level)%subdomains(levels(iactive_level)%lsubdomains))
          end if
+
       end do
 
       ! prepare communicators for last level
@@ -4362,26 +4363,11 @@ subroutine levels_clear_level(level)
       level%nface    = 0
       level%nnodc    = 0
 
-      if (associated(level%inet)) then
-         nullify(level%inet)
-      end if
       level%linet = 0
-      if (associated(level%nnet)) then
-         nullify(level%nnet)
-      end if
       level%lnnet = 0
-      if (associated(level%nndf)) then
-         nullify(level%nndf)
-      end if
       level%lnndf = 0
-      if (associated(level%xyz)) then
-         nullify(level%xyz)
-      end if
       level%lxyz1 = 0
       level%lxyz2 = 0
-      if (associated(level%sol)) then
-         nullify(level%sol)
-      end if
       level%lsol = 0
 
 end subroutine

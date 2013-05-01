@@ -92,6 +92,8 @@ real*4,allocatable :: ubvec(:)
 
 ! MPI vars 
 integer :: ierr
+integer :: just_one
+
 
       ! work according to number of subdomains
       if (nsub.eq.0) then
@@ -110,7 +112,8 @@ integer :: ierr
          ! get number of elements each processor works on
          lnelempa = nproc
          allocate(nelempa(lnelempa))
-         call MPI_ALLGATHER(nelem_loc,1,MPI_INTEGER,nelempa,1,MPI_INTEGER,comm,ierr)
+         just_one = 1
+         call MPI_ALLGATHER(nelem_loc,just_one,MPI_INTEGER,nelempa,just_one,MPI_INTEGER,comm,ierr)
          ! check number of elements
          if (sum(nelempa).ne.nelem) then
             if (myid.eq.0) then

@@ -2495,7 +2495,7 @@ subroutine adaptivity_fake_lobpcg_driver
 
       ! these have no meaning and are present only for matching the arguments
       integer :: n = 0, lx = 0, ly = 0
-      real(kr) :: x, y
+      real(kr) :: x(1), y(1)
 
 
       ! repeat loop until idmat not equal 3
