@@ -26,7 +26,7 @@ In case help is needed, write to Jakub Sistek ( sistek@math.cas.cz ).
 The library provides a simple interface callable from Fortran and C. The solution proces is
 operated by several routines consequently called. 
 
-Two different modes ara possible for input 
+Two different modes are possible for input 
 - user can either provide information about global mesh and a file with element matrices, or
 - user can provide division into subdomains on the first level and pass 
   subdomain matrices for each subdomain to the routine
