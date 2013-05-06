@@ -723,15 +723,19 @@
              end do
 
              ! Filling matrix for the Lanczos method
-             diag(iter) = diag(iter) + 1/alpha
+             diag(iter) = diag(iter) + 1._kr/alpha
              diag(iter+1) = beta/alpha
-             subdiag(iter) = -sqrt(beta)/alpha
+             if (beta.ge.0._kr) then
+                subdiag(iter) = -sqrt(beta)/alpha
+             else
+                subdiag(iter) = 0._kr
+             end if
 
           end do
     !*************************END OF MAIN LOOP OVER ITERATIONS**************
     123   continue
 
-    ! Condition number estimation on root processor
+    ! Condition number estimation on root processor, if there are no NaNs
           if (nw.gt.0) then
              call condsparse(nw,diag,nw,subdiag,nw-1, cond)
           else
