@@ -4877,6 +4877,7 @@ subroutine dd_prepare_aug(sub,comm_self)
       if (sub%is_degenerated) then
          return
       end if
+
       if (.not.sub%is_interface_loaded) then
          call error(routine_name,'Interface not loaded for subdomain:', sub%isub)
       end if
@@ -4980,6 +4981,7 @@ subroutine dd_prepare_aug(sub,comm_self)
       else 
          call error(routine_name,'Matrixtype not set for subdomain:', sub%isub)
       end if
+
       call mumps_init(sub%mumps_aug,comm_self,aaugmatrixtype)
 
       ! Verbosity level of MUMPS
@@ -4994,6 +4996,11 @@ subroutine dd_prepare_aug(sub,comm_self)
       ndof     = sub%ndof
       nconstr  = sub%nconstr
       ndofaaug = ndof + nconstr
+
+      if (ndofaaug.eq.0) then
+         call error(routine_name, 'This is strange - subdomain not degenerated but still ndofaaug = 0,',&
+                    sub%isub)
+      end if
 
       nnzaaug = sub%nnzaaug
       laaug   = sub%laaug
@@ -8743,6 +8750,17 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          nullify(nsubnode)
       end do
 
+      ! number coarse corners based on icgn
+      do isub_loc = 1,lindexsub
+
+         sub_aux(isub_loc)%licgcn = sub_aux(isub_loc)%nedges + sub_aux(isub_loc)%nfaces
+         deallocate(sub_aux(isub_loc)%icgcn)
+         allocate(sub_aux(isub_loc)%icgcn(sub_aux(isub_loc)%licgcn))
+
+         sub_aux(isub_loc)%global_indices        => sub_aux(isub_loc)%icgn
+         sub_aux(isub_loc)%global_coarse_indices => sub_aux(isub_loc)%icgcn
+      end do
+
       ! Prepare lists of global indices of first nodes at edges and faces
       do isub_loc = 1,lindexsub
          isub = indexsub(isub_loc)
@@ -8770,8 +8788,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          nedges   = sub_aux(isub_loc)%nedges   
          nfaces   = sub_aux(isub_loc)%nfaces   
 
-         ! prepare list of edges faces at each subdomain
-
+         ! prepare list of edges and faces at each subdomain
          sub_aux(isub_loc)%liegn  = nedges
          allocate(sub_aux(isub_loc)%iegn(sub_aux(isub_loc)%liegn))
          do iedges = 1,nedges
@@ -8788,14 +8805,6 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
             ! add this edge index to the list
             sub_aux(isub_loc)%iegn(iedges) = indg
-
-            if ( min(isub, minval(globsubs(inodi,1:nsubnode(inodi),1))) .eq. isub ) then
-               ! I am the subdomain with the smallest number that shares this node
-
-               sub_aux(isub_loc)%icgcn(iedges) = indcg
-
-               indcg = indcg + 1
-            end if
          end do
          sub_aux(isub_loc)%lifgn  = nfaces
          allocate(sub_aux(isub_loc)%ifgn(sub_aux(isub_loc)%lifgn))

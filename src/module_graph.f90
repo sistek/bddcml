@@ -382,34 +382,36 @@ integer :: valid, ivalid, nvalid, i, i2
          onerow = cshift(onerow,i2-1)
 
          ! remove multiplicities
-         ivalid = 1
-         valid  = onerow(1)
-         nvalid = 1
-         do i = 2,lorin
-            if (onerow(i).gt.valid) then
-               onerowweig(ivalid) = nvalid
-               nvalid = 1 ! reset count
-               ivalid = ivalid + 1
-               valid  = onerow(i)
-               onerow(ivalid) = valid
-            else if (onerow(i).lt.valid) then
-               onerowweig(ivalid) = nvalid
-               exit
-            else               
-               nvalid = nvalid + 1 ! add count
-            end if
-         end do
-         do i = ivalid+1,lorin
-            onerow(i)     = 0
-            onerowweig(i) = 0
-         end do
+         if (size(onerow).gt.0) then
+            ivalid = 1
+            valid  = onerow(1)
+            nvalid = 1
+            do i = 2,lorin
+               if (onerow(i).gt.valid) then
+                  onerowweig(ivalid) = nvalid
+                  nvalid = 1 ! reset count
+                  ivalid = ivalid + 1
+                  valid  = onerow(i)
+                  onerow(ivalid) = valid
+               else if (onerow(i).lt.valid) then
+                  onerowweig(ivalid) = nvalid
+                  exit
+               else               
+                  nvalid = nvalid + 1 ! add count
+               end if
+            end do
+            do i = ivalid+1,lorin
+               onerow(i)     = 0
+               onerowweig(i) = 0
+            end do
 
-         lorout = ivalid
-         ! no repeating indices in onerow
+            lorout = ivalid
+            ! no repeating indices in onerow
 
-         ! eliminate down limit for adjacencies
-         where(onerowweig(1:lorout).lt.neighbouring) onerow(1:lorout)     = 0
-         where(onerowweig(1:lorout).lt.neighbouring) onerowweig(1:lorout) = 0
+            ! eliminate down limit for adjacencies
+            where(onerowweig(1:lorout).lt.neighbouring) onerow(1:lorout)     = 0
+            where(onerowweig(1:lorout).lt.neighbouring) onerowweig(1:lorout) = 0
+         end if
 
          lorout = count(onerow .ne. 0)
          onerow     = pack(onerow,onerow.ne.0)

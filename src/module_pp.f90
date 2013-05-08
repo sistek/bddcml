@@ -301,6 +301,7 @@ integer :: ierr
          !write(*,*) 'elmdist',elmdist
          ! EPTR
          leptr = nelem_loc + 1
+         leptr = max(leptr,2)
          ! debug
          !write(*,*) 'nelem_loc',nelem_loc
          !write(*,*) 'nnet_loc',nnet_loc
@@ -310,6 +311,9 @@ integer :: ierr
             do i = 2,leptr
                eptr(i) = eptr(i-1) + nnet_loc(i-1)
             end do
+         end if
+         if (nelem_loc.eq.0) then
+            eptr(2) = 1
          end if
 
          ! EIND is the same as INET_LOC
@@ -330,10 +334,13 @@ integer :: ierr
          !print *,'elmdist',elmdist
          !print *,'eptr',eptr
          !print *,'inet_loc',inet_loc
+         
          !print *,'numflag',numflag
          !print *,'ncommonnodes',ncommonnodes
          !print *,'nelempa',nelempa
+         !print *,'iets',iets
          !call flush(6)
+         !call MPI_BARRIER(comm,ierr)
 
          call pget_sub_neighbours_c(elmdist,eptr,inet_loc,numflag,ncommonnodes,iets,liets, nsub, nsub_loc, sub_start,&
                                     kadjsub,lkadjsub, numdebug, comm)

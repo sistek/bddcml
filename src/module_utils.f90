@@ -434,6 +434,13 @@ subroutine get_array_intersection(array1,larray1,array2,larray2,intersection,lin
       integer :: workarray1(larray1),workarray2(larray2)
       integer :: i, j, ind1, ind2, iinter
 
+      ! shortcut for degenerate data
+      if (larray1.eq.0 .or. larray2.eq.0) then
+         intersection = 0
+         nintersection = 0
+         return
+      end if
+
       ! copy arrays to local memory
       do i = 1,larray1
          workarray1(i) = array1(i)
@@ -441,7 +448,7 @@ subroutine get_array_intersection(array1,larray1,array2,larray2,intersection,lin
       do i = 1,larray2
          workarray2(i) = array2(i)
       end do
-
+         
       ! sort input arrays
       call iquick_sort(workarray1,larray1)
       call iquick_sort(workarray2,larray2)

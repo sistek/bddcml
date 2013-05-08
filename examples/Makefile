@@ -4,7 +4,7 @@ include ../make.inc
 # include files needed
 # libraries needed
 LIBS = $(BDDCML_LINK_SEQUENCE) 
-EXAMPLES = bddcml_global bddcml_local
+EXAMPLES = bddcml_global bddcml_local poisson_on_cube
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -18,6 +18,11 @@ all: $(EXAMPLES)
 	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) -I../src -c $<
 
 # building binaries
+poisson_on_cube: \
+   poisson_on_cube.o \
+   $(LIBBDDCML)
+	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) -o $@ $^ $(LIBS) 
+
 bddcml_global: \
    bddcml_global.o \
    $(LIBBDDCML)

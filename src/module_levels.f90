@@ -1898,6 +1898,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
          linet_loc = max(1,linet_loc)
          lnnet_loc = max(1,lnnet_loc)
          allocate(nnet_loc(lnnet_loc),inet_loc(linet_loc))
+         nnet_loc = 0
+         inet_loc = 0
          kinet_loc = 1
          knnet_loc = 1
          do isub_loc = 1,nsub_loc
@@ -1913,16 +1915,22 @@ subroutine levels_prepare_standard_level(parallel_division,&
             !print *,'kinet_loc =',kinet_loc
             !print *,'linets =',linets
             !print *,'lnnets =',lnnets
-            !call flush(6)
+            call flush(6)
 
             ! get portion of INET and NNET arrays
             use_global_indices = .true.
-            call dd_get_mesh_basic(levels(ilevel)%subdomains(isub_loc),use_global_indices,&
-                                   inet_loc(kinet_loc),linets,nnet_loc(knnet_loc),lnnets)
+            if (linets.gt.0) then
+               call dd_get_mesh_basic(levels(ilevel)%subdomains(isub_loc),use_global_indices,&
+                                      inet_loc(kinet_loc),linets,nnet_loc(knnet_loc),lnnets)
+            end if
 
             kinet_loc = kinet_loc + linets
             knnet_loc = knnet_loc + lnnets
          end do
+         if (nelem_loc.eq.0) then
+            inet_loc = 0
+            inet_loc = 0
+         end if
          ! create fake IETS array with elements ordered subdomain by subdomain
          liets_linear = nelem
          allocate(iets_linear(liets_linear))
