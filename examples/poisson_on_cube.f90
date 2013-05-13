@@ -47,6 +47,9 @@ program poisson_on_cube
 ! export solution to VTU files?
       logical,parameter :: export_solution = .true.
 
+! what is the name of that file (resp. collection of files)
+      character(*),parameter :: output_file_prefix = 'poisson_solution'
+
 ! *************************
 ! KRYLOV METHOD PARAMETERS:
 ! *************************
@@ -235,6 +238,7 @@ program poisson_on_cube
       integer :: is_assembled_int
       character(len=32) :: aux
       real(kr) :: coarsening
+      character(len=256) :: command
 
       ! MPI initialization
 !***************************************************************PARALLEL
@@ -308,7 +312,10 @@ program poisson_on_cube
          nsublev(1) = nsub
          do i = 2,nlevels-1
             ir = nlevels - i + 1
-            nsublev(i) = int(coarsening**(ir-1)) + 1
+            nsublev(i) = int(coarsening**(ir-1))
+            if (mod(nsublev(i),2).ne.0) then
+               nsublev(i) = nsublev(i) + 1
+            end if
          end do
          nsublev(nlevels) = 1
       else
@@ -546,6 +553,14 @@ program poisson_on_cube
       normRn2_loc  = 0._kr
       normL2_loc   = 0._kr
       normLinf_loc = 0._kr
+      if (export_solution) then
+         ! make sure the directory exists
+         if (myid.eq.0) then
+            command = 'mkdir -p '//trim(output_file_prefix)
+            call system(trim(command))
+         end if
+         call MPI_BARRIER(comm_all,ierr)
+      end if
       do isub = sub2proc(myid+1), sub2proc(myid+2) - 1
 
          ! download local solution
@@ -598,8 +613,7 @@ program poisson_on_cube
          normLinf_loc = max(normLinf_loc,maxval(sols))
 
          if (export_solution) then
-
-            call export_vtu_file('poisson_solution',myid, comm_all, &
+            call export_vtu_file(output_file_prefix, &
                                  isub, nelems, nnods, &
                                  inets,linets, &
                                  xyzs,lxyzs1,lxyzs2, &
@@ -851,7 +865,7 @@ program poisson_on_cube
       end subroutine
 
 !************************************************************************************************
-      subroutine export_vtu_file(prefix, myid, comm_all,&
+      subroutine export_vtu_file(prefix, &
                                  isub, nelems, nnods, &
                                  inets,linets,  &
                                  xyzs,lxyzs1,lxyzs2, &
@@ -865,8 +879,6 @@ program poisson_on_cube
       integer,parameter :: kr = kind(1.D0)
 
       character(*), intent(in) :: prefix           ! basename of vtu files
-      integer, intent(in) :: myid                  ! processor ID
-      integer, intent(in) :: comm_all              ! MPI communicator
       integer, intent(in) :: isub                  ! global subdomain index
       integer, intent(in) :: nelems                ! subdomain number of elements
       integer, intent(in) :: nnods                 ! subdomain number of nodes
@@ -883,19 +895,9 @@ program poisson_on_cube
       logical :: debug = .false.
       integer ::  idvtus
       character(len=256) :: filename
-      character(len=256) :: command
-      integer :: ierr
       integer :: i, ie, indinets, nne
       integer :: offset
       integer :: VTKtype
-
-      ! make sure the directory exists
-      if (myid.eq.0) then
-         command = ' '
-         command = 'mkdir -p '//trim(prefix)
-         call system(trim(command))
-      end if
-      call MPI_BARRIER(comm_all,ierr)
 
       ! write solution to a separate VTU file
       filename = ' '

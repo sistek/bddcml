@@ -41,6 +41,8 @@ module module_levels
       logical,parameter,private :: levels_parallel_globs = .true.
 ! should parallel search of neighbours be used? (distributed graph rather than serial graph)
       logical,parameter,private :: levels_parallel_neighbouring = .true.
+! use ParMETIS for determination of neighbouring? Alternatively, guessing based on index ranges will be used
+      logical,parameter,private :: levels_parmetis_neighbouring = .false.
 ! use globs from *.GLB and *.CN file?
       logical,parameter,private :: levels_load_globs = .false.
 ! load PAIRS for adaptivity from file?
@@ -1801,163 +1803,175 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
       neighball = 1
-      if (levels_parallel_neighbouring) then
-         nelem_loc  = 0
-         do isub_loc = 1,nsub_loc
-            ! find size of subdomain and mesh
-            call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+      if (levels_parallel_neighbouring)then 
+         if (levels_parmetis_neighbouring) then
+            nelem_loc  = 0
+            do isub_loc = 1,nsub_loc
+               ! find size of subdomain and mesh
+               call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
 
-            ! add counters
-            nelem_loc = nelem_loc + nelems
-         end do
-         lnelempa = nproc
-         allocate(nelempa(lnelempa))
+               ! add counters
+               nelem_loc = nelem_loc + nelems
+            end do
+            lnelempa = nproc
+            allocate(nelempa(lnelempa))
 !***************************************************************PARALLEL
-         call MPI_ALLGATHER(nelem_loc,1,MPI_INTEGER,nelempa,1,MPI_INTEGER,comm_all,ierr)
+            call MPI_ALLGATHER(nelem_loc,1,MPI_INTEGER,nelempa,1,MPI_INTEGER,comm_all,ierr)
 !***************************************************************PARALLEL
 
-         nelem_loc_min = minval(nelempa)
-         if (nelem_loc_min.eq.0) then
-            if (myid.eq.0) then
-               call info(routine_name, 'creating communicator for ParMETIS')
-            end if
-            call MPI_COMM_GROUP(comm_all,mpi_group_all,ierr)
-            lranks = nproc
-            allocate(ranks(lranks))
-            kranks = 0
-            do iproc = 0,nproc-1
-               if (nelempa(iproc+1).gt.0 ) then
-                  kranks = kranks + 1
-                  ranks(kranks) = iproc
+            nelem_loc_min = minval(nelempa)
+            if (nelem_loc_min.eq.0) then
+               if (myid.eq.0) then
+                  call info(routine_name, 'creating communicator for ParMETIS')
                end if
-            end do
-            nproc_used = kranks
-            !print *,'ranks',ranks(1:kranks)
-            !print *,'kranks',kranks
-            !call flush(6)
-            ! prepare new group of processes
-            call MPI_GROUP_INCL(mpi_group_all,nproc_used,ranks(1:nproc_used),mpi_group_parmetis,ierr)
-            ! create new communicator
-            call MPI_COMM_CREATE(comm_all,mpi_group_parmetis,comm_parmetis,ierr)
-            is_comm_parmetis_created = .true.
-            ! free groups
-            call MPI_GROUP_FREE(mpi_group_parmetis,ierr)
-            call MPI_GROUP_FREE(mpi_group_all,ierr)
+               call MPI_COMM_GROUP(comm_all,mpi_group_all,ierr)
+               lranks = nproc
+               allocate(ranks(lranks))
+               kranks = 0
+               do iproc = 0,nproc-1
+                  if (nelempa(iproc+1).gt.0 ) then
+                     kranks = kranks + 1
+                     ranks(kranks) = iproc
+                  end if
+               end do
+               nproc_used = kranks
+               !print *,'ranks',ranks(1:kranks)
+               !print *,'kranks',kranks
+               !call flush(6)
+               ! prepare new group of processes
+               call MPI_GROUP_INCL(mpi_group_all,nproc_used,ranks(1:nproc_used),mpi_group_parmetis,ierr)
+               ! create new communicator
+               call MPI_COMM_CREATE(comm_all,mpi_group_parmetis,comm_parmetis,ierr)
+               is_comm_parmetis_created = .true.
+               ! free groups
+               call MPI_GROUP_FREE(mpi_group_parmetis,ierr)
+               call MPI_GROUP_FREE(mpi_group_all,ierr)
 
-            ! I won't work on partitioning, skip to getting IETS array
-            if (.not.any(ranks(1:nproc_used).eq.myid)) then
-               deallocate(nelempa)
+               ! I won't work on partitioning, skip to getting IETS array
+               if (.not.any(ranks(1:nproc_used).eq.myid)) then
+                  deallocate(nelempa)
+                  deallocate(ranks)
+                  goto 124
+               end if
                deallocate(ranks)
-               goto 124
+            else
+               comm_parmetis = comm_all
+               is_comm_parmetis_created = .false.
             end if
-            deallocate(ranks)
-         else
-            comm_parmetis = comm_all
-            is_comm_parmetis_created = .false.
-         end if
-         deallocate(nelempa)
+            deallocate(nelempa)
 
-         call MPI_COMM_RANK(comm_parmetis,myid_parmetis,ierr)
-         call MPI_COMM_SIZE(comm_parmetis,nproc_parmetis,ierr)
+            call MPI_COMM_RANK(comm_parmetis,myid_parmetis,ierr)
+            call MPI_COMM_SIZE(comm_parmetis,nproc_parmetis,ierr)
 
-         lkadjsub = nsub * nsub_loc
-         allocate(kadjsub(lkadjsub))
-         kadjsub = 0
+            lkadjsub = nsub * nsub_loc
+            allocate(kadjsub(lkadjsub))
+            kadjsub = 0
 
-         lnelemsa = nsub ! number of elements in subdomains
-         allocate(nelemsaaux(lnelemsa),nelemsa(lnelemsa))
-         nelemsaaux = 0 ! number of elements in subdomains
+            lnelemsa = nsub ! number of elements in subdomains
+            allocate(nelemsaaux(lnelemsa),nelemsa(lnelemsa))
+            nelemsaaux = 0 ! number of elements in subdomains
 
-         linet_loc  = 0 ! length of local INET
-         lnnet_loc  = 0 ! length of local NNET
-         nelem_loc  = 0
-         do isub_loc = 1,nsub_loc
-            isub = levels(ilevel)%indexsub(isub_loc)
+            linet_loc  = 0 ! length of local INET
+            lnnet_loc  = 0 ! length of local NNET
+            nelem_loc  = 0
+            do isub_loc = 1,nsub_loc
+               isub = levels(ilevel)%indexsub(isub_loc)
 
-            ! find size of subdomain and mesh
-            call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
-            call dd_get_mesh_basic_size(levels(ilevel)%subdomains(isub_loc),linets,lnnets)
+               ! find size of subdomain and mesh
+               call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+               call dd_get_mesh_basic_size(levels(ilevel)%subdomains(isub_loc),linets,lnnets)
 
-            ! add counters
-            linet_loc = linet_loc + linets
-            lnnet_loc = lnnet_loc + lnnets
-            nelem_loc = nelem_loc + nelems
+               ! add counters
+               linet_loc = linet_loc + linets
+               lnnet_loc = lnnet_loc + lnnets
+               nelem_loc = nelem_loc + nelems
 
-            nelemsaaux(isub) = nelems
-         end do
-!***************************************************************PARALLEL
-         call MPI_ALLREDUCE(nelemsaaux, nelemsa, lnelemsa,MPI_INTEGER, MPI_SUM, comm_parmetis, ierr)
-!***************************************************************PARALLEL
-         deallocate(nelemsaaux)
-         ! debug
-         !write(*,*) 'nelemsaaux',nelemsaaux
-         !write(*,*) 'nelemsa',nelemsa
-
-         ! get local INET and NNET
-         ! take care of zero arrays
-         linet_loc = max(1,linet_loc)
-         lnnet_loc = max(1,lnnet_loc)
-         allocate(nnet_loc(lnnet_loc),inet_loc(linet_loc))
-         nnet_loc = 0
-         inet_loc = 0
-         kinet_loc = 1
-         knnet_loc = 1
-         do isub_loc = 1,nsub_loc
-            isub = levels(ilevel)%indexsub(isub_loc)
-
-            ! find size of subdomain mesh
-            call dd_get_mesh_basic_size(levels(ilevel)%subdomains(isub_loc),linets,lnnets)
-
-            ! debug
-            !print *,'myid =',myid
-            !print *,'nsub_loc =',nsub_loc
-            !print *,'linet_loc =',linet_loc
-            !print *,'kinet_loc =',kinet_loc
-            !print *,'linets =',linets
-            !print *,'lnnets =',lnnets
-            call flush(6)
-
-            ! get portion of INET and NNET arrays
-            use_global_indices = .true.
-            if (linets.gt.0) then
-               call dd_get_mesh_basic(levels(ilevel)%subdomains(isub_loc),use_global_indices,&
-                                      inet_loc(kinet_loc),linets,nnet_loc(knnet_loc),lnnets)
-            end if
-
-            kinet_loc = kinet_loc + linets
-            knnet_loc = knnet_loc + lnnets
-         end do
-         if (nelem_loc.eq.0) then
-            inet_loc = 0
-            inet_loc = 0
-         end if
-         ! create fake IETS array with elements ordered subdomain by subdomain
-         liets_linear = nelem
-         allocate(iets_linear(liets_linear))
-         indiets = 0
-         do isub = 1,nsub
-            do ie = 1,nelemsa(isub)
-               indiets = indiets + 1
-               iets_linear(indiets) = isub
+               nelemsaaux(isub) = nelems
             end do
-         end do
-         !print *, 'nelemsa',nelemsa
-         !print *, 'iets_linear',iets_linear
-         deallocate(nelemsa)
+!***************************************************************PARALLEL
+            call MPI_ALLREDUCE(nelemsaaux, nelemsa, lnelemsa,MPI_INTEGER, MPI_SUM, comm_parmetis, ierr)
+!***************************************************************PARALLEL
+            deallocate(nelemsaaux)
+            ! debug
+            !write(*,*) 'nelemsaaux',nelemsaaux
+            !write(*,*) 'nelemsa',nelemsa
 
-         sub_start = levels(ilevel)%sub2proc(myid+1)
-         call pp_pget_sub_neighbours(myid_parmetis,nproc_parmetis,comm_parmetis,neighball,nelem,nelem_loc,nsub,nsub_loc,sub_start,&
-                                     inet_loc,linet_loc,nnet_loc,lnnet_loc, &
-                                     iets_linear, liets_linear, &
-                                     debug, kadjsub,lkadjsub)
-      ! clear communicator
-         if (is_comm_parmetis_created) then
-            call MPI_COMM_FREE(comm_parmetis,ierr)
-            is_comm_parmetis_created = .false.
+            ! get local INET and NNET
+            ! take care of zero arrays
+            linet_loc = max(1,linet_loc)
+            lnnet_loc = max(1,lnnet_loc)
+            allocate(nnet_loc(lnnet_loc),inet_loc(linet_loc))
+            nnet_loc = 0
+            inet_loc = 0
+            kinet_loc = 1
+            knnet_loc = 1
+            do isub_loc = 1,nsub_loc
+               isub = levels(ilevel)%indexsub(isub_loc)
+
+               ! find size of subdomain mesh
+               call dd_get_mesh_basic_size(levels(ilevel)%subdomains(isub_loc),linets,lnnets)
+
+               ! debug
+               !print *,'myid =',myid
+               !print *,'nsub_loc =',nsub_loc
+               !print *,'linet_loc =',linet_loc
+               !print *,'kinet_loc =',kinet_loc
+               !print *,'linets =',linets
+               !print *,'lnnets =',lnnets
+               call flush(6)
+
+               ! get portion of INET and NNET arrays
+               use_global_indices = .true.
+               if (linets.gt.0) then
+                  call dd_get_mesh_basic(levels(ilevel)%subdomains(isub_loc),use_global_indices,&
+                                         inet_loc(kinet_loc),linets,nnet_loc(knnet_loc),lnnets)
+               end if
+
+               kinet_loc = kinet_loc + linets
+               knnet_loc = knnet_loc + lnnets
+            end do
+            if (nelem_loc.eq.0) then
+               inet_loc = 0
+               inet_loc = 0
+            end if
+            ! create fake IETS array with elements ordered subdomain by subdomain
+            liets_linear = nelem
+            allocate(iets_linear(liets_linear))
+            indiets = 0
+            do isub = 1,nsub
+               do ie = 1,nelemsa(isub)
+                  indiets = indiets + 1
+                  iets_linear(indiets) = isub
+               end do
+            end do
+            !print *, 'nelemsa',nelemsa
+            !print *, 'iets_linear',iets_linear
+            deallocate(nelemsa)
+
+            sub_start = levels(ilevel)%sub2proc(myid+1)
+            call pp_pget_sub_neighbours(myid_parmetis,nproc_parmetis,comm_parmetis,neighball,nelem,nelem_loc,nsub,&
+                                        nsub_loc,sub_start,&
+                                        inet_loc,linet_loc,nnet_loc,lnnet_loc, &
+                                        iets_linear, liets_linear, &
+                                        debug, kadjsub,lkadjsub)
+         ! clear communicator
+            if (is_comm_parmetis_created) then
+               call MPI_COMM_FREE(comm_parmetis,ierr)
+               is_comm_parmetis_created = .false.
+            end if
+            deallocate(nnet_loc,inet_loc)
+            deallocate(iets_linear)
+ 124        continue
+         else
+            ! use guess on integer ranges
+            lkadjsub = nsub * nsub_loc
+            allocate(kadjsub(lkadjsub))
+            kadjsub = 0
+            call dd_estimate_neighbouring_by_nodes(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                                                   levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc, &
+                                                   levels(ilevel)%indexsub,levels(ilevel)%lindexsub, comm_all, &
+                                                   kadjsub,lkadjsub )
          end if
-         deallocate(nnet_loc,inet_loc)
-         deallocate(iets_linear)
- 124     continue
       else
          lkadjsub = max(nsub*nsub,1)
          allocate(kadjsub(lkadjsub))
