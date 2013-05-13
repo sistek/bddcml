@@ -308,7 +308,7 @@ program poisson_on_cube
          nsublev(1) = nsub
          do i = 2,nlevels-1
             ir = nlevels - i + 1
-            nsublev(i) = int(coarsening**(ir-1))
+            nsublev(i) = int(coarsening**(ir-1)) + 1
          end do
          nsublev(nlevels) = 1
       else
