@@ -1351,5 +1351,19 @@ end if
 
 end subroutine
 
+!********************************************
+logical elemental function fuzzyLessThan(x,y)
+!********************************************
+! function for comparison of two reals with some tolerance
+! x - eps < y
+
+real(kr),intent(in) :: x,y
+! local vars
+real(kr),parameter :: overlap = 1.e-8
+
+fuzzyLessThan = x+overlap .lt. y 
+return
+end
+
 end module module_utils
 

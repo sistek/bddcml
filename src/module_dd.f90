@@ -7554,9 +7554,16 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
       type(sub_aux_type),allocatable :: sub_aux(:)
 
       ! MPI related arrays and variables
-      integer :: myid, nproc
+      integer :: myid, nproc, procadj
+      integer :: isubadj_loc
       integer :: ierr
-
+      integer :: tag
+      integer :: ireq, nreq
+      integer ::            lrequest
+      integer,allocatable :: request(:)
+      integer             :: lstatarray1
+      integer             :: lstatarray2
+      integer,allocatable :: statarray(:,:)
 
 ! orient in communicators
       call MPI_COMM_RANK(comm_all,myid,ierr)
@@ -7568,109 +7575,109 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
       allocate(sub_aux(lsub_aux))
 
 
-!      ! prepare memory for each subdomain
-!      ireq = 0
-!      do isub_loc = 1,lindexsub
-!         isub = indexsub(isub_loc)
-!   
-!         if (.not. suba(isub_loc)%is_mesh_loaded) then
-!            call error(routine_name, 'Mesh not loaded for subdomain: ',isub)
-!         end if
-!   
-!         ! load data
-!         nadj  = suba(isub_loc)%nadj
-!         nnod  = suba(isub_loc)%nnod
-!   
-!         sub_aux(isub_loc)%lnnodadj = nadj
-!         allocate(sub_aux(isub_loc)%nnodadj(sub_aux(isub_loc)%lnnodadj))
-!   
-!         ireq = ireq + nadj
-!      end do
-!      nreq = ireq
-!
-!      ! MPI arrays
-!      lrequest = nreq * 2
-!      allocate(request(lrequest))
-!      lstatarray1 = MPI_STATUS_SIZE
-!      lstatarray2 = nreq * 2
-!      allocate(statarray(lstatarray1,lstatarray2))
-!
-!      ! prepare subdomain data      
-!      ireq = 0
-!      do isub_loc = 1,lindexsub
-!         isub = indexsub(isub_loc)
-!   
-!         ! load data
-!         nadj  = suba(isub_loc)%nadj
-!         nnod  = suba(isub_loc)%nnod
-!   
-!   ! Determine sizes of interace of my neighbours
-!         do ia = 1,nadj
-!            ! get index of neighbour
-!            isubadj = suba(isub_loc)%iadj(ia)
-!      
-!            ! who owns this subdomain?
-!            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
-!            if (procadj.gt.nproc-1.or.procadj.lt.0) then
-!               call error(routine_name,'out of range of processors')
-!            end if
-!      
-!            if (procadj .ne. myid) then
-!               ! interchange via MPI
-!      
-!               ! make a receiving request for his data
-!               call pp_get_unique_tag(isubadj,isub,comm_all,sub2proc,lsub2proc,tag)
-!               ireq = ireq + 1
-!               call MPI_IRECV(sub_aux(isub_loc)%nnodadj(ia),1,MPI_INTEGER,procadj,tag,comm_all,&
-!                              request(ireq),ierr)
-!               !print *, 'myid =',myid,'receiving one integer from',procadj,' tag',tag
-!            else 
-!               ! I have subdomain data, simply copy necessary arrays
-!               call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
-!               if (.not. suba(isubadj_loc)%is_mesh_loaded) then
-!                  call error(routine_name, 'Mesh not loaded for subdomain: ',isubadj)
-!               end if
-!      
-!               sub_aux(isub_loc)%nnodadj(ia) = suba(isubadj_loc)%nnod
-!            end if
-!         end do
-!      end do
-!      nreq = ireq
-!      ! prepare subdomain data      
-!      do isub_loc = 1,lindexsub
-!         isub = indexsub(isub_loc)
-!   
-!         ! load data
-!         nadj  = suba(isub_loc)%nadj
-!         nnod  = suba(isub_loc)%nnod
-!   
-!   ! Determine sizes of interace of my neighbours
-!         do ia = 1,nadj
-!            ! get index of neighbour
-!            isubadj = suba(isub_loc)%iadj(ia)
-!      
-!            ! who owns this subdomain?
-!            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
-!            if (procadj.gt.nproc-1.or.procadj.lt.0) then
-!               call error(routine_name,'out of range of processors')
-!            end if
-!      
-!            if (procadj .ne. myid) then
-!               ! interchange via MPI
-!      
-!               ! send him my data
-!               call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc,tag)
-!               call MPI_SEND(nnod,1,MPI_INTEGER,procadj,tag,comm_all,ierr)
-!               !print *, 'myid =',myid,'Sending', nnod,'to ',procadj,' tag',tag
-!            end if
-!         end do
-!      end do
-!      !print *, 'myid',myid,'I am here 1'
-!      !call flush(6)
-!      ! waiting for communication to complete in this round
-!      if (nreq.gt.0) then
-!         call MPI_WAITALL(nreq,request,statarray,ierr)
-!      end if
+      ! prepare memory for each subdomain
+      ireq = 0
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+   
+         if (.not. suba(isub_loc)%is_mesh_loaded) then
+            call error(routine_name, 'Mesh not loaded for subdomain: ',isub)
+         end if
+   
+         ! load data
+         nadj  = suba(isub_loc)%nadj
+         nnod  = suba(isub_loc)%nnod
+   
+         sub_aux(isub_loc)%lnnodadj = nadj
+         allocate(sub_aux(isub_loc)%nnodadj(sub_aux(isub_loc)%lnnodadj))
+   
+         ireq = ireq + nadj
+      end do
+      nreq = ireq
+
+      ! MPI arrays
+      lrequest = nreq * 2
+      allocate(request(lrequest))
+      lstatarray1 = MPI_STATUS_SIZE
+      lstatarray2 = nreq * 2
+      allocate(statarray(lstatarray1,lstatarray2))
+
+      ! prepare subdomain data      
+      ireq = 0
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+   
+         ! load data
+         nadj  = suba(isub_loc)%nadj
+         nnod  = suba(isub_loc)%nnod
+   
+   ! Determine sizes of interace of my neighbours
+         do ia = 1,nadj
+            ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+      
+            ! who owns this subdomain?
+            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
+            if (procadj.gt.nproc-1.or.procadj.lt.0) then
+               call error(routine_name,'out of range of processors')
+            end if
+      
+            if (procadj .ne. myid) then
+               ! interchange via MPI
+      
+               ! make a receiving request for his data
+               call pp_get_unique_tag(isubadj,isub,comm_all,sub2proc,lsub2proc,tag)
+               ireq = ireq + 1
+               call MPI_IRECV(sub_aux(isub_loc)%nnodadj(ia),1,MPI_INTEGER,procadj,tag,comm_all,&
+                              request(ireq),ierr)
+               !print *, 'myid =',myid,'receiving one integer from',procadj,' tag',tag
+            else 
+               ! I have subdomain data, simply copy necessary arrays
+               call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
+               if (.not. suba(isubadj_loc)%is_mesh_loaded) then
+                  call error(routine_name, 'Mesh not loaded for subdomain: ',isubadj)
+               end if
+      
+               sub_aux(isub_loc)%nnodadj(ia) = suba(isubadj_loc)%nnod
+            end if
+         end do
+      end do
+      nreq = ireq
+      ! prepare subdomain data      
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+   
+         ! load data
+         nadj  = suba(isub_loc)%nadj
+         nnod  = suba(isub_loc)%nnod
+   
+   ! Determine sizes of interace of my neighbours
+         do ia = 1,nadj
+            ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+      
+            ! who owns this subdomain?
+            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
+            if (procadj.gt.nproc-1.or.procadj.lt.0) then
+               call error(routine_name,'out of range of processors')
+            end if
+      
+            if (procadj .ne. myid) then
+               ! interchange via MPI
+      
+               ! send him my data
+               call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc,tag)
+               call MPI_SEND(nnod,1,MPI_INTEGER,procadj,tag,comm_all,ierr)
+               !print *, 'myid =',myid,'Sending', nnod,'to ',procadj,' tag',tag
+            end if
+         end do
+      end do
+      !print *, 'myid',myid,'I am here 1'
+      !call flush(6)
+      ! waiting for communication to complete in this round
+      if (nreq.gt.0) then
+         call MPI_WAITALL(nreq,request,statarray,ierr)
+      end if
       !print *, 'myid',myid,'I am here 1.2'
       !call flush(6)
 
@@ -7684,9 +7691,9 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
          nnod  = suba(isub_loc)%nnod
    
    ! Allocate array for global node numbers for neighbours
-         !sub_aux(isub_loc)%lisngnadj = sum(sub_aux(isub_loc)%nnodadj)
-         !allocate(sub_aux(isub_loc)%isngnadj(sub_aux(isub_loc)%lisngnadj))
-         !allocate(sub_aux(isub_loc)%isncadj( sub_aux(isub_loc)%lisngnadj))
+         sub_aux(isub_loc)%lisngnadj = sum(sub_aux(isub_loc)%nnodadj)
+         allocate(sub_aux(isub_loc)%isngnadj(sub_aux(isub_loc)%lisngnadj))
+         allocate(sub_aux(isub_loc)%isncadj( sub_aux(isub_loc)%lisngnadj))
          ! allocate data for myself
          sub_aux(isub_loc)%lisngn = nnod
          allocate(sub_aux(isub_loc)%isngn(sub_aux(isub_loc)%lisngn))
@@ -7698,131 +7705,131 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
             sub_aux(isub_loc)%isnc(i)  = suba(isub_loc)%nodal_components(i)
          end do
       end do
+!!
+!!      ! now we need to exchange the arrays among all neighbours 
+!!      do isub_loc = 1,lindexsub
+!!         sub_aux(isub_loc)%comm_array_in => sub_aux(isub_loc)%isngn
+!!      end do
+!!
+!!      call dd_interchange_integer_arrays(suba,lsuba, &
+!!                                         sub2proc,lsub2proc, indexsub,lindexsub, &
+!!                                         comm_all, &
+!!                                         sub_aux,lsub_aux)
+!!
+!!      do isub_loc = 1,lindexsub
+!!
+!!         sub_aux(isub_loc)%lisngnadj = size(sub_aux(isub_loc)%comm_array_out)
+!!         allocate(sub_aux(isub_loc)%isngnadj(sub_aux(isub_loc)%lisngnadj))
+!!         sub_aux(isub_loc)%isngnadj = sub_aux(isub_loc)%comm_array_out
+!!         deallocate(sub_aux(isub_loc)%comm_array_out)
+!!         deallocate(sub_aux(isub_loc)%comm_array_numbers)
+!!      end do
+!!
+!!      do isub_loc = 1,lindexsub
+!!         sub_aux(isub_loc)%comm_array_in => sub_aux(isub_loc)%isnc
+!!      end do
+!!
+!!      call dd_interchange_integer_arrays(suba,lsuba, &
+!!                                         sub2proc,lsub2proc, indexsub,lindexsub, &
+!!                                         comm_all, &
+!!                                         sub_aux,lsub_aux)
+!!
+!!      do isub_loc = 1,lindexsub
+!!
+!!         allocate(sub_aux(isub_loc)%isncadj(sub_aux(isub_loc)%lisngnadj))
+!!         sub_aux(isub_loc)%isncadj = sub_aux(isub_loc)%comm_array_out
+!!         deallocate(sub_aux(isub_loc)%comm_array_out)
+!!         sub_aux(isub_loc)%lnnodadj = size(sub_aux(isub_loc)%comm_array_numbers)
+!!         allocate(sub_aux(isub_loc)%nnodadj(sub_aux(isub_loc)%lnnodadj))
+!!         sub_aux(isub_loc)%nnodadj = sub_aux(isub_loc)%comm_array_numbers
+!!         deallocate(sub_aux(isub_loc)%comm_array_numbers)
+!!      end do
 
-      ! now we need to exchange the arrays among all neighbours 
+      ireq = 0
       do isub_loc = 1,lindexsub
-         sub_aux(isub_loc)%comm_array_in => sub_aux(isub_loc)%isngn
+         isub = indexsub(isub_loc)
+         nsub = suba(isub_loc)%nsub
+   
+         ! load data
+         nadj  = suba(isub_loc)%nadj
+         nnod  = suba(isub_loc)%nnod
+   
+   ! Interchange nodes in global numbering
+         kisngnadj = 0
+         do ia = 1,nadj
+            ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+            
+            ! who owns this subdomain?
+            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
+   
+            nnodadj = sub_aux(isub_loc)%nnodadj(ia)
+            if (nnodadj.eq.0) then
+               call error(routine_name,'adjacent subdomain with zero shared nodes?',isubadj)
+            end if
+      
+            if (procadj .ne. myid) then
+               ! interchange via MPI
+   
+               ! make a receiving request for his data
+               call pp_get_unique_tag(isubadj,isub,comm_all,sub2proc,lsub2proc,tag)
+               ireq = ireq + 1
+               call MPI_IRECV(sub_aux(isub_loc)%isngnadj(kisngnadj + 1),nnodadj,MPI_INTEGER,&
+                              procadj,tag,comm_all,request(ireq),ierr)
+               ireq = ireq + 1
+               call MPI_IRECV(sub_aux(isub_loc)%isncadj(kisngnadj + 1),nnodadj,MPI_INTEGER,&
+                              procadj,tag,comm_all,request(ireq),ierr)
+            else 
+               ! I have subdomain data, simply copy necessary arrays
+               call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
+               do i = 1,nnodadj
+                  sub_aux(isub_loc)%isngnadj(kisngnadj + i) = suba(isubadj_loc)%isngn(i)
+                  sub_aux(isub_loc)%isncadj (kisngnadj + i) = suba(isubadj_loc)%nodal_components(i)
+               end do
+            end if
+            kisngnadj = kisngnadj + nnodadj
+         end do
       end do
-
-      call dd_interchange_integer_arrays(suba,lsuba, &
-                                         sub2proc,lsub2proc, indexsub,lindexsub, &
-                                         comm_all, &
-                                         sub_aux,lsub_aux)
-
+      nreq = ireq
       do isub_loc = 1,lindexsub
-
-         sub_aux(isub_loc)%lisngnadj = size(sub_aux(isub_loc)%comm_array_out)
-         allocate(sub_aux(isub_loc)%isngnadj(sub_aux(isub_loc)%lisngnadj))
-         sub_aux(isub_loc)%isngnadj = sub_aux(isub_loc)%comm_array_out
-         deallocate(sub_aux(isub_loc)%comm_array_out)
-         deallocate(sub_aux(isub_loc)%comm_array_numbers)
+         isub = indexsub(isub_loc)
+         nsub = suba(isub_loc)%nsub
+   
+         ! load data
+         nadj  = suba(isub_loc)%nadj
+         nnod  = suba(isub_loc)%nnod
+   
+   ! Interchange nodes in global numbering
+         kisngnadj = 0
+         do ia = 1,nadj
+            ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+            
+            ! who owns this subdomain?
+            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
+   
+            nnodadj = sub_aux(isub_loc)%nnodadj(ia)
+            if (procadj .ne. myid) then
+               ! send him my data
+               call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc,tag)
+               call MPI_SEND(sub_aux(isub_loc)%isngn(1),nnod,MPI_INTEGER, procadj,tag,comm_all,ierr)
+               call MPI_SEND(sub_aux(isub_loc)%isnc(1), nnod,MPI_INTEGER, procadj,tag,comm_all,ierr)
+            end if
+            kisngnadj = kisngnadj + nnodadj
+         end do
       end do
+      !print *, 'myid',myid,'I am here 2'
+      !call flush(6)
 
-      do isub_loc = 1,lindexsub
-         sub_aux(isub_loc)%comm_array_in => sub_aux(isub_loc)%isnc
-      end do
+      ! waiting for communication to complete
+      if (nreq.gt.0) then
+         call MPI_WAITALL(nreq, request, statarray, ierr)
+      end if
 
-      call dd_interchange_integer_arrays(suba,lsuba, &
-                                         sub2proc,lsub2proc, indexsub,lindexsub, &
-                                         comm_all, &
-                                         sub_aux,lsub_aux)
-
-      do isub_loc = 1,lindexsub
-
-         allocate(sub_aux(isub_loc)%isncadj(sub_aux(isub_loc)%lisngnadj))
-         sub_aux(isub_loc)%isncadj = sub_aux(isub_loc)%comm_array_out
-         deallocate(sub_aux(isub_loc)%comm_array_out)
-         sub_aux(isub_loc)%lnnodadj = size(sub_aux(isub_loc)%comm_array_numbers)
-         allocate(sub_aux(isub_loc)%nnodadj(sub_aux(isub_loc)%lnnodadj))
-         sub_aux(isub_loc)%nnodadj = sub_aux(isub_loc)%comm_array_numbers
-         deallocate(sub_aux(isub_loc)%comm_array_numbers)
-      end do
-
-!      ireq = 0
-!      do isub_loc = 1,lindexsub
-!         isub = indexsub(isub_loc)
-!         nsub = suba(isub_loc)%nsub
-!   
-!         ! load data
-!         nadj  = suba(isub_loc)%nadj
-!         nnod  = suba(isub_loc)%nnod
-!   
-!   ! Interchange nodes in global numbering
-!         kisngnadj = 0
-!         do ia = 1,nadj
-!            ! get index of neighbour
-!            isubadj = suba(isub_loc)%iadj(ia)
-!            
-!            ! who owns this subdomain?
-!            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
-!   
-!            nnodadj = sub_aux(isub_loc)%nnodadj(ia)
-!            if (nnodadj.eq.0) then
-!               call error(routine_name,'adjacent subdomain with zero shared nodes?',isubadj)
-!            end if
-!      
-!            if (procadj .ne. myid) then
-!               ! interchange via MPI
-!   
-!               ! make a receiving request for his data
-!               call pp_get_unique_tag(isubadj,isub,comm_all,sub2proc,lsub2proc,tag)
-!               ireq = ireq + 1
-!               call MPI_IRECV(sub_aux(isub_loc)%isngnadj(kisngnadj + 1),nnodadj,MPI_INTEGER,&
-!                              procadj,tag,comm_all,request(ireq),ierr)
-!               ireq = ireq + 1
-!               call MPI_IRECV(sub_aux(isub_loc)%isncadj(kisngnadj + 1),nnodadj,MPI_INTEGER,&
-!                              procadj,tag,comm_all,request(ireq),ierr)
-!            else 
-!               ! I have subdomain data, simply copy necessary arrays
-!               call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
-!               do i = 1,nnodadj
-!                  sub_aux(isub_loc)%isngnadj(kisngnadj + i) = suba(isubadj_loc)%isngn(i)
-!                  sub_aux(isub_loc)%isncadj (kisngnadj + i) = suba(isubadj_loc)%nodal_components(i)
-!               end do
-!            end if
-!            kisngnadj = kisngnadj + nnodadj
-!         end do
-!      end do
-!      nreq = ireq
-!      do isub_loc = 1,lindexsub
-!         isub = indexsub(isub_loc)
-!         nsub = suba(isub_loc)%nsub
-!   
-!         ! load data
-!         nadj  = suba(isub_loc)%nadj
-!         nnod  = suba(isub_loc)%nnod
-!   
-!   ! Interchange nodes in global numbering
-!         kisngnadj = 0
-!         do ia = 1,nadj
-!            ! get index of neighbour
-!            isubadj = suba(isub_loc)%iadj(ia)
-!            
-!            ! who owns this subdomain?
-!            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,procadj)
-!   
-!            nnodadj = sub_aux(isub_loc)%nnodadj(ia)
-!            if (procadj .ne. myid) then
-!               ! send him my data
-!               call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc,tag)
-!               call MPI_SEND(sub_aux(isub_loc)%isngn(1),nnod,MPI_INTEGER, procadj,tag,comm_all,ierr)
-!               call MPI_SEND(sub_aux(isub_loc)%isnc(1), nnod,MPI_INTEGER, procadj,tag,comm_all,ierr)
-!            end if
-!            kisngnadj = kisngnadj + nnodadj
-!         end do
-!      end do
-!      !print *, 'myid',myid,'I am here 2'
-!      !call flush(6)
-!
-!      ! waiting for communication to complete
-!      if (nreq.gt.0) then
-!         call MPI_WAITALL(nreq, request, statarray, ierr)
-!      end if
-!
-!      !print *, 'myid',myid,'I am here 2.5'
-!      !call flush(6)
-!      deallocate(request)
-!      deallocate(statarray)
+      !print *, 'myid',myid,'I am here 2.5'
+      !call flush(6)
+      deallocate(request)
+      deallocate(statarray)
 
       ! Compare data with neighbours to detect interface
       lkadjsub = nsub
@@ -8055,10 +8062,11 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
          deallocate(ishnadj)
          deallocate(ishnncadj)
 
+         deallocate(sub_aux(isub_loc)%nnodadj)
          deallocate(sub_aux(isub_loc)%isngn)
          deallocate(sub_aux(isub_loc)%isngnadj)
          deallocate(sub_aux(isub_loc)%isnc)
-         deallocate(sub_aux(isub_loc)%nnodadj)
+         deallocate(sub_aux(isub_loc)%isncadj)
       end do
       deallocate(sub_aux)
 
@@ -8067,8 +8075,8 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
 end subroutine
 
 !********************************************************************************************************
-subroutine dd_estimate_neighbouring_by_nodes(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, comm_all,&
-                                             kadjsub,lkadjsub)
+subroutine dd_guess_neighbouring_by_nodes(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, comm_all,&
+                                          kadjsub,lkadjsub)
 !********************************************************************************************************
 ! Subroutine for estimating which subdomain is neighbour to which subdomain based on bounds on global node indices
 
@@ -8167,6 +8175,170 @@ subroutine dd_estimate_neighbouring_by_nodes(suba,lsuba, sub2proc,lsub2proc,inde
 
       deallocate(node_id_lower_bounds)
       deallocate(node_id_upper_bounds)
+
+end subroutine
+
+!********************************************************************************************************
+subroutine dd_guess_neighbouring_by_bb(ndim, suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, comm_all,&
+                                       kadjsub,lkadjsub)
+!********************************************************************************************************
+! Subroutine for estimating which subdomain is neighbour to which subdomain based on geometrical 
+! bounding boxes
+
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+      integer,intent(in) :: ndim
+
+! array of sub structure for actual subdomains
+      integer,intent(in) ::                lsuba
+      type(subdomain_type),intent(inout) :: suba(lsuba)
+
+      integer,intent(in) :: lsub2proc
+      integer,intent(in) ::  sub2proc(lsub2proc)
+      integer,intent(in) :: lindexsub
+      integer,intent(in) ::  indexsub(lindexsub)
+      integer,intent(in) :: comm_all ! MPI communicator
+      integer ::            lkadjsub
+      integer,intent(out) :: kadjsub(lkadjsub)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_ESTIMATE_NEIGHBOURING_BY_BB'
+
+      integer ::            d
+
+      integer ::            lbb_bounds1
+      integer ::            lbb_bounds2
+      real(kr),allocatable :: bb_upper_bounds(:,:)
+      real(kr),allocatable :: bb_upper_bounds_aux(:,:)
+      real(kr),allocatable :: bb_lower_bounds(:,:)
+      real(kr),allocatable :: bb_lower_bounds_aux(:,:)
+
+      integer :: isub, isub_loc, nsub
+      real(kr) :: my_lower_bound
+      real(kr) :: my_upper_bound
+      ! MPI related arrays and variables
+      integer :: myid, nproc
+      integer :: ierr
+
+
+! orient in communicators
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
+
+      nsub = sub2proc(nproc+1) - 1
+
+! allocate arrays for lower and upper bounds
+      lbb_bounds1 = nsub
+      lbb_bounds2 = ndim
+      allocate(bb_lower_bounds(lbb_bounds1,lbb_bounds2))
+      allocate(bb_lower_bounds_aux(lbb_bounds1,lbb_bounds2))
+      bb_lower_bounds_aux = 0._kr
+      allocate(bb_upper_bounds(lbb_bounds1,lbb_bounds2))
+      allocate(bb_upper_bounds_aux(lbb_bounds1,lbb_bounds2))
+      bb_upper_bounds_aux = 0._kr
+
+      ! Extract bounds for each local subdomain
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+         if ( .not. suba(isub_loc)%is_mesh_loaded ) then
+            call error(routine_name, 'Mesh data not available for subdomain',isub)
+         end if
+
+         do d = 1,ndim
+            bb_lower_bounds_aux(isub,d) = minval(suba(isub_loc)%xyz(:,d))
+            bb_upper_bounds_aux(isub,d) = maxval(suba(isub_loc)%xyz(:,d))
+         end do
+      end do
+
+! communicate the data
+!*****************************************************************MPI
+      call MPI_ALLREDUCE(bb_lower_bounds_aux,bb_lower_bounds,lbb_bounds1*lbb_bounds2, &
+                         MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
+      call MPI_ALLREDUCE(bb_upper_bounds_aux,bb_upper_bounds,lbb_bounds1*lbb_bounds2, &
+                         MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
+!*****************************************************************MPI
+      deallocate(bb_lower_bounds_aux)
+      deallocate(bb_upper_bounds_aux)
+
+      ! debug
+      !write(*,*) 'bounding box'
+      !do isub = 1,nsub
+      !   write(*,'(f5.2,a,f5.2,f5.2,a,f5.2,f5.2,a,f5.2)') ( bb_lower_bounds(isub,d),'-',bb_upper_bounds(isub,d), d = 1,ndim)
+      !end do
+
+      ! find possible intersections
+      kadjsub = 1
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         do d = 1,ndim
+            my_lower_bound = bb_lower_bounds(isub,d)
+            my_upper_bound = bb_upper_bounds(isub,d)
+
+            where ( ( fuzzyLessThan(bb_upper_bounds(:,d), my_lower_bound) .or. &
+                      fuzzyLessThan(my_upper_bound,bb_lower_bounds(:,d)) ) ) &
+                    kadjsub((isub_loc-1)*nsub+1:isub_loc*nsub) = 0 * kadjsub((isub_loc-1)*nsub+1:isub_loc*nsub)
+         end do
+
+         ! keep zero on diagonal
+         kadjsub((isub_loc-1)*nsub + isub) = 0
+      end do
+
+      deallocate(bb_lower_bounds)
+      deallocate(bb_upper_bounds)
+
+end subroutine
+
+!********************************************************************************************************
+subroutine dd_guess_neighbouring(ndim, suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, comm_all,&
+                                 kadjsub,lkadjsub)
+!********************************************************************************************************
+! Subroutine for estimating which subdomain is neighbour to which subdomain 
+
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+      integer,intent(in) :: ndim
+
+! array of sub structure for actual subdomains
+      integer,intent(in) ::                lsuba
+      type(subdomain_type),intent(inout) :: suba(lsuba)
+
+      integer,intent(in) :: lsub2proc
+      integer,intent(in) ::  sub2proc(lsub2proc)
+      integer,intent(in) :: lindexsub
+      integer,intent(in) ::  indexsub(lindexsub)
+      integer,intent(in) :: comm_all ! MPI communicator
+      integer ::            lkadjsub
+      integer,intent(out) :: kadjsub(lkadjsub)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_ESTIMATE_NEIGHBOURING'
+
+      integer,allocatable :: kadjsub_bb(:)
+      integer,allocatable :: kadjsub_node_id(:)
+
+! allocate arrays for lower and upper bounds
+      allocate(kadjsub_bb(lkadjsub))
+      allocate(kadjsub_node_id(lkadjsub))
+
+      ! perform guess based on node ids
+      call dd_guess_neighbouring_by_nodes(suba,lsuba, sub2proc,lsub2proc, indexsub,lindexsub, comm_all, &
+                                          kadjsub_bb,lkadjsub )
+
+      ! perform guess based on bounding boxes of subdomains
+      call dd_guess_neighbouring_by_bb(ndim,suba,lsuba, sub2proc,lsub2proc, indexsub,lindexsub, comm_all, &
+                                       kadjsub_node_id,lkadjsub )
+
+      ! final guess is the intersection of both guesses
+      kadjsub = 0
+      where (kadjsub_bb.eq.1 .and. kadjsub_node_id.eq.1) kadjsub = 1
+
+      deallocate(kadjsub_bb)
+      deallocate(kadjsub_node_id)
 
 end subroutine
 

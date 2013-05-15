@@ -1967,10 +1967,11 @@ subroutine levels_prepare_standard_level(parallel_division,&
             lkadjsub = nsub * nsub_loc
             allocate(kadjsub(lkadjsub))
             kadjsub = 0
-            call dd_estimate_neighbouring_by_nodes(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
-                                                   levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc, &
-                                                   levels(ilevel)%indexsub,levels(ilevel)%lindexsub, comm_all, &
-                                                   kadjsub,lkadjsub )
+            call dd_guess_neighbouring(levels(ilevel)%ndim,levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                                       levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc, &
+                                       levels(ilevel)%indexsub,levels(ilevel)%lindexsub, comm_all, &
+                                       kadjsub,lkadjsub )
+            !print *,'myid',myid,'kadjsub',kadjsub
          end if
       else
          lkadjsub = max(nsub*nsub,1)
