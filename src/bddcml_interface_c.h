@@ -52,6 +52,7 @@ void bddcml_setup_preconditioner( int *matrixtype, int *use_defaults_int,
 
 #define bddcml_solve F_SYMBOL(bddcml_solve, BDDCML_SOLVE)
 void bddcml_solve( int *comm_all, int *method, double *tol, int *maxit, int *ndecrmax, 
+                   int *recycling_int, int *max_number_of_stored_vectors,
                    int *num_iter, int *converged_reason, double *condition_number);
 
 #define bddcml_download_local_solution F_SYMBOL(bddcml_download_local_solution, BDDCML_DOWNLOAD_LOCAL_SOLUTION)

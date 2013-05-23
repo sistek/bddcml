@@ -8285,6 +8285,9 @@ subroutine dd_guess_neighbouring_by_bb(ndim, suba,lsuba, sub2proc,lsub2proc,inde
          ! keep zero on diagonal
          kadjsub((isub_loc-1)*nsub + isub) = 0
       end do
+      if (all(kadjsub.eq.0)) then
+         call error(routine_name,'This is strange - seems as if none of my subdomains has any neighbour, myid = ',myid)
+      end if
 
       deallocate(bb_lower_bounds)
       deallocate(bb_upper_bounds)

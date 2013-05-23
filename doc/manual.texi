@@ -734,6 +734,7 @@ This allows definition of general user-defined weigths on degrees of freedom tai
 @unnumberedsubsec C interface
 @code{
 void bddcml_solve( int *comm_all, int *method, double *tol, int *maxit, int *ndecrmax, 
+                   int *recycling_int, int *max_number_of_stored_vectors,
                    int *num_iter, int *converged_reason, double *condition_number);
 }
 @unnumberedsubsec Fortran interface
