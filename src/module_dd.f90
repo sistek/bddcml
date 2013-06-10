@@ -13070,11 +13070,14 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
 
       if (any(vi.le.0._kr)) then
          call warning(routine_name,'zeros in weights for subdomain',sub%isub)
-         print *, 'vi', vi
+         !print *, 'vi', vi
       end if
 
       ! avoid negative weights
       vi = abs(vi)
+
+      ! a last fix
+      where (vi.le.numerical_zero) vi = numerical_zero
 
       deallocate(ri)
       deallocate(r)
