@@ -99,7 +99,7 @@ program poisson_on_cube
 ! 3 - weights based on dof data
 ! 4 - weights by Marta Certikova - unit load
 ! 5 - weights by Marta Certikova - unit jump
-      integer,parameter :: weights_type = 4
+      integer,parameter :: weights_type = 0
 
 ! should parallel division be used (ParMETIS instead of METIS) on the first level?
       integer,parameter :: parallel_division = 1
