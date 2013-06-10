@@ -13076,7 +13076,7 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
       ! avoid negative weights
       vi = abs(vi)
 
-      ! a last fix
+      ! the last fix
       where (vi.le.numerical_zero) vi = numerical_zero
 
       deallocate(ri)
