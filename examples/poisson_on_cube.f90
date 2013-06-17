@@ -884,11 +884,11 @@ program poisson_on_cube
       integer, intent(in) :: nnods                 ! subdomain number of nodes
 
       integer, intent(in) :: linets 
-      integer, intent(out) :: inets(linets)
-      integer, intent(in) ::  lxyzs1,lxyzs2
-      real(kr), intent(out) :: xyzs(lxyzs1,lxyzs2)
-      integer, intent(in) ::  lsols
-      real(kr), intent(out) :: sols(lsols)
+      integer, intent(in) :: inets(linets)
+      integer, intent(in) :: lxyzs1,lxyzs2
+      real(kr), intent(in) :: xyzs(lxyzs1,lxyzs2)
+      integer, intent(in) :: lsols
+      real(kr), intent(in) :: sols(lsols)
 
       ! local vars
       character(*),parameter:: routine_name = 'EXPORT_VTU_FILE'

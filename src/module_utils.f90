@@ -1362,8 +1362,8 @@ real(kr),intent(in) :: x,y
 real(kr),parameter :: overlap = 1.e-8
 
 fuzzyLessThan = x+overlap .lt. y 
-return
-end
+
+end function
 
 end module module_utils
 

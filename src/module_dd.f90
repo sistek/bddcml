@@ -12592,9 +12592,7 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          end if
 
          ! compute weight
-         do i = 1,ndofi
-            wi(i) = rhoi(i) / (rhoi(i) + rhoiaux(i))
-         end do
+         wi = rhoi / (rhoi + rhoiaux)
 
          ! load wi into structure
          suba(isub_loc)%lwi = lwi
