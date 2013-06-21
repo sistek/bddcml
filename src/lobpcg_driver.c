@@ -26,20 +26,11 @@
 #include "multi_vector.h"
 #include "pcg_multi.h"
 
+#include "f_symbol.h"
 
 #define real double
 #define X(i,j) x[i-1+n*(j-1)]
 #define Lambda(i,j) lambda[i-1+n*(j-1)]
-
-# if defined(UPPER) 
-#  define F_SYMBOL(lower_case,upper_case) upper_case
-# elif defined(Add_)
-#  define F_SYMBOL(lower_case,upper_case) lower_case##_
-# elif defined(Add__)
-#  define F_SYMBOL(lower_case,upper_case) lower_case##__
-# else
-#  define F_SYMBOL(lower_case,upper_case) lower_case
-# endif
 
 /* function prototypes */
 #define dsygv_gen \

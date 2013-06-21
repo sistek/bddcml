@@ -8262,6 +8262,11 @@ subroutine dd_guess_neighbouring_by_bb(ndim, suba,lsuba, sub2proc,lsub2proc,inde
       deallocate(bb_lower_bounds_aux)
       deallocate(bb_upper_bounds_aux)
 
+      if (any( fuzzyLessThan( bb_upper_bounds, bb_lower_bounds ))) then
+         call warning(routine_name, &
+                      'Suspicious subdomain with zero size of bounding box at some dimension.')
+      end if
+
       ! debug
       !write(*,*) 'bounding box'
       !do isub = 1,nsub
@@ -8279,7 +8284,7 @@ subroutine dd_guess_neighbouring_by_bb(ndim, suba,lsuba, sub2proc,lsub2proc,inde
 
             where ( ( fuzzyLessThan(bb_upper_bounds(:,d), my_lower_bound) .or. &
                       fuzzyLessThan(my_upper_bound,bb_lower_bounds(:,d)) ) ) &
-                    kadjsub((isub_loc-1)*nsub+1:isub_loc*nsub) = 0 * kadjsub((isub_loc-1)*nsub+1:isub_loc*nsub)
+                    kadjsub((isub_loc-1)*nsub+1:isub_loc*nsub) = 0
          end do
 
          ! keep zero on diagonal

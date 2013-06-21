@@ -20,15 +20,7 @@
 #include <stdlib.h>
 #include <assert.h>
 
-# if defined(UPPER) 
-#  define F_SYMBOL(lower_case,upper_case) upper_case
-# elif defined(Add_)
-#  define F_SYMBOL(lower_case,upper_case) lower_case##_
-# elif defined(Add__)
-#  define F_SYMBOL(lower_case,upper_case) lower_case##__
-# else
-#  define F_SYMBOL(lower_case,upper_case) lower_case
-# endif
+#include "f_symbol.h"
 
 /*****************************************
 * Function for construction of parallel graph and detecting subdomain neigbours based on it

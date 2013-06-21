@@ -19,15 +19,7 @@
 #include <stdlib.h>
 #include <assert.h>
 
-# if defined(UPPER) 
-#  define F_SYMBOL(lower_case,upper_case) upper_case
-# elif defined(Add_)
-#  define F_SYMBOL(lower_case,upper_case) lower_case##_
-# elif defined(Add__)
-#  define F_SYMBOL(lower_case,upper_case) lower_case##__
-# else
-#  define F_SYMBOL(lower_case,upper_case) lower_case
-# endif
+#include "f_symbol.h"
 
 /*****************************************
 * Wrapper of METIS_PartGraphRecursive and METIS_PartGraphKWay functions
@@ -60,8 +52,8 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
   }
   /*printf(" METIS >=5.0 recognized.\n");*/
   int ncon = 1;
-  real_t ubvec[1];
-  ubvec[0] = 1.001;
+  //real_t ubvec[1];
+  //ubvec[0] = 1.001;
   /*int *options = NULL;*/
   int * options = malloc(METIS_NOPTIONS * sizeof(int));
 
@@ -118,7 +110,7 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
 #if (METIS_VER_MAJOR >= 5)
      options[METIS_OPTION_PTYPE]     = METIS_PTYPE_RB;
      options[METIS_OPTION_UFACTOR]   = 1;
-     METIS_PartGraphRecursive(nvertex,&ncon,xadj,adjncy,vwgt,NULL,adjwgt,nsub,NULL,ubvec,options,edgecut,part);
+     METIS_PartGraphRecursive(nvertex,&ncon,xadj,adjncy,vwgt,NULL,adjwgt,nsub,NULL,NULL,options,edgecut,part);
 #else
      METIS_PartGraphRecursive(nvertex,xadj,adjncy,vwgt,adjwgt,&wgtflag,numflag,nsub,options,edgecut,part);
 #endif

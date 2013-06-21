@@ -3,20 +3,11 @@
 #ifndef bddcml_h
 #define bddcml_h
 
-// macro for calling Fortran routines from C - changing the name as Fortran compiler does it
-#ifndef F_SYMBOL
-
-# if defined(UPPER) 
-#  define F_SYMBOL(lower_case,upper_case) upper_case
-# elif defined(Add_)
-#  define F_SYMBOL(lower_case,upper_case) lower_case##_
-# elif defined(Add__)
-#  define F_SYMBOL(lower_case,upper_case) lower_case##__
-# else
-#  define F_SYMBOL(lower_case,upper_case) lower_case
-# endif
-
-# endif
+/*
+ * Macro for producing Fortran symbols based on 
+ * useful for calling Fortran/C interoperability
+ */
+#include "f_symbol.h"
 
 #define bddcml_init F_SYMBOL(bddcml_init, BDDCML_INIT)
 void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase );
