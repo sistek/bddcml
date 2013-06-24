@@ -30,7 +30,7 @@ module module_levels
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! debugging 
-      logical,parameter,private :: debug = .true.
+      logical,parameter,private :: debug = .false.
 ! profiling 
       logical,private :: profile = .true.
 ! damping division
@@ -619,10 +619,10 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       real(kr), intent(in):: sol(lsol)
       ! LOCAL matrix triplet i, j, a(i,j) 
       integer, intent(in)::  matrixtype    ! type of matrix (MUMPS-like)
+      integer, intent(in)::  la            ! length of previous arrays (= number of nonzeros for assembled matrix)
       integer, intent(in)::  i_sparse(la)  ! array of row indices
       integer, intent(in)::  j_sparse(la)  ! array of column indices
       real(kr), intent(in):: a_sparse(la)  ! array of values
-      integer, intent(in)::  la            ! length of previous arrays (= number of nonzeros for assembled matrix)
       logical, intent(in)::  is_assembled  ! is the array assembled? 
                                            !  FALSE = no, it can contain repeated entries
                                            !  TRUE  = yes, it is sorted and doesn't contain repeated index pairs

@@ -32,7 +32,7 @@
     F_SYMBOL(pdivide_mesh_c,PDIVIDE_MESH_C)
 void pdivide_mesh_c( int *elmdist, int *eptr, int *eind, int *elmwgt, 
 	             int *wgtflag, int *numflag, int *ncon, int *ncommonnodes, int *nparts, 
-	             float *tpwgts, float *ubvec, int *options, int *edgecut, int *part, 
+	             double *tpwgts, double *ubvec, int *options, int *edgecut, int *part, 
 	             MPI_Fint *commInt )
 {
   MPI_Comm comm;
@@ -44,14 +44,25 @@ void pdivide_mesh_c( int *elmdist, int *eptr, int *eind, int *elmwgt,
       numflag == NULL || ncommonnodes == NULL ||
       nparts == NULL || options == NULL || edgecut == NULL ||
       part == NULL || commInt == NULL ) {
-     printf("ERROR in PDIVIDE_MESH_C:: One or more required parameters is NULL. Aborting.\n");
+     printf("ERROR in PDIVIDE_MESH_C: One or more required parameters is NULL. Aborting.\n");
      abort();
   }
 
   /* portable change of Fortran communicator into C communicator */
   comm = MPI_Comm_f2c( *commInt );
 
+#if (PARMETIS_MAJOR_VERSION >= 4)
+  if ( sizeof(idx_t) != sizeof(int) ) {
+     printf("ERROR in PDIVIDE_MESH_C: Wrong type of integers for ParMETIS.\n");
+     abort();
+  }
+  if ( sizeof(real_t) != sizeof(double) ) {
+     printf("ERROR in PDIVIDE_MESH_C: Wrong type of integers for ParMETIS.\n");
+     abort();
+  }
+#endif
   ParMETIS_V3_PartMeshKway( elmdist,eptr,eind,elmwgt,wgtflag,numflag,ncon,ncommonnodes, nparts, tpwgts, ubvec, options,
                             edgecut, part, &comm );
+
   return;
 }

@@ -52,8 +52,8 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
   }
   /*printf(" METIS >=5.0 recognized.\n");*/
   int ncon = 1;
-  //real_t ubvec[1];
-  //ubvec[0] = 1.001;
+  real_t ubvec[1];
+  ubvec[0] = 1.001;
   /*int *options = NULL;*/
   int * options = malloc(METIS_NOPTIONS * sizeof(int));
 

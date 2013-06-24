@@ -249,10 +249,10 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       ! 1 - symmetric positive definite
       ! 2 - general symmetric
       integer, intent(in)::  matrixtype 
+      integer, intent(in)::  la            ! length of previous arrays (= number of nonzeros for assembled matrix)
       integer, intent(in)::  i_sparse(la)  ! array of row indices
       integer, intent(in)::  j_sparse(la)  ! array of column indices
       real(kr), intent(in):: a_sparse(la)  ! array of values
-      integer, intent(in)::  la            ! length of previous arrays (= number of nonzeros for assembled matrix)
       integer, intent(in)::  is_assembled_int  ! is the array assembled? 
                                                !  0 = no, it can contain repeated entries
                                                !  1 = yes, it is sorted and doesn't contain repeated index pairs

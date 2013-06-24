@@ -9,16 +9,10 @@ BDDCML_INC           = -I$(BDDCML_ROOT)/src
 BDDCML_MPFC = mpif90
 BDDCML_MPFFLAGS = -g -C -Wall -fbounds-check
 #BDDCML_MPFFLAGS = -O3
-BDDCML_FC = gfortran 
-BDDCML_FFLAGS = -g -C -pg -Wall -fbounds-check
-#BDDCML_FFLAGS = -O3
 
 BDDCML_MPCC = mpicc
 BDDCML_MPCFLAGS = -g -Wall
 #BDDCML_MPCFLAGS = -O3
-BDDCML_CC = gcc
-BDDCML_CFLAGS = -g -Wall
-#BDDCML_CFLAGS = -O3
 
 #*********** Library tools
 BDDCML_AR = ar vr
