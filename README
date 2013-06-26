@@ -8,8 +8,8 @@ Install notes:
    make sure all necessary external libraries are available:
    These include: 
    BLOPEX ( http://code.google.com/p/blopex ) 
-   MUMPS  ( http://graal.ens-lyon.fr/MUMPS )  
-   ParMETIS ( http://glaros.dtc.umn.edu/gkhome/metis/parmetis/overview )
+   MUMPS  ( http://graal.ens-lyon.fr/MUMPS )                             
+   ParMETIS ( http://glaros.dtc.umn.edu/gkhome/metis/parmetis/overview ) 
    LAPACK ( http://www.netlib.org/lapack ) 
    BLAS ( http://www.netlib.org/blas )
     ( LAPACK and BLAS are often included in numerical libraries such as MKL )

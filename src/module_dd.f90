@@ -12644,7 +12644,7 @@ subroutine dd_count_neighbours_of_interface_dof(sub, nneighbiv,lnneighbiv)
       ! local vars
       character(*),parameter:: routine_name = 'DD_COUNT_NEIGHBOURS_OF_INTERFACE_DOF'
       integer :: i, isubadj, ia, ishn, idofn, indn, indni
-      integer :: nnodi, ndofi, nshn, ndofn
+      integer :: nnodi, nshn, ndofn
       integer :: kishnadj
 
       integer ::            lkdofi
