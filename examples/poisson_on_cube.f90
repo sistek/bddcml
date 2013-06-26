@@ -19,8 +19,8 @@ program poisson_on_cube
 !**********************
 ! '===========Possion on cube solver==========='
 ! ' Solves problem                             '
-! '          -Δu = 1 on Ω = [0,1]^3,           '
-! '            u = 0 on Γ,                     '
+! '         -/\u = 1 on D = [0,1]^3,           '
+! '            u = 0 on dD,                    '
 ! ' using FEM and the BDDCML solver.           '
 ! '============================================'
  
@@ -253,8 +253,8 @@ program poisson_on_cube
       if (myid.eq.0) then
          write(*,'(a)') ' ===========Possion on cube solver=========== '
          write(*,'(a)') '| Solves problem                             |'
-         write(*,'(a)') '|          -Δu = 1 on Ω = [0,1]^3,           |'
-         write(*,'(a)') '|            u = 0 on Γ,                     |'
+         write(*,'(a)') '|        -/\u = 1 on D = [0,1]^3,            |'
+         write(*,'(a)') '|           u = 0 on dD,                     |'
          write(*,'(a)') '| using FEM and the BDDCML solver.           |'
          write(*,'(a)') ' ============================================ '
       end if

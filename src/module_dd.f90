@@ -5421,7 +5421,7 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs, solve_adjoint)
       end if
 
       call dd_get_aug_size(sub, ndofaaug)
-      if (ndofaaug.ne.lvec/nrhs) then
+      if (ndofaaug.ne.lvec/nrhs) then          ! intentional integer divide
          write(*,*) 'DD_SOLVE_AUG: Length of augmented system does not match:', sub%isub
          call error_exit
       end if
@@ -12515,6 +12515,8 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
       real(kr),allocatable :: rhoiaux(:)
       integer ::             lwi
       real(kr),allocatable :: wi(:)
+      integer ::             lnneighbiv
+      integer,allocatable ::  nneighbiv(:)
 
       integer :: myid, ierr
 
@@ -12597,7 +12599,20 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          end if
 
          ! compute weight
-         wi = rhoi / (rhoi + rhoiaux)
+         if (weights_type .eq. 4) then
+            ! put here number of nodal subdomains and divide rhoaux by this number
+            lnneighbiv = ndofi
+            allocate(nneighbiv(lnneighbiv))
+
+            call dd_count_neighbours_of_interface_dof( suba(isub_loc), nneighbiv,lnneighbiv )
+
+            wi = rhoiaux / (real(nneighbiv,kr) * (rhoi + rhoiaux))
+
+            deallocate(nneighbiv)
+         else
+            wi = rhoi / (rhoi + rhoiaux)
+         end if
+
 
          ! load wi into structure
          suba(isub_loc)%lwi = lwi
@@ -12612,6 +12627,79 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          deallocate(rhoiaux)
          deallocate(rhoi)
       end do
+
+end subroutine
+
+!*************************************************************************
+subroutine dd_count_neighbours_of_interface_dof(sub, nneighbiv,lnneighbiv)
+!*************************************************************************
+! Subroutine for counting neighbours at dofs at the interface
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+      integer,intent(in) :: lnneighbiv
+      integer,intent(out)::  nneighbiv(lnneighbiv)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_COUNT_NEIGHBOURS_OF_INTERFACE_DOF'
+      integer :: i, isubadj, ia, ishn, idofn, indn, indni
+      integer :: nnodi, ndofi, nshn, ndofn
+      integer :: kishnadj
+
+      integer ::            lkdofi
+      integer,allocatable :: kdofi(:)
+
+      ! check input data
+      if (lnneighbiv .ne. sub%ndofi) then
+         call error(routine_name, 'Array lenght mismatch for subdomain',sub%isub)
+      end if
+
+      ! zero the array
+      nneighbiv = 0
+
+      ! prepare array kdofi
+      nnodi = sub%nnodi
+      lkdofi = nnodi + 1
+      allocate(kdofi(lkdofi))
+      kdofi(1) = 1
+      do i = 1,nnodi
+         indn = sub%iin(i)
+         ndofn = sub%nndf(indn)
+         
+         kdofi(i + 1) = kdofi(i) + ndofn
+      end do
+
+      ! loop over neighbours
+      kishnadj  = 0
+      do ia = 1,sub%nadj
+         ! get index of neighbour
+         isubadj = sub%iadj(ia)
+
+         ! number of nodes shared with this subdomain
+         nshn = sub%nshnadj(ia)
+
+         do ishn = 1,nshn
+            ! index of shared node in interface numbering
+            indni  = sub%ishnadj(kishnadj + ishn)
+            indn   = sub%iin(indni)
+
+            ndofn = sub%nndf(indn)
+
+            do idofn = 1,ndofn
+               nneighbiv(kdofi(indni)-1 + idofn) = nneighbiv(kdofi(indni)-1 + idofn) + 1
+            end do
+         end do
+   
+         kishnadj = kishnadj + nshn
+      end do
+
+      ! check coverage of interface
+      if (any(nneighbiv.eq.0)) then
+         call error(routine_name,'Coverage of interface failed for subdomain',sub%isub)
+      end if
+
+      deallocate(kdofi)
 
 end subroutine
 
@@ -12940,6 +13028,9 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
       end do
 
       ndofnx = minval(sub%nndf)
+      !if (ndofnx .eq. 0) then
+      !   call error(routine_name, 'Some nodes have zero degrees of freedom for subdomain ',sub%isub)
+      !end if
 
       ! prepare unit load vector at subdomain interface
       ndofi = sub%ndofi
@@ -12960,92 +13051,96 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
 
       call zero(vi,lvi)
 
-      ! loop over globs and identify faces
-      nglob = sub%nglob
-      nadj  = sub%nadj
-      do iglob = 1,nglob
+      ! only continue for non-degenerate subdomains
+      if (ndofnx .gt. 0 ) then
 
-         ! only select faces 
-         if (sub%glob_type(iglob) .eq. 1) then
+         ! loop over globs and identify faces
+         nglob = sub%nglob
+         nadj  = sub%nadj
+         do iglob = 1,nglob
 
-            ! the second subdomain
-            if (sub%nsubglobs(iglob).lt.1) then
-               call error(routine_name,'Face appears to have no neighbour for subdomain:',sub%isub)
-            end if
-            if (sub%lglob_subs2.lt.1) then
-               call error(routine_name,'Wrong dimension of array glob_subs for subdomain:',sub%isub)
-            end if
-            jsub = sub%glob_subs(iglob,1)
+            ! only select faces 
+            if (sub%glob_type(iglob) .eq. 1) then
 
-            ! find all nodes shared with this subdomain
-            kishnadj = 0
-            do ia = 1,nadj
-               nnadj = sub%nshnadj(ia)
-
-               ! get index of neighbour
-               isubadj = sub%iadj(ia)
-               ! perform the solves only if the subdomain matches the face neighbour
-               if (isubadj .eq. jsub) then
-
-                  ! fill in ones in selected direction
-                  ri = 0._kr
-                  do inadj = 1,nnadj
-                     indshni = sub%ishnadj(kishnadj + inadj)
-
-                     do idofn = 1,ndofnx
-                        ri(kdofi(indshni)-1 + idofn,idofn) = 1._kr
-                     end do
-                  end do
-
-                  !print *, 'ri before'
-                  !do i = 1,lri1
-                  !   write (*,'(i2,2x,10e7.1)') i, ri(i,:)
-                  !end do
-
-                  r = 0._kr
-                  do idofn = 1,ndofnx
-                     call dd_map_subi_to_sub(sub, ri(1,idofn),lri1, r(1,idofn),lr1)
-                  end do
-
-                  vaug = 0._kr
-
-                  ! subdomain data are the first part of the augmented vector
-                  do j = 1,ndofnx
-                     do i = 1,ndof
-                        vaug(i,j) = r(i,j)
-                     end do
-                  end do
-
-                  ! solve augmented problem
-                  nrhs = ndofnx
-                  solve_adjoint = .false.
-                  call dd_solve_aug(sub, vaug,lvaug1*lvaug2, nrhs, solve_adjoint)
-
-                  ! extract interface values
-                  ri = 0._kr
-                  do idofn = 1,ndofnx
-                     call dd_map_sub_to_subi(sub, vaug(1,idofn),ndof, ri(1,idofn),lri1)
-                  end do
-
-                  ! fill in ones in selected direction
-                  do inadj = 1,nnadj
-                     indshni = sub%ishnadj(kishnadj + inadj)
-
-                     do idofn = 1,ndofnx
-                        vi(kdofi(indshni)-1 + idofn) = vi(kdofi(indshni)-1 + idofn) + ri(kdofi(indshni)-1 + idofn,idofn)
-                     end do
-                  end do
-
-                  !print *, 'ri after'
-                  !do i = 1,lri1
-                  !   write (*,'(i2,2x,10e7.1)') i, ri(i,:), vi(i)
-                  !end do
-
+               ! the second subdomain
+               if (sub%nsubglobs(iglob).lt.1) then
+                  call error(routine_name,'Face appears to have no neighbour for subdomain:',sub%isub)
                end if
-               kishnadj = kishnadj + nnadj
-            end do
-         end if
-      end do
+               if (sub%lglob_subs2.lt.1) then
+                  call error(routine_name,'Wrong dimension of array glob_subs for subdomain:',sub%isub)
+               end if
+               jsub = sub%glob_subs(iglob,1)
+
+               ! find all nodes shared with this subdomain
+               kishnadj = 0
+               do ia = 1,nadj
+                  nnadj = sub%nshnadj(ia)
+
+                  ! get index of neighbour
+                  isubadj = sub%iadj(ia)
+                  ! perform the solves only if the subdomain matches the face neighbour
+                  if (isubadj .eq. jsub) then
+
+                     ! fill in ones in selected direction
+                     ri = 0._kr
+                     do inadj = 1,nnadj
+                        indshni = sub%ishnadj(kishnadj + inadj)
+
+                        do idofn = 1,ndofnx
+                           ri(kdofi(indshni)-1 + idofn,idofn) = 1._kr
+                        end do
+                     end do
+
+                     !print *, 'ri before'
+                     !do i = 1,lri1
+                     !   write (*,'(i2,2x,10e7.1)') i, ri(i,:)
+                     !end do
+
+                     r = 0._kr
+                     do idofn = 1,ndofnx
+                        call dd_map_subi_to_sub(sub, ri(1,idofn),lri1, r(1,idofn),lr1)
+                     end do
+
+                     vaug = 0._kr
+
+                     ! subdomain data are the first part of the augmented vector
+                     do j = 1,ndofnx
+                        do i = 1,ndof
+                           vaug(i,j) = r(i,j)
+                        end do
+                     end do
+
+                     ! solve augmented problem
+                     nrhs = ndofnx
+                     solve_adjoint = .false.
+                     call dd_solve_aug(sub, vaug,lvaug1*lvaug2, nrhs, solve_adjoint)
+
+                     ! extract interface values
+                     ri = 0._kr
+                     do idofn = 1,ndofnx
+                        call dd_map_sub_to_subi(sub, vaug(1,idofn),ndof, ri(1,idofn),lri1)
+                     end do
+
+                     ! fill in ones in selected direction
+                     do inadj = 1,nnadj
+                        indshni = sub%ishnadj(kishnadj + inadj)
+
+                        do idofn = 1,ndofnx
+                           vi(kdofi(indshni)-1 + idofn) = vi(kdofi(indshni)-1 + idofn) + ri(kdofi(indshni)-1 + idofn,idofn)
+                        end do
+                     end do
+
+                     !print *, 'ri after'
+                     !do i = 1,lri1
+                     !   write (*,'(i2,2x,10e7.1)') i, ri(i,:), vi(i)
+                     !end do
+
+                  end if
+                  kishnadj = kishnadj + nnadj
+               end do
+            end if
+         end do
+      end if
 
       ! add ones to corners
       ncorner = sub%ncorner  
@@ -13071,16 +13166,17 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
          end do
       end do
 
+      ! avoid negative weights
+      vi = abs(vi)
+
       if (any(vi.le.0._kr)) then
          call warning(routine_name,'zeros in weights for subdomain',sub%isub)
          !print *, 'vi', vi
       end if
 
-      ! avoid negative weights
+      ! avoid negative and zero weights
       vi = abs(vi)
-
-      ! the last fix
-      where (vi.le.numerical_zero) vi = numerical_zero
+      where (vi.lt.numerical_zero) vi = numerical_zero
 
       deallocate(ri)
       deallocate(r)
@@ -13156,71 +13252,75 @@ subroutine dd_generate_interface_unit_jump(sub, vi,lvi)
 
       call zero(vi,lvi)
 
-      ! loop over globs and identify faces
-      nglob = sub%nglob
-      nadj  = sub%nadj
-      do iglob = 1,nglob
+      if (ndofnx.gt.0) then
 
-         ! only select faces 
-         if (sub%glob_type(iglob) .eq. 1) then
+         ! loop over globs and identify faces
+         nglob = sub%nglob
+         nadj  = sub%nadj
+         do iglob = 1,nglob
 
-            ! the second subdomain
-            if (sub%nsubglobs(iglob).lt.1) then
-               call error(routine_name,'Face appears to have no neighbour for subdomain:',sub%isub)
-            end if
-            if (sub%lglob_subs2.lt.1) then
-               call error(routine_name,'Wrong dimension of array glob_subs for subdomain:',sub%isub)
-            end if
-            jsub = sub%glob_subs(iglob,1)
+            ! only select faces 
+            if (sub%glob_type(iglob) .eq. 1) then
 
-            ! find all nodes shared with this subdomain
-            kishnadj = 0
-            do ia = 1,nadj
-               nnadj = sub%nshnadj(ia)
-
-               ! get index of neighbour
-               isubadj = sub%iadj(ia)
-               ! perform the solves only if the subdomain matches the face neighbour
-               if (isubadj .eq. jsub) then
-
-                  ! fill in ones in selected direction
-                  ri = 0._kr
-                  do inadj = 1,nnadj
-                     indshni = sub%ishnadj(kishnadj + inadj)
-
-                     do idofn = 1,ndofnx
-                        ri((idofn-1)*lri1 + (kdofi(indshni)-1 + idofn)) = 1._kr
-                     end do
-                  end do
-
-                  !print *, 'ri before'
-                  !do i = 1,lri1
-                  !   write (*,'(i2,2x,10e7.1)') i, ri(i,:)
-                  !end do
-
-                  ! multiply the vectors by Schur complement
-                  ncol = ndofnx
-                  call dd_multiply_by_schur(sub, ri,lri1*lri2, si,lsi1*lsi2, ncol)
-
-                  ! fill in ones in selected direction
-                  do inadj = 1,nnadj
-                     indshni = sub%ishnadj(kishnadj + inadj)
-
-                     do idofn = 1,ndofnx
-                        vi(kdofi(indshni)-1 + idofn) = vi(kdofi(indshni)-1 + idofn) + si((idofn-1)*lsi1 + kdofi(indshni)-1 + idofn)
-                     end do
-                  end do
-
-                  !print *, 'ri after'
-                  !do i = 1,lri1
-                  !   write (*,'(i2,2x,10e7.1)') i, ri(i,:), vi(i)
-                  !end do
-
+               ! the second subdomain
+               if (sub%nsubglobs(iglob).lt.1) then
+                  call error(routine_name,'Face appears to have no neighbour for subdomain:',sub%isub)
                end if
-               kishnadj = kishnadj + nnadj
-            end do
-         end if
-      end do
+               if (sub%lglob_subs2.lt.1) then
+                  call error(routine_name,'Wrong dimension of array glob_subs for subdomain:',sub%isub)
+               end if
+               jsub = sub%glob_subs(iglob,1)
+
+               ! find all nodes shared with this subdomain
+               kishnadj = 0
+               do ia = 1,nadj
+                  nnadj = sub%nshnadj(ia)
+
+                  ! get index of neighbour
+                  isubadj = sub%iadj(ia)
+                  ! perform the solves only if the subdomain matches the face neighbour
+                  if (isubadj .eq. jsub) then
+
+                     ! fill in ones in selected direction
+                     ri = 0._kr
+                     do inadj = 1,nnadj
+                        indshni = sub%ishnadj(kishnadj + inadj)
+
+                        do idofn = 1,ndofnx
+                           ri((idofn-1)*lri1 + (kdofi(indshni)-1 + idofn)) = 1._kr
+                        end do
+                     end do
+
+                     !print *, 'ri before'
+                     !do i = 1,lri1
+                     !   write (*,'(i2,2x,10e7.1)') i, ri(i,:)
+                     !end do
+
+                     ! multiply the vectors by Schur complement
+                     ncol = ndofnx
+                     call dd_multiply_by_schur(sub, ri,lri1*lri2, si,lsi1*lsi2, ncol)
+
+                     ! fill in ones in selected direction
+                     do inadj = 1,nnadj
+                        indshni = sub%ishnadj(kishnadj + inadj)
+
+                        do idofn = 1,ndofnx
+                           vi(kdofi(indshni)-1 + idofn) = vi(kdofi(indshni)-1 + idofn) &
+                                                        + si((idofn-1)*lsi1 + kdofi(indshni)-1 + idofn)
+                        end do
+                     end do
+
+                     !print *, 'ri after'
+                     !do i = 1,lri1
+                     !   write (*,'(i2,2x,10e7.1)') i, ri(i,:), vi(i)
+                     !end do
+
+                  end if
+                  kishnadj = kishnadj + nnadj
+               end do
+            end if
+         end do
+      end if
 
       ! add ones to corners
       !ncorner = sub%ncorner  
@@ -13251,7 +13351,7 @@ subroutine dd_generate_interface_unit_jump(sub, vi,lvi)
       !   print *, 'vi', vi
       !end if
 
-      ! avoid negative weights
+      ! avoid negative and zero weights
       vi = abs(vi)
       where (vi.lt.numerical_zero) vi = numerical_zero
 

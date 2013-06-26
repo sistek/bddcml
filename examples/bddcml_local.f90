@@ -84,7 +84,7 @@ program bddcml_local
 
 ! use recycling of Krylov subspace
       integer :: recycling_int = 1
-      integer :: max_number_of_stored_vectors = 50
+      integer :: max_number_of_stored_vectors = 100
 
 !######### END OF PARAMETERS TO SET
       character(*),parameter:: routine_name = 'BDDCML_LOCAL'
