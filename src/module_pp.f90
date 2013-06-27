@@ -161,7 +161,7 @@ integer :: just_one
          ! TPWGTS
          ltpwgts = ncon*nparts
          allocate(tpwgts(ltpwgts))
-         tpwgts = float(1)/nparts
+         tpwgts = 1. / float(nparts)
          ! UBVEC - unbalance - refer to ParMETIS manual for proper behaviour
          lubvec = ncon
          allocate(ubvec(lubvec))
@@ -182,8 +182,8 @@ integer :: just_one
          end if
          nparts = nsub
          ! portable call
-         call pdivide_mesh_c(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, tpwgts, ubvec, options,&
-                             ec, part_loc, comm)
+         call pdivide_mesh_c(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, &
+                             tpwgts, ubvec, options, ec, part_loc, comm)
          ! less portable call - works for MPI implementations using MPI_Comm int ( like mpich ), does not work with general types
          ! ( like in OpenMPI )
          !call ParMETIS_V3_PartMeshKway(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, tpwgts, ubvec, options,&

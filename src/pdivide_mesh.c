@@ -32,7 +32,7 @@
     F_SYMBOL(pdivide_mesh_c,PDIVIDE_MESH_C)
 void pdivide_mesh_c( int *elmdist, int *eptr, int *eind, int *elmwgt, 
 	             int *wgtflag, int *numflag, int *ncon, int *ncommonnodes, int *nparts, 
-	             double *tpwgts, double *ubvec, int *options, int *edgecut, int *part, 
+	             float *tpwgts, float *ubvec, int *options, int *edgecut, int *part, 
 	             MPI_Fint *commInt )
 {
   MPI_Comm comm;
@@ -52,14 +52,17 @@ void pdivide_mesh_c( int *elmdist, int *eptr, int *eind, int *elmwgt,
   comm = MPI_Comm_f2c( *commInt );
 
 #if (PARMETIS_MAJOR_VERSION >= 4)
+  /* for ParMetis 4.0.X */
   if ( sizeof(idx_t) != sizeof(int) ) {
      printf("ERROR in PDIVIDE_MESH_C: Wrong type of integers for ParMETIS.\n");
      abort();
   }
-  if ( sizeof(real_t) != sizeof(double) ) {
-     printf("ERROR in PDIVIDE_MESH_C: Wrong type of integers for ParMETIS.\n");
+  if ( sizeof(real_t) != sizeof(float) ) {
+     printf("ERROR in PDIVIDE_MESH_C: Wrong type of reals for ParMETIS.\n");
      abort();
   }
+#else
+  /* for ParMetis 3.2.X */
 #endif
   ParMETIS_V3_PartMeshKway( elmdist,eptr,eind,elmwgt,wgtflag,numflag,ncon,ncommonnodes, nparts, tpwgts, ubvec, options,
                             edgecut, part, &comm );

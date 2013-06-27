@@ -86,8 +86,8 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
   else {
      wgtflag = 0;
   }
-  int options[5];
-  for ( i = 0; i < 5; i++ ) {
+  int * options = malloc(8 * sizeof(int));
+  for ( i = 0; i < 8; i++ ) {
      options[i] = 0;
   }
 #endif
@@ -125,8 +125,7 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
 #endif
   }
 
-#if (METIS_VER_MAJOR >= 5)
   free(options);
-#endif
+
   return;
 }
