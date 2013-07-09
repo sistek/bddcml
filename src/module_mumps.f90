@@ -239,7 +239,7 @@ contains
          ! 0 - automatic choice
          ! 1 - PT-SCOTCH
          ! 2 - Parmetis
-         mumps%ICNTL(29) = 0
+         mumps%ICNTL(29) = 2
       else
          call error(routine_name,'Illegal value of iparallel:',iparallel)
       end if
