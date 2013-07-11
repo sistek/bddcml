@@ -13505,6 +13505,46 @@ subroutine dd_print_cnode(sub,icnode)
       write(*,*) '****** end coarse nodes export '
 end subroutine
 
+!************************************************
+subroutine dd_plot_subdomain_data_vtu(prefix,sub)
+!************************************************
+! Subroutine for plotting the subdomain data in VTU format 
+      use module_paraview
+
+      implicit none
+      character(*), intent(in) :: prefix           ! basename of vtu files
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+
+      ! local vars
+      integer ::  idvtu
+      integer ::             lsubdomain
+      integer, allocatable :: subdomain(:)
+
+      ! write solution to a separate VTU file
+      call paraview_open_subdomain_file(prefix,sub%isub,idvtu)
+
+      ! write header of VTU file
+      call paraview_write_mesh(idvtu, sub%nelem,sub%nnod, sub%inet,sub%linet, sub%nnet,sub%lnnet, sub%xyz,sub%lxyz1,sub%lxyz2)
+
+      ! write cell data
+      call paraview_open_celldata(idvtu)
+
+      lsubdomain = sub%nelem
+      allocate( subdomain(lsubdomain) )
+      subdomain = sub%isub
+      call paraview_write_dataarray(idvtu,1,'subdomain',subdomain,lsubdomain)
+      deallocate( subdomain )
+      call paraview_close_celldata(idvtu)
+
+      ! finalize the file
+      call paraview_finalize_file(idvtu)
+    
+      ! close file
+      call paraview_close_subdomain_file(idvtu)
+
+end subroutine
+
 !**************************
 subroutine dd_finalize(sub)
 !**************************

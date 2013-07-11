@@ -31,6 +31,8 @@ module module_levels
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! debugging 
       logical,parameter,private :: debug = .false.
+! plot input data in ParaView - useful for debugging
+      logical,parameter,private :: plot_inputs = .false.
 ! profiling 
       logical,private :: profile = .true.
 ! damping division
@@ -1230,6 +1232,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       use module_pp
       use module_adaptivity
       use module_sm
+      use module_paraview
       use module_utils
       implicit none
       include "mpif.h"
@@ -1366,6 +1369,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       logical,parameter :: use_explicit_schurs = .false.
 
       character(1) :: levelstring
+      character(256) :: prefix
+      character(300) :: command
 
 
       ! time variables
@@ -1435,8 +1440,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
       !print *,'nnod',levels(ilevel)%nnod
       !print *,'nelem',levels(ilevel)%nelem
       !print *,'nndf',levels(ilevel)%nndf
-
-
 
       ! initialize values
       nsub      = levels(ilevel)%nsub
@@ -1781,6 +1784,34 @@ subroutine levels_prepare_standard_level(parallel_division,&
       
 ! only for global loading
  1234 continue
+
+      ! export data to ParaView for debugging purposes
+      if (plot_inputs.and.ilevel.eq.1) then
+         if (ilevel.lt.10) then
+            write(levelstring,'(i1)') ilevel
+         else
+            call error(routine_name,'Index of level too large for writing to string:',ilevel)
+         end if
+         ! set the names for files
+         prefix = 'bddcml_data_on_level_'//levelstring
+
+         ! make sure the directory exists
+         if (myid.eq.0) then
+            command = 'mkdir -p '//trim(prefix)
+            call system(trim(command))
+         end if
+         call MPI_BARRIER(comm_all,ierr)
+
+         ! write local files
+         do i = 1,levels(ilevel)%nsub_loc
+            call dd_plot_subdomain_data_vtu( prefix, levels(ilevel)%subdomains(i) )
+         end do
+
+         ! export the umbrella PVD file
+         if (myid.eq.0) then
+            call paraview_export_pvd_file(prefix, nsub)
+         end if
+      end if
 
       ! check that subdomains are properly loaded
       do i = 1,levels(ilevel)%nsub_loc
