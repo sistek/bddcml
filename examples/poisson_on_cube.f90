@@ -24,8 +24,10 @@ program poisson_on_cube
 ! ' using FEM and the BDDCML solver.           '
 ! '============================================'
  
-! Program name
+! utilities for error prints, etc.
       use module_utils
+! functions for exporting to ParaView format
+      use module_paraview
 
       implicit none
       
@@ -613,12 +615,11 @@ program poisson_on_cube
          normLinf_loc = max(normLinf_loc,maxval(sols))
 
          if (export_solution) then
-            call export_vtu_file(output_file_prefix, &
-                                 isub, nelems, nnods, &
-                                 inets,linets, &
-                                 xyzs,lxyzs1,lxyzs2, &
-                                 sols,lsols)
-
+            call export_vtu_file_with_solution(output_file_prefix, &
+                                               isub, nelems, nnods, &
+                                               inets,linets, nnets,lnnets, &
+                                               xyzs,lxyzs1,lxyzs2, &
+                                               sols,lsols)
          end if
          deallocate(inets,nnets,nndfs,isegns,isngns,isvgvns)
          deallocate(xyzs)
@@ -628,7 +629,7 @@ program poisson_on_cube
       if (export_solution) then
          ! export the umbrella PVD file
          if (myid.eq.0) then
-            call export_pvd_file('poisson_solution', nsub)
+            call paraview_export_pvd_file('poisson_solution', nsub)
          end if
       end if
 
@@ -865,14 +866,15 @@ program poisson_on_cube
       end subroutine
 
 !************************************************************************************************
-      subroutine export_vtu_file(prefix, &
-                                 isub, nelems, nnods, &
-                                 inets,linets,  &
-                                 xyzs,lxyzs1,lxyzs2, &
-                                 sols,lsols)
+      subroutine export_vtu_file_with_solution(prefix, &
+                                               isub, nelems, nnods, &
+                                               inets,linets, nnets,lnnets, &
+                                               xyzs,lxyzs1,lxyzs2, &
+                                               sols,lsols)
 !************************************************************************************************
 ! subroutine for exporting a VTU file
       use module_utils
+      use module_paraview
 
       implicit none
 ! precision of floats
@@ -885,140 +887,45 @@ program poisson_on_cube
 
       integer, intent(in) :: linets 
       integer, intent(in) :: inets(linets)
+      integer, intent(in) :: lnnets 
+      integer, intent(in) :: nnets(lnnets)
       integer, intent(in) :: lxyzs1,lxyzs2
       real(kr), intent(in) :: xyzs(lxyzs1,lxyzs2)
       integer, intent(in) :: lsols
       real(kr), intent(in) :: sols(lsols)
 
       ! local vars
-      character(*),parameter:: routine_name = 'EXPORT_VTU_FILE'
-      logical :: debug = .false.
-      integer ::  idvtus
-      character(len=256) :: filename
-      integer :: i, ie, indinets, nne
-      integer :: offset
-      integer :: VTKtype
+      character(*),parameter:: routine_name = 'EXPORT_VTU_FILE_WITH_SOLUTION'
+      integer ::  idvtu
+      integer ::             lsubdomain
+      integer, allocatable :: subdomain(:)
 
       ! write solution to a separate VTU file
-      filename = ' '
-      call getfname(trim(prefix),isub,'vtu',filename)
-      if (debug) then
-         call info(routine_name,' Opening file: '//trim(filename))
-      end if
-      call allocate_unit(idvtus)
-
-      open (unit=idvtus,file=trim(filename),status='replace',form='formatted')
+      call paraview_open_subdomain_file(prefix,isub,idvtu)
 
       ! write header of VTU file
-      write(idvtus,'(a)')             '<?xml version="1.0"?>' 
-      write(idvtus,'(a)')             '<VTKFile type="UnstructuredGrid" byte_order="LittleEndian">'
-      write(idvtus,'(a)')             '  <UnstructuredGrid>'
-      write(idvtus,'(a,i10,a,i10,a)') '  <Piece NumberOfPoints="', nnods,'" NumberOfCells="', nelems,'">'
-      
-      ! write nodal coordinates
-      write(idvtus,'(a)')             '    <Points>'
-      write(idvtus,'(a)')             '      <DataArray type="Float64" NumberOfComponents="3" Name="Coordinates" format="ascii">'
+      call paraview_write_mesh(idvtu, nelems,nnods, inets,linets, nnets,lnnets, xyzs,lxyzs1,lxyzs2)
 
-      do i = 1,lxyzs1
-         write(idvtus,'(3e15.7)')       xyzs(i,:)
-      end do
-      write(idvtus,'(a)')             '      </DataArray>'
-      write(idvtus,'(a)')             '    </Points>'
+      ! write cell data
+      call paraview_open_celldata(idvtu)
 
-      ! write cells
-      write(idvtus,'(a)')             '    <Cells>'
-    
-      ! connectivity
-      write(idvtus,'(a)')             '      <DataArray type="Int32" NumberOfComponents="1" Name="connectivity" format="ascii">'
+      lsubdomain = nelems
+      allocate( subdomain(lsubdomain) )
+      subdomain = isub
+      call paraview_write_dataarray(idvtu,1,'subdomain',subdomain,lsubdomain)
+      deallocate( subdomain )
+      call paraview_close_celldata(idvtu)
 
-      indinets = 0
-      do ie = 1,nelems
-         nne = 8
-         write(idvtus,'(10i15)')         inets(indinets+1:indinets+nne) - 1 ! remove one to start from 0
-         indinets = indinets + nne
-      end do
-      write(idvtus,'(a)')             '      </DataArray>'
-
-      ! offset
-      write(idvtus,'(a)')             '      <DataArray type="Int32" NumberOfComponents="1" Name="offsets" format="ascii">'
-      offset = 0
-      do ie = 1,nelems
-         nne = 8
-         offset = offset + nne
-         write(idvtus,'(10i15)')         offset
-      end do
-      write(idvtus,'(a)')             '      </DataArray>'
-
-      ! VTKtype
-      write(idvtus,'(a)')             '      <DataArray type="Int32" NumberOfComponents="1" Name="types" format="ascii">'
-      do ie = 1,nelems
-         nne = 8
-         if (nne.eq.8) then
-            VTKtype = 12
-         else
-            call error( routine_name, 'Unsupported element type with number of nodes ', nne)
-         endif
-         write(idvtus,'(10i15)')         VTKtype
-      end do
-      write(idvtus,'(a)')             '      </DataArray>'
-      write(idvtus,'(a)')             '    </Cells>'
-      write(idvtus,'(a)')             '    <CellData>'
-      write(idvtus,'(a)')             '      <DataArray type="Int32" NumberOfComponents="1" Name="subdomain" format="ascii">'
-      write(idvtus,'(i15)')              ( isub, i = 1,nelems )
-      write(idvtus,'(a)')             '      </DataArray>'
-      write(idvtus,'(a)')             '    </CellData>'
-
+      ! write point data
+      call paraview_open_pointdata(idvtu)
       ! export solution
-      write(idvtus,'(a)')             '    <PointData>'
-      write(idvtus,'(a)')             '      <DataArray type="Float64" NumberOfComponents="1" Name="Solution" format="ascii">'
-      write(idvtus,'(1e15.7)')           sols
-      write(idvtus,'(a)')             '      </DataArray>'
-      write(idvtus,'(a)')             '    </PointData>'
+      call paraview_write_dataarray(idvtu,1,'Solution',sols,lsols)
+      call paraview_close_pointdata(idvtu)
 
-      write(idvtus,'(a)')             '  </Piece>'
-      write(idvtus,'(a)')             ' </UnstructuredGrid>'
-      write(idvtus,'(a)')             '</VTKFile>'
+      ! finalize the file
+      call paraview_finalize_file(idvtu)
     
-      close(idvtus)
-
-      end subroutine
-
-!************************************************************************************************
-      subroutine export_pvd_file(prefix, nsub)
-!************************************************************************************************
-! subroutine for exporting an umbrella PVD file for a set of VTU files
-! for convenient handling by ParaView
-      use module_utils
-
-      implicit none
-
-      character(*), intent(in) :: prefix           ! basename of vtu files
-      integer, intent(in) :: nsub                  ! total number of subdomains
-
-      ! local vars
-      character(*),parameter:: routine_name = 'EXPORT_PVD_FILE'
-      integer ::  idpvd
-      character(len=256) :: filename
-      integer :: isub
-
-      filename = trim(prefix)//'.pvd'
-      call info(routine_name,' Opening file: '//trim(filename))
-      call allocate_unit(idpvd)
-
-      open (unit=idpvd,file=trim(filename),status='replace',form='formatted')
-
-      ! write header of PVD file
-      write(idpvd,'(a)')             '<?xml version="1.0"?>' 
-      write(idpvd,'(a)')             '<VTKFile type="Collection" version="0.1" byte_order="LittleEndian">'
-      write(idpvd,'(a)')             '  <Collection>'
-      ! write entries with individual VTU files
-      do isub = 1,nsub
-         call getfname(trim(prefix),isub,'vtu',filename)
-         write(idpvd,'(a,i10,a)')    '    <DataSet part="',isub-1,'" file="./'//trim(filename)//'"/>'
-      end do
-      write(idpvd,'(a)')             '  </Collection>'
-      write(idpvd,'(a)')             '</VTKFile>'
-
-      close(idpvd)
+      ! close file
+      call paraview_close_subdomain_file(idvtu)
 
       end subroutine

@@ -25,6 +25,7 @@ OBJ = \
    divide_graph.o \
    module_parsing.o \
    module_sm.o \
+   module_paraview.o \
    module_utils.o \
    lobpcg_driver.o \
    bddcml_interface_fortran.o
@@ -91,6 +92,9 @@ module_pp.o: \
    pdivide_mesh.o \
    module_graph.o \
    module_parsing.o \
+   module_utils.o 
+
+module_paraview.o: \
    module_utils.o 
 
 lobpcg_mvecmult_f.o: \
