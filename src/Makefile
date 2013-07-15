@@ -63,6 +63,7 @@ module_levels.o: \
    module_graph.o \
    module_parsing.o \
    module_krylov_types_def.o \
+   module_paraview.o \
    module_utils.o 
 
 module_krylov.o: \
