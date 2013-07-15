@@ -77,6 +77,7 @@ module_dd.o: \
    module_pp.o \
    module_mumps.o \
    module_sm.o \
+   module_paraview.o \
    module_utils.o 
 
 module_sm.o: \
