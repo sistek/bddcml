@@ -2329,6 +2329,14 @@ subroutine dd_load_matrix_triplet(sub, matrixtype, numshift,&
          sub%a_sparse(i)   = a_sparse(i)
       end do
 
+      ! data consistency
+      if (any( sub%i_a_sparse .gt. sub%ndof .or. sub%i_a_sparse .lt. 0 )) then
+         call error(routine_name,' Some row index entries out of range for subdomain: ',sub%isub )
+      end if
+      if (any( sub%j_a_sparse .gt. sub%ndof .or. sub%j_a_sparse .lt. 0 )) then
+         call error(routine_name,' Some column index entries out of range for subdomain: ',sub%isub )
+      end if
+
       sub%is_matrix_loaded = .true.
       sub%is_triplet       = .true.
 
@@ -2403,6 +2411,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       real(kr),intent(in)::  xyz(lxyz1,lxyz2)
 
       ! local vars
+      character(*),parameter:: routine_name = 'DD_UPLOAD_SUB_MESH'
 ! ################ parameters to set
       logical,parameter :: find_componets    = .true. ! find and store components of nodal graph
       integer,parameter :: node_neighbouring = 1      ! any element connecting nodes counts as a graph edge
@@ -2419,9 +2428,36 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       integer ::              lxadj,   ladjncy,   ladjwgt
       integer,allocatable ::   xadj(:), adjncy(:), adjwgt(:)
 
+      ! check data consistency
       if (.not.sub%is_initialized) then
-         write(*,*) 'DD_UPLOAD_SUB_MESH: Not initialized subdomain: ',sub%isub
-         call error_exit
+         call error(routine_name, 'Not initialized subdomain: ',sub%isub)
+      end if
+      if ( lnnet .ne. nelem ) then
+         call error(routine_name, 'LNNET size not equal to NELEM for subdomain: ',sub%isub)
+      end if
+      if ( lnndf .ne. nnod ) then
+         call error(routine_name, 'LNNDF size not equal to NNOD for subdomain: ',sub%isub)
+      end if
+      if ( lisngn .ne. nnod ) then
+         call error(routine_name, 'LISNGN size not equal to NNOD for subdomain: ',sub%isub)
+      end if
+      if ( lisngn .ne. nnod ) then
+         call error(routine_name, 'LISNGN size not equal to NNOD for subdomain: ',sub%isub)
+      end if
+      if ( lisegn .ne. nelem ) then
+         call error(routine_name, 'LISEGN size not equal to NELEM for subdomain: ',sub%isub)
+      end if
+      if ( lxyz1 .ne. nnod ) then
+         call error(routine_name, 'LXYZ1 size not equal to NNOD for subdomain: ',sub%isub)
+      end if
+      if ( lxyz2 .ne. ndim ) then
+         call error(routine_name, 'LXYZ2 size not equal to NDIM for subdomain: ',sub%isub)
+      end if
+      if (sum(nnet) .ne. linet) then
+         call error(routine_name, 'NNET does not sum up to LINET for subdomain: ',sub%isub)
+      end if
+      if (sum(nndf) .ne. ndof) then
+         call error(routine_name, 'NNDF does not sum up to NDOF for subdomain: ',sub%isub)
       end if
 
       ! load data
