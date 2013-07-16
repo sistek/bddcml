@@ -2329,19 +2329,27 @@ subroutine dd_load_matrix_triplet(sub, matrixtype, numshift,&
          sub%a_sparse(i)   = a_sparse(i)
       end do
 
-      ! data consistency
-      if (any( sub%i_a_sparse .gt. sub%ndof .or. sub%i_a_sparse .lt. 0 )) then
-         call error(routine_name,' Some row index entries out of range for subdomain: ',sub%isub )
-      end if
-      if (any( sub%j_a_sparse .gt. sub%ndof .or. sub%j_a_sparse .lt. 0 )) then
-         call error(routine_name,' Some column index entries out of range for subdomain: ',sub%isub )
-      end if
-
       sub%is_matrix_loaded = .true.
       sub%is_triplet       = .true.
 
 end subroutine
 
+!*********************************************************************************
+subroutine dd_check_local_matrix(sub)
+!*********************************************************************************
+! Subroutine for checking a sparse triplet, the array is assumed sorted
+      use module_sm
+      implicit none
+
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_CHECK_LOCAL_MATRIX'
+
+      call sm_check_matrix(sub%ndof,sub%ndof,sub%i_a_sparse,sub%j_a_sparse,sub%la,sub%nnza)
+
+end subroutine
 !********************************************
 subroutine dd_load_eliminated_bc(sub, bc,lbc)
 !********************************************

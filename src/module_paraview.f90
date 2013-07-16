@@ -197,11 +197,14 @@ subroutine paraview_write_mesh(idvtu, nelem,nnod, inet,linet, nnet,lnnet, xyz,lx
          nne = nnet(ie)
          select case (nne) 
             case (8)
+               ! hexahedron
                VTKtype = 12
             case (4)
+               ! tertahedron
                VTKtype = 10
             case default
-               call error( routine_name, 'Unsupported element type with number of nodes ', nne)
+               ! default to convex point set
+               VTKtype = 41
          end select
          write(idvtu,'(10i15)')         VTKtype
       end do

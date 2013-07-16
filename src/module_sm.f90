@@ -1479,6 +1479,73 @@ subroutine sm_from_sm_mat_mult_emb(matrixtype, nnz, i_sparse, j_sparse, a_sparse
       return
 end subroutine
 
+!*********************************************************************
+subroutine sm_check_matrix(ibound,jbound, i_sparse, j_sparse, la, nnz)
+!*********************************************************************
+! Subroutine for checking that the matrix. It checks:
+! - matrix is sorted
+! - no index exceeds prescribed limits
+! - does not contain zero rows or columns
+
+      use module_utils
+      implicit none
+
+! Input matrix
+      integer,intent(in)  :: ibound, jbound
+      integer,intent(in)  :: la
+      integer,intent(in) :: i_sparse(la)
+      integer,intent(in) :: j_sparse(la)
+      integer,intent(out) :: nnz
+
+! Local variables
+      character(*),parameter:: routine_name = 'SM_CHECK_MATRIX'
+      integer :: ia, irow, jcol, indrow
+      integer ::             lcol_counts
+      integer, allocatable :: col_counts(:)
+
+      ! bounds
+      if (minval(i_sparse) .lt. 1 .or. maxval(i_sparse) .gt. ibound) then
+         call error(routine_name,' Some row index entries out of range.')
+      end if
+      if (minval(j_sparse) .lt. 1 .or. maxval(j_sparse) .gt. jbound) then
+         call error(routine_name,' Some column index entries out of range.')
+      end if
+
+      ! check that the array is sorted and does not contain zero rows or columns
+      if (nnz.gt.0) then
+         lcol_counts = jbound
+         allocate(col_counts(lcol_counts))
+         col_counts = 0
+         indrow = 0
+         do ia = 1,nnz
+            irow = i_sparse(ia)
+            jcol = j_sparse(ia)
+
+            if      (irow.eq.indrow + 1) then
+               ! new line starting
+               indrow = irow 
+            else if (irow .eq. indrow) then
+               ! keeping at the same line
+               continue
+            else if (irow.gt.indrow+1) then
+               call error(routine_name,'There seems to be a zero row in the matrix after row ',indrow)
+            else
+               call error(routine_name,'Matrix appears to be unsorted. Sort it prior the call to '//trim(routine_name))
+            end if
+
+            col_counts(jcol) = col_counts(jcol) + 1
+         end do
+
+         if (any(col_counts.eq.0)) then
+            call error(routine_name,'There seems to be a zero column in the matrix around column ', minloc(col_counts,1))
+         end if
+
+         deallocate(col_counts)
+      end if
+
+      return
+end subroutine
+
 !************************************************************
 subroutine sm_from_vec(vec,lvec, i_sparse, a_sparse, la, nnz)
 !************************************************************

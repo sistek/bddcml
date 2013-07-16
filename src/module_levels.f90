@@ -32,7 +32,7 @@ module module_levels
 ! debugging 
       logical,parameter,private :: debug = .false.
 ! plot input data in ParaView - useful for debugging
-      logical,parameter,private :: plot_inputs = .false.
+      logical,parameter,private :: plot_inputs = .true.
 ! profiling 
       logical,private :: profile = .true.
 ! damping division
@@ -716,6 +716,9 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       if (.not. is_assembled) then
          call dd_assembly_local_matrix(levels(iactive_level)%subdomains(isub_loc))
       end if
+
+      ! check matrix
+      call dd_check_local_matrix(levels(iactive_level)%subdomains(isub_loc))
 
       ! load user's constraints
       call dd_upload_sub_user_constraints(levels(iactive_level)%subdomains(isub_loc), &
@@ -1786,7 +1789,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
  1234 continue
 
       ! export data to ParaView for debugging purposes
-      if (plot_inputs.and.ilevel.eq.1) then
+      if (plot_inputs) then
          if (ilevel.lt.10) then
             write(levelstring,'(i1)') ilevel
          else
