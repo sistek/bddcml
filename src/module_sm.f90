@@ -1491,11 +1491,11 @@ subroutine sm_check_matrix(ibound,jbound, i_sparse, j_sparse, la, nnz)
       implicit none
 
 ! Input matrix
-      integer,intent(in)  :: ibound, jbound
-      integer,intent(in)  :: la
+      integer,intent(in) :: ibound, jbound
+      integer,intent(in) :: la
       integer,intent(in) :: i_sparse(la)
       integer,intent(in) :: j_sparse(la)
-      integer,intent(out) :: nnz
+      integer,intent(in) :: nnz
 
 ! Local variables
       character(*),parameter:: routine_name = 'SM_CHECK_MATRIX'

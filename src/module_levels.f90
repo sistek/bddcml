@@ -32,7 +32,7 @@ module module_levels
 ! debugging 
       logical,parameter,private :: debug = .false.
 ! plot input data in ParaView - useful for debugging
-      logical,parameter,private :: plot_inputs = .true.
+      logical,parameter,private :: plot_inputs = .false.
 ! profiling 
       logical,private :: profile = .true.
 ! damping division
