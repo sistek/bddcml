@@ -329,12 +329,14 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       integer,intent(in) :: use_user_constraints_int
 
       ! what type of weights should be used on the interface ?
-      ! 0 - weights by cardinality, i.e. arithmetic average
+      ! 0 - weights by cardinality
       ! 1 - weights by diagonal stiffness
       ! 2 - weights based on first row of element data
       ! 3 - weights based on dof data
       ! 4 - weights by Marta Certikova - unit load
       ! 5 - weights by Marta Certikova - unit jump
+      ! 6 - weights by Schur row sums for whole subdomain
+      ! 7 - weights by Schur row sums computed face by face
       integer,intent(in) :: weights_type
 
       ! local variables

@@ -212,6 +212,8 @@ module module_dd
                                                        ! 3 - weights based on dof data
                                                        ! 4 - weights by Marta Certikova - unit load
                                                        ! 5 - weights by Marta Certikova - unit jump
+                                                       ! 6 - weights by Schur row sums for whole subdomain
+                                                       ! 7 - weights by Schur row sums computed face by face
          logical ::               is_weights_ready = .false. ! are weights ready?
 
          ! common description of joint coarse nodes/dofs
@@ -8334,7 +8336,7 @@ subroutine dd_guess_neighbouring_by_bb(ndim, suba,lsuba, sub2proc,lsub2proc,inde
          ! keep zero on diagonal
          kadjsub((isub_loc-1)*nsub + isub) = 0
       end do
-      if (all(kadjsub.eq.0)) then
+      if (all(kadjsub.eq.0) .and. lindexsub.gt.0) then
          call error(routine_name,'This is strange - seems as if none of my subdomains has any neighbour, myid = ',myid)
       end if
 
@@ -12547,6 +12549,8 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
       ! 3 - weights based on dof data
       ! 4 - weights by Marta Certikova - unit load
       ! 5 - weights by Marta Certikova - unit jump
+      ! 6 - weights by Schur row sums for whole subdomain
+      ! 7 - weights by Schur row sums computed face by face
       integer,intent(in) :: weights_type 
 
       ! local vars
@@ -12590,6 +12594,10 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
             call dd_generate_interface_unit_load(suba(isub_loc), rhoi,lrhoi)
          else if (weights_type .eq. 5) then
             call dd_generate_interface_unit_jump(suba(isub_loc), rhoi,lrhoi)
+         else if (weights_type .eq. 6) then
+            call dd_generate_interface_schur_row_sums(suba(isub_loc), rhoi,lrhoi)
+         else if (weights_type .eq. 7) then
+            call dd_generate_interface_face_schur_row_sums(suba(isub_loc), rhoi,lrhoi)
          else
             call error(routine_name,'Type of weight not supported:',weights_type)
          end if
@@ -12629,6 +12637,10 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
             call dd_generate_interface_unit_load(suba(isub_loc), rhoi,lrhoi)
          else if (weights_type .eq. 5) then
             call dd_generate_interface_unit_jump(suba(isub_loc), rhoi,lrhoi)
+         else if (weights_type .eq. 6) then
+            call dd_generate_interface_schur_row_sums(suba(isub_loc), rhoi,lrhoi)
+         else if (weights_type .eq. 7) then
+            call dd_generate_interface_face_schur_row_sums(suba(isub_loc), rhoi,lrhoi)
          else
             call error(routine_name,'Type of weight not supported:',weights_type)
          end if
@@ -13228,15 +13240,11 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
       deallocate(kdofi)
 end subroutine
 
-!******************************************************
-subroutine dd_generate_interface_unit_jump(sub, vi,lvi)
-!******************************************************
+!***********************************************************
+subroutine dd_generate_interface_schur_row_sums(sub, vi,lvi)
+!***********************************************************
 ! Subroutine for generating weights as a solution to local problems with unit jump, but using 
 ! different value at each dof - w_i = S*ones(ndofi,1)
-! Based on the paper
-! M. Certikova, P. Burda, J. Sistek: Numerical comparison of different choices 
-! of interface weights in the BDDC method,
-! Proceedings of Applications of Mathematics 2012, Institute of Mathematics AS CR, pp. 55-61, 2012
       use module_utils
       implicit none
 ! Subdomain structure
@@ -13245,7 +13253,7 @@ subroutine dd_generate_interface_unit_jump(sub, vi,lvi)
       real(kr),intent(out) :: vi(lvi)
 
       ! local vars
-      character(*),parameter:: routine_name = 'DD_GENERATE_INTERFACE_UNIT_JUMP'
+      character(*),parameter:: routine_name = 'DD_GENERATE_INTERFACE_SCHUR_ROW_SUMS'
       integer :: ndofi
       integer :: lri
       real(kr), allocatable :: ri(:)
@@ -13283,6 +13291,375 @@ subroutine dd_generate_interface_unit_jump(sub, vi,lvi)
 
       deallocate(ri)
 
+end subroutine
+
+!****************************************************************
+subroutine dd_generate_interface_face_schur_row_sums(sub, vi,lvi)
+!****************************************************************
+! Subroutine for generating weights as a solution to local problems with unit jump, but using 
+! different value at each dof - w_i = S*ones(ndofi,1)
+! Compared to dd_generate_interface_schur_row_sums, it is constructed locally face by face
+
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+      integer,intent(in)  :: lvi
+      real(kr),intent(out) :: vi(lvi)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GENERATE_INTERFACE_FACE_SCHUR_ROW_SUMS'
+      integer :: i, nnodi, ndofi, ndofn, nglob, nnadj
+      integer :: ndofnx 
+      integer :: lri1, lri2 
+      real(kr), allocatable :: ri(:)
+      integer :: lsi1, lsi2 
+      real(kr), allocatable :: si(:)
+      integer :: ncol
+
+      integer :: isubadj, jsub, ia, idofn, iglob, inadj, indn, indshni, kishnadj, nadj, ind, inodi
+
+      integer ::            lkdofi
+      integer,allocatable :: kdofi(:)
+
+      ! check if mesh is loaded
+      if (.not. sub%is_mesh_loaded) then
+         call error(routine_name, 'Mesh not loaded for subdomain: ',sub%isub)
+      end if
+      ! check if dof data are loaded
+      if (.not. sub%is_interior_factorized) then
+         call error(routine_name, 'Interior problem is not factorized for subdomain: ',sub%isub)
+      end if
+      ! check dimensions
+      if (sub%ndofi.ne.lvi) then
+         call error(routine_name, 'Interface dimensions mismatch for subdomain ',sub%isub)
+      end if
+
+      ! prepare array kdofi
+      nnodi = sub%nnodi
+      lkdofi = nnodi + 1
+      allocate(kdofi(lkdofi))
+      kdofi(1) = 1
+      do i = 1,nnodi
+         indn = sub%iin(i)
+         ndofn = sub%nndf(indn)
+         
+         kdofi(i + 1) = kdofi(i) + ndofn
+      end do
+
+      ndofnx = minval(sub%nndf)
+
+      ! prepare unit load vector at subdomain interface
+      ndofi = sub%ndofi
+      lri1 = ndofi
+      lri2 = ndofnx
+      allocate(ri(lri1*lri2))
+      lsi1 = ndofi
+      lsi2 = ndofnx
+      allocate(si(lsi1*lsi2))
+
+      call zero(vi,lvi)
+
+      if (ndofnx.gt.0) then
+
+         ! loop over globs and identify faces
+         nglob = sub%nglob
+         nadj  = sub%nadj
+         do iglob = 1,nglob
+
+            ! only select faces 
+            if (sub%glob_type(iglob) .eq. 1) then
+
+               ! the second subdomain
+               if (sub%nsubglobs(iglob).lt.1) then
+                  call error(routine_name,'Face appears to have no neighbour for subdomain:',sub%isub)
+               end if
+               if (sub%lglob_subs2.lt.1) then
+                  call error(routine_name,'Wrong dimension of array glob_subs for subdomain:',sub%isub)
+               end if
+               jsub = sub%glob_subs(iglob,1)
+
+               ! find all nodes shared with this subdomain
+               kishnadj = 0
+               do ia = 1,nadj
+                  nnadj = sub%nshnadj(ia)
+
+                  ! get index of neighbour
+                  isubadj = sub%iadj(ia)
+                  ! perform the solves only if the subdomain matches the face neighbour
+                  if (isubadj .eq. jsub) then
+
+                     ! fill in ones in selected direction
+                     ri = 0._kr
+                     do inadj = 1,nnadj
+                        indshni = sub%ishnadj(kishnadj + inadj)
+
+                        do idofn = 1,ndofnx
+                           ri((idofn-1)*lri1 + (kdofi(indshni)-1 + idofn)) = 1._kr
+                        end do
+                     end do
+
+                     !print *, 'ri before'
+                     !do i = 1,lri1
+                     !   write (*,'(i2,2x,10e7.1)') i, ri(i,:)
+                     !end do
+
+                     ! multiply the vectors by Schur complement
+                     ncol = ndofnx
+                     call dd_multiply_by_schur(sub, ri,lri1*lri2, si,lsi1*lsi2, ncol)
+
+                     ! fill in ones in selected direction
+                     do inadj = 1,nnadj
+                        indshni = sub%ishnadj(kishnadj + inadj)
+
+                        do idofn = 1,ndofnx
+                           vi(kdofi(indshni)-1 + idofn) = vi(kdofi(indshni)-1 + idofn) &
+                                                        + si((idofn-1)*lsi1 + kdofi(indshni)-1 + idofn)
+                        end do
+                     end do
+
+                     !print *, 'ri after'
+                     !do i = 1,lri1
+                     !   write (*,'(i2,2x,10e7.1)') i, ri(i,:), vi(i)
+                     !end do
+
+                  end if
+                  kishnadj = kishnadj + nnadj
+               end do
+            end if
+         end do
+      end if
+
+      ! add ones to corners
+      !ncorner = sub%ncorner  
+      !do icorner = 1,ncorner
+      !   indi = sub%icnsin(icorner) 
+
+      !   do idofn = 1,ndofnx
+      !      vi(kdofi(indi)-1+idofn) = 1._kr
+      !   end do
+      !end do
+
+      !print *, 'vi with corners'
+      !do i = 1,lvi
+      !   write (*,'(i2,2x,10e7.1)') i, vi(i)
+      !end do
+
+      ! add ones to dofs above the ndofnx
+      do inodi = 1,nnodi
+         ind = sub%iin(inodi)
+         ndofn = sub%nndf(ind)
+         do idofn = ndofnx+1,ndofn
+            vi(kdofi(inodi)-1+idofn) = 1._kr
+         end do
+      end do
+
+      !if (any(vi.le.0._kr)) then
+      !   call warning(routine_name,'zeros in weights for subdomain',sub%isub)
+      !   print *, 'vi', vi
+      !end if
+
+      ! avoid negative and zero weights
+      vi = abs(vi)
+      where (vi.lt.numerical_zero) vi = numerical_zero
+
+      deallocate(ri)
+      deallocate(si)
+      deallocate(kdofi)
+end subroutine
+
+!******************************************************
+subroutine dd_generate_interface_unit_jump(sub, vi,lvi)
+!******************************************************
+! Subroutine for generating weights as a solution to local problems with unit jump.
+! alpha = dT * S_i * d / (dT * (S_i + S_j) * d)
+! Based on the paper
+! M. Certikova, J. Sistek, P. Burda: On selection of interface weights in domain decomposition methods,
+! Proceedings of Programs and Algorithms of Numerical Mathematics 16, Institute
+! of Mathematics AS CR, pp. 35-44, 2013
+! Constructed locally face by face.
+
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+      integer,intent(in)  :: lvi
+      real(kr),intent(out) :: vi(lvi)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GENERATE_INTERFACE_UNIT_JUMP'
+      integer :: i, nnodi, ndofi, ndofn, nglob, nnadj
+      integer :: ndofnx 
+      integer :: lri1, lri2 
+      real(kr), allocatable :: ri(:)
+      integer :: lsi1, lsi2 
+      real(kr), allocatable :: si(:)
+      integer :: ncol
+
+      integer :: isubadj, jsub, ia, idofn, iglob, inadj, indn, indshni, kishnadj, nadj, ind, inodi
+      integer :: range_start, range_end
+
+      integer ::            lkdofi
+      integer,allocatable :: kdofi(:)
+      integer ::             lalphas
+      real(kr),allocatable :: alphas(:)
+
+      ! check if mesh is loaded
+      if (.not. sub%is_mesh_loaded) then
+         call error(routine_name, 'Mesh not loaded for subdomain: ',sub%isub)
+      end if
+      ! check if dof data are loaded
+      if (.not. sub%is_interior_factorized) then
+         call error(routine_name, 'Interior problem is not factorized for subdomain: ',sub%isub)
+      end if
+      ! check dimensions
+      if (sub%ndofi.ne.lvi) then
+         call error(routine_name, 'Interface dimensions mismatch for subdomain ',sub%isub)
+      end if
+
+      ! prepare array kdofi
+      nnodi = sub%nnodi
+      lkdofi = nnodi + 1
+      allocate(kdofi(lkdofi))
+      kdofi(1) = 1
+      do i = 1,nnodi
+         indn = sub%iin(i)
+         ndofn = sub%nndf(indn)
+         
+         kdofi(i + 1) = kdofi(i) + ndofn
+      end do
+
+      ndofnx = minval(sub%nndf)
+
+      ! prepare unit load vector at subdomain interface
+      ndofi = sub%ndofi
+      lri1 = ndofi
+      lri2 = ndofnx
+      allocate(ri(lri1*lri2))
+      lsi1 = ndofi
+      lsi2 = ndofnx
+      allocate(si(lsi1*lsi2))
+
+      lalphas = ndofnx
+      allocate(alphas(lalphas))
+
+      call zero(vi,lvi)
+
+      if (ndofnx.gt.0) then
+
+         ! loop over globs and identify faces
+         nglob = sub%nglob
+         nadj  = sub%nadj
+         do iglob = 1,nglob
+
+            ! only select faces 
+            if (sub%glob_type(iglob) .eq. 1) then
+
+               ! the second subdomain
+               if (sub%nsubglobs(iglob).lt.1) then
+                  call error(routine_name,'Face appears to have no neighbour for subdomain:',sub%isub)
+               end if
+               if (sub%lglob_subs2.lt.1) then
+                  call error(routine_name,'Wrong dimension of array glob_subs for subdomain:',sub%isub)
+               end if
+               jsub = sub%glob_subs(iglob,1)
+
+               ! find all nodes shared with this subdomain
+               kishnadj = 0
+               do ia = 1,nadj
+                  nnadj = sub%nshnadj(ia)
+
+                  ! get index of neighbour
+                  isubadj = sub%iadj(ia)
+                  ! perform the solves only if the subdomain matches the face neighbour
+                  if (isubadj .eq. jsub) then
+
+                     ! fill in ones in selected direction
+                     ri = 0._kr
+                     do inadj = 1,nnadj
+                        indshni = sub%ishnadj(kishnadj + inadj)
+
+                        do idofn = 1,ndofnx
+                           ri((idofn-1)*lri1 + (kdofi(indshni)-1 + idofn)) = 1._kr
+                        end do
+                     end do
+
+                     !print *, 'ri before'
+                     !do i = 1,lri1
+                     !   write (*,'(i2,2x,10e7.1)') i, ri(i,:)
+                     !end do
+
+                     ! multiply the vectors by Schur complement
+                     ncol = ndofnx
+                     call dd_multiply_by_schur(sub, ri,lri1*lri2, si,lsi1*lsi2, ncol)
+
+                     ! complete alpha = ri^T * (S_i * ri)
+                     alphas = 0._kr
+                     do idofn = 1,ndofnx
+                        range_start = (idofn-1)*ndofi + 1
+                        range_end   = idofn*ndofi
+                        alphas(idofn) = dot_product(ri(range_start:range_end),si(range_start:range_end))
+                     end do
+
+                     ! fill in ones in selected direction
+                     do inadj = 1,nnadj
+                        indshni = sub%ishnadj(kishnadj + inadj)
+
+                        do idofn = 1,ndofnx
+                           vi(kdofi(indshni)-1 + idofn) = vi(kdofi(indshni)-1 + idofn) &
+                                                        + alphas(idofn)
+                        end do
+                     end do
+
+                     !print *, 'ri after'
+                     !do i = 1,lri1
+                     !   write (*,'(i2,2x,10e7.1)') i, ri(i,:), vi(i)
+                     !end do
+
+                  end if
+                  kishnadj = kishnadj + nnadj
+               end do
+            end if
+         end do
+      end if
+
+      ! add ones to corners
+      !ncorner = sub%ncorner  
+      !do icorner = 1,ncorner
+      !   indi = sub%icnsin(icorner) 
+
+      !   do idofn = 1,ndofnx
+      !      vi(kdofi(indi)-1+idofn) = 1._kr
+      !   end do
+      !end do
+
+      !print *, 'vi with corners'
+      !do i = 1,lvi
+      !   write (*,'(i2,2x,10e7.1)') i, vi(i)
+      !end do
+
+      ! add ones to dofs above the ndofnx
+      do inodi = 1,nnodi
+         ind = sub%iin(inodi)
+         ndofn = sub%nndf(ind)
+         do idofn = ndofnx+1,ndofn
+            vi(kdofi(inodi)-1+idofn) = 1._kr
+         end do
+      end do
+
+      !if (any(vi.le.0._kr)) then
+      !   call warning(routine_name,'zeros in weights for subdomain',sub%isub)
+      !   print *, 'vi', vi
+      !end if
+
+      ! avoid negative and zero weights
+      vi = abs(vi)
+      where (vi.lt.numerical_zero) vi = numerical_zero
+
+      deallocate(alphas)
+      deallocate(ri)
+      deallocate(si)
+      deallocate(kdofi)
 end subroutine
 
 !**************************************************************************

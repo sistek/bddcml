@@ -58,12 +58,14 @@ program bddcml_local
       integer,parameter :: use_user_constraints = 0
 
 ! what type of weights use on interface?
-! 0 - weights by cardinality
-! 1 - weights by diagonal stiffness
-! 2 - weights based on first row of element data
-! 3 - weights based on dof data
-! 4 - weights by Marta Certikova - unit load
-! 5 - weights by Marta Certikova - unit jump
+      ! 0 - weights by cardinality
+      ! 1 - weights by diagonal stiffness
+      ! 2 - weights based on first row of element data
+      ! 3 - weights based on dof data
+      ! 4 - weights by Marta Certikova - unit load
+      ! 5 - weights by Marta Certikova - unit jump
+      ! 6 - weights by Schur row sums for whole subdomain
+      ! 7 - weights by Schur row sums computed face by face
       integer,parameter :: weights_type = 0
 
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
