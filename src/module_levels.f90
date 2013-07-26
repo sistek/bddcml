@@ -2659,24 +2659,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call time_start
       end if
 !-----profile
-
-      ! set type of weights
-      !if (matrixtype.eq.1) then
-      !   ! use diagonal stiffness for SPD problems
-      !   !weights_type = 1
-      !   weights_type = 4
-      !else
-      !   if      (all(levels(ilevel)%subdomains%ldof_data .gt. 0)) then
-      !      ! use dof data if they are available
-      !      weights_type = 3
-      !   else if (all(levels(ilevel)%subdomains%lelement_data1 .gt. 0)) then
-      !      ! use element data if they are available
-      !      weights_type = 2
-      !   else
-      !      ! use simple cardinality otherwise
-      !      weights_type = 0
-      !   end if
-      !end if
       call dd_weights_prepare(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                               levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                               levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
