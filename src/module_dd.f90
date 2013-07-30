@@ -9908,7 +9908,7 @@ contains
                   call get_index_sorted(indg,sub_aux(isub_loc)%global_indices,size(sub_aux(isub_loc)%global_indices),icscn)
                   if (icscn .eq. -1) then
                      write(*,*) 'INDG',indg,'GLOBAL_INDICES',sub_aux(isub_loc)%global_indices
-                     call error(routine_name,'Global index not found in GLOBAL_INDICES ', indg)
+                     call error(routine_name,'Global index not found in first call to GLOBAL_INDICES ', indg)
                   end if
 
                   sub_aux(isub_loc)%global_coarse_indices(icscn) = shift + indcg
@@ -9989,10 +9989,6 @@ contains
             end if
          end do
 
-         !print *, 'comm_array_result1', sub_aux(isub_loc)%comm_array_result1
-         !print *, 'comm_array_result2', sub_aux(isub_loc)%comm_array_result2
-         !call flush(6)
-
          ! sort the arrays
          call iquick_sort_simultaneous(sub_aux(isub_loc)%comm_array_result1, size(sub_aux(isub_loc)%comm_array_result1), &
                                        sub_aux(isub_loc)%comm_array_result2, size(sub_aux(isub_loc)%comm_array_result2))
@@ -10005,8 +10001,7 @@ contains
                ! this point was numbered by a neighbour
                call get_index_sorted(indg,sub_aux(isub_loc)%comm_array_result1, size(sub_aux(isub_loc)%comm_array_result1),icscn)
                if (icscn .eq. -1) then
-                  write(*,*) 'sub_aux(isub_loc)%comm_array_result1',sub_aux(isub_loc)%comm_array_result1
-                  call error(routine_name,'Global index not found in COMM_ARRAY_RESULT1 ', indg)
+                  call error(routine_name,'Global index not found in second call to COMM_ARRAY_RESULT1 ', indg)
                end if
 
                sub_aux(isub_loc)%global_coarse_indices(i) = sub_aux(isub_loc)%comm_array_result2(icscn)
@@ -12563,8 +12558,6 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
       real(kr),allocatable :: rhoiaux(:)
       integer ::             lwi
       real(kr),allocatable :: wi(:)
-      integer ::             lnneighbiv
-      integer,allocatable ::  nneighbiv(:)
 
       integer :: myid, ierr
 
@@ -12581,9 +12574,7 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          allocate(rhoi(lrhoi))
 
          if (weights_type .eq. 0) then
-            do i = 1,lrhoi
-               rhoi(i) = 1._kr
-            end do
+            rhoi = 1._kr
          else if (weights_type .eq. 1) then
             call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
          else if (weights_type .eq. 2) then
@@ -12624,9 +12615,7 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          call dd_comm_download(suba(isub_loc), rhoiaux,lrhoi)
 
          if (weights_type .eq. 0) then
-            do i = 1,lrhoi
-               rhoi(i) = 1._kr
-            end do
+            rhoi = 1._kr
          else if (weights_type .eq. 1) then
             call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
          else if (weights_type .eq. 2) then
@@ -12655,20 +12644,7 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          end if
 
          ! compute weight
-         if (weights_type .eq. 4) then
-            ! put here number of nodal subdomains and divide rhoaux by this number
-            lnneighbiv = ndofi
-            allocate(nneighbiv(lnneighbiv))
-
-            call dd_count_neighbours_of_interface_dof( suba(isub_loc), nneighbiv,lnneighbiv )
-
-            wi = rhoiaux / (real(nneighbiv,kr) * (rhoi + rhoiaux))
-
-            deallocate(nneighbiv)
-         else
-            wi = rhoi / (rhoi + rhoiaux)
-         end if
-
+         wi = rhoi / (rhoi + rhoiaux)
 
          ! load wi into structure
          suba(isub_loc)%lwi = lwi
@@ -13157,9 +13133,8 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
                         call dd_map_subi_to_sub(sub, ri(1,idofn),lri1, r(1,idofn),lr1)
                      end do
 
-                     vaug = 0._kr
-
                      ! subdomain data are the first part of the augmented vector
+                     vaug = 0._kr
                      do j = 1,ndofnx
                         do i = 1,ndof
                            vaug(i,j) = r(i,j)
@@ -13177,7 +13152,7 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
                         call dd_map_sub_to_subi(sub, vaug(1,idofn),ndof, ri(1,idofn),lri1)
                      end do
 
-                     ! fill in ones in selected direction
+                     ! copy result to the vector of weights
                      do inadj = 1,nnadj
                         indshni = sub%ishnadj(kishnadj + inadj)
 
@@ -13222,17 +13197,17 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
          end do
       end do
 
+      ! other weights may be related to average constraints
+      !if (any(vi.le.0._kr)) then
+      !   call warning(routine_name,'zeros in weights for subdomain',sub%isub)
+      !end if
+      where (vi.eq.0._kr) vi = 1._kr
+
       ! avoid negative weights
       vi = abs(vi)
 
-      if (any(vi.le.0._kr)) then
-         call warning(routine_name,'zeros in weights for subdomain',sub%isub)
-         !print *, 'vi', vi
-      end if
-
-      ! avoid negative and zero weights
-      vi = abs(vi)
-      where (vi.lt.numerical_zero) vi = numerical_zero
+      ! make results compatible with scheme of their construction 
+      vi = 1._kr / vi
 
       deallocate(ri)
       deallocate(r)
