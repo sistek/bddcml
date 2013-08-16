@@ -64,7 +64,7 @@ program bddcml_global
       ! 5 - weights by Marta Certikova - unit jump
       ! 6 - weights by Schur row sums for whole subdomain
       ! 7 - weights by Schur row sums computed face by face
-      integer,parameter :: weights_type = 0
+      integer,parameter :: weights_type = 4
 
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1

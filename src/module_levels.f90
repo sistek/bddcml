@@ -2446,7 +2446,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
          end if
          ! load arithmetic averages on faces if adaptivity is not active
-         if (.not.use_adaptive_constraints) then
+         if (use_arithmetic_constraints .and. .not.use_adaptive_constraints) then
             glbtype = 1
             call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
          end if
