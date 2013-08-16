@@ -1479,9 +1479,9 @@ subroutine sm_from_sm_mat_mult_emb(matrixtype, nnz, i_sparse, j_sparse, a_sparse
       return
 end subroutine
 
-!*********************************************************************
-subroutine sm_check_matrix(ibound,jbound, i_sparse, j_sparse, la, nnz)
-!*********************************************************************
+!********************************************************************************
+subroutine sm_check_matrix(matrixtype,ibound,jbound, i_sparse, j_sparse, la, nnz)
+!********************************************************************************
 ! Subroutine for checking that the matrix. It checks:
 ! - matrix is sorted
 ! - no index exceeds prescribed limits
@@ -1490,6 +1490,11 @@ subroutine sm_check_matrix(ibound,jbound, i_sparse, j_sparse, la, nnz)
       use module_utils
       implicit none
 
+! Type of the matrix
+! 0 - unsymmetric
+! 1 - symmetric positive definite
+! 2 - general symmetric
+      integer :: matrixtype
 ! Input matrix
       integer,intent(in) :: ibound, jbound
       integer,intent(in) :: la
@@ -1521,19 +1526,22 @@ subroutine sm_check_matrix(ibound,jbound, i_sparse, j_sparse, la, nnz)
             irow = i_sparse(ia)
             jcol = j_sparse(ia)
 
-            if      (irow.eq.indrow + 1) then
+            if      (irow.gt.indrow) then
                ! new line starting
                indrow = irow 
             else if (irow .eq. indrow) then
                ! keeping at the same line
                continue
-            else if (irow.gt.indrow+1) then
-               call error(routine_name,'There seems to be a zero row in the matrix after row ',indrow)
             else
                call error(routine_name,'Matrix appears to be unsorted. Sort it prior the call to '//trim(routine_name))
             end if
 
             col_counts(jcol) = col_counts(jcol) + 1
+            if (matrixtype.ne.0) then
+               if (irow.ne.jcol) then
+                  col_counts(irow) = col_counts(irow) + 1
+               end if
+            end if
          end do
 
          if (any(col_counts.eq.0)) then

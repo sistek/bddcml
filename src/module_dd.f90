@@ -2349,7 +2349,7 @@ subroutine dd_check_local_matrix(sub)
       ! local vars
       character(*),parameter:: routine_name = 'DD_CHECK_LOCAL_MATRIX'
 
-      call sm_check_matrix(sub%ndof,sub%ndof,sub%i_a_sparse,sub%j_a_sparse,sub%la,sub%nnza)
+      call sm_check_matrix(sub%matrixtype,sub%ndof,sub%ndof,sub%i_a_sparse,sub%j_a_sparse,sub%la,sub%nnza)
 
 end subroutine
 !********************************************
