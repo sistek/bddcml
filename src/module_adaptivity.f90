@@ -521,6 +521,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       ! unit for local reading/writing from/to file
       idmyunit = idbase + myid
 
+      ! initialize estimate
+      est = -1.0_kr
+
       ! Loop over rounds of eigenvalue solves
       do iround = 1,npair_locx
          comm_calls = 0
