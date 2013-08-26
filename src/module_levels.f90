@@ -2440,13 +2440,12 @@ subroutine levels_prepare_standard_level(parallel_division,&
          ! load arithmetic averages on corners
          glbtype = 3
          call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
-         ! load arithmetic averages on edges
-         if (use_arithmetic_constraints) then
+         if (use_arithmetic_constraints.or.use_adaptive_constraints) then
+            ! adaptive constraints are just an add-on to arithmetic ones
+            ! load arithmetic averages on edges
             glbtype = 2
             call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
-         end if
-         ! load arithmetic averages on faces if adaptivity is not active
-         if (use_arithmetic_constraints .and. .not.use_adaptive_constraints) then
+            ! load arithmetic averages on faces
             glbtype = 1
             call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
          end if
