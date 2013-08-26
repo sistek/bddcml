@@ -1770,7 +1770,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
                   ! check type of matrix - for LOBPCG, any other than SPD is forbidden
                   if (matrixtype.ne.1) then
-                     call error(routine_name,'adaptivity without explicit Schur complements not supported for non SPD matrices')
+                     call warning(routine_name,'adaptivity without explicit Schur complements not supported for non SPD matrices')
                   end if
 
                   ! prepare space for local coarse matrices of slaves
