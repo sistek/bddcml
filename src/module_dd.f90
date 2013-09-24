@@ -12572,27 +12572,7 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
 
          lrhoi = ndofi
          allocate(rhoi(lrhoi))
-
-         if (weights_type .eq. 0) then
-            rhoi = 1._kr
-         else if (weights_type .eq. 1) then
-            call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 2) then
-            call dd_get_interface_element_data(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 3) then
-            call dd_get_interface_dof_data(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 4) then
-            call dd_generate_interface_unit_load(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 5) then
-            call dd_generate_interface_unit_jump(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 6) then
-            call dd_generate_interface_schur_row_sums(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 7) then
-            call dd_generate_interface_face_schur_row_sums(suba(isub_loc), rhoi,lrhoi)
-         else
-            call error(routine_name,'Type of weight not supported:',weights_type)
-         end if
-
+         call dd_get_my_coefficients_for_weights(suba(isub_loc), weights_type, rhoi,lrhoi)
          call dd_comm_upload(suba(isub_loc), rhoi,lrhoi)
 
          deallocate(rhoi)
@@ -12614,25 +12594,7 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          call zero(rhoiaux,lrhoi)
          call dd_comm_download(suba(isub_loc), rhoiaux,lrhoi)
 
-         if (weights_type .eq. 0) then
-            rhoi = 1._kr
-         else if (weights_type .eq. 1) then
-            call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 2) then
-            call dd_get_interface_element_data(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 3) then
-            call dd_get_interface_dof_data(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 4) then
-            call dd_generate_interface_unit_load(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 5) then
-            call dd_generate_interface_unit_jump(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 6) then
-            call dd_generate_interface_schur_row_sums(suba(isub_loc), rhoi,lrhoi)
-         else if (weights_type .eq. 7) then
-            call dd_generate_interface_face_schur_row_sums(suba(isub_loc), rhoi,lrhoi)
-         else
-            call error(routine_name,'Type of weight not supported:',weights_type)
-         end if
+         call dd_get_my_coefficients_for_weights(suba(isub_loc), weights_type, rhoi,lrhoi)
 
          ! check that denominator is nonzero
          if (any(abs(rhoi + rhoiaux) .eq. 0._kr)) then
@@ -12659,6 +12621,59 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          deallocate(rhoiaux)
          deallocate(rhoi)
       end do
+
+end subroutine
+
+!***************************************************************************
+subroutine dd_get_my_coefficients_for_weights(sub, weights_type, rhoi,lrhoi)
+!***************************************************************************
+! Subroutine for counting neighbours at dofs at the interface
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+! type of weights:
+! 0 - weights by cardinality
+! 1 - weights by diagonal stiffness
+! 2 - weights based on first row of element data
+! 3 - weights based on dof data
+! 4 - weights by Marta Certikova - unit load
+! 5 - weights by Marta Certikova - unit jump
+! 6 - weights by Schur row sums for whole subdomain
+! 7 - weights by Schur row sums computed face by face
+      integer,intent(in) :: weights_type 
+
+! interface vector of my coefficients
+      integer,intent(in) ::  lrhoi
+      real(kr),intent(out)::  rhoi(lrhoi)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'DD_GET_MY_COEFFICIENTS_FOR_WEIGHTS'
+
+      ! check input data
+      if (lrhoi .ne. sub%ndofi) then
+         call error(routine_name, 'Array lenght mismatch for subdomain',sub%isub)
+      end if
+
+      if (weights_type .eq. 0) then
+         rhoi = 1._kr
+      else if (weights_type .eq. 1) then
+         call dd_get_interface_diagonal(sub, rhoi,lrhoi)
+      else if (weights_type .eq. 2) then
+         call dd_get_interface_element_data(sub, rhoi,lrhoi)
+      else if (weights_type .eq. 3) then
+         call dd_get_interface_dof_data(sub, rhoi,lrhoi)
+      else if (weights_type .eq. 4) then
+         call dd_generate_interface_unit_load(sub, rhoi,lrhoi)
+      else if (weights_type .eq. 5) then
+         call dd_generate_interface_unit_jump(sub, rhoi,lrhoi)
+      else if (weights_type .eq. 6) then
+         call dd_generate_interface_schur_row_sums(sub, rhoi,lrhoi)
+      else if (weights_type .eq. 7) then
+         call dd_generate_interface_face_schur_row_sums(sub, rhoi,lrhoi)
+      else
+         call error(routine_name,'Type of weights not supported:',weights_type)
+      end if
 
 end subroutine
 

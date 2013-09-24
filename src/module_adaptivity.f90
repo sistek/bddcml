@@ -293,7 +293,7 @@ end subroutine
 !******************************************************************************************
 subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexsub,&
                                          pair2proc,lpair2proc,comm_all,&
-                                         use_explicit_schurs,matrixtype, est)
+                                         use_explicit_schurs, weights_type, matrixtype, est)
 !******************************************************************************************
 ! Subroutine for parallel solution of distributed eigenproblems
       use module_dd
@@ -320,6 +320,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       integer,intent(in) :: comm_all
 ! should explicit Schur complements be used and sent?
       logical,intent(in) :: use_explicit_schurs
+! type of weigths used also in the preconditioner
+      integer,intent(in) :: weights_type
 ! type of matrix
       integer,intent(in) :: matrixtype
 
@@ -1012,7 +1014,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
             lrhoi = ndofi
             allocate(rhoi(lrhoi))
-            call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
+            !call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
+            ! make it general for various types of weights
+            call dd_get_my_coefficients_for_weights(suba(isub_loc), weights_type, rhoi,lrhoi)
 
             call MPI_SEND(rhoi,ndofi,MPI_DOUBLE_PRECISION,owner,isub,comm_all,ierr)
 
@@ -2693,6 +2697,7 @@ if (idoper.eq.1 .or. idoper.eq.2 .or. idoper.eq.5 ) then
       call adaptivity_apply_RT(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2)
       !  - apply the R operator
       call adaptivity_apply_R(pairslavery,lpairslavery,comm_xaux2,comm_lxaux2)
+
       ! Ix - REx
       do i = 1,problemsize
          comm_xaux(i) = comm_xaux(i) - comm_xaux2(i)

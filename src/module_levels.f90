@@ -2605,7 +2605,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call adaptivity_solve_eigenvectors(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                                             levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                                             levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
-                                            pair2proc,lpair2proc, comm_all, use_explicit_schurs,&
+                                            pair2proc,lpair2proc, comm_all, use_explicit_schurs, weights_type, &
                                             matrixtype, levels(ilevel)%adaptivity_estimate)
 
          if (use_explicit_schurs) then
