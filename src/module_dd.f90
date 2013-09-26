@@ -12991,7 +12991,7 @@ subroutine dd_get_interface_dof_data(sub, rhoi,lrhoi)
       end if
       ! check if dof data are loaded
       if (.not. sub%is_dof_data_loaded) then
-         call error(routine_name, 'Element data not loaded for subdomain: ',sub%isub)
+          call error(routine_name, 'DOF data not loaded for subdomain: ',sub%isub)
       end if
       ! check dimensions
       if (sub%ndofi.ne.lrhoi) then

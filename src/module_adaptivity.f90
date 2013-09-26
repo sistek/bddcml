@@ -1014,7 +1014,6 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
             lrhoi = ndofi
             allocate(rhoi(lrhoi))
-            !call dd_get_interface_diagonal(suba(isub_loc), rhoi,lrhoi)
             ! make it general for various types of weights
             call dd_get_my_coefficients_for_weights(suba(isub_loc), weights_type, rhoi,lrhoi)
 

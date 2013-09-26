@@ -904,6 +904,9 @@ subroutine levels_pc_setup( parallel_division,&
       integer :: comm_all, ierr, myid, nproc
       real(kr) :: cond_est
 
+      integer :: ilevel
+      integer :: weights_type_corrected
+
       real(kr) :: t_pc_setup
 
       ! no debug
@@ -932,6 +935,11 @@ subroutine levels_pc_setup( parallel_division,&
          call info( routine_name, 'number of elements:  ',levels(iactive_level-1)%nsub )
          call info( routine_name, 'number of subdomains:',levels(iactive_level)%nsub )
          call info( routine_name, 'number of processors:',nproc )
+         call info( routine_name, 'number of levels:',    nlevels )
+         do ilevel = 1, nlevels-1
+            call info( routine_name, 'number of subdomains at levels:', levels(ilevel)%nsub )
+         end do
+         call info( routine_name, 'number of subdomains at levels:', 1 )
          if (levels(iactive_level)%global_loading) then
             call info( routine_name, 'using mode with GLOBAL data loading' )
          else
@@ -954,12 +962,20 @@ subroutine levels_pc_setup( parallel_division,&
             if (debug .and. myid.eq.0) then
                call info(routine_name,'Preparing level',iactive_level)
             end if
+            ! set type of weights - for some weight types, it is not possible to proceed to higher levels for missing data
+            weights_type_corrected = weights_type
+            if ( iactive_level .gt. 1 ) then
+               if (weights_type.eq.3 .or. weights_type.eq.4) then
+                  weights_type_corrected = 1
+               end if
+            end if
+
             call levels_prepare_standard_level(parallel_division,&
                                                matrixtype,iactive_level,&
                                                use_arithmetic_constraints,&
                                                use_adaptive_constraints,&
                                                use_user_constraints,&
-                                               weights_type)
+                                               weights_type_corrected)
          end if
       end do
 
