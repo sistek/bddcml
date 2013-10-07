@@ -2451,11 +2451,125 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
 
+      ! set up a basic coarse problem for solving weights of type 4
+      if (weights_type .eq. 4) then
+      ! BDDC data
+         do isub_loc = 1,nsub_loc
+            ! load arithmetic averages on corners
+            glbtype = 3
+            call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+         end do
+
+! prepare nndfc and embed cnodes and get array with numbers of constraints
+         ! in nndfc, nodes are ordered as corners - edges - faces
+         lnndfc   = nnodc
+         allocate (nndfc(lnndfc))
+         call zero(nndfc,lnndfc)
+         call dd_embed_cnodes(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                              levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
+                              comm_all, nndfc,lnndfc)
+
+      ! prepare matrix C for corners and arithmetic averages on edges
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
+         do isub_loc = 1,nsub_loc
+            call dd_prepare_c(levels(ilevel)%subdomains(isub_loc))
+         end do
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(t_prepare_c)
+            if (myid.eq.0) then
+               call time_print('preparing C',t_prepare_c)
+            end if
+         end if
+!-----profile
+      ! prepare augmented matrix for BDDC
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+!-----profile
+         do isub_loc = 1,nsub_loc
+            call dd_prepare_aug(levels(ilevel)%subdomains(isub_loc),comm_self)
+         end do
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(t_prepare_aug)
+            if (myid.eq.0) then
+               call time_print('preparing augmented problem',t_prepare_aug)
+            end if
+         end if
+!-----profile
+      ! prepare coarse space basis functions for BDDC
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+         if (ilevel.eq.1) then
+            keep_global = .false.
+         else
+            keep_global = .true.
+         end if
+!-----profile
+         do isub_loc = 1,nsub_loc
+            call dd_prepare_coarse(levels(ilevel)%subdomains(isub_loc),keep_global)
+         end do
+!-----profile
+         if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(t_prepare_coarse)
+            if (myid.eq.0) then
+               call time_print('preparing coarse probem matrices and shape functions ',t_prepare_coarse)
+            end if
+         end if
+!-----profile
+
+      
+         deallocate(nndfc)
+      end if ! weights_type .eq. 4
+
+      ! find weights
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+      call dd_weights_prepare(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                              levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
+                              levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
+                              comm_all, weights_type)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_weights_prepare)
+         if (myid.eq.0) then
+            call time_print('preparing weights',t_weights_prepare)
+         end if
+      end if
+!-----profile
+
+!-----profile
+      if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+      end if
+!-----profile
       ! BDDC data
       do isub_loc = 1,nsub_loc
          ! load arithmetic averages on corners
-         glbtype = 3
-         call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+         if (weights_type .ne. 4) then
+            glbtype = 3
+            call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+         end if
          if (use_arithmetic_constraints.or.use_adaptive_constraints) then
             ! adaptive constraints are just an add-on to arithmetic ones
             ! load arithmetic averages on edges
@@ -2555,6 +2669,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
 
+      ! ADAPTIVITY
       if (use_adaptive_constraints) then
 !-----profile
          if (profile) then
@@ -2667,27 +2782,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
       !   call dd_print_sub(levels(ilevel)%subdomains(isub_loc))
       !end do
 
-      ! weights
-!-----profile
-      if (profile) then
-         call MPI_BARRIER(comm_all,ierr)
-         call time_start
-      end if
-!-----profile
-      call dd_weights_prepare(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
-                              levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
-                              levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
-                              comm_all, weights_type)
-!-----profile
-      if (profile) then
-         call MPI_BARRIER(comm_all,ierr)
-         call time_end(t_weights_prepare)
-         if (myid.eq.0) then
-            call time_print('preparing weights',t_weights_prepare)
-         end if
-      end if
-!-----profile
-
       if (ilevel.eq.1) then
          ! prepare reduced RHS
 !-----profile
@@ -2710,13 +2804,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
          end if
 !-----profile
       end if
-
-!-----profile
-      if (profile) then
-         call MPI_BARRIER(comm_all,ierr)
-         call time_start
-      end if
-!-----profile
 
       ! upload coarse mesh
       ndofc = sum(nndfc)
