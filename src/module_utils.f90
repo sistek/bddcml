@@ -1241,9 +1241,14 @@ subroutine time_start
       implicit none
       
 ! Local variables
+      character(*),parameter:: routine_name = 'TIME_START'
+      
 
 ! add new level of timing
       level_time = level_time + 1
+      if (debug) then
+         call info(routine_name,'Starting time level ',level_time)
+      end if
 
 ! check if it is not too many
       if (level_time.gt.level_time_max) then
@@ -1274,6 +1279,7 @@ subroutine time_end(time)
       real(kr),intent(out) :: time
       
 ! Local variables
+      character(*),parameter:: routine_name = 'TIME_END'
       real(kr) :: current_time
 
 ! measure the time
@@ -1291,6 +1297,9 @@ subroutine time_end(time)
       time =  current_time - times(level_time)
 
 ! subtract one level of timing
+      if (debug) then
+         call info(routine_name,'Closing time level ',level_time)
+      end if
       level_time = level_time - 1
 
       return

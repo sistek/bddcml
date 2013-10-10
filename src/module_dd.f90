@@ -2300,6 +2300,7 @@ subroutine dd_load_matrix_triplet(sub, matrixtype, numshift,&
       ! local vars
       character(*),parameter:: routine_name = 'DD_LOAD_MATRIX_TRIPLET'
       integer :: i
+      integer :: la_corr
 
       ! check that matrix is not loaded
       if (sub%is_matrix_loaded) then
@@ -2315,20 +2316,35 @@ subroutine dd_load_matrix_triplet(sub, matrixtype, numshift,&
       else
          call error(routine_name,'strange type of matrix:', matrixtype)
       end if
+      if (matrixtype.eq.0 .or. matrixtype.eq.2) then
+         ! add some space to avoid problems with e.g. Navier-Stokes equations with the zero block (2,2)
+         la_corr = la + 1
+      else
+         la_corr = la
+      end if
       sub%nnza     = nnza
-      sub%la       = la
+      sub%la       = la_corr
       sub%is_assembled = is_assembled
-      allocate(sub%i_a_sparse(la))
+      allocate(sub%i_a_sparse(la_corr))
       do i = 1,la
          sub%i_a_sparse(i) = i_sparse(i) + numshift
       end do
-      allocate(sub%j_a_sparse(la))
+      do i = la+1,la_corr
+         sub%i_a_sparse(i) = 1
+      end do
+      allocate(sub%j_a_sparse(la_corr))
       do i = 1,la
          sub%j_a_sparse(i) = j_sparse(i) + numshift
       end do
-      allocate(sub%a_sparse(la))
+      do i = la+1,la_corr
+         sub%j_a_sparse(i) = 1
+      end do
+      allocate(sub%a_sparse(la_corr))
       do i = 1,la
          sub%a_sparse(i)   = a_sparse(i)
+      end do
+      do i = la+1,la_corr
+         sub%a_sparse(i) = 0._kr
       end do
 
       sub%is_matrix_loaded = .true.

@@ -629,7 +629,7 @@ subroutine sm_assembly(i_sparse, j_sparse, a_sparse, la, nnz)
 !************************************************************
 ! Subroutine for assemblage of sparse matrix in IJA format 
 ! Sorts the matrix and adds entries with same indices
-
+      use module_utils
       implicit none
 
 ! Matrix in IJA sparse format
@@ -640,6 +640,7 @@ subroutine sm_assembly(i_sparse, j_sparse, a_sparse, la, nnz)
       integer,intent(out) :: nnz
       
 ! Local variables
+      character(*),parameter:: routine_name = 'SM_ASSEMBLY'
       integer:: inz, indi, indj, indi_old, indj_old, ia
 
 ! In case of zero length skip to the end
@@ -1509,10 +1510,12 @@ subroutine sm_check_matrix(matrixtype,ibound,jbound, i_sparse, j_sparse, la, nnz
       integer, allocatable :: col_counts(:)
 
       ! bounds
-      if (minval(i_sparse) .lt. 1 .or. maxval(i_sparse) .gt. ibound) then
+      if (minval(i_sparse(1:nnz)) .lt. 1 .or. maxval(i_sparse(1:nnz)) .gt. ibound) then
+         write(*,*) 'minval ', minval(i_sparse(1:nnz)), 'maxval ', maxval(i_sparse(1:nnz)), 'bounds:', 1, ibound
          call error(routine_name,' Some row index entries out of range.')
       end if
-      if (minval(j_sparse) .lt. 1 .or. maxval(j_sparse) .gt. jbound) then
+      if (minval(j_sparse(1:nnz)) .lt. 1 .or. maxval(j_sparse(1:nnz)) .gt. jbound) then
+         write(*,*) 'minval ', minval(j_sparse(1:nnz)), 'maxval ', maxval(j_sparse(1:nnz)), 'bounds:', 1, jbound
          call error(routine_name,' Some column index entries out of range.')
       end if
 
