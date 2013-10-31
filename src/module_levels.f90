@@ -965,7 +965,7 @@ subroutine levels_pc_setup( parallel_division,&
             ! set type of weights - for some weight types, it is not possible to proceed to higher levels for missing data
             weights_type_corrected = weights_type
             if ( iactive_level .gt. 1 ) then
-               if (weights_type.eq.3 .or. weights_type.eq.4) then
+               if (weights_type.eq.2 .or. weights_type.eq.3) then
                   weights_type_corrected = 1
                end if
             end if

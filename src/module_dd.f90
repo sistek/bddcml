@@ -9921,7 +9921,9 @@ contains
                if ( min(isub, minval(globsubs(inodi,1:nsubnode(inodi),1))) .eq. isub ) then
                   ! I am the subdomain with the smallest number that shares this node
 
-                  call get_index_sorted(indg,sub_aux(isub_loc)%global_indices,size(sub_aux(isub_loc)%global_indices),icscn)
+                  !call get_index_sorted(indg,sub_aux(isub_loc)%global_indices,size(sub_aux(isub_loc)%global_indices),icscn)
+                  ! the array may not be sorted
+                  call get_index(indg,sub_aux(isub_loc)%global_indices,size(sub_aux(isub_loc)%global_indices),icscn)
                   if (icscn .eq. -1) then
                      write(*,*) 'INDG',indg,'GLOBAL_INDICES',sub_aux(isub_loc)%global_indices
                      call error(routine_name,'Global index not found in first call to GLOBAL_INDICES ', indg)
