@@ -202,7 +202,7 @@ extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSI
    lobpcg_BLASLAPACKFunctions blap_fn;
    int ierr;
 
-   void *precfun;
+   void (*precfun)( void*, void*, void* );
 
  /* prepare data for LOBPCG */
   /* create multivector */
