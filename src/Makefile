@@ -54,6 +54,7 @@ module_bddc.o: \
 
 module_adaptivity.o: \
    module_dd.o \
+   module_graph.o \
    module_utils.o 
 
 module_levels.o: \

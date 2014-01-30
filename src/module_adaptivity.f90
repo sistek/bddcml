@@ -79,7 +79,7 @@ integer,parameter,private :: idbase = 100 ! basic unit to add myid for independe
 ! structure:
 !  IGLOB | ISUB | JSUB 
 integer,private            :: lpair_subdomains1 
-integer,parameter,private  :: lpair_subdomains2 = 3
+integer,parameter,private  :: lpair_subdomains2 = 5
 integer,allocatable,private :: pair_subdomains(:,:)
 
 logical,private :: i_compute_pair
@@ -208,7 +208,7 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
       call zero(pair_subdomains,lpair_subdomains1,lpair_subdomains2)
       do ipair = 1,npair
          ! first column is associated with processors - initialize it to -1 = no processor assigned
-         do j = 1,3
+         do j = 1,lpair_subdomains2
             pair_subdomains(ipair,j) = pairs(ipair,j)
          end do
       end do
@@ -3190,23 +3190,28 @@ subroutine adaptivity_get_pair_data(idpair,pair_data,lpair_data)
 
 end subroutine
 
-!**************************************
-subroutine adaptivity_print_pairs(myid)
-!**************************************
+!********************************************
+subroutine adaptivity_print_pairs(myid, nsub)
+!********************************************
 ! Subroutine for printing data about pairs to screen
       implicit none
 
 ! number of processor
       integer,intent(in) :: myid
+! number of subdomains
+      integer,intent(in) :: nsub
 
 ! local variables
       integer :: ipair, j
 
-      write(*,*) 'Info about loaded pairs on processor ',myid,',',lpair_subdomains1,' pairs loaded:'
       if (allocated(pair_subdomains)) then
-         do ipair = 1,lpair_subdomains1
-            write(*,'(6i10)') (pair_subdomains(ipair,j),j = 1,lpair_subdomains2)
-         end do
+         if (myid.eq.0) then
+            write(*,*) 'Info about loaded pairs: ',lpair_subdomains1,' pairs loaded:'
+            write(*,*) lpair_subdomains1, nsub
+            do ipair = 1,lpair_subdomains1
+               write(*,'(6i10)') ipair, (pair_subdomains(ipair,j),j = 2,lpair_subdomains2)
+            end do
+         end if
       else 
          write(*,*) 'ADAPTIVITY_PRINT_PAIRS: Array of pairs is not allocated.'
       end if

@@ -361,12 +361,25 @@ contains
 
       end subroutine
 
+!********************************************************
+      subroutine mumps_get_factor_size(mumps,factor_size)
+!********************************************************
+      use module_utils
+      implicit none
+      include "dmumps_struc.h"
+      type(DMUMPS_STRUC),intent(inout) :: mumps
+      integer, intent(out) :: factor_size
+
+      factor_size = mumps%info(9)
+
+      end subroutine
+
 !*************************************************************
-subroutine mumps_resolve(mumps,rhs,lrhs,nrhs,solve_transposed)
+      subroutine mumps_resolve(mumps,rhs,lrhs,nrhs,solve_transposed)
 !*************************************************************
-! Performs backward step of multifrontal algorithm by MUMPS
-! in the beginning, RHS contains RHS
-! in the end, RHS contains solution
+!     Performs backward step of multifrontal algorithm by MUMPS
+!     in the beginning, RHS contains RHS
+!     in the end, RHS contains solution
 
       use module_utils
       implicit none

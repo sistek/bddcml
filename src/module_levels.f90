@@ -2708,9 +2708,9 @@ subroutine levels_prepare_standard_level(parallel_division,&
          else
             ! generate pairs
             lpairs1 = nface
-            lpairs2 = 3
+            lpairs2 = 5
             allocate(pairs(lpairs1,lpairs2))
-            call dd_create_pairs(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+            call dd_create_pairs(levels(ilevel)%nsub, levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                                  levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
                                  comm_all,&
                                  pairs,lpairs1,lpairs2, npair)
@@ -2723,6 +2723,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
 
          call adaptivity_init(comm_all,pairs,lpairs1,lpairs2, npair)
          deallocate(pairs)
+
+         !call adaptivity_print_pairs(myid, levels(ilevel)%nsub)
 
          lpair2proc = nproc + 1
          allocate(pair2proc(lpair2proc))

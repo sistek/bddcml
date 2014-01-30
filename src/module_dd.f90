@@ -275,6 +275,7 @@ module module_dd
          logical :: is_mumps_interior_active = .false.
          logical :: is_interior_factorized   = .false.
          type(DMUMPS_STRUC) :: mumps_interior_block
+         integer ::            mumps_interior_block_factor_size
 
          ! explicit Schur complement if desired
          integer ::             lschur1
@@ -4052,6 +4053,8 @@ subroutine dd_prepare_schur(sub,comm_self)
          call mumps_analyze(sub%mumps_interior_block,iparallel) 
          ! Factorize matrix 
          call mumps_factorize(sub%mumps_interior_block) 
+         ! find the size of the factors in interior block
+         call mumps_get_factor_size(sub%mumps_interior_block, sub%mumps_interior_block_factor_size )
 
          sub%is_mumps_interior_active = .true.
       else
@@ -11797,15 +11800,18 @@ subroutine dd_create_globs2(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, c
 
 end subroutine
 
-!********************************************************************
-subroutine dd_create_pairs(suba,lsuba, indexsub,lindexsub, comm_all,&
+!**************************************************************************
+subroutine dd_create_pairs(nsub, suba,lsuba, indexsub,lindexsub, comm_all,&
                            pairs,lpairs1,lpairs2, npair)
-!********************************************************************
+!**************************************************************************
 ! Subroutine for finding pairs for adaptivity
 ! based on subdomain data
       use module_utils
       implicit none
       include "mpif.h"
+
+! number of subdomains
+      integer, intent(in) :: nsub
 
 ! array of sub structure for actual subdomains
       integer,intent(in) ::                lsuba
@@ -11845,6 +11851,10 @@ subroutine dd_create_pairs(suba,lsuba, indexsub,lindexsub, comm_all,&
       integer,allocatable ::  pair_subdomain_loc(:)
       integer ::             lpair_subdomain
       integer,allocatable ::  pair_subdomain(:)
+
+      integer ::             lsubdomain_costs
+      integer,allocatable ::  subdomain_costs_aux(:)
+      integer,allocatable ::  subdomain_costs(:)
 
 ! orient in communicator
       call MPI_COMM_RANK(comm_all,myid,ierr)
@@ -11913,6 +11923,21 @@ subroutine dd_create_pairs(suba,lsuba, indexsub,lindexsub, comm_all,&
       allocate(global_cnode_number(lglobal_cnode_number))
       lpair_subdomain = npairdoubled
       allocate(pair_subdomain(lpair_subdomain))
+
+      lsubdomain_costs = nsub
+      allocate( subdomain_costs_aux(lsubdomain_costs), subdomain_costs(lsubdomain_costs) )
+      subdomain_costs_aux = 0
+
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         subdomain_costs_aux(isub) = suba(isub_loc)%mumps_interior_block_factor_size
+      end do
+!*****************************************************************MPI
+      call MPI_ALLREDUCE(subdomain_costs_aux,subdomain_costs,lsubdomain_costs, &
+                         MPI_INTEGER, MPI_MAX, comm_all, ierr) 
+!*****************************************************************MPI
+      deallocate(subdomain_costs_aux)
 
 
       if (myid.eq.0) then
@@ -11984,10 +12009,15 @@ subroutine dd_create_pairs(suba,lsuba, indexsub,lindexsub, comm_all,&
          pairs(ipair,2) = isub
          ! mark pair's second sharing subdomain
          pairs(ipair,3) = jsub
+         ! mark pair's first subdomain factorization cost
+         pairs(ipair,4) = subdomain_costs(isub)
+         ! mark pair's second subdomain factorization cost
+         pairs(ipair,5) = subdomain_costs(jsub)
       end do
 
       deallocate(global_cnode_number)
       deallocate(pair_subdomain)
+      deallocate(subdomain_costs)
 
       ! root print the summary of selection of globs
       if (myid.eq.0) then
@@ -14186,6 +14216,7 @@ subroutine dd_finalize(sub)
       if (sub%is_mumps_interior_active) then
          call mumps_finalize(sub%mumps_interior_block)
          sub%is_mumps_interior_active = .false.
+         sub%mumps_interior_block_factor_size = 0
       end if
       if (allocated(sub%schur)) then
          deallocate(sub%schur)
