@@ -24,12 +24,10 @@
     ! adjustable parameters ############################
     ! type of real variables
           integer,parameter,private :: kr = kind(1.D0)
-    ! numerical zero
-          real(kr),parameter,private :: numerical_zero = 1.e-12_kr
     ! debugging 
           logical,parameter,private :: debug = .false.
     ! profiling 
-          logical,private :: profile = .true.
+          logical,private ::           profile = .true.
     ! adjustable parameters ############################
 
     ! data necessary for recycling of Krylov subspace
@@ -1347,9 +1345,9 @@
 
       end subroutine
 
-    !*********************************************************************************************
-          subroutine krylov_bddcrichardson(comm_all,tol,maxit,ndecrmax, num_iter,converged_reason)
-    !*********************************************************************************************
+    !***************************************************************************************************
+          subroutine krylov_bddcrichardson(comm_all,tol,maxit,ndecrmax, num_iter,converged_reason, cond)
+    !***************************************************************************************************
     ! subroutine realizing Richardson iteration algorithm with vectors distributed by subdomains
 
     ! module for preconditioner
@@ -1382,6 +1380,9 @@
           !  = -2 - reached limit on number of iterations with nondecreasing residual
           integer,intent(out) :: converged_reason
 
+          ! estimated condition number
+          real(kr),intent(out) :: cond
+
           ! local vars
           character(*),parameter:: routine_name = 'KRYLOV_BDDCRICHARDSON'
           integer,parameter :: ilevel = 1
@@ -1402,7 +1403,9 @@
 
           ! Richardson vars
           real(kr) :: normrhs, normres2, normres, normres2_loc, normres2_sub
-          real(kr) :: omega, omegaold
+          real(kr) :: normsol, normsol2, normsol2_loc, normsol2_sub
+          real(kr) :: normmau, normmau2, normmau2_loc, normmau2_sub
+          real(kr) :: omega, omegaold, lambda_max_est
           real(kr) :: relres, lastres
 
           ! MPI vars
@@ -1438,10 +1441,12 @@
 
              richardson_data(isub_loc)%lg = ndofis
              allocate(richardson_data(isub_loc)%g(richardson_data(isub_loc)%lg))
+             richardson_data(isub_loc)%lmg = ndofis
+             allocate(richardson_data(isub_loc)%mg(richardson_data(isub_loc)%lmg))
              richardson_data(isub_loc)%lau = ndofis
              allocate(richardson_data(isub_loc)%au(richardson_data(isub_loc)%lau))
-             richardson_data(isub_loc)%lmr = ndofis
-             allocate(richardson_data(isub_loc)%mr(richardson_data(isub_loc)%lmr))
+             richardson_data(isub_loc)%lmau = ndofis
+             allocate(richardson_data(isub_loc)%mau(richardson_data(isub_loc)%lmau))
           end do
 
           do isub_loc = 1,nsub_loc
@@ -1463,6 +1468,17 @@
              common_krylov_data(isub_loc)%vec_out => richardson_data(isub_loc)%au
           end do
           call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+
+          ! determine norm of solution 
+          ! normsoli = ||soli||
+          normsol2_loc = 0._kr
+          do isub_loc = 1,nsub_loc
+             call levels_dd_dotprod_local(ilevel,isub_loc, &
+                                          richardson_data(isub_loc)%soli,richardson_data(isub_loc)%lsoli, &
+                                          richardson_data(isub_loc)%soli,richardson_data(isub_loc)%lsoli, &
+                                          normsol2_sub)
+             normsol2_loc = normsol2_loc + normsol2_sub
+          end do
 
           ! update residual
           ! r_0 = g - A*u_0
@@ -1501,12 +1517,23 @@
              return 
           end if
 
+          ! mg = M * g
+          ! first set properly pointers
+          do isub_loc = 1,nsub_loc
+             common_krylov_data(isub_loc)%lvec_in  = richardson_data(isub_loc)%lg
+             common_krylov_data(isub_loc)%vec_in  => richardson_data(isub_loc)%g
+             common_krylov_data(isub_loc)%lvec_out = richardson_data(isub_loc)%lmg
+             common_krylov_data(isub_loc)%vec_out => richardson_data(isub_loc)%mg
+          end do
+          call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
+
           ! Richardson iteration initialization
-          omega  = 1._kr
+          lambda_max_est = 1.0_kr
 
     ! Setting up the properties for decreasing residual
           ndecr   = 0
-          lastres = 1.0D0
+          lastres = 1.0_kr
+
      
     !***********************************************************************
     !*************************MAIN LOOP OVER ITERATIONS*********************
@@ -1514,7 +1541,7 @@
           do iter = 1,maxit
 
              ! Action of preconditioner M on vector resi 
-             ! mr = M*resi
+             ! mau = M*au
              if (debug) then
                 if (myid.eq.0) then
                    call info(routine_name,' Action of preconditioner')
@@ -1522,19 +1549,67 @@
              end if
              ! first set properly pointers
              do isub_loc = 1,nsub_loc
-                common_krylov_data(isub_loc)%lvec_in  = richardson_data(isub_loc)%lresi
-                common_krylov_data(isub_loc)%vec_in  => richardson_data(isub_loc)%resi
-                common_krylov_data(isub_loc)%lvec_out = richardson_data(isub_loc)%lmr
-                common_krylov_data(isub_loc)%vec_out => richardson_data(isub_loc)%mr
+                common_krylov_data(isub_loc)%lvec_in  = richardson_data(isub_loc)%lau
+                common_krylov_data(isub_loc)%vec_in  => richardson_data(isub_loc)%au
+                common_krylov_data(isub_loc)%lvec_out = richardson_data(isub_loc)%lmau
+                common_krylov_data(isub_loc)%vec_out => richardson_data(isub_loc)%mau
              end do
              call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
 
-             ! build half step
-             ! soli = soli + omega * M * res
-             ! s = res - alpha*v
+             ! determine norm of M*A*u 
+             ! normmau = ||mau||
+             normmau2_loc = 0._kr
              do isub_loc = 1,nsub_loc
-                richardson_data(isub_loc)%soli = richardson_data(isub_loc)%soli + omega * richardson_data(isub_loc)%mr
+                call levels_dd_dotprod_local(ilevel,isub_loc, &
+                                             richardson_data(isub_loc)%mau,richardson_data(isub_loc)%lmau, &
+                                             richardson_data(isub_loc)%mau,richardson_data(isub_loc)%lmau, &
+                                             normmau2_sub)
+                normmau2_loc = normmau2_loc + normmau2_sub
              end do
+    !***************************************************************PARALLEL
+             call MPI_ALLREDUCE(normmau2_loc,normmau2, 1, MPI_DOUBLE_PRECISION, &
+                                MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+             normmau = sqrt(normmau2)
+
+             ! update estimate of the maximal eigenvalue of M*A
+             lambda_max_est = max( normmau / normsol, lambda_max_est )
+
+             omega  = 2._kr / ( 1._kr + lambda_max_est )
+             if (debug) then
+                if (myid.eq.0) then
+                   call info(routine_name,'omega =',omega)
+                end if
+             end if
+
+             ! update solution
+             ! soli = soli + omega * M * res = soli + omega * ( M*g - M*A*soli )
+             do isub_loc = 1,nsub_loc
+                richardson_data(isub_loc)%soli = richardson_data(isub_loc)%soli &
+                                               + omega * (  richardson_data(isub_loc)%mg &
+                                                          - richardson_data(isub_loc)%mau )
+             end do
+
+             ! determine norm of solution 
+             ! normsoli = ||soli||
+             normsol2_loc = 0._kr
+             do isub_loc = 1,nsub_loc
+                call levels_dd_dotprod_local(ilevel,isub_loc, &
+                                             richardson_data(isub_loc)%soli,richardson_data(isub_loc)%lsoli, &
+                                             richardson_data(isub_loc)%soli,richardson_data(isub_loc)%lsoli, &
+                                             normsol2_sub)
+                normsol2_loc = normsol2_loc + normsol2_sub
+             end do
+    !***************************************************************PARALLEL
+             call MPI_ALLREDUCE(normsol2_loc,normsol2, 1, MPI_DOUBLE_PRECISION, &
+                                MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+             normsol = sqrt(normsol2)
+             if (debug) then
+                if (myid.eq.0) then
+                   call info(routine_name,'normsol =',normsol)
+                end if
+             end if
 
              ! update residual
              ! r = g - A*u
@@ -1591,6 +1666,18 @@
                 end if
                 num_iter = iter
                 converged_reason = 0
+                cond = lambda_max_est
+                exit
+             end if
+
+             ! Check number of iterations
+             if (iter.eq.maxit) then
+                if (myid.eq.0) then
+                   call warning(routine_name,'Maximal number of iterations reached, precision not achieved.')
+                end if
+                num_iter = iter
+                converged_reason = -1
+                cond = lambda_max_est
                 exit
              end if
 
@@ -1637,8 +1724,9 @@
          deallocate(richardson_data(isub_loc)%resi)
 
          deallocate(richardson_data(isub_loc)%g)
+         deallocate(richardson_data(isub_loc)%mg)
          deallocate(richardson_data(isub_loc)%au)
-         deallocate(richardson_data(isub_loc)%mr)
+         deallocate(richardson_data(isub_loc)%mau)
       end do
       deallocate(richardson_data)
 

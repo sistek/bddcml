@@ -433,7 +433,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       !  = -2 - reached limit on number of iterations with nondecreasing residual
       integer,intent(out) :: converged_reason
 
-      ! estimated condition number ( for PCG only )
+      ! estimated condition number ( for PCG and Richardson only )
       real(kr),intent(out) :: condition_number
 
       ! local variables
@@ -477,8 +477,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       else if (krylov_method.eq.5) then 
          ! use Richardson iteration
          call krylov_bddcrichardson(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
-                                    num_iter, converged_reason)
-         condition_number = -1._kr ! condition number is not computed for Richardson
+                                    num_iter, converged_reason, condition_number)
       else
          call error(routine_name,'unknown iterative method',krylov_method)
       end if

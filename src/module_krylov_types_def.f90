@@ -76,10 +76,12 @@ module module_krylov_types_def
          real(kr),allocatable :: resi(:)     ! array of residual at interface
          integer ::             lg
          real(kr),allocatable :: g(:)        ! right-hand side vector
+         integer ::             lmg
+         real(kr),allocatable :: mg(:)       ! M * right-hand side vector
          integer ::             lau
          real(kr),allocatable :: au(:)       ! array for A*u
-         integer ::             lmr
-         real(kr),allocatable :: mr(:)      ! array for preconditioned residual MAu
+         integer ::             lmau
+         real(kr),allocatable :: mau(:)      ! array for preconditioned residual MAu
       end type richardson_data_type
 
 
