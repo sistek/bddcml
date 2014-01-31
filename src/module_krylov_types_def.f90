@@ -68,6 +68,21 @@ module module_krylov_types_def
          real(kr),allocatable :: t(:)      
       end type bicgstab_data_type
 
+! type for storing data for Richardson iterative method in distributed manner
+      type richardson_data_type
+         integer ::             lsoli
+         real(kr),allocatable :: soli(:)     ! array of solution at interface
+         integer ::             lresi
+         real(kr),allocatable :: resi(:)     ! array of residual at interface
+         integer ::             lg
+         real(kr),allocatable :: g(:)        ! right-hand side vector
+         integer ::             lau
+         real(kr),allocatable :: au(:)       ! array for A*u
+         integer ::             lmr
+         real(kr),allocatable :: mr(:)      ! array for preconditioned residual MAu
+      end type richardson_data_type
+
+
 ! type for storing data for recycling of Krylov subspaces
       type krylov_recycling_data_type
          integer ::             lv1

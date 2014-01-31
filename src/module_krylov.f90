@@ -1347,6 +1347,312 @@
 
       end subroutine
 
+    !*********************************************************************************************
+          subroutine krylov_bddcrichardson(comm_all,tol,maxit,ndecrmax, num_iter,converged_reason)
+    !*********************************************************************************************
+    ! subroutine realizing Richardson iteration algorithm with vectors distributed by subdomains
+
+    ! module for preconditioner
+          use module_levels
+    ! Program name
+          use module_utils
+
+          implicit none
+          
+          include "mpif.h"
+
+          ! parallel variables
+          integer,intent(in) :: comm_all 
+
+          ! limit on iterations
+          integer,intent(in) :: maxit
+
+          ! limit on iterations with increasing residual
+          integer,intent(in) :: ndecrmax
+
+          ! desired accuracy of relative residual
+          real(kr),intent(in) :: tol
+
+          ! resulting number of iterations
+          integer,intent(out) :: num_iter
+
+          ! convergence reason
+          !  =  0 - converged relative residual
+          !  = -1 - reached limit on number of iterations
+          !  = -2 - reached limit on number of iterations with nondecreasing residual
+          integer,intent(out) :: converged_reason
+
+          ! local vars
+          character(*),parameter:: routine_name = 'KRYLOV_BDDCRICHARDSON'
+          integer,parameter :: ilevel = 1
+
+          ! data for storing actual Richardson data
+          integer ::                                         lrichardson_data
+          type (richardson_data_type), allocatable, target :: richardson_data(:)
+
+          ! data for auxiliary manipulation with preconditioner and system matrix 
+          integer ::                                     lcommon_krylov_data
+          type (common_krylov_data_type), allocatable ::  common_krylov_data(:)
+
+          integer :: myid
+          integer :: nsub, nsub_loc
+          integer :: isub_loc
+          integer :: iter, ndecr
+          integer :: ndofis, nnodis
+
+          ! Richardson vars
+          real(kr) :: normrhs, normres2, normres, normres2_loc, normres2_sub
+          real(kr) :: omega, omegaold
+          real(kr) :: relres, lastres
+
+          ! MPI vars
+          integer :: ierr
+
+          ! time variables
+          real(kr) :: t_postproc, t_solve
+
+    !-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+          end if
+    !-----profile
+
+          ! orient in the communicator
+          call MPI_COMM_RANK(comm_all,myid,ierr)
+
+          ! find number of subdomains
+          call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
+
+          ! prepare data and memory for Richardson
+          lcommon_krylov_data = nsub_loc
+          allocate(common_krylov_data(lcommon_krylov_data))
+          lrichardson_data = nsub_loc
+          allocate(richardson_data(lrichardson_data))
+          do isub_loc = 1,nsub_loc
+             call levels_dd_get_interface_size(ilevel,isub_loc, ndofis, nnodis)
+             richardson_data(isub_loc)%lsoli = ndofis
+             allocate(richardson_data(isub_loc)%soli(richardson_data(isub_loc)%lsoli))
+             richardson_data(isub_loc)%lresi = ndofis
+             allocate(richardson_data(isub_loc)%resi(richardson_data(isub_loc)%lresi))
+
+             richardson_data(isub_loc)%lg = ndofis
+             allocate(richardson_data(isub_loc)%g(richardson_data(isub_loc)%lg))
+             richardson_data(isub_loc)%lau = ndofis
+             allocate(richardson_data(isub_loc)%au(richardson_data(isub_loc)%lau))
+             richardson_data(isub_loc)%lmr = ndofis
+             allocate(richardson_data(isub_loc)%mr(richardson_data(isub_loc)%lmr))
+          end do
+
+          do isub_loc = 1,nsub_loc
+             ! prepare initial solution and right-hand side
+             call levels_prepare_interface_initial_data(isub_loc,richardson_data(isub_loc)%soli,richardson_data(isub_loc)%lsoli,&
+                                                                 richardson_data(isub_loc)%g,richardson_data(isub_loc)%lg)
+             ! fix boundary conditions in residual to zero
+             call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,richardson_data(isub_loc)%g,richardson_data(isub_loc)%lg)
+          end do
+
+          ! get initial residual
+          ! r_0 = g - A*u_0
+          ! au = A*u_0
+          ! first set pointers to soli and ap
+          do isub_loc = 1,nsub_loc
+             common_krylov_data(isub_loc)%lvec_in  = richardson_data(isub_loc)%lsoli
+             common_krylov_data(isub_loc)%vec_in  => richardson_data(isub_loc)%soli
+             common_krylov_data(isub_loc)%lvec_out = richardson_data(isub_loc)%lau
+             common_krylov_data(isub_loc)%vec_out => richardson_data(isub_loc)%au
+          end do
+          call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+
+          ! update residual
+          ! r_0 = g - A*u_0
+          do isub_loc = 1,nsub_loc
+             richardson_data(isub_loc)%resi = richardson_data(isub_loc)%g - richardson_data(isub_loc)%au
+          end do
+          ! fix boundary conditions in residual to zero
+          do isub_loc = 1,nsub_loc
+             call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi)
+          end do
+
+          ! compute norm of right-hand side
+          normres2_loc = 0._kr
+          do isub_loc = 1,nsub_loc
+             call levels_dd_dotprod_local(ilevel,isub_loc,richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi, &
+                                          richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi, &
+                                          normres2_sub)
+             normres2_loc = normres2_loc + normres2_sub
+          end do
+    !***************************************************************PARALLEL
+          call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
+                             MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+          normrhs = sqrt(normres2)
+          if (debug) then
+             if (myid.eq.0) then
+                call info(routine_name,'Norm of the right-hand side =',normrhs)
+             end if
+          end if
+
+          ! Check of zero right-hand side => all zero solution
+          if (normrhs.eq.0.0D0) then
+             if (myid.eq.0) then
+                call warning(routine_name,'initial residual zero => initial solution exact')
+             end if
+             return 
+          end if
+
+          ! Richardson iteration initialization
+          omega  = 1._kr
+
+    ! Setting up the properties for decreasing residual
+          ndecr   = 0
+          lastres = 1.0D0
+     
+    !***********************************************************************
+    !*************************MAIN LOOP OVER ITERATIONS*********************
+    !***********************************************************************
+          do iter = 1,maxit
+
+             ! Action of preconditioner M on vector resi 
+             ! mr = M*resi
+             if (debug) then
+                if (myid.eq.0) then
+                   call info(routine_name,' Action of preconditioner')
+                end if
+             end if
+             ! first set properly pointers
+             do isub_loc = 1,nsub_loc
+                common_krylov_data(isub_loc)%lvec_in  = richardson_data(isub_loc)%lresi
+                common_krylov_data(isub_loc)%vec_in  => richardson_data(isub_loc)%resi
+                common_krylov_data(isub_loc)%lvec_out = richardson_data(isub_loc)%lmr
+                common_krylov_data(isub_loc)%vec_out => richardson_data(isub_loc)%mr
+             end do
+             call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
+
+             ! build half step
+             ! soli = soli + omega * M * res
+             ! s = res - alpha*v
+             do isub_loc = 1,nsub_loc
+                richardson_data(isub_loc)%soli = richardson_data(isub_loc)%soli + omega * richardson_data(isub_loc)%mr
+             end do
+
+             ! update residual
+             ! r = g - A*u
+             ! first set pointers to soli and ap
+             do isub_loc = 1,nsub_loc
+                common_krylov_data(isub_loc)%lvec_in  = richardson_data(isub_loc)%lsoli
+                common_krylov_data(isub_loc)%vec_in  => richardson_data(isub_loc)%soli
+                common_krylov_data(isub_loc)%lvec_out = richardson_data(isub_loc)%lau
+                common_krylov_data(isub_loc)%vec_out => richardson_data(isub_loc)%au
+             end do
+             call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+
+             ! r = g - A*u
+             do isub_loc = 1,nsub_loc
+                richardson_data(isub_loc)%resi = richardson_data(isub_loc)%g - richardson_data(isub_loc)%au
+                call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi)
+             end do
+
+             ! determine norm of residual 
+             ! normres = ||resi||
+             normres2_loc = 0._kr
+             do isub_loc = 1,nsub_loc
+                call levels_dd_dotprod_local(ilevel,isub_loc, &
+                                             richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi, &
+                                             richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi, &
+                                             normres2_sub)
+                normres2_loc = normres2_loc + normres2_sub
+             end do
+    !***************************************************************PARALLEL
+             call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION, &
+                                MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+             normres = sqrt(normres2)
+             if (debug) then
+                if (myid.eq.0) then
+                   call info(routine_name,'normres =',normres)
+                end if
+             end if
+
+             ! Evaluation of stopping criterion
+             relres = normres/normrhs
+
+    ! Print residual to screen
+             if (myid.eq.0) then
+                call info (routine_name, 'iteration: ',iter)
+                call info (routine_name, '          relative residual: ',relres)
+             end if
+
+    ! Check convergence in the half step
+    !  relres < tol
+             if (relres.lt.tol) then
+                if (myid.eq.0) then
+                   call info (routine_name, ': Number of Richardson iterations: ',iter )
+                end if
+                num_iter = iter
+                converged_reason = 0
+                exit
+             end if
+
+             ! Check of decreasing of residual
+             if (relres.lt.lastres) then
+                ndecr = 0
+             else
+                ndecr = ndecr + 1
+                if (ndecr.ge.ndecrmax) then
+                   if (myid.eq.0) then
+                      call error(routine_name,'Residual did not decrease for maximal number of iterations:',ndecrmax)
+                   end if
+                end if
+             end if
+             lastres = relres
+
+    ! Shift rho
+             omegaold = omega
+
+          end do
+    !*************************END OF MAIN LOOP OVER ITERATIONS**************
+
+          ! Postprocessing of solution - computing interior values
+          call time_start
+          ! first set pointers to soli
+          do isub_loc = 1,nsub_loc
+             common_krylov_data(isub_loc)%lvec_in  = richardson_data(isub_loc)%lsoli
+             common_krylov_data(isub_loc)%vec_in  => richardson_data(isub_loc)%soli
+          end do
+      call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
+      call time_end(t_postproc)
+      if (myid.eq.0 .and. profile) then
+         call time_print('postprocessing of solution',t_postproc)
+      end if
+
+      ! Clear memory of BICGSTAB
+      do isub_loc = 1,nsub_loc
+         nullify(common_krylov_data(isub_loc)%vec_in)
+         nullify(common_krylov_data(isub_loc)%vec_out)
+      end do
+      deallocate(common_krylov_data)
+      do isub_loc = 1,nsub_loc
+         deallocate(richardson_data(isub_loc)%soli)
+         deallocate(richardson_data(isub_loc)%resi)
+
+         deallocate(richardson_data(isub_loc)%g)
+         deallocate(richardson_data(isub_loc)%au)
+         deallocate(richardson_data(isub_loc)%mr)
+      end do
+      deallocate(richardson_data)
+
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_solve)
+         if (myid.eq.0) then
+            call time_print('solution by Richardson method',t_solve)
+         end if
+      end if
+!-----profile
+
+      end subroutine
 
   !************************************************************************
       subroutine krylov_orthogonalize_gs(comm_all,krylov_data,lkrylov_data)

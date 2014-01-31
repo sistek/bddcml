@@ -44,7 +44,7 @@ program poisson_on_cube
       integer, parameter :: numbase = 1
 
 ! verbosity of BDDCML ( 0 - only fatal errors, 1 - mild output, 2 - detailed output )
-      integer,parameter:: verbose_level = 0
+      integer,parameter:: verbose_level = 1
 
 ! export solution to VTU files?
       logical,parameter :: export_solution = .true.
@@ -60,7 +60,8 @@ program poisson_on_cube
 !     -1 - use solver defaults
 !     0 - PCG
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
-      integer,parameter :: krylov_method = 0  
+!     5 - Richardson iteration
+      integer,parameter :: krylov_method = 5  
 
 ! use recycling of Krylov subspace
 !     0 - no recycling used

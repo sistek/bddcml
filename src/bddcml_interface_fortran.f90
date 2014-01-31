@@ -403,6 +403,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       ! -1 - use defaults (tol, maxit, and ndecrmax not accessed)
       ! 0 - PCG
       ! 1 - BICGSTAB
+      ! 5 - Richardson iteration
       integer, intent(in) :: method
 
       ! desired accuracy of relative residual
@@ -473,6 +474,11 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
          call krylov_bddcbicgstab(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
                                   num_iter, converged_reason)
          condition_number = -1._kr ! condition number is not computed for BICGSTAB
+      else if (krylov_method.eq.5) then 
+         ! use Richardson iteration
+         call krylov_bddcrichardson(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
+                                    num_iter, converged_reason)
+         condition_number = -1._kr ! condition number is not computed for Richardson
       else
          call error(routine_name,'unknown iterative method',krylov_method)
       end if
