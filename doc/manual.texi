@@ -16,8 +16,8 @@ END-INFO-DIR-ENTRY
 @titlepage
 @title BDDCML
 @subtitle solver library based on Multi-Level Balancing Domain Decomposition by Constraints
-@subtitle copyright (C) 2010-2013 Jakub @v{S}@'{@dotless{i}}stek
-@subtitle version 2.3
+@subtitle copyright (C) 2010-2014 Jakub @v{S}@'{@dotless{i}}stek
+@subtitle version 2.4
 @author Jakub @v{S}@'{@dotless{i}}stek
 
 @end titlepage
@@ -78,7 +78,7 @@ Their parameters are described in separate sections.
 @item @code{bddcml_upload_subdomain_data} -- loading data for one subdomain mesh and matrix (use for local loading)
 @end itemize
 @item @code{bddcml_setup_preconditioner} -- prepare preconditioner 
-@item @code{bddcml_solve} -- solve loaded system by precodnitioned Krylov subspace iterative method (PCG or BiCGstab)
+@item @code{bddcml_solve} -- solve loaded system by a preconditioned Krylov subspace iterative method (PCG or BiCGstab) or Richardson iterative method
 @item 
 @itemize
 @item @code{bddcml_download_local_solution} -- get the solution restricted to a subdomain from the solver (use for local loading)
@@ -759,6 +759,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
 @unnumberedsubsec Description
 This function launches the solution procedure for prepared data. System is solved either by preconditioned conjugate gradient (PCG) method or by 
 preconditioned stabilized Bi-Conjugate Gradient (BiCGstab) method.
+Alternatively to Krylov subspace methods one can use Richardson iteration.
 
 @unnumberedsubsec Parameters
 
@@ -771,7 +772,8 @@ Krylov subspace iterative method
 @itemize
 @item -1 - use defaults - @code{tol}, @code{maxit}, and @code{ndecrmax} not accessed, BiCGstab method used by default,
 @item  0 - use PCG,
-@item  1 - use BiCGstab.
+@item  1 - use BiCGstab,
+@item  5 - use Richardson iterative method.
 @end itemize
 
 @item tol
@@ -810,7 +812,7 @@ on output, contains reason for convergence/divergence
 @end itemize
 
 @item condition_number
-on output, estimated condition number ( for PCG only ).
+on output, estimated condition number ( for PCG and Richardson only ).
 
 @end table
 
