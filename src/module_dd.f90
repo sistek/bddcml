@@ -11152,7 +11152,7 @@ subroutine dd_create_globs2(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, c
          ! upload subdomain corners 
          call dd_upload_sub_corners(suba(isub_loc), ncorners, global_corner_numbers,lglobal_corner_numbers, icnsins,licnsins)
 
-         print *,'isub = ',isub,'ncorners = ',ncorners,'isgn:',suba(isub_loc)%isngn(suba(isub_loc)%iin(icnsins))
+         !print *,'isub = ',isub,'ncorners = ',ncorners,'isgn:',suba(isub_loc)%isngn(suba(isub_loc)%iin(icnsins))
 
 
          ! reinitialize kglobs
