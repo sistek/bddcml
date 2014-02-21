@@ -50,7 +50,7 @@ program bddcml_local
       integer,parameter :: use_preconditioner_defaults = 0
 
 ! use arithmetic constraints?
-      integer,parameter :: use_arithmetic_constraints = 1
+      integer,parameter :: use_arithmetic_constraints = 0
 
 ! use adaptive constraints?
       integer,parameter :: use_adaptive_constraints = 0
@@ -67,7 +67,7 @@ program bddcml_local
       ! 5 - weights by Marta Certikova - unit jump
       ! 6 - weights by Schur row sums for whole subdomain
       ! 7 - weights by Schur row sums computed face by face
-      integer,parameter :: weights_type = 0
+      integer,parameter :: weights_type = 1
 
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1
@@ -86,7 +86,7 @@ program bddcml_local
       logical,parameter :: print_solution = .false.
 
 ! use recycling of Krylov subspace
-      integer :: recycling_int = 1
+      integer :: recycling_int = 0
       integer :: max_number_of_stored_vectors = 100
 
 !######### END OF PARAMETERS TO SET
