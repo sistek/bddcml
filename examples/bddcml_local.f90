@@ -43,7 +43,8 @@ program bddcml_local
 !     -1 - use solver defaults
 !     0 - PCG
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
-      integer :: krylov_method = 0  
+!     5 - Richardson method
+      integer :: krylov_method = 5  
 
 ! use default values in preconditioner? In such case, all other parameters are ignored
       integer,parameter :: use_preconditioner_defaults = 0
