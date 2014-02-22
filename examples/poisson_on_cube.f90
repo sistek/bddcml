@@ -61,7 +61,7 @@ program poisson_on_cube
 !     0 - PCG
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
 !     5 - Richardson iteration
-      integer,parameter :: krylov_method = 5  
+      integer,parameter :: krylov_method = 0  
 
 ! use recycling of Krylov subspace
 !     0 - no recycling used

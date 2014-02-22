@@ -44,13 +44,13 @@ program bddcml_local
 !     0 - PCG
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
 !     5 - Richardson method
-      integer :: krylov_method = 5  
+      integer :: krylov_method = 0  
 
 ! use default values in preconditioner? In such case, all other parameters are ignored
       integer,parameter :: use_preconditioner_defaults = 0
 
 ! use arithmetic constraints?
-      integer,parameter :: use_arithmetic_constraints = 0
+      integer,parameter :: use_arithmetic_constraints = 1
 
 ! use adaptive constraints?
       integer,parameter :: use_adaptive_constraints = 0
@@ -86,7 +86,7 @@ program bddcml_local
       logical,parameter :: print_solution = .false.
 
 ! use recycling of Krylov subspace
-      integer :: recycling_int = 0
+      integer :: recycling_int = 1
       integer :: max_number_of_stored_vectors = 100
 
 !######### END OF PARAMETERS TO SET
