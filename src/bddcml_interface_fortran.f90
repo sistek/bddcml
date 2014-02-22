@@ -477,7 +477,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       else if (krylov_method.eq.5) then 
          ! use Richardson iteration
          call krylov_bddcrichardson(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
-                                    num_iter, converged_reason, condition_number)
+                                    num_iter, converged_reason)
       else
          call error(routine_name,'unknown iterative method',krylov_method)
       end if
