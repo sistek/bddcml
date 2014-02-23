@@ -44,7 +44,7 @@ program poisson_on_cube
       integer, parameter :: numbase = 1
 
 ! Just a direct solve by MUMPS?
-      integer, parameter :: just_direct_solve_int = 0
+      integer, parameter :: just_direct_solve_int = 1
 
 ! verbosity of BDDCML ( 0 - only fatal errors, 1 - mild output, 2 - detailed output )
       integer,parameter:: verbose_level = 1
@@ -65,7 +65,7 @@ program poisson_on_cube
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
 !     2 - steepest descent method
 !     5 - direct solve by MUMPS
-      integer,parameter :: krylov_method = 0  
+      integer,parameter :: krylov_method = 5  
 
 ! use recycling of Krylov subspace
 !     0 - no recycling used
@@ -580,7 +580,12 @@ program poisson_on_cube
          call bddcml_download_local_solution(isub, sols,lsols)
 
          ! compute norm of local solution
-         call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, normRn2_sub )
+         if (just_direct_solve_int == 0 ) then
+            call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, normRn2_sub )
+         else
+            normRn2_sub = 0._kr
+         end if
+            
          normRn2_loc = normRn2_loc + normRn2_sub
 
          ! re-create mesh for subdomain
@@ -669,7 +674,9 @@ program poisson_on_cube
          write(*,'(a)') ' Solution properties========'
          write(*,'(a,f15.10)') ' L_2 norm:   ', normL2_sol
          write(*,'(a,f15.10)') ' L_inf norm: ', normLinf_sol
-         write(*,'(a,f15.10)') ' R^n norm:   ', normRn_sol
+         if (just_direct_solve_int == 0) then
+            write(*,'(a,f15.10)') ' R^n norm:   ', normRn_sol
+         end if
          write(*,'(a)') ' ==========================='
       end if
 
