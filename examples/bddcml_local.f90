@@ -87,7 +87,7 @@ program bddcml_local
       integer,parameter:: verbose_level = 1
 
 ! print solution on screen?
-      logical,parameter :: print_solution = .true.
+      logical,parameter :: print_solution = .false.
 
 ! use recycling of Krylov subspace
       integer :: recycling_int = 1

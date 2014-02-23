@@ -3141,9 +3141,7 @@ subroutine levels_jds_prepare(matrixtype)
       lbc_aux = ndof
       allocate(bc_aux(lbc_aux))
       bc_aux = 0._kr
-      print *, 'bc', bc
       bc_aux(isvgvn) = bc
-      print *, 'bc_aux', bc_aux
 !*****************************************************************MPI
       call MPI_REDUCE(bc_aux,levels_jds_bc,ndof, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
 !*****************************************************************MPI
