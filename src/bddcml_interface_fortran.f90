@@ -19,12 +19,12 @@
 ! to exploit multilevel adaptive BDDC solver 
 ! Jakub Sistek, Praha 12/2010
 
-!******************************************************************************************
-subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_level, numbase)
-!******************************************************************************************
+!*****************************************************************************************************************
+subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_level, numbase, just_direct_solve_int)
+!*****************************************************************************************************************
 ! initialization of LEVELS module
       use module_levels
-      use module_utils , only : suppress_output_on
+      use module_utils , only : suppress_output_on, logical2integer
       use module_krylov , only : krylov_set_profile_on
       implicit none
 
@@ -52,7 +52,16 @@ subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_leve
 ! first index of arrays ( 0 for C, 1 for Fortran )
       integer, intent(in) :: numbase
 
-      call levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,numbase)
+! if >0, only perform parallel solve by a direct solver, e.g. parallel MUMPS
+! if ==0 perform regular solve by BDDC
+      integer, intent(in)::     just_direct_solve_int 
+
+      ! local vars
+      logical :: just_direct_solve
+
+      call logical2integer(just_direct_solve_int,just_direct_solve)
+
+      call levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,numbase,just_direct_solve)
 
       select case ( verbose_level )
       case (0)
@@ -390,6 +399,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
                         num_iter,converged_reason,condition_number)
 !******************************************************************
 ! solution of problem by a Krylov subspace iterative method
+      use module_levels
       use module_krylov
       use module_utils
       implicit none
@@ -403,7 +413,8 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       ! -1 - use defaults (tol, maxit, and ndecrmax not accessed)
       ! 0 - PCG
       ! 1 - BICGSTAB
-      ! 5 - Richardson iteration
+      ! 2 - steepest descent method
+      ! 5 - direct solve by MUMPS
       integer, intent(in) :: method
 
       ! desired accuracy of relative residual
@@ -433,7 +444,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       !  = -2 - reached limit on number of iterations with nondecreasing residual
       integer,intent(out) :: converged_reason
 
-      ! estimated condition number ( for PCG and Richardson only )
+      ! estimated condition number ( for PCG only )
       real(kr),intent(out) :: condition_number
 
       ! local variables
@@ -474,10 +485,17 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
          call krylov_bddcbicgstab(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
                                   num_iter, converged_reason)
          condition_number = -1._kr ! condition number is not computed for BICGSTAB
+      else if (krylov_method.eq.2) then 
+         ! use steepest descent iteration
+         call krylov_bddcsteepestdescent(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
+                                         num_iter, converged_reason)
+         condition_number = -1._kr ! condition number is not computed for steepest descent
       else if (krylov_method.eq.5) then 
-         ! use Richardson iteration
-         call krylov_bddcrichardson(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
-                                    num_iter, converged_reason)
+         ! use direct solve from the levels module
+         call levels_jds_solve
+         num_iter = 0
+         condition_number = -1._kr ! condition number is not computed for steepest descent
+         converged_reason = 0
       else
          call error(routine_name,'unknown iterative method',krylov_method)
       end if

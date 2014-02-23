@@ -41,6 +41,8 @@ program bddcml_global
 !     -1 - use solver defaults
 !     0 - PCG
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
+!     2 - steepest descent method
+!     5 - direct solve by MUMPS
       integer :: krylov_method = 0  
 
 ! use default values in preconditioner? In such case, all other parameters are ignored
@@ -68,6 +70,9 @@ program bddcml_global
 
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1
+
+! Just a direct solve by MUMPS?
+      integer, parameter :: just_direct_solve_int = 0
 
 ! use recycling of Krylov subspace
       integer :: recycling_int = 1

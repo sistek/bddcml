@@ -43,6 +43,9 @@ program poisson_on_cube
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1
 
+! Just a direct solve by MUMPS?
+      integer, parameter :: just_direct_solve_int = 0
+
 ! verbosity of BDDCML ( 0 - only fatal errors, 1 - mild output, 2 - detailed output )
       integer,parameter:: verbose_level = 1
 
@@ -60,7 +63,8 @@ program poisson_on_cube
 !     -1 - use solver defaults
 !     0 - PCG
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
-!     5 - Richardson iteration
+!     2 - steepest descent method
+!     5 - direct solve by MUMPS
       integer,parameter :: krylov_method = 0  
 
 ! use recycling of Krylov subspace
@@ -353,7 +357,7 @@ program poisson_on_cube
       end if
       ! tell me how much subdomains should I load
       nsub_loc_1 = -1
-      call bddcml_init(nlevels, nsublev,lnsublev, nsub_loc_1, comm_all, verbose_level, numbase)
+      call bddcml_init(nlevels, nsublev,lnsublev, nsub_loc_1, comm_all, verbose_level, numbase, just_direct_solve_int)
       if (myid.eq.0) then
          write (*,'(a)') 'Initializing BDDCML done.'
          call flush(6)

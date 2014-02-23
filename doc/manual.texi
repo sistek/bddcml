@@ -78,7 +78,7 @@ Their parameters are described in separate sections.
 @item @code{bddcml_upload_subdomain_data} -- loading data for one subdomain mesh and matrix (use for local loading)
 @end itemize
 @item @code{bddcml_setup_preconditioner} -- prepare preconditioner 
-@item @code{bddcml_solve} -- solve loaded system by a preconditioned Krylov subspace iterative method (PCG or BiCGstab) or Richardson iterative method
+@item @code{bddcml_solve} -- solve loaded system by a preconditioned Krylov subspace iterative method (PCG or BiCGstab) or steepest descent iterative method
 @item 
 @itemize
 @item @code{bddcml_download_local_solution} -- get the solution restricted to a subdomain from the solver (use for local loading)
@@ -164,11 +164,11 @@ In this chapter, detailed description of the solver interface functions with exp
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase );
+void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase, int *just_direct_solve_int );
 }
 @unnumberedsubsec Fortran interface
 @code{
-subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_level, numbase)
+subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_level, numbase, just_direct_solve_int)
 }
 @verbatim
       integer, intent(in) :: nl
@@ -178,6 +178,7 @@ subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_leve
       integer, intent(in):: comm_init 
       integer, intent(in):: verbose_level 
       integer, intent(in) :: numbase
+      integer, intent(in)::  just_direct_solve_int 
 @end verbatim
 
 @unnumberedsubsec Description
@@ -219,6 +220,9 @@ level of verbosity
 
 @item numbase
 first index of arrays ( 0 for C, 1 for Fortran )
+
+@item just_direct_solve_int
+Only perform a direct solve ( 0 for a regular iterative solve with BDDC preconditioner, 1 call parallel MUMPS solver )
 @end table 
 
 
@@ -759,7 +763,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
 @unnumberedsubsec Description
 This function launches the solution procedure for prepared data. System is solved either by preconditioned conjugate gradient (PCG) method or by 
 preconditioned stabilized Bi-Conjugate Gradient (BiCGstab) method.
-Alternatively to Krylov subspace methods one can use Richardson iteration.
+Alternatively to Krylov subspace methods one can use steepest descent iteration.
 
 @unnumberedsubsec Parameters
 
@@ -773,7 +777,8 @@ Krylov subspace iterative method
 @item -1 - use defaults - @code{tol}, @code{maxit}, and @code{ndecrmax} not accessed, BiCGstab method used by default,
 @item  0 - use PCG,
 @item  1 - use BiCGstab,
-@item  5 - use Richardson iterative method.
+@item  2 - use steepest descent method,
+@item  5 - use parallel direct solver instead of an iterative method.
 @end itemize
 
 @item tol
@@ -812,7 +817,7 @@ on output, contains reason for convergence/divergence
 @end itemize
 
 @item condition_number
-on output, estimated condition number ( for PCG and Richardson only ).
+on output, estimated condition number ( for PCG only ).
 
 @end table
 

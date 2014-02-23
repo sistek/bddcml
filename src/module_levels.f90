@@ -152,13 +152,23 @@ module module_levels
       type(levels_type), allocatable, target, private ::    levels(:)
 
       type(DMUMPS_STRUC), private :: mumps_coarse  
-      logical :: is_mumps_coarse_ready = .false.
+      logical,private :: is_mumps_coarse_ready = .false.
+
+      ! if set to yes, the solver performs a very different path and only performs a direct solve by MUMPS
+      logical, private :: levels_just_direct_solve = .false.  
+      type(DMUMPS_STRUC), private :: levels_jds_mumps  
+      logical,private :: is_mumps_jds_ready = .false.
+
+      integer ::             llevels_jds_bc
+      real(kr),allocatable :: levels_jds_bc(:)
+      integer ::             llevels_jds_rhs
+      real(kr),allocatable :: levels_jds_rhs(:)
 
 contains
 
-!*************************************************************************************
-subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,numbase)
-!*************************************************************************************
+!*******************************************************************************************************
+subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,numbase,just_direct_solve)
+!*******************************************************************************************************
 ! Subroutine for initialization of levels data and creating communicators
       ! NOTE:
       ! although the code supports reducing communicators, some routines require
@@ -189,6 +199,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,nu
       integer, intent(in)::     comm_init     ! initial global communicator (possibly MPI_COMM_WORLD)
       integer, intent(in)::     verbose_level ! verbosity level
       integer, intent(in)::     numbase       ! first index of arrays ( 0 for C, 1 for Fortran )
+      logical, intent(in)::     just_direct_solve ! if .true., only perform parallel solve by a direct solver
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_INIT'
@@ -202,9 +213,12 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,nu
       integer :: nsub_1
       integer :: i, ir
 
+! switch parallel direct solve
+      levels_just_direct_solve = just_direct_solve
+
 ! initial checks 
       if (nl.lt.2) then
-         call error(routine_name,'Number of levels must be at least 2.')
+         call error(routine_name,'Number of levels must be at least 1.')
       end if
       if (nsublev(nl).ne.1) then
          call error(routine_name,'Number of subdomains at last level must be 1.')
@@ -218,8 +232,8 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,nu
             call error(routine_name,'Number of local subdomains on first level must sum up to given global number:', nsublev(1))
          end if
       end if
-      if (any(nsublev(2:nl).ge.nsublev(1:nl-1))) then
-         call error(routine_name,'Number of subdomains must decrease monotonically with increasing level.')
+      if (any(nsublev(2:nl).ge.nsublev(1:nl-1)).and. .not.levels_just_direct_solve) then
+         call error(routine_name,'Number of subdomains must be decreasing with levels.')
       end if
 
 ! set verbosity
@@ -264,6 +278,11 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,nu
          ! find ID in old communicator
          call MPI_COMM_SIZE(comm_old,nproc_old,ierr)
          call MPI_COMM_RANK(comm_old,myid_old,ierr)
+
+         if (levels_just_direct_solve .and. iactive_level == 1 .and. .not. nproc_old == nsub) then
+             call error( routine_name, &
+                         'For using parallel direct solve, number of subdomains has to be equal to nproc on the first level')
+         end if
 
          if (nsub.ge.nproc_old .or. iactive_level.eq.1) then
             comm_all = comm_old
@@ -433,6 +452,10 @@ subroutine levels_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
       ! check number of elements
       if (levels(1)%nsub.gt.nelem) then
          call error(routine_name,'Number of subdomains at first level must not be larger than number of elements.')
+      end if
+
+      if (levels_just_direct_solve) then
+         call error(routine_name,'Cannot use global loading together with just direct solve')
       end if
 
 ! initialize zero level
@@ -951,6 +974,13 @@ subroutine levels_pc_setup( parallel_division,&
       ! check input
       if (.not. (levels_load_globs .eqv. levels_load_pairs).and. use_adaptive_constraints) then
          call warning(routine_name,'loading globs while not loading pairs or vice versa may result in wrong constraints')
+      end if
+
+      ! prepare data for the MUMPS call if that is all the user really wants
+      if (levels_just_direct_solve) then
+         call warning(routine_name,'Using MUMPS direct solver on the global problem rather than BDDC')
+         call levels_jds_prepare(matrixtype)
+         return
       end if
 
       ! prepare standard levels 
@@ -2990,6 +3020,357 @@ subroutine levels_prepare_last_level(matrixtype)
 
 end subroutine
 
+!****************************************
+subroutine levels_jds_prepare(matrixtype)
+!****************************************
+! Subroutine for set-up of MUMPS structures for the global parallel direct solve
+      use module_mumps
+      use module_sm
+      use module_utils, only: error, time_start, time_end, time_print
+      implicit none
+      include "mpif.h"
+
+      integer,intent(in) :: matrixtype
+
+      ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_JDS_PREPARE'
+
+      integer :: ilevel
+
+      integer :: la
+      integer,allocatable :: i_sparse(:),j_sparse(:)
+      real(kr),allocatable :: a_sparse(:)
+      integer,pointer :: isvgvn(:)
+      type(subdomain_type),pointer :: sub
+      integer ::             lbc
+      real(kr),allocatable :: bc(:)
+      integer ::             lbc_aux
+      real(kr),allocatable :: bc_aux(:)
+
+      logical :: is_bc_present, is_bc_present_loc
+
+      integer :: ndof
+      integer :: isub_loc
+      integer :: ndofs
+
+      integer :: mumpsinfo, iparallel
+
+      ! MPI variables
+      integer :: comm_all, comm_self, myid, nproc, ierr
+
+      ! time info
+      real(kr) :: t_mumps_analysis, t_mumps_factorization
+
+      ! last level has index of number of levels
+      ilevel = 1
+      isub_loc = 1
+      sub => levels(ilevel)%subdomains(isub_loc)
+
+! make the connection with previous level
+      levels(ilevel)%nelem = levels(ilevel-1)%nsub
+      levels(ilevel)%nnod  = levels(ilevel-1)%nnodc
+      levels(ilevel)%ndof  = levels(ilevel-1)%ndofc
+
+      levels(ilevel)%linet = levels(ilevel-1)%linetc  
+      levels(ilevel)%inet  => levels(ilevel-1)%inetc  
+      levels(ilevel)%lnnet = levels(ilevel-1)%lnnetc  
+      levels(ilevel)%nnet  => levels(ilevel-1)%nnetc  
+      levels(ilevel)%lnndf = levels(ilevel-1)%lnndfc  
+      levels(ilevel)%nndf  => levels(ilevel-1)%nndfc  
+      levels(ilevel)%lxyz1 = levels(ilevel-1)%lxyzc1  
+      levels(ilevel)%lxyz2 = levels(ilevel-1)%lxyzc2  
+      levels(ilevel)%xyz   => levels(ilevel-1)%xyzc  
+      levels(ilevel)%lifix = levels(ilevel-1)%lifixc  
+      levels(ilevel)%ifix  => levels(ilevel-1)%ifixc  
+      levels(ilevel)%lfixv = levels(ilevel-1)%lfixvc  
+      levels(ilevel)%fixv  => levels(ilevel-1)%fixvc  
+      if (ilevel.eq.1) then
+         levels(ilevel)%lrhs = levels(ilevel-1)%lrhsc  
+         levels(ilevel)%rhs  => levels(ilevel-1)%rhsc  
+      end if
+      levels(ilevel)%lsol = levels(ilevel-1)%lsolc  
+      levels(ilevel)%sol  => levels(ilevel-1)%solc  
+
+      ! initialize values
+      ndof  = levels(ilevel)%ndof
+
+      ! orient in the communicator
+      comm_all  = levels(ilevel)%comm_all
+      comm_self = levels(ilevel)%comm_self
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
+
+      ! check that number of subdomanins is equal to number of processors
+      if (levels(ilevel)%nsub /= nproc ) then
+         call error( routine_name, 'Currently requires number of subdomains equal to number of processors.')
+      end if
+
+      ! find if any nonzero BC is present
+      is_bc_present_loc = .false.
+      if (sub%is_bc_present) then
+         is_bc_present_loc = .true.
+      end if
+!*****************************************************************MPI
+      call MPI_ALLREDUCE(is_bc_present_loc,is_bc_present,1, MPI_LOGICAL, MPI_LOR, comm_all, ierr) 
+!*****************************************************************MPI
+
+      ! download the matrix and renumber it into global numbering
+      la = sub%nnza
+      allocate(i_sparse(la), j_sparse(la), a_sparse(la))
+
+      i_sparse = sub%i_a_sparse(1:la)
+      j_sparse = sub%j_a_sparse(1:la)
+      a_sparse = sub%a_sparse(1:la)
+
+      isvgvn => levels(ilevel)%subdomains(isub_loc)%isvgvn
+
+      ndofs = sub%ndof
+      lbc = ndofs 
+      allocate(bc(lbc))
+      bc = 0._kr
+      if (sub%is_bc_present) then
+         call sm_apply_bc(sub%matrixtype,&
+                          sub%ifix,sub%lifix,sub%fixv,sub%lfixv,&
+                          la, i_sparse, j_sparse, a_sparse, la, bc,lbc, .false., 0)
+      end if
+
+      if ( myid == 0 ) then
+         llevels_jds_bc = ndof
+         allocate(levels_jds_bc(llevels_jds_bc))
+      end if
+      lbc_aux = ndof
+      allocate(bc_aux(lbc_aux))
+      bc_aux = 0._kr
+      print *, 'bc', bc
+      bc_aux(isvgvn) = bc
+      print *, 'bc_aux', bc_aux
+!*****************************************************************MPI
+      call MPI_REDUCE(bc_aux,levels_jds_bc,ndof, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+!*****************************************************************MPI
+
+      ! make the renumbering
+      i_sparse = isvgvn(i_sparse)
+      j_sparse = isvgvn(j_sparse)
+
+!      isub_loc = 1
+!
+!      ndofs = levels(ilevel)%subdomains(isub_loc)%ndof
+!      ! copy right hand side into aux2
+!      allocate(rhs(ndofs))
+!      rhs = suba(isub_loc)%rhs
+!      end do
+!
+!      if (levels(ilevel)%subdomains(isub_loc)%is_bc_present) then
+!         ! prepare subdomain BC array
+!
+!         lbc = ndofs
+!         allocate(bc(lbc))
+!         ! copy BC
+!         do i = 1,ndofs
+!            bc(i) = suba(isub_loc)%bc(i)
+!         end do
+!
+!         ! apply weights on interface
+!         call dd_weights_apply(suba(isub_loc), bc,lbc)
+!         call sm_prepare_rhs(suba(isub_loc)%ifix,suba(isub_loc)%lifix,&
+!                             bc,lbc,rhs,lrhs)
+!         deallocate(bc)
+!      end if
+
+! Initialize MUMPS
+      call mumps_init(levels_jds_mumps,comm_all,matrixtype)
+
+! Level of information from MUMPS
+      mumpsinfo  = 1
+      call mumps_set_info(levels_jds_mumps,mumpsinfo)
+
+! Load matrix to MUMPS
+      call mumps_load_triplet_distributed(levels_jds_mumps,ndof, la, &
+                                          i_sparse, j_sparse, a_sparse, la) 
+
+! Analyze matrix
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+      iparallel = 0 ! let MUMPS decide
+      call mumps_analyze(levels_jds_mumps,iparallel)
+      if (debug) then
+         if (myid.eq.0) then
+            call info(routine_name, 'Matrix analyzed.')
+         end if
+      end if
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_mumps_analysis)
+         if (myid.eq.0) then
+            call time_print('Analysis of the problem matrix',t_mumps_analysis)
+         end if
+      end if
+!-----profile
+
+! Factorize matrix
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+      call mumps_factorize(levels_jds_mumps)
+      if (debug) then
+         if (myid.eq.0) then
+            call info(routine_name, 'Matrix factorized.')
+         end if
+      end if
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_mumps_factorization)
+         if (myid.eq.0) then
+            call time_print('Factorization of the problem matrix',t_mumps_factorization)
+         end if
+      end if
+!-----profile
+
+      is_mumps_jds_ready = .true.
+
+      levels(ilevel)%is_level_prepared = .true.
+
+! Clear memory
+      deallocate(i_sparse, j_sparse, a_sparse)
+
+end subroutine
+
+!**************************
+subroutine levels_jds_solve
+!**************************
+! Subroutine for resolving the system by MUMPS 
+      use module_mumps
+      use module_utils, only: error, time_start, time_end, time_print
+      implicit none
+      include "mpif.h"
+
+      ! local vars
+      character(*),parameter:: routine_name = 'LEVELS_JDS_SOLVE'
+
+      integer :: ilevel
+
+      type(subdomain_type),pointer :: sub
+
+      integer :: ndof
+      integer :: isub_loc
+      integer :: ndofs, nnods, nelems
+
+      integer ::             lsol
+      real(kr),allocatable :: sol(:)
+
+      integer ::             lsols
+      real(kr),allocatable :: sols(:)
+
+      ! MPI variables
+      integer :: comm_all, comm_self, myid, nproc, ierr
+
+      ! time info
+      real(kr) :: t_mumps_solve
+
+      ! last level has index of number of levels
+      ilevel = 1
+      isub_loc = 1
+      sub => levels(ilevel)%subdomains(isub_loc)
+
+      ! orient in the communicator
+      comm_all  = levels(ilevel)%comm_all
+      comm_self = levels(ilevel)%comm_self
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
+
+      if (ilevel.eq.1) then
+         levels(ilevel)%lrhs = levels(ilevel-1)%lrhsc  
+         levels(ilevel)%rhs  => levels(ilevel-1)%rhsc  
+      end if
+      levels(ilevel)%lsol = levels(ilevel-1)%lsolc  
+      levels(ilevel)%sol  => levels(ilevel-1)%solc  
+
+      ndof = levels(ilevel)%ndof
+
+      ! check that the MUMPS structure is prepared
+      if (.not.is_mumps_jds_ready) then
+          call error(routine_name,&
+               'It looks as if you have not called the LEVELS_PC_SETUP routine or did not set JUST_DIRECT_SOLVE_INT')
+      end if
+
+      ! a DIRTY HACK to obtain the global rhs vector through the get_global_solution routine
+      if (myid == 0) then
+         if (.not.allocated(levels_jds_rhs)) then
+            llevels_jds_rhs = ndof
+            allocate(levels_jds_rhs(llevels_jds_rhs))
+         else
+            ! check the size
+            if (size(levels_jds_rhs).ne.ndof) then
+               call error(routine_name, 'Wrong size of the array.')
+            end if
+         end if
+      end if
+
+      if (.not.allocated(sub%rhs)) then
+         call error( routine_name, 'Local rhs not allocated.')
+      end if
+      sub%sol = sub%rhs
+      if (sub%is_bc_present) then
+         where(sub%ifix /= 0) sub%sol = 0._kr
+      end if
+      call levels_get_global_solution(levels_jds_rhs,llevels_jds_rhs)
+
+      ! consider effect of boundary conditions
+      if (myid == 0) then
+         levels_jds_rhs = levels_jds_rhs + levels_jds_bc
+      end if
+
+! Solve by MUMPS
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+      call mumps_resolve( levels_jds_mumps, levels_jds_rhs, llevels_jds_rhs )
+      lsol = ndof
+      allocate(sol(lsol))
+      if (myid == 0 ) then
+         sol = levels_jds_rhs
+       end if
+!*****************************************************************MPI
+      call MPI_BCAST(sol,  lsol, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
+!*****************************************************************MPI
+
+      ! localize data
+      ! find size of subdomain
+      call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+   
+      ! load subdomain SOLS
+      lsols = ndofs
+      allocate(sols(lsols))
+      call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), sol,lsol, sols,lsols)
+      call dd_upload_solution(levels(ilevel)%subdomains(isub_loc), sols,lsols)
+      deallocate(sols)
+
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_mumps_solve)
+         if (myid.eq.0) then
+            call time_print('Solution of the problem by MUMPS',t_mumps_solve)
+         end if
+      end if
+!-----profile
+
+      deallocate(sol)
+
+end subroutine
+
 !**********************************
 subroutine levels_localize_new_data
 !**********************************
@@ -4040,7 +4421,7 @@ subroutine levels_get_global_solution(sol,lsol)
       ! check that array is properly allocated at root
       if (myid.eq.0) then
          if (lsol.ne.levels(ilevel)%ndof) then
-            call error( routine_name, 'Space for global solution not properly allocated on root.')
+            call error( routine_name, 'Space for global solution not properly allocated on root.',levels(ilevel)%ndof)
          end if
          call zero(sol,lsol)
       end if
@@ -4534,6 +4915,18 @@ subroutine levels_finalize
       if (is_mumps_coarse_ready) then
          call mumps_finalize(mumps_coarse)
          is_mumps_coarse_ready = .false.
+      end if
+
+! destroy MUMPS structure of the last level
+      if (is_mumps_jds_ready) then
+         call mumps_finalize(levels_jds_mumps)
+         is_mumps_jds_ready = .false.
+      end if
+      if (allocated(levels_jds_bc) ) then
+         deallocate(levels_jds_bc)
+      end if
+      if (allocated(levels_jds_rhs) ) then
+         deallocate(levels_jds_rhs)
       end if
 
 ! deallocate basic structure

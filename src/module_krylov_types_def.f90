@@ -68,8 +68,8 @@ module module_krylov_types_def
          real(kr),allocatable :: t(:)      
       end type bicgstab_data_type
 
-! type for storing data for Richardson iterative method in distributed manner
-      type richardson_data_type
+! type for storing data for steepest descent iterative method in distributed manner
+      type steepestdescent_data_type
          integer ::             lsoli
          real(kr),allocatable :: soli(:)     ! array of solution at interface
          integer ::             lresi
@@ -78,7 +78,7 @@ module module_krylov_types_def
          real(kr),allocatable :: z(:)        ! M * residual
          integer ::             laz
          real(kr),allocatable :: az(:)       ! array for A*u
-      end type richardson_data_type
+      end type steepestdescent_data_type
 
 
 ! type for storing data for recycling of Krylov subspaces

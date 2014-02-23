@@ -10,7 +10,8 @@
 #include "f_symbol.h"
 
 #define bddcml_init F_SYMBOL(bddcml_init, BDDCML_INIT)
-void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase );
+void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase, 
+                  int *just_direct_solve_int );
 
 #define bddcml_upload_global_data F_SYMBOL(bddcml_upload_global_data, BDDCML_UPLOAD_GLOBAL_DATA)
 void bddcml_upload_global_data( int *nelem, int *nnod, int *ndof, int *ndim, int *meshdim, 

@@ -43,8 +43,9 @@ program bddcml_local
 !     -1 - use solver defaults
 !     0 - PCG
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
-!     5 - Richardson method
-      integer :: krylov_method = 0  
+!     2 - steepest descent method
+!     5 - direct solve by MUMPS
+      integer :: krylov_method = 5  
 
 ! use default values in preconditioner? In such case, all other parameters are ignored
       integer,parameter :: use_preconditioner_defaults = 0
@@ -72,6 +73,9 @@ program bddcml_local
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1
 
+! Just a direct solve by MUMPS?
+      integer, parameter :: just_direct_solve_int = 1
+
 ! should parallel division be used (ParMETIS instead of METIS)?
       integer,parameter :: parallel_division = 1
 ! maximal length of problemname
@@ -83,7 +87,7 @@ program bddcml_local
       integer,parameter:: verbose_level = 1
 
 ! print solution on screen?
-      logical,parameter :: print_solution = .false.
+      logical,parameter :: print_solution = .true.
 
 ! use recycling of Krylov subspace
       integer :: recycling_int = 1
@@ -408,7 +412,8 @@ program bddcml_local
       call time_start
       ! tell me how much subdomains should I load
       nsub_loc_1 = -1
-      call bddcml_init(nlevels, nsublev,lnsublev, nsub_loc_1, comm_all, verbose_level, numbase)
+      call bddcml_init(nlevels, nsublev,lnsublev, nsub_loc_1, comm_all, verbose_level, numbase, &
+                       just_direct_solve_int)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_init)
       write (*,*) 'Initializing LEVELS done, locally owned subdomains: ', nsub_loc_1
@@ -626,6 +631,12 @@ program bddcml_local
       call MPI_BARRIER(comm_all,ierr)
       call time_start
       ! call with setting of iterative properties
+      if (krylov_method /= 5 .and. just_direct_solve_int /= 0) then
+         call error( routine_name, 'You have to set just_direct_solve_int to nonzero if you want to use MUMPS')
+      end if
+      if (krylov_method == 5 .and. just_direct_solve_int == 0) then
+         call error( routine_name, 'You have to set just_direct_solve_int to nonzero if you want to use MUMPS')
+      end if
       call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax, recycling_int, max_number_of_stored_vectors, &
                         num_iter, converged_reason, condition_number)
       if (myid.eq.0) then
@@ -662,7 +673,9 @@ program bddcml_local
          end if
          close(idsols)
 
-         call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, norm2_sub )
+         if (krylov_method.ne.5) then
+            call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, norm2_sub )
+         end if
 
          norm2_loc = norm2_loc + norm2_sub
 
@@ -673,8 +686,10 @@ program bddcml_local
       call MPI_ALLREDUCE(norm2_loc, norm2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr)
       norm_sol = sqrt( norm2 )
 
-      if (myid.eq.0) then
-          write(*,*) 'Norm of solution is: ', norm_sol
+      if (krylov_method.ne.5) then
+         if (myid.eq.0) then
+             write(*,*) 'Norm of solution is: ', norm_sol
+         end if
       end if
 
       do isub = sub2proc(myid+1), sub2proc(myid+2) - 1
@@ -777,7 +792,9 @@ program bddcml_local
       call MPI_BARRIER(comm_all,ierr)
       call time_start
       ! call with setting of iterative properties
-      call bddcml_setup_new_data
+      if (krylov_method.ne.5) then
+         call bddcml_setup_new_data
+      end if
       call bddcml_solve(comm_all, krylov_method, tol,maxit,ndecrmax, recycling_int, max_number_of_stored_vectors, &
                         num_iter, converged_reason, condition_number)
       if (myid.eq.0) then
@@ -814,7 +831,9 @@ program bddcml_local
          end if
          close(idsols)
 
-         call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, norm2_sub )
+         if (krylov_method.ne.5) then
+            call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, norm2_sub )
+         end if
 
          norm2_loc = norm2_loc + norm2_sub
 
@@ -825,8 +844,10 @@ program bddcml_local
       call MPI_ALLREDUCE(norm2_loc, norm2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr)
       norm_sol = sqrt( norm2 )
 
-      if (myid.eq.0) then
-          write(*,*) 'Norm of solution is: ', norm_sol
+      if (krylov_method.ne.5) then
+         if (myid.eq.0) then
+             write(*,*) 'Norm of solution is: ', norm_sol
+         end if
       end if
 
       deallocate(nsublev)

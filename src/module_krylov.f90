@@ -1345,10 +1345,10 @@
 
       end subroutine
 
-    !*********************************************************************************************
-          subroutine krylov_bddcrichardson(comm_all,tol,maxit,ndecrmax, num_iter,converged_reason)
-    !*********************************************************************************************
-    ! subroutine realizing Richardson iteration algorithm with vectors distributed by subdomains
+    !**************************************************************************************************
+          subroutine krylov_bddcsteepestdescent(comm_all,tol,maxit,ndecrmax, num_iter,converged_reason)
+    !**************************************************************************************************
+    ! subroutine realizing steepest descent iteration algorithm with vectors distributed by subdomains
 
     ! module for preconditioner
           use module_levels
@@ -1381,12 +1381,12 @@
           integer,intent(out) :: converged_reason
 
           ! local vars
-          character(*),parameter:: routine_name = 'KRYLOV_BDDCRICHARDSON'
+          character(*),parameter:: routine_name = 'KRYLOV_BDDCSTEEPESTDESCENT'
           integer,parameter :: ilevel = 1
 
-          ! data for storing actual Richardson data
-          integer ::                                         lrichardson_data
-          type (richardson_data_type), allocatable, target :: richardson_data(:)
+          ! data for storing actual data
+          integer ::                                              lsteepestdescent_data
+          type (steepestdescent_data_type), allocatable, target :: steepestdescent_data(:)
 
           ! data for auxiliary manipulation with preconditioner and system matrix 
           integer ::                                     lcommon_krylov_data
@@ -1398,9 +1398,8 @@
           integer :: iter, ndecr
           integer :: ndofis, nnodis
 
-          ! Richardson vars
+          ! steepest descent vars
           real(kr) :: normrhs, normres2, normres, normres2_loc, normres2_sub
-          real(kr) :: normsol, normsol2, normsol2_loc, normsol2_sub
           real(kr) :: rz, rz_loc, rz_sub
           real(kr) :: zaz, zaz_loc, zaz_sub
           real(kr) :: alpha 
@@ -1425,30 +1424,32 @@
           ! find number of subdomains
           call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
 
-          ! prepare data and memory for Richardson
+          ! prepare data and memory for steepest descent
           lcommon_krylov_data = nsub_loc
           allocate(common_krylov_data(lcommon_krylov_data))
-          lrichardson_data = nsub_loc
-          allocate(richardson_data(lrichardson_data))
+          lsteepestdescent_data = nsub_loc
+          allocate(steepestdescent_data(lsteepestdescent_data))
           do isub_loc = 1,nsub_loc
              call levels_dd_get_interface_size(ilevel,isub_loc, ndofis, nnodis)
-             richardson_data(isub_loc)%lsoli = ndofis
-             allocate(richardson_data(isub_loc)%soli(richardson_data(isub_loc)%lsoli))
-             richardson_data(isub_loc)%lresi = ndofis
-             allocate(richardson_data(isub_loc)%resi(richardson_data(isub_loc)%lresi))
+             steepestdescent_data(isub_loc)%lsoli = ndofis
+             allocate(steepestdescent_data(isub_loc)%soli(steepestdescent_data(isub_loc)%lsoli))
+             steepestdescent_data(isub_loc)%lresi = ndofis
+             allocate(steepestdescent_data(isub_loc)%resi(steepestdescent_data(isub_loc)%lresi))
 
-             richardson_data(isub_loc)%lz = ndofis
-             allocate(richardson_data(isub_loc)%z(richardson_data(isub_loc)%lz))
-             richardson_data(isub_loc)%laz = ndofis
-             allocate(richardson_data(isub_loc)%az(richardson_data(isub_loc)%laz))
+             steepestdescent_data(isub_loc)%lz = ndofis
+             allocate(steepestdescent_data(isub_loc)%z(steepestdescent_data(isub_loc)%lz))
+             steepestdescent_data(isub_loc)%laz = ndofis
+             allocate(steepestdescent_data(isub_loc)%az(steepestdescent_data(isub_loc)%laz))
           end do
 
           do isub_loc = 1,nsub_loc
              ! prepare initial solution and right-hand side
-             call levels_prepare_interface_initial_data(isub_loc,richardson_data(isub_loc)%soli,richardson_data(isub_loc)%lsoli,&
-                                                                 richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi)
+             call levels_prepare_interface_initial_data(isub_loc,&
+                       steepestdescent_data(isub_loc)%soli,steepestdescent_data(isub_loc)%lsoli,&
+                       steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi)
              ! fix boundary conditions in residual to zero
-             call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi)
+             call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,&
+                       steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi)
           end do
 
           ! get initial residual
@@ -1456,28 +1457,30 @@
           ! au = A*u_0
           ! first set pointers to soli and ap
           do isub_loc = 1,nsub_loc
-             common_krylov_data(isub_loc)%lvec_in  = richardson_data(isub_loc)%lsoli
-             common_krylov_data(isub_loc)%vec_in  => richardson_data(isub_loc)%soli
-             common_krylov_data(isub_loc)%lvec_out = richardson_data(isub_loc)%laz
-             common_krylov_data(isub_loc)%vec_out => richardson_data(isub_loc)%az
+             common_krylov_data(isub_loc)%lvec_in  = steepestdescent_data(isub_loc)%lsoli
+             common_krylov_data(isub_loc)%vec_in  => steepestdescent_data(isub_loc)%soli
+             common_krylov_data(isub_loc)%lvec_out = steepestdescent_data(isub_loc)%laz
+             common_krylov_data(isub_loc)%vec_out => steepestdescent_data(isub_loc)%az
           end do
           call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
 
           ! update residual
           ! r_0 = g - A*u_0
           do isub_loc = 1,nsub_loc
-             richardson_data(isub_loc)%resi = richardson_data(isub_loc)%resi - richardson_data(isub_loc)%az
+             steepestdescent_data(isub_loc)%resi = steepestdescent_data(isub_loc)%resi - steepestdescent_data(isub_loc)%az
           end do
           ! fix boundary conditions in residual to zero
           do isub_loc = 1,nsub_loc
-             call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi)
+             call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,&
+                     steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi)
           end do
 
           ! compute norm of right-hand side
           normres2_loc = 0._kr
           do isub_loc = 1,nsub_loc
-             call levels_dd_dotprod_local(ilevel,isub_loc,richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi, &
-                                          richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi, &
+             call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                          steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi, &
+                                          steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi, &
                                           normres2_sub)
              normres2_loc = normres2_loc + normres2_sub
           end do
@@ -1519,10 +1522,10 @@
              end if
              ! first set properly pointers
              do isub_loc = 1,nsub_loc
-                common_krylov_data(isub_loc)%lvec_in  = richardson_data(isub_loc)%lresi
-                common_krylov_data(isub_loc)%vec_in  => richardson_data(isub_loc)%resi
-                common_krylov_data(isub_loc)%lvec_out = richardson_data(isub_loc)%lz
-                common_krylov_data(isub_loc)%vec_out => richardson_data(isub_loc)%z
+                common_krylov_data(isub_loc)%lvec_in  = steepestdescent_data(isub_loc)%lresi
+                common_krylov_data(isub_loc)%vec_in  => steepestdescent_data(isub_loc)%resi
+                common_krylov_data(isub_loc)%lvec_out = steepestdescent_data(isub_loc)%lz
+                common_krylov_data(isub_loc)%vec_out => steepestdescent_data(isub_loc)%z
              end do
              call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
 
@@ -1530,10 +1533,10 @@
              ! az = A*z
              ! first set pointers to soli and ap
              do isub_loc = 1,nsub_loc
-                common_krylov_data(isub_loc)%lvec_in  = richardson_data(isub_loc)%lz
-                common_krylov_data(isub_loc)%vec_in  => richardson_data(isub_loc)%z
-                common_krylov_data(isub_loc)%lvec_out = richardson_data(isub_loc)%laz
-                common_krylov_data(isub_loc)%vec_out => richardson_data(isub_loc)%az
+                common_krylov_data(isub_loc)%lvec_in  = steepestdescent_data(isub_loc)%lz
+                common_krylov_data(isub_loc)%vec_in  => steepestdescent_data(isub_loc)%z
+                common_krylov_data(isub_loc)%lvec_out = steepestdescent_data(isub_loc)%laz
+                common_krylov_data(isub_loc)%vec_out => steepestdescent_data(isub_loc)%az
              end do
              call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
 
@@ -1542,8 +1545,8 @@
              rz_loc = 0._kr
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc, &
-                                             richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi, &
-                                             richardson_data(isub_loc)%z,richardson_data(isub_loc)%lz, &
+                                             steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi, &
+                                             steepestdescent_data(isub_loc)%z,steepestdescent_data(isub_loc)%lz, &
                                              rz_sub)
                 rz_loc = rz_loc + rz_sub
              end do
@@ -1556,8 +1559,8 @@
              zaz_loc = 0._kr
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc, &
-                                             richardson_data(isub_loc)%z,richardson_data(isub_loc)%lz, &
-                                             richardson_data(isub_loc)%az,richardson_data(isub_loc)%laz, &
+                                             steepestdescent_data(isub_loc)%z,steepestdescent_data(isub_loc)%lz, &
+                                             steepestdescent_data(isub_loc)%az,steepestdescent_data(isub_loc)%laz, &
                                              zaz_sub)
                 zaz_loc = zaz_loc + zaz_sub
              end do
@@ -1573,14 +1576,17 @@
              ! update solution
              ! soli = soli + alpha * z 
              do isub_loc = 1,nsub_loc
-                richardson_data(isub_loc)%soli = richardson_data(isub_loc)%soli + alpha * richardson_data(isub_loc)%z 
+                steepestdescent_data(isub_loc)%soli = steepestdescent_data(isub_loc)%soli &
+                                                    + alpha * steepestdescent_data(isub_loc)%z 
              end do
 
              ! update residual
              ! resi = resi - alpha * Az 
              do isub_loc = 1,nsub_loc
-                richardson_data(isub_loc)%resi = richardson_data(isub_loc)%resi - alpha * richardson_data(isub_loc)%az 
-                call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi)
+                steepestdescent_data(isub_loc)%resi = steepestdescent_data(isub_loc)%resi &
+                                                    - alpha * steepestdescent_data(isub_loc)%az 
+                call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,&
+                                           steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi)
              end do
 
              ! determine norm of residual 
@@ -1588,8 +1594,8 @@
              normres2_loc = 0._kr
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc, &
-                                             richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi, &
-                                             richardson_data(isub_loc)%resi,richardson_data(isub_loc)%lresi, &
+                                             steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi, &
+                                             steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi, &
                                              normres2_sub)
                 normres2_loc = normres2_loc + normres2_sub
              end do
@@ -1617,7 +1623,7 @@
     !  relres < tol
              if (relres.lt.tol) then
                 if (myid.eq.0) then
-                   call info (routine_name, ': Number of Richardson iterations: ',iter )
+                   call info (routine_name, ': Number of steepest descent iterations: ',iter )
                 end if
                 num_iter = iter
                 converged_reason = 0
@@ -1654,8 +1660,8 @@
           call time_start
           ! first set pointers to soli
           do isub_loc = 1,nsub_loc
-             common_krylov_data(isub_loc)%lvec_in  = richardson_data(isub_loc)%lsoli
-             common_krylov_data(isub_loc)%vec_in  => richardson_data(isub_loc)%soli
+             common_krylov_data(isub_loc)%lvec_in  = steepestdescent_data(isub_loc)%lsoli
+             common_krylov_data(isub_loc)%vec_in  => steepestdescent_data(isub_loc)%soli
           end do
       call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
       call time_end(t_postproc)
@@ -1670,20 +1676,20 @@
       end do
       deallocate(common_krylov_data)
       do isub_loc = 1,nsub_loc
-         deallocate(richardson_data(isub_loc)%soli)
-         deallocate(richardson_data(isub_loc)%resi)
+         deallocate(steepestdescent_data(isub_loc)%soli)
+         deallocate(steepestdescent_data(isub_loc)%resi)
 
-         deallocate(richardson_data(isub_loc)%z)
-         deallocate(richardson_data(isub_loc)%az)
+         deallocate(steepestdescent_data(isub_loc)%z)
+         deallocate(steepestdescent_data(isub_loc)%az)
       end do
-      deallocate(richardson_data)
+      deallocate(steepestdescent_data)
 
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_solve)
          if (myid.eq.0) then
-            call time_print('solution by Richardson method',t_solve)
+            call time_print('solution by steepest descent method',t_solve)
          end if
       end if
 !-----profile
