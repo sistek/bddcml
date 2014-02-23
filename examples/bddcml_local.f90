@@ -45,7 +45,7 @@ program bddcml_local
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
 !     2 - steepest descent method
 !     5 - direct solve by MUMPS
-      integer :: krylov_method = 5  
+      integer :: krylov_method = 0  
 
 ! use default values in preconditioner? In such case, all other parameters are ignored
       integer,parameter :: use_preconditioner_defaults = 0
@@ -74,7 +74,7 @@ program bddcml_local
       integer, parameter :: numbase = 1
 
 ! Just a direct solve by MUMPS?
-      integer, parameter :: just_direct_solve_int = 1
+      integer, parameter :: just_direct_solve_int = 0
 
 ! should parallel division be used (ParMETIS instead of METIS)?
       integer,parameter :: parallel_division = 1

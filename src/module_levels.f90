@@ -3122,7 +3122,7 @@ subroutine levels_jds_prepare(matrixtype)
       j_sparse = sub%j_a_sparse(1:la)
       a_sparse = sub%a_sparse(1:la)
 
-      isvgvn => levels(ilevel)%subdomains(isub_loc)%isvgvn
+      isvgvn => sub%isvgvn
 
       ndofs = sub%ndof
       lbc = ndofs 
@@ -3265,8 +3265,16 @@ subroutine levels_jds_solve
       integer ::             lsol
       real(kr),allocatable :: sol(:)
 
+      integer ::             lrhs_aux
+      real(kr),allocatable :: rhs_aux(:)
+
       integer ::             lsols
       real(kr),allocatable :: sols(:)
+
+      integer ::             lrhss
+      real(kr),allocatable :: rhss(:)
+
+      integer,pointer :: isvgvn(:)
 
       ! MPI variables
       integer :: comm_all, comm_self, myid, nproc, ierr
@@ -3316,11 +3324,32 @@ subroutine levels_jds_solve
       if (.not.allocated(sub%rhs)) then
          call error( routine_name, 'Local rhs not allocated.')
       end if
-      sub%sol = sub%rhs
-      if (sub%is_bc_present) then
-         where(sub%ifix /= 0) sub%sol = 0._kr
+      if (sub%is_rhs_complete ) then
+          sub%sol = sub%rhs
+          if (sub%is_bc_present) then
+             where(sub%ifix /= 0) sub%sol = 0._kr
+          end if
+          call levels_get_global_solution(levels_jds_rhs,llevels_jds_rhs)
+      else
+          ndofs = sub%ndof
+          lrhss = ndofs
+          allocate(rhss(lrhss))
+          rhss = sub%rhs
+
+          isvgvn => sub%isvgvn
+          lrhs_aux = ndof
+          allocate(rhs_aux(lrhs_aux))
+          if (sub%is_bc_present) then
+             where(sub%ifix /= 0) rhss = 0._kr
+          end if
+          rhs_aux = 0._kr
+          rhs_aux(isvgvn) = rhss
+!*****************************************************************MPI
+          call MPI_REDUCE(rhs_aux,levels_jds_rhs,ndof, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+!*****************************************************************MPI
+          deallocate(rhss)
+          deallocate(rhs_aux)
       end if
-      call levels_get_global_solution(levels_jds_rhs,llevels_jds_rhs)
 
       ! consider effect of boundary conditions
       if (myid == 0) then
