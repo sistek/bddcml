@@ -23,10 +23,11 @@
 subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_level, numbase, just_direct_solve_int)
 !*****************************************************************************************************************
 ! initialization of LEVELS module
-      use module_levels
-      use module_utils , only : suppress_output_on, logical2integer
+      use module_levels, only : levels_just_direct_solve, levels_init
+      use module_utils , only : suppress_output_on, logical2integer, warning
       use module_krylov , only : krylov_set_profile_on
       implicit none
+      include "mpif.h"
 
 ! given number of levels
       integer,intent(in) :: nl
@@ -57,9 +58,17 @@ subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_leve
       integer, intent(in)::     just_direct_solve_int 
 
       ! local vars
+      character(*),parameter:: routine_name = 'BDDCML_INIT'
       logical :: just_direct_solve
+      integer :: nproc, ierr
 
       call logical2integer(just_direct_solve_int,just_direct_solve)
+
+      call MPI_COMM_SIZE(comm_init,nproc,ierr)
+      if (nsublev(1) == 1 .and. nproc == 1) then
+          call warning( routine_name, 'Running on just one core with one subdomain - falling back to direct solve.')
+          just_direct_solve = .true.
+      end if
 
       call levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,numbase,just_direct_solve)
 
@@ -473,6 +482,11 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
          krylov_max_number_of_stored_vectors = max_number_of_stored_vectors
       else
          call info(routine_name,'using default Krylov solver parameters')
+      end if
+
+      if (levels_just_direct_solve .and. krylov_method /= 5) then
+         call warning( routine_name, 'Ignoring user KRYLOV_METHOD and just performing backsubstitution by direct solver.')
+         krylov_method = 5
       end if
 
       if (krylov_method.eq.0) then 

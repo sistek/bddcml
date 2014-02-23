@@ -155,7 +155,7 @@ module module_levels
       logical,private :: is_mumps_coarse_ready = .false.
 
       ! if set to yes, the solver performs a very different path and only performs a direct solve by MUMPS
-      logical, private :: levels_just_direct_solve = .false.  
+      logical :: levels_just_direct_solve = .false.  
       type(DMUMPS_STRUC), private :: levels_jds_mumps  
       logical,private :: is_mumps_jds_ready = .false.
 
