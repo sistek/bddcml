@@ -222,7 +222,7 @@ level of verbosity
 first index of arrays ( 0 for C, 1 for Fortran )
 
 @item just_direct_solve_int
-Only perform a direct solve ( 0 for a regular iterative solve with BDDC preconditioner, 1 call parallel MUMPS solver )
+Only perform a direct solve ( 0 - for a regular iterative solve with BDDC preconditioner, 1 - call parallel or serial MUMPS solver instead )
 @end table 
 
 
