@@ -120,6 +120,43 @@ do j = 1,lx2
 end do
 end subroutine zero_real_2
 
+!***********************************
+subroutine integer2string(i,stringi)
+!***********************************
+!     converts integer i to string
+      implicit none
+      
+! subdomain number
+      integer,intent(in) :: i
+
+! name of the problem
+      character(*),intent(out) :: stringi 
+
+! local vars
+      character(*),parameter:: routine_name = 'INTEGER2STRING'
+      integer :: l, j
+      character(2) :: fmtstr
+      logical :: assigned
+      
+      ! generate name for
+      l = len(stringi)
+      do j = 1,l
+         stringi(j:j) = '0'
+      end do
+      assigned = .false.
+      do j = 1,l
+         write(fmtstr,'(i2)') j
+         if (i.lt.10**j) then
+            write(stringi(l-j+1:l),'(i'//fmtstr//')') i
+            assigned = .true.
+            exit
+         end if
+      end do
+      if (.not.assigned) then
+         call error( routine_name, 'Index too large for assignement.', i)
+      end if
+
+end subroutine
 !*************************************************
 subroutine getfname(problemname,isub,suffix,fname)
 !*************************************************
@@ -147,22 +184,7 @@ subroutine getfname(problemname,isub,suffix,fname)
       fname = ' '
 
       ! generate name for 4 digits
-      numberstr = '00000'
-      if (isub.lt.10) then
-         write(numberstr(5:5),'(i1)') isub
-      else if (isub.lt.100) then
-         write(numberstr(4:5),'(i2)') isub
-      else if (isub.lt.1000) then
-         write(numberstr(3:5),'(i3)') isub
-      else if (isub.lt.10000) then
-         write(numberstr(2:5),'(i4)') isub
-      else if (isub.lt.100000) then
-         write(numberstr(1:5),'(i5)') isub
-      else
-         write(*,*) 'isub = ',isub,': Out of range for file name!'
-         fname = ' '
-         return
-      end if
+      call integer2string(isub, numberstr)
 
       fname = trim(problemname)//'/'//trim(problemname)//'_'//trim(numberstr)//'.'//trim(suffix)
 

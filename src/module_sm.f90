@@ -1903,6 +1903,43 @@ subroutine sm_print(iunit, i_sparse, j_sparse, a_sparse, la, nnz)
       return
 end subroutine
 
+!***********************************************************************
+subroutine sm_print_octave(iunit, i_sparse, j_sparse, a_sparse, la, nnz)
+!***********************************************************************
+! Subroutine for printing of a sparse matrix in IJA format 
+! into a file suitable for loading by Octave
+
+      implicit none
+
+! Number of unit to print to
+      integer,intent(in) :: iunit
+
+! Matrix in IJA sparse format
+      integer,intent(in) :: la
+      integer,intent(in) :: i_sparse(la), j_sparse(la)
+      real(kr),intent(in):: a_sparse(la)
+!     number of nonzeros
+      integer,intent(in),optional :: nnz
+
+! Local variables
+      integer:: nz
+
+! Number of non-zeros is optional, if it is not present, use whole lenght of A
+      if (present(nnz)) then
+         nz = nnz
+      else
+         nz = la
+      end if
+
+      write(iunit,*) 'bddcml_matrix = zeros(',nz,',3);'
+      write(iunit,*) 'bddcml_matrix = ['
+      call sm_print(iunit, i_sparse, j_sparse, a_sparse, la, nnz)
+      write(iunit,*) '];'
+      write(iunit,*) 'bddcml_matrix = spconvert(bddcml_matrix);'
+
+      return
+end subroutine
+
 !**********************************
 function sm_showsize(lenght,nbytes)
 !**********************************

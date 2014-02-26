@@ -34,9 +34,13 @@ module module_levels
 ! plot input data in ParaView - useful for debugging
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
-      logical,private :: profile = .true.
+      logical,private ::           profile = .true.
 ! damping division
       logical,parameter,private :: damp_division = .false.
+! export matrix of subdomains on the second level for further analysis
+      logical,parameter,private :: export_matrix = .false.
+! if the matrix of the coarse problem should be exported, what will be the name of files
+      character(*),parameter,private :: matrix_file_basename = 'level2_matrix'
 ! maximal allowed length of file names
       integer,parameter,private :: lfnamex = 130
 ! should parallel search of globs be used? (some corrections on globs may not be available)
@@ -152,7 +156,8 @@ module module_levels
       type(levels_type), allocatable, target, private ::    levels(:)
 
       type(DMUMPS_STRUC), private :: mumps_coarse  
-      logical,private :: is_mumps_coarse_ready = .false.
+      logical,private :: is_mumps_coarse_ready      = .false.
+      logical,private :: is_mumps_coarse_nontrivial = .true.
 
       ! if set to yes, the solver performs a very different path and only performs a direct solve by MUMPS
       logical :: levels_just_direct_solve = .false.  
@@ -232,9 +237,9 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,nu
             call error(routine_name,'Number of local subdomains on first level must sum up to given global number:', nsublev(1))
          end if
       end if
-      if (any(nsublev(2:nl).ge.nsublev(1:nl-1)).and. .not.levels_just_direct_solve) then
-         call error(routine_name,'Number of subdomains must be decreasing with levels.')
-      end if
+      !if (any(nsublev(2:nl).ge.nsublev(1:nl-1)).and. .not.levels_just_direct_solve) then
+      !   call error(routine_name,'Number of subdomains must be decreasing with levels.')
+      !end if
 
 ! set verbosity
       if (verbose_level .eq. 2 ) then
@@ -1308,7 +1313,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer :: nproc
       integer :: comm_all, comm_self, ierr
       integer :: graphtype 
-      integer :: ides
+      integer :: ides, idmatrix
+      character(400) :: matrix_file_name
 
       integer :: ncorner, nedge, nface, isub, nnodc, ndofc, nelem, nnod
       integer :: edgecut
@@ -1423,6 +1429,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       character(1) :: levelstring
       character(256) :: prefix
       character(300) :: command
+      character(6) :: isub_string
 
 
       ! time variables
@@ -2419,6 +2426,23 @@ subroutine levels_prepare_standard_level(parallel_division,&
          return
       end if
 
+      ! export the global coarse matrix
+      if ( ilevel == 2 .and. export_matrix ) then
+         do isub_loc = 1,nsub_loc
+            isub = levels(ilevel)%subdomains(isub_loc)%isub
+            call integer2string(isub,isub_string)
+            matrix_file_name = trim(matrix_file_basename)//'_'//isub_string//'.m'
+            call allocate_unit(idmatrix)
+            open (unit=idmatrix,file=matrix_file_name,status='replace',form='formatted')
+            call sm_print_octave(idmatrix, levels(ilevel)%subdomains(isub_loc)%i_a_sparse, &
+                                 levels(ilevel)%subdomains(isub_loc)%j_a_sparse, &
+                                 levels(ilevel)%subdomains(isub_loc)%a_sparse, &
+                                 levels(ilevel)%subdomains(isub_loc)%la, &
+                                 levels(ilevel)%subdomains(isub_loc)%nnza)
+            close(idmatrix)
+         end do
+      end if
+
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
@@ -2807,7 +2831,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             end if
          end if
 !-----profile
-      end if
+      end if  ! use_adaptive_constraints
 
       ! print the output
       !do isub_loc = 1,nsub_loc
@@ -2938,6 +2962,7 @@ subroutine levels_prepare_last_level(matrixtype)
 
       !write(*,*) 'myid =',myid,'la =',la
 
+
 ! Allocate proper size of matrix A on processor
       allocate(i_sparse(la), j_sparse(la), a_sparse(la))
       i_sparse = 0
@@ -2973,11 +2998,13 @@ subroutine levels_prepare_last_level(matrixtype)
          call time_start
       end if
 !-----profile
-      iparallel = 0 ! let MUMPS decide
-      call mumps_analyze(mumps_coarse,iparallel)
-      if (debug) then
-         if (myid.eq.0) then
-            call info(routine_name, 'Coarse matrix analyzed.')
+      if (nnz > 0) then
+         iparallel = 0 ! let MUMPS decide
+         call mumps_analyze(mumps_coarse,iparallel)
+         if (debug) then
+            if (myid.eq.0) then
+               call info(routine_name, 'Coarse matrix analyzed.')
+            end if
          end if
       end if
 !-----profile
@@ -2997,10 +3024,12 @@ subroutine levels_prepare_last_level(matrixtype)
          call time_start
       end if
 !-----profile
-      call mumps_factorize(mumps_coarse)
-      if (debug) then
-         if (myid.eq.0) then
-            call info(routine_name, 'Coarse matrix factorized.')
+      if (nnz > 0) then
+         call mumps_factorize(mumps_coarse)
+         if (debug) then
+            if (myid.eq.0) then
+               call info(routine_name, 'Coarse matrix factorized.')
+            end if
          end if
       end if
 !-----profile
@@ -3014,6 +3043,11 @@ subroutine levels_prepare_last_level(matrixtype)
 !-----profile
 
       is_mumps_coarse_ready = .true.
+      if (nnz > 0) then
+         is_mumps_coarse_nontrivial = .true.
+      else
+         is_mumps_coarse_nontrivial = .false.
+      end if
 
 ! Clear memory
       deallocate(i_sparse, j_sparse, a_sparse)
@@ -3843,7 +3877,9 @@ subroutine levels_solve_last_level
 
 ! Solve problem matrix
       ! right hand side and solution are correct only on root
-      call mumps_resolve(mumps_coarse,solc,lsolc)
+      if (is_mumps_coarse_nontrivial) then
+         call mumps_resolve(mumps_coarse,solc,lsolc)
+      end if
 
 end subroutine
 

@@ -5480,19 +5480,26 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs, solve_adjoint)
          write(*,*) 'DD_SOLVE_AUG: Augmented matrix solver in not ready for subdomain:',sub%isub
          call error_exit
       end if
-      if (mod(lvec,nrhs) .ne. 0) then
-         write(*,*) 'DD_SOLVE_AUG: Unclear what the augmented size is:', sub%isub
-         call error_exit
+
+      if (nrhs > 0) then
+         if (mod(lvec,nrhs) .ne. 0) then
+            write(*,*) 'DD_SOLVE_AUG: Unclear what the augmented size is:', sub%isub
+            call error_exit
+         end if
       end if
 
       call dd_get_aug_size(sub, ndofaaug)
-      if (ndofaaug.ne.lvec/nrhs) then          ! intentional integer divide
-         write(*,*) 'DD_SOLVE_AUG: Length of augmented system does not match:', sub%isub
-         call error_exit
+      if (nrhs > 0) then
+         if (ndofaaug.ne.lvec/nrhs) then          ! intentional integer divide
+            write(*,*) 'DD_SOLVE_AUG: Length of augmented system does not match:', sub%isub
+            call error_exit
+         end if
       end if
 
       ! solve the system with multiple RHS
-      call mumps_resolve(sub%mumps_aug,vec,lvec,nrhs,solve_adjoint)
+      if (nrhs > 0) then
+         call mumps_resolve(sub%mumps_aug,vec,lvec,nrhs,solve_adjoint)
+      end if
 
 end subroutine
 
@@ -6177,9 +6184,11 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly,ncol)
          la12       = sub%la12
 
          do j = 1,ncol
-            call sm_vec_mult(matrixtype_aux, nnza12, &
-                             sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
-                             x((j-1)*ndofi + 1),ndofi, aux1((j-1)*ndofo + 1),ndofo)
+            if (ndofi > 0) then
+               call sm_vec_mult(matrixtype_aux, nnza12, &
+                                sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, la12, &
+                                x((j-1)*ndofi + 1),ndofi, aux1((j-1)*ndofo + 1),ndofo)
+            end if
          end do
    
          ! resolve interior problem by MUMPS
@@ -6203,16 +6212,20 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly,ncol)
                nnza12     = sub%nnza12
                la12       = sub%la12
                ! use the matrix with transposed indices in the call sm_vec_mult
-               call sm_vec_mult(matrixtype_aux, nnza12, &
-                                sub%j_a12_sparse, sub%i_a12_sparse, sub%a12_sparse, la12, &
-                                aux1((j-1)*ndofo + 1),ndofo, aux2((j-1)*ndofi + 1),ndofi)
+               if (laux2 > 0) then
+                  call sm_vec_mult(matrixtype_aux, nnza12, &
+                                   sub%j_a12_sparse, sub%i_a12_sparse, sub%a12_sparse, la12, &
+                                   aux1((j-1)*ndofo + 1),ndofo, aux2((j-1)*ndofi + 1),ndofi)
+               end if
             else
                matrixtype_aux = 0
                nnza21     = sub%nnza21
                la21       = sub%la21
-               call sm_vec_mult(matrixtype_aux, nnza21, &
-                                sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, la21, &
-                                aux1((j-1)*ndofo + 1),ndofo, aux2((j-1)*ndofi + 1),ndofi)
+               if (laux2 > 0) then
+                  call sm_vec_mult(matrixtype_aux, nnza21, &
+                                   sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, la21, &
+                                   aux1((j-1)*ndofo + 1),ndofo, aux2((j-1)*ndofi + 1),ndofi)
+               end if
             end if
          end do
       end if
@@ -6222,9 +6235,11 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly,ncol)
       nnza22     = sub%nnza22
       la22       = sub%la22
       do j = 1,ncol
-         call sm_vec_mult(matrixtype, nnza22, &
-                          sub%i_a22_sparse, sub%j_a22_sparse, sub%a22_sparse, la22, &
-                          x((j-1)*ndofi + 1),ndofi, y((j-1)*ndofi + 1),ndofi)
+         if (ndofi > 0) then
+            call sm_vec_mult(matrixtype, nnza22, &
+                             sub%i_a22_sparse, sub%j_a22_sparse, sub%a22_sparse, la22, &
+                             x((j-1)*ndofi + 1),ndofi, y((j-1)*ndofi + 1),ndofi)
+         end if
       end do
 
       ! add results together to get y = y - aux2, i.e. y = A_22 * x - A_21 * (A_11)^-1 * A_12 * x, or y = (A_22 - A_21 * (A_11)^-1 * A_12) * x
@@ -6533,7 +6548,6 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
 
       integer :: ndofi, ndofo, ndof
       integer :: i, isub_loc, isub
-
 
       ! loop over subdomains
       do isub_loc = 1,lindexsub
@@ -7737,14 +7751,10 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
             end if
          end do
       end do
-      !print *, 'myid',myid,'I am here 1'
-      !call flush(6)
       ! waiting for communication to complete in this round
       if (nreq.gt.0) then
          call MPI_WAITALL(nreq,request,statarray,ierr)
       end if
-      !print *, 'myid',myid,'I am here 1.2'
-      !call flush(6)
 
       ! Prepare memory to interchange subdomain indices
 
@@ -7883,16 +7893,12 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
             kisngnadj = kisngnadj + nnodadj
          end do
       end do
-      !print *, 'myid',myid,'I am here 2'
-      !call flush(6)
 
       ! waiting for communication to complete
       if (nreq.gt.0) then
          call MPI_WAITALL(nreq, request, statarray, ierr)
       end if
 
-      !print *, 'myid',myid,'I am here 2.5'
-      !call flush(6)
       deallocate(request)
       deallocate(statarray)
 
@@ -8355,8 +8361,8 @@ subroutine dd_guess_neighbouring_by_bb(ndim, suba,lsuba, sub2proc,lsub2proc,inde
          ! keep zero on diagonal
          kadjsub((isub_loc-1)*nsub + isub) = 0
       end do
-      if (all(kadjsub.eq.0) .and. lindexsub.gt.0) then
-         call error(routine_name,'This is strange - seems as if none of my subdomains has any neighbour, myid = ',myid)
+      if (all(kadjsub.eq.0) .and. lindexsub.gt.0 .and. nproc.gt.1) then
+         call warning(routine_name,'This is strange - seems as if none of my subdomains has any neighbour, myid = ',myid)
       end if
 
       deallocate(bb_lower_bounds)
