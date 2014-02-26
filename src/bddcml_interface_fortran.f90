@@ -24,7 +24,7 @@ subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_leve
 !*****************************************************************************************************************
 ! initialization of LEVELS module
       use module_levels, only : levels_just_direct_solve, levels_init
-      use module_utils , only : suppress_output_on, logical2integer, warning
+      use module_utils , only : suppress_output_on, logical2integer, warning, error
       use module_krylov , only : krylov_set_profile_on
       implicit none
       include "mpif.h"
@@ -70,6 +70,9 @@ subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_leve
           just_direct_solve = .true.
       end if
 
+      if (nsublev(1) < nproc) then
+         call error(routine_name, 'It is not possible to assign more processors than subdomains in this version of the code.')
+      end if
       call levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,numbase,just_direct_solve)
 
       select case ( verbose_level )

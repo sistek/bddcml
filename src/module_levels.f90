@@ -2264,6 +2264,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
 
       lkinetc = nsub
       allocate(kinetc(lkinetc))
+      kinetc = 1
       if (nnodc.gt.0) then
          kinetc(1) = 0
          do inc = 2,nsub
@@ -2903,7 +2904,7 @@ subroutine levels_prepare_last_level(matrixtype)
       integer,allocatable :: i_sparse(:),j_sparse(:)
       real(kr),allocatable :: a_sparse(:)
 
-      integer :: ndof
+      integer :: ndof, la_corr
 
       integer :: mumpsinfo, iparallel
 
@@ -2961,10 +2962,10 @@ subroutine levels_prepare_last_level(matrixtype)
                                     levels(ilevel-1)%indexsub,levels(ilevel-1)%lindexsub,la)
 
       !write(*,*) 'myid =',myid,'la =',la
-
+      la_corr = max(1,la)
 
 ! Allocate proper size of matrix A on processor
-      allocate(i_sparse(la), j_sparse(la), a_sparse(la))
+      allocate(i_sparse(la_corr), j_sparse(la_corr), a_sparse(la_corr))
       i_sparse = 0
       j_sparse = 0
       a_sparse = 0.0_kr
@@ -2990,6 +2991,7 @@ subroutine levels_prepare_last_level(matrixtype)
 
 ! Load matrix to MUMPS
       call mumps_load_triplet_distributed(mumps_coarse,ndof,nnz,i_sparse,j_sparse,a_sparse,nnz)
+
 
 ! Analyze matrix
 !-----profile
@@ -3051,7 +3053,6 @@ subroutine levels_prepare_last_level(matrixtype)
 
 ! Clear memory
       deallocate(i_sparse, j_sparse, a_sparse)
-
 end subroutine
 
 !****************************************
