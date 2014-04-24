@@ -10101,10 +10101,10 @@ subroutine dd_interchange_integer_arrays(suba,lsuba, &
       nsub_loc = sub2proc(myid+2) - sub2proc(myid+1) 
 
       nadjx = maxval(suba%nadj)
-      lrequest = 2*nsub_loc*nadjx
+      lrequest = nsub_loc*nadjx
       allocate(request(lrequest))
       lstatarray1 = MPI_STATUS_SIZE
-      lstatarray2 = 2*nsub_loc*nadjx
+      lstatarray2 = nsub_loc*nadjx
       allocate(statarray(lstatarray1,lstatarray2))
 
       ! now we need to exchange the arrays of corners among all neighbours - first exchange their numbers
