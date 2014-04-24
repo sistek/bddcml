@@ -4767,7 +4767,14 @@ subroutine levels_dd_dotprod_subdomain_local(ilevel,isub, vec1,lvec1, vec2,lvec2
       end if
 
       ! add data from module and call function from adaptive module
-      call dd_dotprod_subdomain_local(levels(ilevel)%subdomains(isub_loc), vec1,lvec1, vec2,lvec2, dotprod)
+      if (levels(ilevel)%nsub == 1) then
+         dotprod = dot_product( vec1(1:lvec1), vec2(1:lvec2) )
+      else
+         if (levels_just_direct_solve) then
+            call error(routine_name,' This routine is not supported when using direct solver because no weights are prepared.')
+         end if
+         call dd_dotprod_subdomain_local(levels(ilevel)%subdomains(isub_loc), vec1,lvec1, vec2,lvec2, dotprod)
+      end if
 
 end subroutine
 

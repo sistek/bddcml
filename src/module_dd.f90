@@ -10079,7 +10079,7 @@ subroutine dd_interchange_integer_arrays(suba,lsuba, &
       integer ::            array_length, kineibarray
 
       integer             :: nadj, nadjx, ia
-      integer             :: isub, isubadj
+      integer             :: isub, isubadj, isubadj_loc
       integer             :: isub_loc, nsub_loc
 
       ! MPI related arrays and variables
@@ -10114,29 +10114,61 @@ subroutine dd_interchange_integer_arrays(suba,lsuba, &
 
          nadj = suba(isub_loc)%nadj
 
-         number_to_send = size(sub_aux(isub_loc)%comm_array_in)
-
          ! send/receive data from all neighbours
          allocate(sub_aux(isub_loc)%comm_array_numbers(nadj))
+         ! initialize the array
+         sub_aux(isub_loc)%comm_array_numbers = -1
 
          do ia = 1,nadj
 
             ! get index of neighbour
             isubadj = suba(isub_loc)%iadj(ia)
-
             call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,neibproc)
    
-            !if (neibproc.ne.myid) then
-            ireq = ireq + 1
-            call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc, tag)
-            call MPI_ISEND(number_to_send,   1,MPI_INTEGER,neibproc,tag, comm_all,request(ireq),ierr)
-            ireq = ireq + 1
-            call pp_get_unique_tag(isubadj,isub,comm_all,sub2proc,lsub2proc, tag)
-            call MPI_IRECV(sub_aux(isub_loc)%comm_array_numbers(ia),1,MPI_INTEGER,neibproc,tag, comm_all,request(ireq),ierr)
+            if (neibproc /= myid) then
+               ! pass messages
+               !ireq = ireq + 1
+               !call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc, tag)
+               !call MPI_ISEND(number_to_send,   1,MPI_INTEGER,neibproc,tag, comm_all,request(ireq),ierr)
+               ireq = ireq + 1
+               call pp_get_unique_tag(isubadj,isub,comm_all,sub2proc,lsub2proc, tag)
+               call MPI_IRECV(sub_aux(isub_loc)%comm_array_numbers(ia),1,MPI_INTEGER,neibproc,tag, comm_all,request(ireq),ierr)
+            else
+               ! simple copy in memory
+               ! find index of the subdomain
+               call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
+               if (isubadj_loc .eq. -1) then
+                  write(*,*) 'indexsub',indexsub
+                  call error(routine_name, 'Index of subdomain not found.',isubadj)
+               end if 
+               sub_aux(isub_loc)%comm_array_numbers(ia) = size(sub_aux(isubadj_loc)%comm_array_in)
+            end if
 
          end do
       end do
       nreq = ireq
+
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         nadj = suba(isub_loc)%nadj
+
+         number_to_send = size(sub_aux(isub_loc)%comm_array_in)
+
+         do ia = 1,nadj
+
+            ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,neibproc)
+   
+            if (neibproc /= myid) then
+               ! pass messages
+               call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc, tag)
+               call MPI_SEND(number_to_send,   1,MPI_INTEGER,neibproc,tag, comm_all,ierr)
+            end if
+
+         end do
+      end do
       if (nreq.gt.0) then
          call MPI_WAITALL(nreq, request, statarray, ierr)
       end if
@@ -10148,7 +10180,7 @@ subroutine dd_interchange_integer_arrays(suba,lsuba, &
 
          nadj = suba(isub_loc)%nadj
 
-         number_to_send = size(sub_aux(isub_loc)%comm_array_in)
+         !number_to_send = size(sub_aux(isub_loc)%comm_array_in)
 
          array_length = sum(sub_aux(isub_loc)%comm_array_numbers)
          allocate(sub_aux(isub_loc)%comm_array_out(array_length))
@@ -10163,23 +10195,67 @@ subroutine dd_interchange_integer_arrays(suba,lsuba, &
 
             number_to_receive = sub_aux(isub_loc)%comm_array_numbers(ia)
 
-            if (number_to_send.gt.0) then
-               ireq = ireq + 1
-               call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc, tag)
-               call MPI_ISEND(sub_aux(isub_loc)%comm_array_in, number_to_send, &
-                              MPI_INTEGER,neibproc,tag, comm_all,request(ireq),ierr)
-            end if
-            if (number_to_receive.gt.0) then
-               ireq = ireq + 1
-               call pp_get_unique_tag(isubadj,isub,comm_all,sub2proc,lsub2proc, tag)
-               call MPI_IRECV(sub_aux(isub_loc)%comm_array_out(kineibarray),number_to_receive,&
-                              MPI_INTEGER,neibproc,tag, comm_all,request(ireq),ierr)
+            if (neibproc /= myid) then
+               ! pass messages
+               !if (number_to_send.gt.0) then
+               !   ireq = ireq + 1
+               !   call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc, tag)
+               !   call MPI_ISEND(sub_aux(isub_loc)%comm_array_in, number_to_send, &
+               !                  MPI_INTEGER,neibproc,tag, comm_all,request(ireq),ierr)
+               !end if
+               if (number_to_receive.gt.0) then
+                  ireq = ireq + 1
+                  call pp_get_unique_tag(isubadj,isub,comm_all,sub2proc,lsub2proc, tag)
+                  call MPI_IRECV(sub_aux(isub_loc)%comm_array_out(kineibarray),number_to_receive,&
+                                 MPI_INTEGER,neibproc,tag, comm_all,request(ireq),ierr)
+               end if
+            else
+               ! simple copy in memory
+               ! find index of the subdomain
+               call get_index(isubadj,indexsub,lindexsub,isubadj_loc)
+               if (isubadj_loc .eq. -1) then
+                  write(*,*) 'indexsub',indexsub
+                  call error(routine_name, 'Index of subdomain not found.',isubadj)
+               end if
+               if (number_to_receive /= size(sub_aux(isubadj_loc)%comm_array_in)) then
+                  write (*,*) number_to_receive, size(sub_aux(isubadj_loc)%comm_array_in)
+                  write (*,*) 'subdomains in play:', isub, isubadj
+                  write (*,*) 'local index of adjacent subdomain:', isubadj_loc
+                  call error(routine_name, 'Array size mismatch for subdomain:', isub)
+               end if
+               sub_aux(isub_loc)%comm_array_out(kineibarray:kineibarray+number_to_receive-1) = sub_aux(isubadj_loc)%comm_array_in
             end if
 
             kineibarray = kineibarray + number_to_receive
          end do
       end do
       nreq = ireq
+
+      do isub_loc = 1,lindexsub
+         isub = indexsub(isub_loc)
+
+         nadj = suba(isub_loc)%nadj
+
+         number_to_send = size(sub_aux(isub_loc)%comm_array_in)
+
+         ! send/receive data from all neighbours
+         do ia = 1,nadj
+
+            ! get index of neighbour
+            isubadj = suba(isub_loc)%iadj(ia)
+            call pp_get_proc_for_sub(isubadj,comm_all,sub2proc,lsub2proc,neibproc)
+
+            if (neibproc /= myid) then
+               ! pass message
+               if (number_to_send.gt.0) then
+                  call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc, tag)
+                  call MPI_SEND(sub_aux(isub_loc)%comm_array_in, number_to_send, &
+                                MPI_INTEGER,neibproc,tag, comm_all,ierr)
+               end if
+            end if
+
+         end do
+      end do
       if (nreq.gt.0) then
          call MPI_WAITALL(nreq, request, statarray, ierr)
       end if
