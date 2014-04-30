@@ -1861,6 +1861,11 @@
             recycling_basis(i)%lw2 = 0
          end if
       end do
+      if (allocated(recycling_basis)) then
+         deallocate(recycling_basis)
+         lrecycling_basis = 0
+         nactive_cols_recycling_basis = 0
+      end if
       if (allocated(recycling_idiag)) then
          deallocate(recycling_idiag)
          lrecycling_idiag = 0
