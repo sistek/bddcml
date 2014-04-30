@@ -3061,7 +3061,7 @@ subroutine levels_jds_prepare(matrixtype)
 ! Subroutine for set-up of MUMPS structures for the global parallel direct solve
       use module_mumps
       use module_sm
-      use module_utils, only: error, time_start, time_end, time_print
+      use module_utils, only: error, info, time_start, time_end, time_print 
       implicit none
       include "mpif.h"
 

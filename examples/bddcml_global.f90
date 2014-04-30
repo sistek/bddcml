@@ -361,7 +361,8 @@ program bddcml_global
 
       call time_start
       nsub_loc_1 = -1
-      call bddcml_init(nlevels, nsublev,lnsublev, nsub_loc_1, comm_all, verbose_level, numbase)
+      call bddcml_init(nlevels, nsublev,lnsublev, nsub_loc_1, comm_all, verbose_level, numbase, &
+                       just_direct_solve_int)
       call MPI_BARRIER(comm_all,ierr)
       call time_end(t_init)
       if (myid.eq.0) then
