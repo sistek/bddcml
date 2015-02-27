@@ -61,11 +61,35 @@ subroutine paraview_open_subdomain_file(prefix,isub,idvtu)
       if (debug) then
          call info(routine_name,' Opening file: '//trim(filename))
       end if
-      call allocate_unit(idvtu)
-
-      open (unit=idvtu,file=trim(filename),status='replace',form='formatted')
+      call paraview_open_file(filename,idvtu)
 
 end subroutine paraview_open_subdomain_file
+
+!*****************************************
+subroutine paraview_open_file(fname,idvtu)
+!*****************************************
+! Subroutine for opening a VTU file for subdomain data
+!*****************************************
+      use module_utils
+
+      implicit none
+      
+      ! basename of vtu files
+      character(*), intent(in) :: fname           
+      ! unit with opened file
+      integer, intent(out) :: idvtu
+
+      ! local vars
+      character(*),parameter:: routine_name = 'PARAVIEW_OPEN_FILE'
+
+      if (debug) then
+         call info(routine_name,' Opening file: '//trim(fname))
+      end if
+      call allocate_unit(idvtu)
+
+      open (unit=idvtu,file=trim(fname),status='replace',form='formatted')
+
+end subroutine paraview_open_file
 
 !**********************************************
 subroutine paraview_close_subdomain_file(idvtu)

@@ -18,7 +18,7 @@ module module_parsing
 ! Module for parsing ASCII files
 ! programmed by Jakub Sistek <sistek@vzlu.cz>, May 2007
       implicit none
-      integer,parameter,private:: llinex = 2000, lstringx = 255
+      integer,parameter,private:: llinex = 3000, lstringx = 2000
       character(llinex),private:: lineraw
       integer,private:: linerest = 0
 
