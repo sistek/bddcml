@@ -14,6 +14,10 @@
 ! <http://www.gnu.org/copyleft/lesser.html>.
 !________________________________________________________________
 
+module bddcml_interface_fortran
+implicit none
+
+contains
 
 ! Interface providing Fortran functions that may be called from applications
 ! to exploit multilevel adaptive BDDC solver 
@@ -728,3 +732,4 @@ subroutine bddcml_finalize
       call krylov_finalize
 end subroutine
 
+end module

@@ -23,6 +23,7 @@ program bddcml_global
       use module_pp
 ! Program name
       use module_utils
+      use bddcml_interface_fortran
 
       implicit none
       
