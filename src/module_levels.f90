@@ -621,6 +621,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
 ! Subroutine for loading LOCAL data of one subdomain at first level
       use module_utils
       implicit none
+      include "mpif.h"
 
       integer, intent(in):: nelem, nnod, ndof, ndim, meshdim
       integer, intent(in):: isub, nelems, nnods, ndofs
@@ -671,6 +672,12 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       logical :: is_mesh_loaded 
       integer :: isub_loc
 
+      ! time info
+      real(kr) :: timer
+      integer :: myid, ierr
+
+      call MPI_COMM_RANK(levels(iactive_level)%comm_all,myid,ierr)
+
       ! set active level to zero
       iactive_level = 0
 
@@ -718,16 +725,72 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
          call error( routine_name, 'It appears that mesh was already loaded for subdomain', isub )
       end if
 
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_start
+      end if
       call dd_upload_sub_mesh(levels(iactive_level)%subdomains(isub_loc), nelems, nnods, ndofs, ndim, &
                               nndf,lnndf, nnet,lnnet, levels_numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
                               xyz,lxyz1,lxyz2)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_end(timer)
+         if (myid.eq.0) then
+            call time_print('uploading subdomain mesh',timer)
+         end if
+      end if
+
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_start
+      end if
       call dd_upload_bc(levels(iactive_level)%subdomains(isub_loc), ifix,lifix, fixv,lfixv)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_end(timer)
+         if (myid.eq.0) then
+            call time_print('uploading subdomain BC',timer)
+         end if
+      end if
+!-----profile
+
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_start
+      end if
       call dd_upload_rhs(levels(iactive_level)%subdomains(isub_loc), rhs,lrhs, is_rhs_complete)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_end(timer)
+         if (myid.eq.0) then
+            call time_print('uploading subdomain RHS',timer)
+         end if
+      end if
+!-----profile
 
       ! upload initial solution to DD structure
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_start
+      end if
       call dd_upload_solution(levels(iactive_level)%subdomains(isub_loc), sol,lsol)
       levels(iactive_level)%use_initial_solution = .true.
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_end(timer)
+         if (myid.eq.0) then
+            call time_print('uploading subdomain solution',timer)
+         end if
+      end if
+!-----profile
 
       ! check matrix format
       ! type of matrix (0 - nosymetric, 1 - SPD, 2 - general symmetric)
@@ -736,28 +799,113 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                      'Matrix in wrong format - only upper triangle is expected for symmetric problems, matrixtype = ', &
                      matrixtype )
       end if
+
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_start
+      end if
       ! load matrix to our structure
       call dd_load_matrix_triplet(levels(iactive_level)%subdomains(isub_loc), matrixtype, levels_numshift, &
                                   i_sparse,j_sparse,a_sparse,la,la,is_assembled)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_end(timer)
+         if (myid.eq.0) then
+            call time_print('uploading subdomain matrix',timer)
+         end if
+      end if
+!-----profile
 
       ! assembly it if needed
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_start
+      end if
       if (.not. is_assembled) then
          call dd_assembly_local_matrix(levels(iactive_level)%subdomains(isub_loc))
       end if
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_end(timer)
+         if (myid.eq.0) then
+            call time_print('assembling subdomain matrix',timer)
+         end if
+      end if
+!-----profile
 
       ! check matrix
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_start
+      end if
       call dd_check_local_matrix(levels(iactive_level)%subdomains(isub_loc))
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_end(timer)
+         if (myid.eq.0) then
+            call time_print('checking subdomain matrix',timer)
+         end if
+      end if
+!-----profile
 
       ! load user's constraints
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_start
+      end if
       call dd_upload_sub_user_constraints(levels(iactive_level)%subdomains(isub_loc), &
                                           user_constraints,luser_constraints1,luser_constraints2)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_end(timer)
+         if (myid.eq.0) then
+            call time_print('uploading subdomain constraints',timer)
+         end if
+      end if
+!-----profile
 
       ! load element data 
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_start
+      end if
       call dd_upload_sub_element_data(levels(iactive_level)%subdomains(isub_loc), &
                                       element_data,lelement_data1,lelement_data2)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_end(timer)
+         if (myid.eq.0) then
+            call time_print('uploading subdomain element data',timer)
+         end if
+      end if
+!-----profile
 
       ! load dof data 
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_start
+      end if
       call dd_upload_sub_dof_data(levels(iactive_level)%subdomains(isub_loc), dof_data,ldof_data)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+         call time_end(timer)
+         if (myid.eq.0) then
+             call time_print('uploading subdomain dof data',timer)
+         end if
+      end if
+!-----profile
 
 
       ! initialize first level if all subdomains were loaded

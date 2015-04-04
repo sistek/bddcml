@@ -2440,7 +2440,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       ! local vars
       character(*),parameter:: routine_name = 'DD_UPLOAD_SUB_MESH'
 ! ################ parameters to set
-      logical,parameter :: find_componets    = .true. ! find and store components of nodal graph
+      logical,parameter :: find_componets    = .false. ! find and store components of nodal graph
       integer,parameter :: node_neighbouring = 1      ! any element connecting nodes counts as a graph edge
 ! ################ end parameter to set
       integer :: i, j
@@ -2546,6 +2546,8 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       sub%is_mesh_loaded = .true.
 
       ! determine nodal components of the mesh
+      sub%lnodal_components = nnod
+      allocate(sub%nodal_components(sub%lnodal_components))
       if (find_componets) then
          ! prepare kinet
          lkinet = nelem
@@ -2586,21 +2588,22 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
                               xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
          call graph_check(ngraph_vertex,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
 
-         ! check components of graph
-         sub%lnodal_components = nnod
-         allocate(sub%nodal_components(sub%lnodal_components))
 
          ! determine continuity of components
          call graph_components(ngraph_vertex,xadj,lxadj,adjncy,ladjncy,&
                                sub%nodal_components,sub%lnodal_components,sub%nnodal_components)
 
-         sub%is_nodal_components_loaded = .true.
 
          deallocate(kinet)
          deallocate(netn,ietn,kietn)
          deallocate(xadj)
          deallocate(adjncy,adjwgt)
+      else
+         ! assume only one component
+         sub%nodal_components  = 1
+         sub%nnodal_components = 1
       end if
+      sub%is_nodal_components_loaded = .true.
 
 end subroutine
 
