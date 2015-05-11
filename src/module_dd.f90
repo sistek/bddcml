@@ -2440,8 +2440,8 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       ! local vars
       character(*),parameter:: routine_name = 'DD_UPLOAD_SUB_MESH'
 ! ################ parameters to set
-      logical,parameter :: find_componets    = .true. ! find and store components of nodal graph
-      integer,parameter :: node_neighbouring = 1      ! any element connecting nodes counts as a graph edge
+      logical,parameter :: find_componets    = .false. ! find and store components of nodal graph
+      integer,parameter :: node_neighbouring = 1       ! any element connecting nodes counts as a graph edge
 ! ################ end parameter to set
       integer :: i, j
 
