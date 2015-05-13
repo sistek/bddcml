@@ -27,7 +27,7 @@
     ! debugging 
           logical,parameter,private :: debug = .false.
     ! profiling 
-          logical,private ::           profile = .true.
+          logical,private ::           profile = .false.
     ! adjustable parameters ############################
 
     ! data necessary for recycling of Krylov subspace

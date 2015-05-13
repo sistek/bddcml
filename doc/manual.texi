@@ -16,7 +16,7 @@ END-INFO-DIR-ENTRY
 @titlepage
 @title BDDCML
 @subtitle solver library based on Multi-Level Balancing Domain Decomposition by Constraints
-@subtitle copyright (C) 2010-2014 Jakub @v{S}@'{@dotless{i}}stek
+@subtitle copyright (C) 2010-2015 Jakub @v{S}@'{@dotless{i}}stek
 @subtitle version 2.4
 @author Jakub @v{S}@'{@dotless{i}}stek
 
@@ -730,7 +730,7 @@ from function @code{bddcml_upload_subdomain_data} must contain coefficients for 
 This allows definition of general user-defined weigths on degrees of freedom tailored to particular applications.
 
 @end itemize
-
+@end table
 
 @page
 @section @code{bddcml_solve}

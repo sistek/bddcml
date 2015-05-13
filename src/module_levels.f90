@@ -34,7 +34,7 @@ module module_levels
 ! plot input data in ParaView - useful for debugging
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
-      logical,private ::           profile = .true.
+      logical,private ::           profile = .false.
 ! damping division
       logical,parameter,private :: damp_division = .false.
 ! export matrix of subdomains on the second level for further analysis
@@ -171,9 +171,9 @@ module module_levels
 
 contains
 
-!*******************************************************************************************************
-subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,numbase,just_direct_solve)
-!*******************************************************************************************************
+!*****************************************************************************************
+subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_direct_solve)
+!*****************************************************************************************
 ! Subroutine for initialization of levels data and creating communicators
       ! NOTE:
       ! although the code supports reducing communicators, some routines require
@@ -202,7 +202,6 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,nu
                                               ! if this value should be computed
 
       integer, intent(in)::     comm_init     ! initial global communicator (possibly MPI_COMM_WORLD)
-      integer, intent(in)::     verbose_level ! verbosity level
       integer, intent(in)::     numbase       ! first index of arrays ( 0 for C, 1 for Fortran )
       logical, intent(in)::     just_direct_solve ! if .true., only perform parallel solve by a direct solver
 
@@ -240,11 +239,6 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,verbose_level,nu
       !if (any(nsublev(2:nl).ge.nsublev(1:nl-1)).and. .not.levels_just_direct_solve) then
       !   call error(routine_name,'Number of subdomains must be decreasing with levels.')
       !end if
-
-! set verbosity
-      if (verbose_level .eq. 2 ) then
-         call levels_set_profile_on
-      end if
 
 ! set index shift for C/Fortran
       levels_numshift = 1 - numbase
@@ -729,22 +723,25 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
          call error( routine_name, 'It appears that mesh was already loaded for subdomain', isub )
       end if
 
-      if (profile.and.levels(iactive_level)%i_am_active_in_this_level) then
-         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+!-----profile
+      if (profile) then
+         ! no barrier should be here since not all processes need to call this routine
          call time_start
       end if
+!-----profile
       call dd_upload_sub_mesh(levels(iactive_level)%subdomains(isub_loc), nelems, nnods, ndofs, ndim, &
                               nndf,lnndf, nnet,lnnet, levels_numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
                               xyz,lxyz1,lxyz2)
 !-----profile
-      if (profile.and.levels(iactive_level)%i_am_active_in_this_level) then
-         call MPI_BARRIER(levels(iactive_level)%comm_all,ierr)
+      if (profile) then
+         ! no barrier should be here since not all processes need to call this routine
          call time_end(timer)
          if (myid.eq.0) then
             call time_print('uploading subdomain mesh',timer)
          end if
       end if
+!-----profile
 
       call dd_upload_bc(levels(iactive_level)%subdomains(isub_loc), ifix,lifix, fixv,lfixv)
 
@@ -3548,7 +3545,7 @@ subroutine levels_pc_apply(common_krylov_data,lcommon_krylov_data)
          end if
       end do
 
-! Solve coarse porblem at last level
+! Solve coarse problem at last level
       iactive_level = nlevels
       if (levels(iactive_level)%i_am_active_in_this_level) then
          comm_all = levels(iactive_level)%comm_all
@@ -3742,7 +3739,7 @@ subroutine levels_corsub_standard_level(ilevel)
       logical :: solve_adjoint
 
       ! MPI vars
-      integer :: comm_all, comm_self, myid, ierr
+      integer :: comm_all, comm_self, myid, nproc, ierr
 
       ! check LEVEL
       if (ilevel.le.1 .or. ilevel.ge.nlevels) then
@@ -3757,6 +3754,7 @@ subroutine levels_corsub_standard_level(ilevel)
       comm_all  = levels(ilevel)%comm_all
       comm_self = levels(ilevel)%comm_self
       call MPI_COMM_RANK(comm_all,myid,ierr)
+      call MPI_COMM_SIZE(comm_all,nproc,ierr)
 
       ! set pointers
       lres  => levels(ilevel-1)%lsolc
@@ -3766,7 +3764,9 @@ subroutine levels_corsub_standard_level(ilevel)
 
       ! assure distribution of previous data from root
 !*****************************************************************MPI
-      call MPI_BCAST(res, lres , MPI_DOUBLE_PRECISION, 0, comm_all, ierr) 
+      if (nproc > 1) then
+         call MPI_BCAST(res, lres , MPI_DOUBLE_PRECISION, 0, comm_all, ierr) 
+      end if
 !*****************************************************************MPI
 
       ! local number of subdomains
@@ -3863,10 +3863,18 @@ subroutine levels_corsub_standard_level(ilevel)
          deallocate(gs)
          deallocate(rescs)
       end do
+
       ! store data only on root
 !*****************************************************************MPI
-      call MPI_REDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
-      call MPI_REDUCE(resaux, res, lres , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+      if (nproc > 1) then
+         ! some MPI libs do not like to reduce on a single process
+         call MPI_REDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+         call MPI_REDUCE(resaux, res, lres , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+      else 
+         ! perform a simple copy if it is just on the root process 
+         resc = rescaux
+         res  = resaux
+      end if
 !*****************************************************************MPI
       deallocate(rescaux)
       deallocate(resaux)
