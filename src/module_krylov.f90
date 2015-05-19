@@ -27,7 +27,7 @@
     ! debugging 
           logical,parameter,private :: debug = .false.
     ! profiling 
-          logical,private ::           profile = .false.
+          logical,private ::           profile = .true.
     ! adjustable parameters ############################
 
     ! data necessary for recycling of Krylov subspace
@@ -1124,7 +1124,7 @@
     !  relres < tol
              if (relres.lt.tol) then
                 if (myid.eq.0) then
-                   call info (routine_name, ': Number of BICGSTAB iterations: ',dble(iter-0.5) )
+                   call info (routine_name, 'Number of BICGSTAB iterations: ',dble(iter-0.5) )
                 end if
                 num_iter = iter
                 converged_reason = 0
@@ -1262,7 +1262,7 @@
     !  relres < tol
              if (relres.lt.tol) then
                 if (myid.eq.0) then
-                   call info (routine_name, ': Number of BICGSTAB iterations: ',dble(iter) )
+                   call info (routine_name, 'Number of BICGSTAB iterations: ',dble(iter) )
                 end if
                 num_iter = iter
                 converged_reason = 0

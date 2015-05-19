@@ -53,6 +53,11 @@ interface error
    module procedure error_with_number_rp
 end interface error
 
+interface time_print
+   module procedure time_print_plain
+   module procedure time_print_with_number_int
+end interface time_print
+
 ! Time measurements
 integer,parameter,private :: level_time_max = 30
 real(kr),private ::          times(level_time_max) = 0._kr
@@ -1327,9 +1332,9 @@ subroutine time_end(time)
       return
 end subroutine
 
-!******************************
-subroutine time_print(msg,time)
-!******************************
+!************************************
+subroutine time_print_plain(msg,time)
+!************************************
 ! Routine that prints info about time
 implicit none
 character(*),intent(in):: msg
@@ -1338,6 +1343,23 @@ character(*),parameter:: info_fmt = '("Time of ",a,": ",f13.3," s")'
 if ( .not. suppress_output ) then
    write(unit_stdout,'(a)') '****PROFILING*****************************'
    write(unit_stdout,info_fmt) msg,time
+   write(unit_stdout,'(a)') '****PROFILING*****************************'
+   call flush(unit_stdout)
+end if
+end subroutine
+
+!**************************************************
+subroutine time_print_with_number_int(msg,num,time)
+!**************************************************
+! Routine that prints info about time
+implicit none
+character(*),intent(in):: msg
+integer,intent(in)     :: num
+real(kr),intent(in)    :: time
+character(*),parameter:: info_fmt = '("Time of ",a," ",i5,": ",f13.3," s")'
+if ( .not. suppress_output ) then
+   write(unit_stdout,'(a)') '****PROFILING*****************************'
+   write(unit_stdout,info_fmt) msg,num,time
    write(unit_stdout,'(a)') '****PROFILING*****************************'
    call flush(unit_stdout)
 end if

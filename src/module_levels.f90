@@ -34,7 +34,7 @@ module module_levels
 ! plot input data in ParaView - useful for debugging
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
-      logical,private ::           profile = .false.
+      logical,private ::           profile = .true.
 ! damping division
       logical,parameter,private :: damp_division = .false.
 ! export matrix of subdomains on the second level for further analysis
@@ -1790,7 +1790,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             call MPI_BARRIER(comm_all,ierr)
             call time_end(t_division)
             if (myid.eq.0) then
-               call time_print('creating division into subdomains',t_division)
+               call time_print('creating division into subdomains on level',ilevel,t_division)
             end if
          end if
 !-----profile
@@ -1834,7 +1834,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_loc_mesh)
          if (myid.eq.0) then
-            call time_print('localizing mesh',t_loc_mesh)
+            call time_print('localizing mesh on level',ilevel,t_loc_mesh)
          end if
       end if
 !-----profile
@@ -1856,7 +1856,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_loc_bc)
          if (myid.eq.0) then
-            call time_print('localizing boundary conditions and right-hand side',t_loc_bc)
+            call time_print('localizing boundary conditions and right-hand side on level',ilevel,t_loc_bc)
          end if
       end if
 !-----profile
@@ -2129,7 +2129,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_adjacency)
          if (myid.eq.0) then
-            call time_print('finding neighbours',t_adjacency)
+            call time_print('finding neighbours on level',ilevel,t_adjacency)
          end if
       end if
 !-----profile
@@ -2164,7 +2164,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_loc_adjacency)
          if (myid.eq.0) then
-            call time_print('localizing neighbours',t_loc_adjacency)
+            call time_print('localizing neighbours on level',ilevel,t_loc_adjacency)
          end if
       end if
 !-----profile
@@ -2187,7 +2187,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_loc_interface)
          if (myid.eq.0) then
-            call time_print('generating neighbouring data',t_loc_interface)
+            call time_print('generating neighbouring data on level',ilevel,t_loc_interface)
          end if
       end if
 !-----profile
@@ -2226,7 +2226,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_par_globs_search)
          if (myid.eq.0) then
-            call time_print('generating globs',t_par_globs_search)
+            call time_print('generating globs on level',ilevel,t_par_globs_search)
          end if
       end if
 !-----profile
@@ -2271,7 +2271,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_construct_cnodes)
          if (myid.eq.0) then
-            call time_print('constructing coarse nodes',t_construct_cnodes)
+            call time_print('constructing coarse nodes on level',ilevel,t_construct_cnodes)
          end if
       end if
 !-----profile
@@ -2469,7 +2469,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_matrix_import)
          if (myid.eq.0) then
-            call time_print('importing matrix',t_matrix_import)
+            call time_print('importing matrix on level',ilevel,t_matrix_import)
          end if
       end if
 !-----profile
@@ -2498,7 +2498,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_matrix_assembly)
          if (myid.eq.0) then
-            call time_print('assembling matrices',t_matrix_assembly)
+            call time_print('assembling matrices on level',ilevel,t_matrix_assembly)
          end if
       end if
 !-----profile
@@ -2521,7 +2521,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_schur_prepare)
          if (myid.eq.0) then
-            call time_print('preparing Schur complement matrices',t_schur_prepare)
+            call time_print('preparing Schur complement matrices on level',ilevel,t_schur_prepare)
          end if
       end if
 !-----profile
@@ -2559,7 +2559,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             call MPI_BARRIER(comm_all,ierr)
             call time_end(t_prepare_c)
             if (myid.eq.0) then
-               call time_print('preparing C',t_prepare_c)
+               call time_print('preparing C on level',ilevel,t_prepare_c)
             end if
          end if
 !-----profile
@@ -2578,7 +2578,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             call MPI_BARRIER(comm_all,ierr)
             call time_end(t_prepare_aug)
             if (myid.eq.0) then
-               call time_print('preparing augmented problem',t_prepare_aug)
+               call time_print('preparing augmented problem on level',ilevel,t_prepare_aug)
             end if
          end if
 !-----profile
@@ -2602,7 +2602,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             call MPI_BARRIER(comm_all,ierr)
             call time_end(t_prepare_coarse)
             if (myid.eq.0) then
-               call time_print('preparing coarse probem matrices and shape functions ',t_prepare_coarse)
+               call time_print('preparing coarse probem matrices and shape functions on level',ilevel,t_prepare_coarse)
             end if
          end if
 !-----profile
@@ -2627,7 +2627,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_weights_prepare)
          if (myid.eq.0) then
-            call time_print('preparing weights',t_weights_prepare)
+            call time_print('preparing weights on level',ilevel,t_weights_prepare)
          end if
       end if
 !-----profile
@@ -2686,7 +2686,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_prepare_c)
          if (myid.eq.0) then
-            call time_print('preparing C',t_prepare_c)
+            call time_print('preparing C on level',ilevel,t_prepare_c)
          end if
       end if
 !-----profile
@@ -2705,7 +2705,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_prepare_aug)
          if (myid.eq.0) then
-            call time_print('preparing augmented problem',t_prepare_aug)
+            call time_print('preparing augmented problem on level',ilevel,t_prepare_aug)
          end if
       end if
 !-----profile
@@ -2729,7 +2729,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_prepare_coarse)
          if (myid.eq.0) then
-            call time_print('preparing coarse probem matrices and shape functions ',t_prepare_coarse)
+            call time_print('preparing coarse probem matrices and shape functions on level',ilevel,t_prepare_coarse)
          end if
       end if
 !-----profile
@@ -2739,7 +2739,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call MPI_BARRIER(comm_all,ierr)
          call time_end(t_standard_coarse_prepare)
          if (myid.eq.0) then
-            call time_print('preparing standard coarse problem',t_standard_coarse_prepare)
+            call time_print('preparing standard coarse problem on level',ilevel,t_standard_coarse_prepare)
          end if
       end if
 !-----profile
@@ -2848,7 +2848,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             call MPI_BARRIER(comm_all,ierr)
             call time_end(t_adaptive_coarse_prepare)
             if (myid.eq.0) then
-               call time_print('preparing adaptive coarse problem',t_adaptive_coarse_prepare)
+               call time_print('preparing adaptive coarse problem on level',ilevel,t_adaptive_coarse_prepare)
             end if
          end if
 !-----profile
@@ -2876,7 +2876,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             call MPI_BARRIER(comm_all,ierr)
             call time_end(t_reduced_rhs_prepare)
             if (myid.eq.0) then
-               call time_print('preparing reduced right-hand side',t_reduced_rhs_prepare)
+               call time_print('preparing reduced right-hand side on level',ilevel,t_reduced_rhs_prepare)
             end if
          end if
 !-----profile
