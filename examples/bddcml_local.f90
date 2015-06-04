@@ -25,6 +25,7 @@ program bddcml_local
       use module_sm
 ! Program name
       use module_utils
+      use bddcml_interface_fortran
 
       implicit none
       

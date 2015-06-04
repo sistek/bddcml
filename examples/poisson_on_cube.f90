@@ -28,6 +28,7 @@ program poisson_on_cube
       use module_utils
 ! functions for exporting to ParaView format
       use module_paraview
+      use bddcml_interface_fortran
 
       implicit none
       
