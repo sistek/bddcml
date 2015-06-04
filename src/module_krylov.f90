@@ -35,8 +35,12 @@
           integer,private                                        :: nactive_cols_recycling_basis = 0
           integer,private                                        :: lrecycling_basis = 0
           type(krylov_recycling_data_type), allocatable, private ::  recycling_basis(:) ! one per each local subdomain
-          integer ::             lrecycling_idiag
-          real(kr),allocatable :: recycling_idiag(:) ! array of all 1./(p'*A*p) at interface
+          !real(kr),allocatable :: recycling_vtw(:,:) ! matrix of all p'*A*p at interface or its LU factors
+          !integer,allocatable :: recycling_ipiv(:)   ! permutation from LAPACK LU
+          ! the above matrix should be diagonal, so for a well-conditioned basis, only its diagonal is needed
+          integer ::             lrecycling_idvtw
+          real(kr),allocatable :: recycling_idvtw(:) ! array of the inverse of the diagonal of p'*A*p at interface 
+          !logical,private :: recycling_is_inverse_prepared = .false.
 
           contains
 
@@ -131,6 +135,8 @@
           real(kr), allocatable :: vtw_loc(:,:)
           real(kr) :: vtw_sub
           real(kr) :: check_orthogonality
+          real(kr) :: scaling_of_basis
+          !integer :: recycling_info
 
           ! time variables
           real(kr) :: t_sm_apply, t_pc_apply
@@ -181,8 +187,8 @@
              ! allocate when called first
              if (.not. is_recycling_prepared) then
 
-                lrecycling_idiag = max_number_of_stored_vectors
-                allocate(recycling_idiag(lrecycling_idiag))
+                lrecycling_idvtw = max_number_of_stored_vectors
+                allocate(recycling_idvtw(lrecycling_idvtw))
 
                 lrecycling_basis = nsub_loc
                 allocate(recycling_basis(lrecycling_basis))
@@ -303,23 +309,33 @@
     !***************************************************************PARALLEL
                 deallocate(vtw_loc)
 
+                !if (myid.eq.0) then
+                !   write(*,*) 'V^T*W'
+                !   do i = 1,lvtw
+                !      write(*,'(1000f12.5)') (vtw(i,j), j = 1,lvtw)
+                !   end do
+                !end if
+
                 ! inv(D)*V'*W
                 do ibasis = 1,nactive_cols_recycling_basis
-                   vtw(:,ibasis) = vtw(:,ibasis) * recycling_idiag(ibasis)
+                   !vtw(:,ibasis) = recycling_idvtw(1:nactive_cols_recycling_basis) * vtw(:,ibasis) 
+                   call recycling_apply_diagonal_inverse(vtw(1,ibasis),lvtw)
                 end do
 
+                ! subtract identity matrix
+                ! inv(D)*V'*W - I
                 do ibasis = 1,nactive_cols_recycling_basis
                    vtw(ibasis,ibasis) = vtw(ibasis,ibasis) - 1._kr
                 end do
                 check_orthogonality = sqrt(sum(vtw**2))
-                if (check_orthogonality .gt. 1.e-4_kr) then
-                   if (myid.eq.0) then
-                      write(*,*) 'VTW'
-                      do i = 1,lvtw
-                         write(*,'(1000f12.5)') (vtw(i,j), j = 1,lvtw)
-                      end do
+                if (myid.eq.0) then
+                   write(*,*) 'D^{-1}*V^T*W - I'
+                   do i = 1,lvtw
+                      write(*,'(1000e12.5)') (vtw(i,j), j = 1,lvtw)
+                   end do
+                   if (check_orthogonality .gt. 1.e-4_kr) then
+                      call warning( routine_name, 'Krylov basis has problems with orthogonality:', check_orthogonality )
                    end if
-                   call warning( routine_name, 'Krylov basis has problems with orthogonality:', check_orthogonality )
                 end if
                 deallocate(vtw)
              end if 
@@ -351,8 +367,9 @@
              deallocate(vtb_loc)
 
              ! inv(D)*V'*b
-             vtb(1:nactive_cols_recycling_basis) = vtb(1:nactive_cols_recycling_basis) &
-                                                 * recycling_idiag(1:nactive_cols_recycling_basis)
+             !vtb(1:nactive_cols_recycling_basis) = vtb(1:nactive_cols_recycling_basis) &
+             !                                    * recycling_idvtw(1:nactive_cols_recycling_basis)
+             call recycling_apply_diagonal_inverse(vtb,lvtb)
 
              ! update solution by projection
              ! u <- u + Pb = u + V*inv(D)*V'*b = u + V*IDIAG*V'
@@ -503,7 +520,66 @@
                    common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%p
                    common_krylov_data(isub_loc)%lvec_in =  pcg_data(isub_loc)%lp
                 end do
-                call krylov_orthogonalize_gs( comm_all, common_krylov_data, lcommon_krylov_data)
+                call krylov_orthogonalize_icgs( comm_all, common_krylov_data, lcommon_krylov_data)
+                !call krylov_orthogonalize_cgs( comm_all, common_krylov_data, lcommon_krylov_data)
+                !call krylov_orthogonalize_mgs( comm_all, common_krylov_data, lcommon_krylov_data)
+
+
+                if (debug) then
+                   ! check orthogonality of basis
+                   ! V'*W
+                   lvtw     = nactive_cols_recycling_basis
+                   allocate(vtw_loc(lvtw,lvtw))
+                   vtw_loc = 0._kr
+                   allocate(vtw(lvtw,lvtw))
+                   do ibasis = 1,nactive_cols_recycling_basis
+                      do jbasis = 1,nactive_cols_recycling_basis
+                         do isub_loc = 1,nsub_loc
+                            call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                                         recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                                                         recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
+                                                         vtw_sub)
+                            vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
+                         end do
+                      end do
+                   end do
+    !***************************************************************PARALLEL
+                   call MPI_ALLREDUCE(vtw_loc,vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
+                                      MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+                   deallocate(vtw_loc)
+
+                   if (myid.eq.0) then
+                      write(*,*) 'V^T*W'
+                      do i = 1,lvtw
+                         write(*,'(1000f20.13)') (vtw(i,j), j = 1,lvtw)
+                      end do
+                   end if
+
+                   ! inv(D)*V'*W
+                   do ibasis = 1,nactive_cols_recycling_basis
+                      !vtw(:,ibasis) = recycling_idvtw(1:nactive_cols_recycling_basis) * vtw(:,ibasis) 
+                      call recycling_apply_diagonal_inverse(vtw(1,ibasis),lvtw)
+                   end do
+
+                   ! subtract identity matrix
+                   ! inv(D)*V'*W - I
+                   do ibasis = 1,nactive_cols_recycling_basis
+                      vtw(ibasis,ibasis) = vtw(ibasis,ibasis) - 1._kr
+                   end do
+                   check_orthogonality = sqrt(sum(vtw**2))
+                   if (myid.eq.0) then
+                      write(*,*) 'D^{-1}*V^T*W - I'
+                      do i = 1,lvtw
+                         write(*,'(1000e12.5)') (vtw(i,j), j = 1,lvtw)
+                      end do
+                      if (check_orthogonality .gt. 1.e-4_kr) then
+                         call warning( routine_name, 'Krylov basis has problems with orthogonality:', check_orthogonality )
+                      end if
+                   end if
+                   deallocate(vtw)
+                end if 
+
              end if
 
              ! multiply by system matrix
@@ -559,17 +635,63 @@
                 if (nactive_cols_recycling_basis .lt.  max_number_of_stored_vectors ) then
                    ! there is still room for storing a new vector
 
+                   ! scaling factor - make the basis vectors normalized
+                   scaling_of_basis = 1._kr / sqrt(pap)
+
                    jcol = nactive_cols_recycling_basis + 1
                    do isub_loc = 1,nsub_loc
                       ! V <- [ V p ]
-                      recycling_basis(isub_loc)%v(:,jcol) = pcg_data(isub_loc)%p(:)
+                      recycling_basis(isub_loc)%v(:,jcol) = scaling_of_basis * pcg_data(isub_loc)%p(:)
                       ! W <- [ W ap ]
-                      recycling_basis(isub_loc)%w(:,jcol) = pcg_data(isub_loc)%ap(:)
+                      recycling_basis(isub_loc)%w(:,jcol) = scaling_of_basis * pcg_data(isub_loc)%ap(:)
                    end do
                    ! IDIAG <- [ IDIAG 1./p'Ap ]
-                   recycling_idiag(jcol) = 1._kr / pap
+                   !recycling_idvtw(jcol) = 1._kr / pap
+                   recycling_idvtw(jcol) = 1._kr 
 
                    nactive_cols_recycling_basis = nactive_cols_recycling_basis + 1
+
+
+                   ! update the V'*W matrix and its factors
+                   !lvtw     = nactive_cols_recycling_basis
+                   !allocate(vtw_loc(lvtw,lvtw))
+                   !vtw_loc = 0._kr
+                   !do ibasis = 1,nactive_cols_recycling_basis
+                   !   do jbasis = 1,nactive_cols_recycling_basis
+                   !      do isub_loc = 1,nsub_loc
+                   !         call levels_dd_dotprod_local(ilevel,isub_loc,&
+                   !                                      recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                   !                                      recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
+                   !                                      vtw_sub)
+                   !         vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
+                   !      end do
+                   !   end do
+                   !end do
+                   !if (allocated(recycling_vtw)) then
+                   !   deallocate(recycling_vtw)
+                   !end if
+                   !allocate(recycling_vtw(lvtw,lvtw))
+    !***************************************************************PARALLEL
+                   !call MPI_ALLREDUCE(vtw_loc,recycling_vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
+                   !                   MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+                   !deallocate(vtw_loc)
+
+                   !if (myid.eq.0) then
+                   !   write(*,*) 'V^T*W'
+                   !   do i = 1,lvtw
+                   !      write(*,'(1000f20.13)') (recycling_vtw(i,j), j = 1,lvtw)
+                   !   end do
+                   !end if
+
+                   ! prepare factors
+                   !if (allocated(recycling_ipiv)) then
+                   !   deallocate(recycling_ipiv)
+                   !end if
+                   !allocate(recycling_ipiv(lvtw))
+                   !call DGETRF( lvtw, lvtw, recycling_vtw, lvtw, recycling_ipiv, recycling_info )
+                   !recycling_is_inverse_prepared = .true.
+
                 end if
              end if
 
@@ -1697,7 +1819,7 @@
       end subroutine
 
   !************************************************************************
-      subroutine krylov_orthogonalize_gs(comm_all,krylov_data,lkrylov_data)
+      subroutine krylov_orthogonalize_cgs(comm_all,krylov_data,lkrylov_data)
   !************************************************************************
       ! project vector P onto the stored Krylov space A*p
       ! using classical Gram-Schmidt orthogonalization
@@ -1716,7 +1838,7 @@
       type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data) 
 
       ! local vars
-      character(*),parameter:: routine_name = 'KRYLOV_ORTHOGONALIZE_GS'
+      character(*),parameter:: routine_name = 'KRYLOV_ORTHOGONALIZE_CGS'
       integer,parameter :: ilevel = 1
 
       integer ::              lwtp
@@ -1752,17 +1874,52 @@
       deallocate(wtp_loc)
 
       ! inv(D) * W' * p
-      wtp = wtp * recycling_idiag(1:nactive_cols_recycling_basis)
+      call recycling_apply_diagonal_inverse(wtp,lwtp)
+      !wtp = wtp * recycling_idvtw(1:nactive_cols_recycling_basis)
 
       ! correct search direction vector
-      ! p <- p - V*inv(D)+W'p = p - V*IDIAG*W'p
+      ! p <- p - V*inv(D)*W'p = p - V*IDIAG*W'p
       do isub_loc = 1,nsub_loc
          krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
-                              - matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
-                                       wtp(1:nactive_cols_recycling_basis) )
+                                      - matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
+                                               wtp(1:nactive_cols_recycling_basis) )
       end do
 
       deallocate(wtp)
+
+      end subroutine
+
+  !**************************************************************************
+      subroutine krylov_orthogonalize_icgs(comm_all,krylov_data,lkrylov_data)
+  !**************************************************************************
+      ! project vector P onto the stored Krylov space A*p
+      ! using iterated classical Gram-Schmidt orthogonalization
+      ! based on Algorithm A3 from 
+      ! Tebbens, Hnetynkova, Plesinger, Strakos, Tichy
+      ! Analyza metod pro maticove vypocty
+      ! Matfyzpress, Praha, 2012
+
+      use module_levels
+      use module_utils
+
+      implicit none
+      
+      include "mpif.h"
+
+      ! parallel variables
+      integer,intent(in) :: comm_all 
+
+      ! data for PCG
+      integer,intent(in) ::                         lkrylov_data
+      type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data) 
+
+      ! local vars
+      integer :: i
+
+      ! perform two iterations of classical Gram-Schmidt
+      do i = 1,2
+         call krylov_orthogonalize_cgs( comm_all, krylov_data, lkrylov_data)
+      end do
 
       end subroutine
 
@@ -1816,7 +1973,7 @@
 !***************************************************************PARALLEL
 
          ! inv(D) * W' * p
-         wtp = wtp * recycling_idiag(ibasis)
+         wtp = wtp * recycling_idvtw(ibasis)
 
          ! correct search direction vector
          ! p <- p - V*inv(D)+W'p = p - V*IDIAG*W'p
@@ -1825,6 +1982,41 @@
                                          - wtp * recycling_basis(isub_loc)%v(:,ibasis) 
          end do
       end do
+
+      end subroutine
+
+      !****************************************************
+      subroutine recycling_apply_diagonal_inverse(vec,lvec)
+      !****************************************************
+      ! application of the inverse of the diagonal matrix in recycling
+      use module_utils
+
+      implicit none
+
+      integer,intent(in)     :: lvec
+      real(kr),intent(inout) ::  vec(lvec) 
+
+      ! local vars
+      character(*),parameter:: routine_name = 'RECYCLING_APPLY_DIAGONAL_INVERSE'
+      !integer :: nrhs 
+      !integer :: lapack_info 
+
+      if (lvec /= nactive_cols_recycling_basis) then
+         call error( routine_name, 'size mismatch', lvec )
+      end if
+      ! only diagonal
+      vec(1:lvec) = vec(1:lvec) * recycling_idvtw(1:nactive_cols_recycling_basis)
+
+      ! actually apply the inverse of the Grammian
+      !if ( .not. recycling_is_inverse_prepared ) then
+      !   call error( routine_name, 'Gramian of the basis is not factorized', lvec )
+      !end if
+
+      !nrhs = 1
+      !call DGETRS('N', lvec, nrhs, recycling_vtw, lvec, recycling_ipiv, vec, lvec, lapack_info)
+      !if (lapack_info /= 0) then
+      !   call error( routine_name, 'error in LAPACK, info ', lapack_info )
+      !end if
 
       end subroutine
 
@@ -1866,9 +2058,9 @@
          lrecycling_basis = 0
          nactive_cols_recycling_basis = 0
       end if
-      if (allocated(recycling_idiag)) then
-         deallocate(recycling_idiag)
-         lrecycling_idiag = 0
+      if (allocated(recycling_idvtw)) then
+         deallocate(recycling_idvtw)
+         lrecycling_idvtw = 0
       end if
       is_recycling_prepared = .false.
 
