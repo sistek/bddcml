@@ -403,6 +403,15 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
       levels(iactive_level)%i_am_active_in_this_level = levels(iactive_level-1)%i_am_active_in_this_level
       levels(iactive_level)%is_new_comm_created       = .false.
 
+      !do iactive_level = 1,nlevels
+      !   print *, 'myid ',myid,':level ',iactive_level,': Active cores:', &
+      !                                                      levels(iactive_level)%sub2proc(2:levels(iactive_level)%lsub2proc)&
+      !                                                     -levels(iactive_level)%sub2proc(1:levels(iactive_level)%lsub2proc-1)
+      !   print *, 'myid ',myid,':level ',iactive_level,': subs:', levels(iactive_level)%indexsub
+      !   print *, 'myid ',myid,':level ',iactive_level,': I am active:', levels(iactive_level)%i_am_active_in_this_level
+      !end do
+
+      iactive_level = nlevels
 end subroutine
 
 !***********************************************************************************
@@ -673,9 +682,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
 
       myid = -1
 
-      if (levels(iactive_level)%i_am_active_in_this_level) then
-         call MPI_COMM_RANK(levels(iactive_level)%comm_all,myid,ierr)
-      end if
+      call MPI_COMM_RANK(levels(iactive_level)%comm_all,myid,ierr)
 
       ! set active level to zero
       iactive_level = 0
@@ -3026,7 +3033,6 @@ subroutine levels_prepare_last_level(matrixtype)
 ! Load matrix to MUMPS
       call mumps_load_triplet_distributed(mumps_coarse,ndof,nnz,i_sparse,j_sparse,a_sparse,nnz)
 
-
 ! Analyze matrix
 !-----profile
       if (profile) then
@@ -3034,7 +3040,7 @@ subroutine levels_prepare_last_level(matrixtype)
          call time_start
       end if
 !-----profile
-      if (nnz > 0) then
+      !if (nnz > 0) then
          iparallel = 0 ! let MUMPS decide
          call mumps_analyze(mumps_coarse,iparallel)
          if (debug) then
@@ -3042,7 +3048,7 @@ subroutine levels_prepare_last_level(matrixtype)
                call info(routine_name, 'Coarse matrix analyzed.')
             end if
          end if
-      end if
+      !end if
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
@@ -3060,14 +3066,14 @@ subroutine levels_prepare_last_level(matrixtype)
          call time_start
       end if
 !-----profile
-      if (nnz > 0) then
+      !if (nnz > 0) then
          call mumps_factorize(mumps_coarse)
          if (debug) then
             if (myid.eq.0) then
                call info(routine_name, 'Coarse matrix factorized.')
             end if
          end if
-      end if
+      !end if
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
@@ -3079,11 +3085,11 @@ subroutine levels_prepare_last_level(matrixtype)
 !-----profile
 
       is_mumps_coarse_ready = .true.
-      if (nnz > 0) then
+      !if (nnz > 0) then
          is_mumps_coarse_nontrivial = .true.
-      else
-         is_mumps_coarse_nontrivial = .false.
-      end if
+      !else
+      !   is_mumps_coarse_nontrivial = .false.
+      !end if
 
 ! Clear memory
       deallocate(i_sparse, j_sparse, a_sparse)
