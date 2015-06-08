@@ -65,7 +65,7 @@ logical,parameter,private ::  try_harder = .false.
 logical,parameter,private :: recompute_vectors = .true.
 ! debugging 
 logical,parameter,private :: debug = .false.
-logical,parameter,private :: profile = .true.
+logical,parameter,private :: profile = .false.
 
 ! maximal allowed length of file names
 integer,parameter,private :: lfnamex = 130
