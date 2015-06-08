@@ -610,7 +610,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled, &
                                         user_constraints,luser_constraints1,luser_constraints2, &
                                         element_data,lelement_data1,lelement_data2, &
-                                        dof_data,ldof_data )
+                                        dof_data,ldof_data, find_components)
 !***********************************************************************************
 ! Subroutine for loading LOCAL data of one subdomain at first level
       use module_utils
@@ -659,6 +659,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       real(kr), intent(in):: element_data(lelement_data1*lelement_data2) ! array for additional data about elements
       integer, intent(in)::  ldof_data           ! length of array DOF_DATA
       real(kr), intent(in):: dof_data(ldof_data) ! array for additional data on dofs      
+      logical, intent(in)::  find_components
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_SUBDOMAIN_DATA'
@@ -732,7 +733,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       call dd_upload_sub_mesh(levels(iactive_level)%subdomains(isub_loc), nelems, nnods, ndofs, ndim, &
                               nndf,lnndf, nnet,lnnet, levels_numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
-                              xyz,lxyz1,lxyz2)
+                              xyz,lxyz1,lxyz2, find_components)
 !-----profile
       if (profile) then
          ! no barrier should be here since not all processes need to call this routine
@@ -913,6 +914,7 @@ end subroutine
 !*************************************************************************************
 subroutine levels_pc_setup( parallel_division,&
                             matrixtype, &
+                            use_corner_constraints,&
                             use_arithmetic_constraints,&
                             use_adaptive_constraints,&
                             use_user_constraints, &
@@ -928,6 +930,8 @@ subroutine levels_pc_setup( parallel_division,&
       logical,intent(in) :: parallel_division
 ! type of matrix (0 - nosymetric, 1 - SPD, 2 - general symmetric)
       integer,intent(in) :: matrixtype
+! Use continuity of coarse functions at corners as constraints?
+      logical,intent(in) :: use_corner_constraints
 ! Use arithmetic averages on globs as constraints?
       logical,intent(in) :: use_arithmetic_constraints
 ! Use adaptive constraints on faces?
@@ -1027,6 +1031,7 @@ subroutine levels_pc_setup( parallel_division,&
 
             call levels_prepare_standard_level(parallel_division,&
                                                matrixtype,iactive_level,&
+                                               use_corner_constraints,&
                                                use_arithmetic_constraints,&
                                                use_adaptive_constraints,&
                                                use_user_constraints,&
@@ -1300,6 +1305,7 @@ end subroutine
 !*******************************************************************************
 subroutine levels_prepare_standard_level(parallel_division,&
                                          matrixtype,ilevel,&
+                                         use_corner_constraints,&
                                          use_arithmetic_constraints,&
                                          use_adaptive_constraints,&
                                          use_user_constraints,&
@@ -1317,6 +1323,9 @@ subroutine levels_prepare_standard_level(parallel_division,&
       logical,intent(in) :: parallel_division ! should parallel division be used?
       integer,intent(in) :: matrixtype
       integer,intent(in) :: ilevel     ! index of level
+
+      ! use continuity at corners as constraints?
+      logical,intent(in) :: use_corner_constraints
       ! Use arithmetic averages on globs as constraints?
       logical,intent(in) :: use_arithmetic_constraints
       ! Use adaptive constraints on faces?
@@ -2212,6 +2221,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
                            levels(ilevel)%indexsub,levels(ilevel)%lindexsub, &
                            comm_all,remove_bc_nodes, &
                            levels(ilevel)%meshdim, &
+                           use_corner_constraints, &
                            ncorner,nedge,nface)
 !      call dd_create_globs2(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains,&
 !                           levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
@@ -2529,11 +2539,13 @@ subroutine levels_prepare_standard_level(parallel_division,&
       ! set up a basic coarse problem for solving weights of type 4
       if (weights_type .eq. 4) then
       ! BDDC data
-         do isub_loc = 1,nsub_loc
-            ! load arithmetic averages on corners
-            glbtype = 3
-            call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
-         end do
+         if (use_corner_constraints) then
+            do isub_loc = 1,nsub_loc
+               ! load arithmetic averages on corners
+               glbtype = 3
+               call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+            end do
+         end if
 
 ! prepare nndfc and embed cnodes and get array with numbers of constraints
          ! in nndfc, nodes are ordered as corners - edges - faces
@@ -2642,8 +2654,10 @@ subroutine levels_prepare_standard_level(parallel_division,&
       do isub_loc = 1,nsub_loc
          ! load arithmetic averages on corners
          if (weights_type .ne. 4) then
-            glbtype = 3
-            call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+            if (use_corner_constraints) then
+               glbtype = 3
+               call dd_load_arithmetic_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+            end if
          end if
          if (use_arithmetic_constraints.or.use_adaptive_constraints) then
             ! adaptive constraints are just an add-on to arithmetic ones

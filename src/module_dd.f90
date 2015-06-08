@@ -1839,6 +1839,8 @@ subroutine dd_localize_mesh(sub,isub,ndim,nelem,nnod,&
       integer ::             i, j, ie, inod, inods, idofn 
       integer ::             indn, indvg, indvs
 
+      logical :: find_components = .true.
+
       if (isub .ne. sub%isub) then
          call error(routine_name,'subdomain index mismatch for subdomain:', isub)
       end if
@@ -1931,7 +1933,7 @@ subroutine dd_localize_mesh(sub,isub,ndim,nelem,nnod,&
       call dd_upload_sub_mesh(sub, nelems, nnods, ndofs, ndim, &
                               nndfs,lnndfs, nnets,lnnets, 0, inets,linets, isngns,lisngns, &
                               isvgvns,lisvgvns, isegns,lisegns,&
-                              xyzs,lxyzs1,lxyzs2) 
+                              xyzs,lxyzs1,lxyzs2, find_components) 
 
       deallocate(nndfs,kdofs)
       deallocate(xyzs)
@@ -2414,7 +2416,7 @@ end subroutine
 subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
                               nndf,lnndf, nnet,lnnet, numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
-                              xyz,lxyz1,lxyz2)
+                              xyz,lxyz1,lxyz2, find_components)
 !*********************************************************************************
 ! Subroutine for loading mesh data into sub structure
       use module_utils
@@ -2436,11 +2438,11 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       integer,intent(in) ::  isegn(lisegn)
       integer,intent(in) :: lxyz1, lxyz2
       real(kr),intent(in)::  xyz(lxyz1,lxyz2)
+      logical,intent(in) :: find_components  ! find and store components of nodal graph
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_UPLOAD_SUB_MESH'
 ! ################ parameters to set
-      logical,parameter :: find_componets    = .true. ! find and store components of nodal graph
       integer,parameter :: node_neighbouring = 1       ! any element connecting nodes counts as a graph edge
 ! ################ end parameter to set
       integer :: i, j
@@ -2548,7 +2550,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       ! determine nodal components of the mesh
       sub%lnodal_components = nnod
       allocate(sub%nodal_components(sub%lnodal_components))
-      if (find_componets) then
+      if (find_components) then
          ! prepare kinet
          lkinet = nelem
          allocate(kinet(lkinet))
@@ -8426,7 +8428,7 @@ end subroutine
 
 !*******************************************************************************************************
 subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, comm_all, remove_bc_nodes,&
-                           meshdim, &
+                           meshdim, use_corner_constraints, &
                            ncorner, nedge, nface)
 !*******************************************************************************************************
 ! Subroutine for finding corners in BDDC
@@ -8451,6 +8453,12 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
 ! what is the dimension of mesh
       integer,intent(in) :: meshdim
+
+      ! additional search for corners
+      ! F - only vertices are considered as corners
+      ! T - additional face-based selection
+      logical,intent(in) :: use_corner_constraints
+
 ! basic properties of the coarse problem
       integer,intent(out) :: ncorner
       integer,intent(out) :: nedge
@@ -8459,10 +8467,6 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       ! local vars
       character(*),parameter:: routine_name = 'DD_CREATE_GLOBS'
 ! ######## parameters to set
-      ! additional search for corners
-      ! F - only vertices are considered as corners
-      ! T - additional face-based selection
-      logical, parameter :: select_corners   = .true.
       ! check for disconnected faces
       ! F - face not analysed for continuity
       ! T - search based algorithm run on each component separately
@@ -8786,7 +8790,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          ! where nsubnode is 1, there is a face
          where (nsubnode.eq.1) globtypes = 1
 
-         if (select_corners) then
+         if (use_corner_constraints) then
             call dd_create_globs_select_corners
          end if
 

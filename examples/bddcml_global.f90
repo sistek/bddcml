@@ -50,6 +50,9 @@ program bddcml_global
 ! use default values in preconditioner? In such case, all other parameters are ignored
       integer,parameter :: use_preconditioner_defaults = 0
 
+! use continuity at corners as constraints?
+      integer,parameter :: use_corner_constraints = 1
+
 ! use arithmetic constraints?
       integer,parameter :: use_arithmetic_constraints = 1
 
@@ -398,6 +401,7 @@ program bddcml_global
       call bddcml_setup_preconditioner(matrixtype, &
                                        use_preconditioner_defaults,&
                                        parallel_division,&
+                                       use_corner_constraints,&
                                        use_arithmetic_constraints,&
                                        use_adaptive_constraints,&
                                        use_user_constraints,&

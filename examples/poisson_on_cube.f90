@@ -92,6 +92,9 @@ program poisson_on_cube
 ! use default values in preconditioner? In such case, all other parameters are ignored
       integer,parameter :: use_preconditioner_defaults = 0
 
+! use continuity at corners as constraints?
+      integer,parameter :: use_corner_constraints = 1
+
 ! use arithmetic constraints on edges and faces?
       integer,parameter :: use_arithmetic_constraints = 1
 
@@ -114,6 +117,10 @@ program poisson_on_cube
 
 ! should parallel division be used (ParMETIS instead of METIS) on the first level?
       integer,parameter :: parallel_division = 1
+
+! find components of the mesh and handle them as independent subdomains when selecting coarse dofs 
+! recommended for unstructured meshes, but could be switched off for these simple cubes
+      integer,parameter :: find_components_int = 1
 
 ! *******************
 ! PROBLEM PARAMETERS:
@@ -493,7 +500,7 @@ program poisson_on_cube
                                            matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int, &
                                            user_constraints,luser_constraints1,luser_constraints2, &
                                            element_data,lelement_data1,lelement_data2,&
-                                           dof_data,ldof_data)
+                                           dof_data,ldof_data, find_components_int)
 
          deallocate(inets,nnets,nndfs,isegns,isngns,isvgvns)
          deallocate(xyzs)
@@ -522,6 +529,7 @@ program poisson_on_cube
       call bddcml_setup_preconditioner(matrixtype,&
                                        use_preconditioner_defaults, &
                                        parallel_division,&
+                                       use_corner_constraints,&
                                        use_arithmetic_constraints,&
                                        use_adaptive_constraints,&
                                        use_user_constraints,&

@@ -156,7 +156,7 @@ subroutine bddcml_upload_subdomain_data_c(nelem, nnod, ndof, ndim, meshdim, &
                                           matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int,&
                                           user_constraints,luser_constraints1,luser_constraints2,&
                                           element_data,lelement_data1,lelement_data2, &
-                                          dof_data,ldof_data) &
+                                          dof_data,ldof_data, find_components_int) &
            bind(c)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
@@ -262,6 +262,10 @@ subroutine bddcml_upload_subdomain_data_c(nelem, nnod, ndof, ndim, meshdim, &
       integer(c_integer_type), intent(in)::  ldof_data  ! number of entries in dof_data ( = NDOFS)
       real(c_real_type), intent(in):: dof_data(ldof_data) ! array for data on degrees of freedom
 
+      ! should the mesh components be detected ? 
+      integer(c_integer_type), intent(in)::  find_components_int 
+
+
       call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isub, nelems, nnods, ndofs, &
                                         inet,linet, nnet,lnnet, nndf,lnndf, &
@@ -273,12 +277,13 @@ subroutine bddcml_upload_subdomain_data_c(nelem, nnod, ndof, ndim, meshdim, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int,&
                                         user_constraints,luser_constraints1,luser_constraints2,&
                                         element_data,lelement_data1,lelement_data2, &
-                                        dof_data,ldof_data) 
+                                        dof_data,ldof_data, find_components_int) 
 end subroutine
 
 !************************************************************************************************
 subroutine bddcml_setup_preconditioner_c(matrixtype, use_defaults_int, &
                                          parallel_division_int, &
+                                         use_corner_constraints_int, &
                                          use_arithmetic_constraints_int, &
                                          use_adaptive_constraints_int, &
                                          use_user_constraints_int, &
@@ -296,6 +301,9 @@ subroutine bddcml_setup_preconditioner_c(matrixtype, use_defaults_int, &
 
       ! should parallel division be used (ParMETIS instead of METIS)?
       integer(c_integer_type),intent(in) :: parallel_division_int
+
+      ! use continuity at corners as constraints?
+      integer(c_integer_type),intent(in) :: use_corner_constraints_int
 
       ! use arithmetic constraints?
       integer(c_integer_type),intent(in) :: use_arithmetic_constraints_int
@@ -319,6 +327,7 @@ subroutine bddcml_setup_preconditioner_c(matrixtype, use_defaults_int, &
 
       call bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
                                        parallel_division_int, &
+                                       use_corner_constraints_int, &
                                        use_arithmetic_constraints_int, &
                                        use_adaptive_constraints_int, &
                                        use_user_constraints_int, &

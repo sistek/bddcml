@@ -49,8 +49,14 @@ program bddcml_local
 !     5 - direct solve by MUMPS
       integer :: krylov_method = 0  
 
+! find components of the mesh and handle them as independent subdomains when selecting coarse dofs 
+      integer,parameter :: find_components_int = 1
+
 ! use default values in preconditioner? In such case, all other parameters are ignored
       integer,parameter :: use_preconditioner_defaults = 0
+
+! use continuity at corners as constraints?
+      integer,parameter :: use_corner_constraints = 1
 
 ! use arithmetic constraints?
       integer,parameter :: use_arithmetic_constraints = 1
@@ -187,6 +193,7 @@ program bddcml_local
       integer :: ie, idofn, ind, indn, indvg, i, indvs, inod, inods, isub, j, ndofn, ir
       integer :: is_rhs_complete_int
       integer :: is_assembled_int
+
 
       ! data about resulting convergence
       integer :: num_iter, converged_reason 
@@ -573,7 +580,6 @@ program bddcml_local
          allocate(dof_data(ldof_data))
          dof_data = 3._kr
 
-
          ! experiment a bit
          call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                            isub, nelems, nnods, ndofs, &
@@ -586,7 +592,7 @@ program bddcml_local
                                            matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int, &
                                            user_constraints,luser_constraints1,luser_constraints2, &
                                            element_data,lelement_data1,lelement_data2,&
-                                           dof_data,ldof_data)
+                                           dof_data,ldof_data,find_components_int)
          deallocate(inets,nnets,nndfs,xyzs)
          deallocate(kdofs)
          deallocate(rhss)
@@ -617,6 +623,7 @@ program bddcml_local
       call bddcml_setup_preconditioner(matrixtype,&
                                        use_preconditioner_defaults, &
                                        parallel_division,&
+                                       use_corner_constraints,&
                                        use_arithmetic_constraints,&
                                        use_adaptive_constraints,&
                                        use_user_constraints,&

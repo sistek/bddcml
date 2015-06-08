@@ -17,7 +17,7 @@ END-INFO-DIR-ENTRY
 @title BDDCML
 @subtitle solver library based on Multi-Level Balancing Domain Decomposition by Constraints
 @subtitle copyright (C) 2010-2015 Jakub @v{S}@'{@dotless{i}}stek
-@subtitle version 2.4
+@subtitle version 2.5
 @author Jakub @v{S}@'{@dotless{i}}stek
 
 @end titlepage
@@ -38,7 +38,7 @@ computations by the finite element method (FEM).
 Domain decomposition technique is employed which allows distribution of the computations among processors.
 
 The main goal of the package is to provide a scalable implementation of the (Adaptive) Multilevel BDDC method. 
-Codes are written in Fortran 95 with MPI library. 
+Codes are written in Fortran 95 (using also some features of Fortran 2003) with MPI library. 
 A library is provided, which is supposed to be called from users' applications. 
 It provides a simple interface functions callable from Fortran and C. 
 
@@ -62,9 +62,9 @@ This requirement is mainly motivated by selection of corners within the method, 
 
 Two different modes are possible for input:
 @itemize
-@item user can either provide information about global mesh and a file with element matrices (global loading),
 @item user can provide division into subdomains on the first level and pass 
-  subdomain matrices for each subdomain to the routine (local loading).
+  subdomain matrices for each subdomain to the routine (local loading),
+@item user can provide information about global mesh and a file with element matrices (global loading) (this feature will be removed in future release).
 @end itemize
 
 The solution process is divided into the following sequence of called functions.
@@ -74,8 +74,8 @@ Their parameters are described in separate sections.
 @item @code{bddcml_init} -- initialization of the solver
 @item
 @itemize
-@item @code{bddcml_upload_global_data} -- loading global data about computational mesh and matrix (use for global loading)
 @item @code{bddcml_upload_subdomain_data} -- loading data for one subdomain mesh and matrix (use for local loading)
+@item @code{bddcml_upload_global_data} -- loading global data about computational mesh and matrix (use for global loading)
 @end itemize
 @item @code{bddcml_setup_preconditioner} -- prepare preconditioner 
 @item @code{bddcml_solve} -- solve loaded system by a preconditioned Krylov subspace iterative method (PCG or BiCGstab) or steepest descent iterative method
@@ -87,7 +87,8 @@ Their parameters are described in separate sections.
 @item @code{bddcml_finalize} -- clear solver data and deallocate memory
 @end enumerate
 
-Two examples are presented in the @file{examples} folder. Both are written in Fortran 90. 
+Examples are presented in the @file{examples} folder. 
+The @file{poisson_on_cube.f90} is a self-standing application demonstrating the use of localized subdomain input.
 The @file{bddcml_global.f90} demonstrates the use of global input, while the @file{bddcml_local.f90} demonstrates the use of localized subdomain input.
 Optionally, one can ask for nodal reactions at Dirichlet boundary conditions by 
 @itemize
@@ -111,7 +112,7 @@ One can re-run the Krylov method for a new right-hand side and/or values of Diri
 
 @chapter Notes for C/C++ users
 
-Since @code{BDDCML} is written in Fortran 95 language, users who want to use BDDCML from C/C++ need to 
+Since @code{BDDCML} is written in Fortran 2003 language, users who want to use BDDCML from C/C++ need to 
 overcome a few issues related to this fact.
 
 @section @code{Header file}
@@ -125,24 +126,28 @@ extern "C" {
 @end verbatim
 
 @section @code{Cross-compilation}
-Fortran compilers change the name of subroutines as they appear in the code when they generate symbols out of them
-(this is mainly related to historical reasons).
-Some Fortran compilers append `@code{_}' at the end of the name, some append `@code{__}', some do not do anything to the name and
-some change all letters to upper case.
-In order to combine C and Fortran code, it is necessary to mimic the behaviour of the Fortran compiler in a C/C++ code by 
-modifying names of the C functions (both when calling Fortran routine from a C function and vice versa). 
-For a somewhat generic behaviour of this naming convention, there is an @code{F_SYMBOL} macro defined in @file{bddcml_interface_c.h}
-which changes the C names to match the name expected by Fortran. 
-This is based on a preprocessor variable used in compiling C/C++ code.
-Possible values include:
-@itemize
-@item     @code{Add_}  - append `@code{_}' at the end of the function name (this is most common and used e.g. by @code{gfortran} or @code{Intel Fortran Compiler})
-@item     @code{Add__} - append `@code{__}' at the end of the function name (used e.g. by @code{g95})
-@item     @code{UPPER} - change all letters to uppercase
-@end itemize
-This should appear on command line as e.g. @code{-DAdd_} during compiling.
-If nothing is defined, no change is done to the symbol name, which is in fact correct for certain Fortran compilers, 
-such as those by @code{IBM}.
+The library provides interface for Fortran 90 (as a module) and C/C++. 
+The names of the C routines have additional `@code{_c}' suffix. 
+The interface for C is prepared using the @code{iso_c_binding} module of Fortran 2003, so these fanctions can be directly called from C.
+
+@c Fortran compilers change the name of subroutines as they appear in the code when they generate symbols out of them
+@c (this is mainly related to historical reasons).
+@c Some Fortran compilers append `@code{_}' at the end of the name, some append `@code{__}', some do not do anything to the name and
+@c some change all letters to upper case.
+@c In order to combine C and Fortran code, it is necessary to mimic the behaviour of the Fortran compiler in a C/C++ code by 
+@c modifying names of the C functions (both when calling Fortran routine from a C function and vice versa). 
+@c For a somewhat generic behaviour of this naming convention, there is an @code{F_SYMBOL} macro defined in @file{bddcml_interface_c.h}
+@c which changes the C names to match the name expected by Fortran. 
+@c This is based on a preprocessor variable used in compiling C/C++ code.
+@c Possible values include:
+@c @itemize
+@c @item     @code{Add_}  - append `@code{_}' at the end of the function name (this is most common and used e.g. by @code{gfortran} or @code{Intel Fortran Compiler})
+@c @item     @code{Add__} - append `@code{__}' at the end of the function name (used e.g. by @code{g95})
+@c @item     @code{UPPER} - change all letters to uppercase
+@c @end itemize
+@c This should appear on command line as e.g. @code{-DAdd_} during compiling.
+@c If nothing is defined, no change is done to the symbol name, which is in fact correct for certain Fortran compilers, 
+@c such as those by @code{IBM}.
 
 @section @code{Libraries of Fortran compiler}
 If C code is called from Fortran, no additional libraries are usually needed. 
@@ -164,7 +169,7 @@ In this chapter, detailed description of the solver interface functions with exp
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_init( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase, int *just_direct_solve_int );
+void bddcml_init_c( int *nl, int *nsublev, int *lnsublev, int *nsub_loc_1, int *comm_init, int *verbose_level, int *numbase, int *just_direct_solve_int );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -232,11 +237,11 @@ Only perform a direct solve ( 0 - for a regular iterative solve with BDDC precon
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_upload_global_data( int *nelem, int *nnod, int *ndof, int *ndim, int *meshdim, 
-                                int *inet, int *linet, int *nnet, int *lnnet, int *nndf, int *lnndf, 
-                                double *xyz, int *lxyz1, int *lxyz2,
-                                int *ifix, int *lifix, double *fixv, int *lfixv, double *rhs, int *lrhs, double *sol, int *lsol, int *idelm, 
-                                int *neighbouring, int *load_division_int );
+void bddcml_upload_global_data_c( int *nelem, int *nnod, int *ndof, int *ndim, int *meshdim, 
+                                  int *inet, int *linet, int *nnet, int *lnnet, int *nndf, int *lnndf, 
+                                  double *xyz, int *lxyz1, int *lxyz2,
+                                  int *ifix, int *lifix, double *fixv, int *lfixv, double *rhs, int *lrhs, double *sol, int *lsol, int *idelm, 
+                                  int *neighbouring, int *load_division_int );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -376,18 +381,18 @@ Begins from 1.
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_upload_subdomain_data( int *nelem, int *nnod, int *ndof, int *ndim, int *meshdim,
-                                   int *isub, int *nelems, int *nnods, int *ndofs, 
-                                   int *inet, int *linet, int *nnet, int *lnnet, int *nndf, int *lnndf, 
-                                   int *isngn, int *lisngn, int *isvgvn, int *lisvgvn, int *isegn, int *lisegn, 
-                                   double *xyz, int *lxyz1, int *lxyz2, 
-                                   int *ifix, int *lifix, double *fixv, int *lfixv, 
-                                   double *rhs, int *lrhs, int *is_rhs_complete,
-                                   double *sol, int *lsol, 
-                                   int *matrixtype, int *i_sparse, int *j_sparse, double *a_sparse, int *la, int *is_assembled_int, 
-                                   double *user_constraints, int *luser_constraints1, int *luser_constraints2,
-                                   double *element_data, int *lelement_data1, int *lelement_data2,
-                                   double *dof_data, int *ldof_data );
+void bddcml_upload_subdomain_data_c( int *nelem, int *nnod, int *ndof, int *ndim, int *meshdim,
+                                     int *isub, int *nelems, int *nnods, int *ndofs, 
+                                     int *inet, int *linet, int *nnet, int *lnnet, int *nndf, int *lnndf, 
+                                     int *isngn, int *lisngn, int *isvgvn, int *lisvgvn, int *isegn, int *lisegn, 
+                                     double *xyz, int *lxyz1, int *lxyz2, 
+                                     int *ifix, int *lifix, double *fixv, int *lfixv, 
+                                     double *rhs, int *lrhs, int *is_rhs_complete,
+                                     double *sol, int *lsol, 
+                                     int *matrixtype, int *i_sparse, int *j_sparse, double *a_sparse, int *la, int *is_assembled_int, 
+                                     double *user_constraints, int *luser_constraints1, int *luser_constraints2,
+                                     double *element_data, int *lelement_data1, int *lelement_data2,
+                                     double *dof_data, int *ldof_data, int *find_components_int );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -402,7 +407,7 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int,&
                                         user_constraints,luser_constraints1,luser_constraints2,&
                                         element_data,lelement_data1,lelement_data2, &
-                                        dof_data,ldof_data)
+                                        dof_data,ldof_data, find_components_int)
 }
 @verbatim
       integer, intent(in):: nelem
@@ -452,6 +457,7 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       real(kr), intent(in):: element_data(lelement_data1*lelement_data2) 
       integer, intent(in)::  ldof_data  
       real(kr), intent(in):: dof_data(ldof_data) 
+      integer, intent(in)::  find_components_int
 
 @end verbatim
 
@@ -632,6 +638,15 @@ dimension of array with data for subdomain degrees of freedom, @code{ldof_data} 
 coefficients for each local degree of freedom currently optionally used for generating interface weigths in the BDDC method. 
 The array should be positive, @code{dof_data} > 0.
 
+@item find_components_int  
+Find components within the mesh of the subdomain?
+When using graph partitioners for creating subdomains, subdomains may be disconnected. For unstructured meshes, it is thus recommended
+to use this feature. The solver will detect connected components of the mesh and handle them as independent substructures in the 
+selection of corners, edges and faces. This results in sufficient number of contraints while not affecting load balancing too much.
+@itemize 
+@item 0 - no, subdomain is considered as one connected component
+@item 1 - yes, subdomain will be analysed for connected components. Recommended but can become expensive for elements of very high order.
+@end itemize 
 @end table
 
 
@@ -640,17 +655,19 @@ The array should be positive, @code{dof_data} > 0.
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_setup_preconditioner( int *matrixtype, int *use_defaults_int,
-                                  int *parallel_division_int, 
-                                  int *use_arithmetic_constraints_int, 
-                                  int *use_adaptive_constraints_int,
-                                  int *use_user_constraints_int,
-                                  int *weights_type );
+void bddcml_setup_preconditioner_c( int *matrixtype, int *use_defaults_int,
+                                    int *parallel_division_int, 
+                                    int *use_corner_constraints_int, 
+                                    int *use_arithmetic_constraints_int, 
+                                    int *use_adaptive_constraints_int,
+                                    int *use_user_constraints_int,
+                                    int *weights_type );
 }
 @unnumberedsubsec Fortran interface
 @code{
 subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
                                        parallel_division_int, &
+                                       use_corner_constraints_int, &
                                        use_arithmetic_constraints_int, &
                                        use_adaptive_constraints_int, &
                                        use_user_constraints_int, &
@@ -660,6 +677,7 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       integer,intent(in) :: matrixtype 
       integer,intent(in) :: use_defaults_int
       integer,intent(in) :: parallel_division_int
+      integer,intent(in) :: use_corner_constraints_int
       integer,intent(in) :: use_arithmetic_constraints_int
       integer,intent(in) :: use_adaptive_constraints_int
       integer,intent(in) :: use_user_constraints_int
@@ -694,6 +712,10 @@ If @code{> 0}, other options are ignored and the solver uses default options.
 @item parallel_division_int
 If @code{> 0}, solver will use @code{ParMETIS} to create division on first level. 
 This option is only used for global input (@code{bddcml_upload_global_data}) and only applies to the first level. Otherwise, @code{METIS} is used.
+Default is @code{1}.
+
+@item use_corner_constraints_int
+If @code{> 0}, solver will use continuity of coarse functions at corners to form the coarse space. These are the basic constraints in BDDC.
 Default is @code{1}.
 
 @item use_arithmetic_constraints_int
@@ -737,9 +759,9 @@ This allows definition of general user-defined weigths on degrees of freedom tai
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_solve( int *comm_all, int *method, double *tol, int *maxit, int *ndecrmax, 
-                   int *recycling_int, int *max_number_of_stored_vectors,
-                   int *num_iter, int *converged_reason, double *condition_number);
+void bddcml_solve_c( int *comm_all, int *method, double *tol, int *maxit, int *ndecrmax, 
+                     int *recycling_int, int *max_number_of_stored_vectors,
+                     int *num_iter, int *converged_reason, double *condition_number);
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -827,7 +849,7 @@ on output, estimated condition number ( for PCG only ).
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_download_local_solution( int *isub, double *sols, int *lsols );
+void bddcml_download_local_solution_c( int *isub, double *sols, int *lsols );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -862,7 +884,7 @@ length of array @code{sols}, equal to @code{ndofs}.
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_download_global_solution( double *sol, int *lsol );
+void bddcml_download_global_solution_c( double *sol, int *lsol );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -893,7 +915,7 @@ length of array @code{sol}, equal to @code{ndof}
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_download_local_reactions( int *isub, double *reas, int *lreas );
+void bddcml_download_local_reactions_c( int *isub, double *reas, int *lreas );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -930,7 +952,7 @@ length of array @code{reas}, equal to @code{ndofs}.
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_download_global_reactions( double *rea, int *lrea );
+void bddcml_download_global_reactions_c( double *rea, int *lrea );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -964,7 +986,7 @@ length of array @code{rea}, equal to @code{ndof}
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_change_global_data( int *ifix, int *lifix, double *fixv, int *lfixv, double *rhs, int *lrhs, double *sol, int *lsol);
+void bddcml_change_global_data_c( int *ifix, int *lifix, double *fixv, int *lfixv, double *rhs, int *lrhs, double *sol, int *lsol);
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -1025,10 +1047,10 @@ length of array @code{sol}, equal to @code{ndof}.
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_change_subdomain_data( int *isub, 
-                                   int *ifix, int *lifix, double *fixv, int *lfixv, 
-                                   double *rhs, int *lrhs, int *is_rhs_complete, 
-                                   double *sol, int *lsol );
+void bddcml_change_subdomain_data_c( int *isub, 
+                                     int *ifix, int *lifix, double *fixv, int *lfixv, 
+                                     double *rhs, int *lrhs, int *is_rhs_complete, 
+                                     double *sol, int *lsol );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -1112,7 +1134,7 @@ length of array @code{sol}, equal to @code{ndofs}.
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_setup_new_data( );
+void bddcml_setup_new_data_c( );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -1136,7 +1158,7 @@ This routine currently does not take any arguments.
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_dotprod_subdomain( int *isub, double *vec1, int *lvec1, double *vec2, int *lvec2, double *dotprod );
+void bddcml_dotprod_subdomain_c( int *isub, double *vec1, int *lvec1, double *vec2, int *lvec2, double *dotprod );
 }
 @unnumberedsubsec Fortran interface
 @code{
@@ -1188,7 +1210,7 @@ on exit, returns vec1' * weights * vec2
 
 @unnumberedsubsec C interface
 @code{
-void bddcml_finalize( );
+void bddcml_finalize_c( );
 }
 @unnumberedsubsec Fortran interface
 @code{

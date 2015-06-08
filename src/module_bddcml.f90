@@ -194,7 +194,8 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int,&
                                         user_constraints,luser_constraints1,luser_constraints2,&
                                         element_data,lelement_data1,lelement_data2, &
-                                        dof_data,ldof_data)
+                                        dof_data,ldof_data, &
+                                        find_components_int)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
       use module_levels
@@ -302,13 +303,21 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       integer, intent(in)::  ldof_data  ! number of entries in dof_data ( = NDOFS)
       real(kr), intent(in):: dof_data(ldof_data) ! array for data on degrees of freedom
 
+      ! should the mesh components be detected ? 
+      integer, intent(in)::  find_components_int  ! 0 = mesh components will not be detected and the subdomain is considered to be connected
+                                                  ! 1 = components will be detected based on the dual graph of the mesh 
+                                                  ! This is recommended for unstructured meshes where a subdomains might be of disconnected parts. 
+                                                  ! However it may become expensive for high order elements.
+
       ! local vars
       logical :: is_assembled
       logical :: is_rhs_complete
+      logical :: find_components
 
       ! translate integer to logical
       call logical2integer(is_assembled_int,    is_assembled)
       call logical2integer(is_rhs_complete_int, is_rhs_complete)
+      call logical2integer(find_components_int, find_components) 
 
       call levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isub, nelems, nnods, ndofs, &
@@ -321,13 +330,14 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled, &
                                         user_constraints,luser_constraints1,luser_constraints2, &
                                         element_data,lelement_data1,lelement_data2, &
-                                        dof_data,ldof_data )
+                                        dof_data,ldof_data, find_components )
 
 end subroutine
 
 !************************************************************************************************
 subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
                                        parallel_division_int, &
+                                       use_corner_constraints_int, &
                                        use_arithmetic_constraints_int, &
                                        use_adaptive_constraints_int, &
                                        use_user_constraints_int, &
@@ -350,6 +360,9 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
 
       ! should parallel division be used (ParMETIS instead of METIS)?
       integer,intent(in) :: parallel_division_int
+
+      ! use continuity at corners as constraints?
+      integer,intent(in) :: use_corner_constraints_int
 
       ! use arithmetic constraints?
       integer,intent(in) :: use_arithmetic_constraints_int
@@ -375,6 +388,7 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       ! ######################################
       ! default values of levels parameters
       logical :: levels_parallel_division          = .true.
+      logical :: levels_use_corner_constraints     = .true.
       logical :: levels_use_arithmetic_constraints = .true.
       logical :: levels_use_adaptive_constraints   = .false. ! experimental - not used by default
       logical :: levels_use_user_constraints       = .false. ! experimental - not used by default
@@ -382,6 +396,7 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       ! ######################################
       logical :: use_defaults
       logical :: parallel_division
+      logical :: use_corner_constraints
       logical :: use_arithmetic_constraints
       logical :: use_adaptive_constraints
       logical :: use_user_constraints
@@ -395,10 +410,12 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
          call info(routine_name,'using default preconditioner parameters')
       else
          call logical2integer(parallel_division_int,parallel_division)
+         call logical2integer(use_corner_constraints_int,use_corner_constraints)
          call logical2integer(use_arithmetic_constraints_int,use_arithmetic_constraints)
          call logical2integer(use_adaptive_constraints_int,use_adaptive_constraints)
          call logical2integer(use_user_constraints_int,use_user_constraints)
          levels_parallel_division      =  parallel_division    
+         levels_use_corner_constraints     = use_corner_constraints
          levels_use_arithmetic_constraints = use_arithmetic_constraints
          levels_use_adaptive_constraints   = use_adaptive_constraints
          levels_use_user_constraints       = use_user_constraints         
@@ -408,6 +425,7 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       ! setup preconditioner
       call levels_pc_setup(levels_parallel_division,&
                            matrixtype,&
+                           levels_use_corner_constraints,&
                            levels_use_arithmetic_constraints,&
                            levels_use_adaptive_constraints,&
                            levels_use_user_constraints,&
