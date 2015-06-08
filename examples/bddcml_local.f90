@@ -19,6 +19,8 @@ program bddcml_local
 !***********************************************************************
 ! Example solver which uses multilevel BDDC library with LOCAL data loading
 !
+! basic bddcml module
+      use module_bddcml
 ! module for preprocessing
       use module_pp
 ! module for sparse matrices

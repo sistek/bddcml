@@ -12,6 +12,8 @@ INC = $(BDDCML_INCMUMPS) $(BDDCML_INCPARMETIS) $(BDDCML_INCMETIS) $(BDDCML_INCBL
 
 OBJ = \
    lobpcg_mvecmult_f.o \
+   module_bddcml_c_wrapper.o \
+   module_bddcml.o \
    module_krylov.o \
    module_krylov_types_def.o \
    module_adaptivity.o \
@@ -27,8 +29,7 @@ OBJ = \
    module_sm.o \
    module_paraview.o \
    module_utils.o \
-   lobpcg_driver.o \
-   bddcml_interface_fortran.o
+   lobpcg_driver.o 
 
 # rules
 all: \
@@ -46,10 +47,12 @@ bddclib: $(LIBBDDCML)
 	$(BDDCML_MPCC) $(BDDCML_MPCFLAGS) $(BDDCML_CDEFS) $(INC) -c $<
 
 # module dependencies
-module_bddc.o: \
-   module_dd.o \
-   module_mumps.o \
-   module_sm.o \
+module_bddcml_c_wrapper.o: \
+   module_bddcml.o
+
+module_bddcml.o: \
+   module_levels.o \
+   module_krylov.o \
    module_utils.o 
 
 module_adaptivity.o: \

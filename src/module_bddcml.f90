@@ -15,15 +15,27 @@
 !________________________________________________________________
 
 
-! Interface providing Fortran functions that may be called from applications
+! The main module supposed to be used from Fortran applications
 ! to exploit multilevel adaptive BDDC solver 
 ! Jakub Sistek, Praha 12/2010
 
+module module_bddcml
+!*******************
+! Module for BDDCML interface
+! Jakub Sistek, Praha 2015
+
+implicit none
+
+! type of real variables
+integer,parameter,private :: kr = kind(1.D0)
+
+contains
+
 !*****************************************************************************************************************
-subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_level, numbase, just_direct_solve_int)
+subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_level, numbase, just_direct_solve_int) 
 !*****************************************************************************************************************
 ! initialization of LEVELS module
-      use module_levels, only : levels_just_direct_solve, levels_init, levels_set_profile_on
+      use module_levels, only : levels_init, levels_set_profile_on
       use module_utils , only : suppress_output_on, logical2integer, warning, error
       use module_krylov , only : krylov_set_profile_on
       implicit none
@@ -98,7 +110,6 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
       use module_levels
       use module_utils
       implicit none
-      integer,parameter :: kr = kind(1.D0)
 
       ! GLOBAL number of elements
       integer, intent(in):: nelem
@@ -189,7 +200,6 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       use module_levels
       use module_utils
       implicit none
-      integer,parameter :: kr = kind(1.D0)
 
       ! GLOBAL number of elements
       integer, intent(in):: nelem
@@ -416,7 +426,6 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       use module_krylov
       use module_utils
       implicit none
-      integer,parameter :: kr = kind(1.D0)
 
       ! parallel variables
       integer,intent(in) :: comm_all 
@@ -528,7 +537,6 @@ subroutine bddcml_download_local_solution(isub, sols,lsols)
       use module_levels
       use module_utils
       implicit none
-      integer,parameter :: kr = kind(1.D0)
 
       ! GLOBAL index of subdomain
       integer, intent(in)::  isub
@@ -548,7 +556,6 @@ subroutine bddcml_download_global_solution(sol, lsol)
       use module_levels
       use module_utils
       implicit none
-      integer,parameter :: kr = kind(1.D0)
 
       ! GLOBAL solution - required to be allocated only at root
       integer, intent(in)::  lsol
@@ -566,7 +573,6 @@ subroutine bddcml_download_local_reactions(isub, reas,lreas)
       use module_levels
       use module_utils
       implicit none
-      integer,parameter :: kr = kind(1.D0)
 
       ! GLOBAL index of subdomain
       integer, intent(in)::  isub
@@ -586,7 +592,6 @@ subroutine bddcml_download_global_reactions(rea, lrea)
       use module_levels
       use module_utils
       implicit none
-      integer,parameter :: kr = kind(1.D0)
 
       ! GLOBAL  - required to be allocated only at root
       integer, intent(in)::  lrea
@@ -603,7 +608,6 @@ subroutine bddcml_change_global_data(ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
       use module_levels
       use module_utils
       implicit none
-      integer,parameter :: kr = kind(1.D0)
 
       ! GLOBAL Indices of FIXed variables - all dof with Dirichlet BC are marked with its number
       integer, intent(in):: lifix
@@ -635,7 +639,6 @@ subroutine bddcml_change_subdomain_data(isub, &
       use module_levels
       use module_utils
       implicit none
-      integer,parameter :: kr = kind(1.D0)
 
       ! GLOBAL index of subdomain
       integer, intent(in):: isub
@@ -696,7 +699,6 @@ subroutine bddcml_dotprod_subdomain( isub, vec1,lvec1, vec2,lvec2, dotprod )
 ! weights.
       use module_levels
       implicit none
-      integer,parameter :: kr = kind(1.D0)
 
       ! GLOBAL index of subdomain
       integer,intent(in) ::   isub 
@@ -728,3 +730,4 @@ subroutine bddcml_finalize
       call krylov_finalize
 end subroutine
 
+end module module_bddcml

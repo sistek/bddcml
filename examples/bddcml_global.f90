@@ -19,6 +19,8 @@ program bddcml_global
 !***********************************************************************
 ! Example solver which uses multilevel BDDC library with GLOBAL data loading
 !
+! basic bddcml module
+      use module_bddcml
 ! module for preprocessing
       use module_pp
 ! Program name

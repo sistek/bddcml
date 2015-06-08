@@ -24,6 +24,8 @@ program poisson_on_cube
 ! ' using FEM and the BDDCML solver.           '
 ! '============================================'
  
+! basic bddcml module
+      use module_bddcml
 ! utilities for error prints, etc.
       use module_utils
 ! functions for exporting to ParaView format
