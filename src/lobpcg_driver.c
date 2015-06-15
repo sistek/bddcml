@@ -26,27 +26,13 @@
 #include "multi_vector.h"
 #include "pcg_multi.h"
 
-#include "f_symbol.h"
-
-#define real double
-#define X(i,j) x[i-1+n*(j-1)]
-#define Lambda(i,j) lambda[i-1+n*(j-1)]
-
 /* function prototypes */
-#define dsygv_gen \
-    F_SYMBOL(dsygv,DSYGV)
-int dsygv_gen (int *itype, char *jobz, char *uplo, int *
-                    n, double *a, int *lda, double *b, int *ldb,
-                    double *w, double *work, int *lwork, int *info);
+int (*dsygv)(int *itype, char *jobz, char *uplo, int *n, double *a, int *lda, double *b, int *ldb,
+             double *w, double *work, int *lwork, int *info);
                     
-#define dpotrf_gen \
-    F_SYMBOL(dpotrf,DPOTRF)
-int dpotrf_gen (char *uplo, int *n, double *a, int *
-                    lda, int *info);
+int (*dpotrf)(char *uplo, int *n, double *a, int *lda, int *info);
 
-#define lobpcg_mvecmult_f \
-    F_SYMBOL(lobpcg_mvecmult_f,LOBPCG_MVECMULT_F)
-void lobpcg_mvecmult_f(int *n, real *x, int *lx, real *y, int *ly, int *idmatrix);
+void lobpcg_mvecmult_f(int *n, double *x, int *lx, double *y, int *ly, int *idmatrix);
 /* end prototypes */
 
 void mvecmult_c (void * data, void * x_p, void * y_p, int idmatrix)
@@ -180,13 +166,11 @@ void mv_load_values (double * eigvec, int nvec, int size, serial_Multi_Vector * 
 }
 
 /* Fortran callable subroutine arguments are passed by reference */
-#define lobpcg_driver \
-    F_SYMBOL(lobpcg_driver,LOBPCG_DRIVER)
-extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSITY_LEVEL, int *USE_X_VALUES, int *LOBPCG_PRECONDITIONER, real *lambda, real *vec, int *ITERATIONS, int *IERR) 
+extern void lobpcg_driver(int *N, int *NVEC, double *TOL, int *MAXIT, int *VERBOSITY_LEVEL, int *USE_X_VALUES, int *LOBPCG_PRECONDITIONER, double *lambda, double *vec, int *ITERATIONS, int *IERR) 
 {
    int n=*N; 
    int nvec=*NVEC; 
-   real tol=*TOL;
+   double tol=*TOL;
    int maxit=*MAXIT; 
    int verbosity_level=*VERBOSITY_LEVEL; 
    int use_x_values=*USE_X_VALUES; 
@@ -253,8 +237,8 @@ extern void lobpcg_driver(int *N, int *NVEC, real *TOL, int *MAXIT, int *VERBOSI
    xx = mv_MultiVectorWrap( &ii, x, 0);
 
 /* set pointers to lapack functions */
-   blap_fn.dpotrf = dpotrf_gen;
-   blap_fn.dsygv = dsygv_gen;
+   blap_fn.dpotrf = dpotrf;
+   blap_fn.dsygv  = dsygv;
 
    /* execute lobpcg */
    ierr = lobpcg_solve_double( 

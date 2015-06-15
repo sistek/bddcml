@@ -20,16 +20,12 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#include "f_symbol.h"
-
 /*****************************************
 * Wrapper of ParMETIS_V3_PartMeshKway
 * used to convert communicator from Fortran number to whatever type it is in MPI_Comm
 * Jakub Sistek 2011
 ******************************************/
 
-#define pdivide_mesh_c \
-    F_SYMBOL(pdivide_mesh_c,PDIVIDE_MESH_C)
 void pdivide_mesh_c( int *elmdist, int *eptr, int *eind, int *elmwgt, 
 	             int *wgtflag, int *numflag, int *ncon, int *ncommonnodes, int *nparts, 
 	             float *tpwgts, float *ubvec, int *options, int *edgecut, int *part, 

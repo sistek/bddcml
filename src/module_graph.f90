@@ -466,6 +466,7 @@ end subroutine graph_parse_onerow2
 subroutine graph_divide(graphtype,nvertex,xadj,lxadj,adjncy,ladjncy,vwgt,lvwgt,adjwgt,ladjwgt,nsub,edgecut,part,lpart)
 ! Divide graph by METIS
 use module_utils
+use iso_c_binding
 implicit none
 ! type of output graph
 integer, intent(in) :: graphtype
@@ -487,10 +488,35 @@ integer*4, intent(out) ::  part(lpart)
 character(*),parameter:: routine_name = 'GRAPH_DIVIDE'
 integer*4 :: numflag !( 1 - Fortran-like arrays (0 - C-like arrays) 
 
+interface
+   subroutine graph_divide_c( numflag, graphtype, nvertex, &
+                              xadj, lxadj, adjncy, ladjncy, vwgt, lvwgt, adjwgt, ladjwgt, nsub, &
+                              edgecut, part, lpart ) &
+              bind(c, name='graph_divide_c')
+      use iso_c_binding
+      implicit none
+      integer(c_int) :: numflag
+      integer(c_int) :: graphtype
+      integer(c_int) :: nvertex
+      integer(c_int) :: lxadj
+      integer(c_int) :: xadj(lxadj)
+      integer(c_int) :: ladjncy 
+      integer(c_int) :: adjncy(ladjncy)
+      integer(c_int) :: lvwgt 
+      integer(c_int) :: vwgt(lvwgt)
+      integer(c_int) :: ladjwgt
+      integer(c_int) :: adjwgt(ladjwgt)
+      integer(c_int) :: nsub 
+      integer(c_int) :: edgecut 
+      integer(c_int) :: lpart 
+      integer(c_int) :: part(lpart)
+   end subroutine graph_divide_c
+end interface
+
 numflag = 1
 call graph_divide_c( numflag, graphtype, nvertex, xadj, lxadj, adjncy, ladjncy, &
                      vwgt, lvwgt, adjwgt, ladjwgt, nsub, &
-                     edgecut, part, lpart )
+                     edgecut, part, lpart ) 
 
 end subroutine graph_divide
 

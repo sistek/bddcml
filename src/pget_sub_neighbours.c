@@ -20,8 +20,6 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#include "f_symbol.h"
-
 /*****************************************
 * Function for construction of parallel graph and detecting subdomain neigbours based on it
 * derived from ParMETIS function ParMETIS_V3_PartMeshKway
@@ -29,8 +27,6 @@
 * Jakub Sistek 2010
 ******************************************/
 
-#define pget_sub_neighbours_c \
-    F_SYMBOL(pget_sub_neighbours_c,PGET_SUB_NEIGHBOURS_C)
 void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind, 
                            int *numflag, int *ncommonnodes, 
 			   int *iets, int *liets,

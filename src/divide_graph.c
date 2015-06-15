@@ -19,14 +19,10 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#include "f_symbol.h"
-
 /*****************************************
 * Wrapper of METIS_PartGraphRecursive and METIS_PartGraphKWay functions
 ******************************************/
 
-#define graph_divide_c \
-    F_SYMBOL(graph_divide_c,GRAPH_DIVIDE_C)
 void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int *lxadj, int *adjncy, int *ladjncy, 
                      int *vwgt, int *lvwgt, int *adjwgt, int *ladjwgt, int *nsub, 
                      int *edgecut, int *part, int *lpart )

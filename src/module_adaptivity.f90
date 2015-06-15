@@ -494,6 +494,27 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   time_solve_accu = 0._kr, &
                   time_postp_accu = 0._kr
 
+
+      interface
+         subroutine lobpcg_driver(N, NVEC, TOL, MAXIT, VERBOSITY_LEVEL, USE_X_VALUES, LOBPCG_PRECONDITIONER, &
+                                  lambda, vec, ITERATIONS, IERR) &
+                    bind(c, name='lobpcg_driver')
+            use iso_c_binding
+            implicit none
+            integer(c_int) :: N 
+            integer(c_int) :: NVEC 
+            real(c_double) :: TOL 
+            integer(c_int) :: MAXIT 
+            integer(c_int) :: VERBOSITY_LEVEL 
+            integer(c_int) :: USE_X_VALUES 
+            integer(c_int) :: LOBPCG_PRECONDITIONER 
+            real(c_double) :: lambda(NVEC) 
+            real(c_double) :: vec(N*NVEC) 
+            integer(c_int) :: ITERATIONS 
+            integer(c_int) :: IERR
+         end subroutine lobpcg_driver
+      end interface
+
       ! orient in the communicator
       call MPI_COMM_RANK(comm_all,myid,ierr)
       call MPI_COMM_SIZE(comm_all,nproc,ierr)
@@ -2077,7 +2098,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   if (neigvec.gt.0) then
                      call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,use_vec_values,&
                                         lobpcg_preconditioner,&
-                                        eigval,eigvec,lobpcg_iter,ierr)
+                                        eigval,eigvec,lobpcg_iter,ierr) 
                   end if
                   if (ierr.ne.0) then
                      call warning(routine_name,'LOBPCG exited with nonzero code for pair',my_pair)
@@ -2090,7 +2111,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                         no_prec = 0
                         call lobpcg_driver(problemsize,neigvec,lobpcg_tol,lobpcg_maxit,lobpcg_verbosity,use_vec_values,&
                                            no_prec,&
-                                           eigval,eigvec,lobpcg_iter,ierr)
+                                           eigval,eigvec,lobpcg_iter,ierr) 
                      end if
                   end if
                   call info ( routine_name, ' myid: ',myid )
@@ -2494,22 +2515,37 @@ end subroutine
 subroutine adaptivity_fake_lobpcg_driver
 !***************************************
 ! Subroutine for looping to compute all Schur complement multiplications in eigenproblems
+      use iso_c_binding
       implicit none
 
 ! local variables
       integer :: idoper
 
       ! these have no meaning and are present only for matching the arguments
-      integer :: n = 0, lx = 0, ly = 0
-      real(kr) :: x(1), y(1)
+      integer(c_int) :: n = 0, lx = 0, ly = 0
+      real(c_double) :: x(1), y(1)
 
+      interface
+         subroutine lobpcg_mvecmult_f(n,x,lx,y,ly,idoper) &
+                    bind(c, name='lobpcg_mvecmult_f')
+            use iso_c_binding
+            implicit none
+
+            integer(c_int) :: n
+            integer(c_int) :: lx
+            real(c_double) :: x(lx)
+            integer(c_int) :: ly
+            real(c_double) :: y(ly)
+            integer(c_int) :: idoper
+         end subroutine lobpcg_mvecmult_f
+      end interface
 
       ! repeat loop until idmat not equal 3
       ! here the only important argument is idoper
       ! all other necessary data are obtained through modules
       idoper = 3
       do 
-         call lobpcg_mvecmult_f(n,x,lx,y,ly,idoper)
+         call lobpcg_mvecmult_f(n,x,lx,y,ly,idoper) 
          ! stopping criterion
          if (idoper .eq. -3) then
             exit

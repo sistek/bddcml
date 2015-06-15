@@ -41,6 +41,7 @@ subroutine pp_pdivide_mesh(myid,nproc,comm,graphtype,neighbouring,nelem,nelem_lo
 !**********************************************************************************
 ! parallel division of mesh using ParMETIS
 use module_utils
+use iso_c_binding
 implicit none
 include "mpif.h"
 
@@ -81,7 +82,7 @@ integer*4,allocatable:: elmdist(:)
 integer ::             loptions
 integer*4,allocatable::  options(:)
 integer::            lwgt
-real*4,allocatable :: wgt(:)
+integer*4,allocatable :: wgt(:)
 integer::              leptr   
 integer*4,allocatable:: eptr(:)
 integer*4:: ncon, ncommonnodes, nparts, ec
@@ -94,6 +95,30 @@ real*4,allocatable :: ubvec(:)
 integer :: ierr
 integer :: just_one
 
+interface
+   subroutine pdivide_mesh_c( elmdist, eptr, eind, elmwgt, wgtflag, numflag, &
+                              ncon, ncommonnodes, nparts, tpwgts, ubvec, options, &
+                              edgecut, part, commInt ) &
+              bind(c, name='pdivide_mesh_c')
+      use iso_c_binding
+      implicit none
+      integer(c_int) :: elmdist(*)
+      integer(c_int) :: eptr(*)
+      integer(c_int) :: eind(*) 
+      integer(c_int) :: elmwgt(*)
+      integer(c_int) :: wgtflag 
+      integer(c_int) :: numflag 
+      integer(c_int) :: ncon 
+      integer(c_int) :: ncommonnodes 
+      integer(c_int) :: nparts 
+      real(c_float) :: tpwgts(ncon*nparts) 
+      real(c_float) :: ubvec(ncon) 
+      integer(c_int) :: options(*) 
+      integer(c_int) :: edgecut 
+      integer(c_int) :: part(*)
+      integer(c_int) :: commInt
+   end subroutine pdivide_mesh_c
+end interface
 
       ! work according to number of subdomains
       if (nsub.eq.0) then
@@ -151,7 +176,7 @@ integer :: just_one
          ! WGT
          lwgt   = nelem_loc
          allocate(wgt(lwgt))
-         wgt = 1.0
+         wgt = 1
          ! NCON - number of constraints or weights for each vertex - influences TPWGTS
          ncon = 1
          ! NCOMMONNODES - number of nodes to call elements adjacent
@@ -183,7 +208,7 @@ integer :: just_one
          nparts = nsub
          ! portable call
          call pdivide_mesh_c(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, &
-                             tpwgts, ubvec, options, ec, part_loc, comm)
+                             tpwgts, ubvec, options, ec, part_loc, comm) 
          ! less portable call - works for MPI implementations using MPI_Comm int ( like mpich ), does not work with general types
          ! ( like in OpenMPI )
          !call ParMETIS_V3_PartMeshKway(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, tpwgts, ubvec, options,&
@@ -263,6 +288,31 @@ integer*4::     numdebug
 ! MPI vars 
 integer :: ierr
 
+interface
+   subroutine pget_sub_neighbours_c( elmdist, eptr, eind, numflag, &
+                                     ncommonnodes, iets, liets, nsub, nsub_loc, sub_start, &
+                                     kadjsub, lkadjsub, debug, &
+                                     commInt ) &
+              bind(c, name='pget_sub_neighbours_c')
+      use iso_c_binding
+      implicit none
+      integer(c_int) :: elmdist(*)
+      integer(c_int) :: eptr(*)
+      integer(c_int) :: eind(*) 
+      integer(c_int) :: numflag 
+      integer(c_int) :: ncommonnodes 
+      integer(c_int) :: liets 
+      integer(c_int) :: iets(liets) 
+      integer(c_int) :: nsub 
+      integer(c_int) :: nsub_loc
+      integer(c_int) :: sub_start
+      integer(c_int) :: lkadjsub
+      integer(c_int) :: kadjsub(lkadjsub)
+      integer(c_int) :: debug
+      integer(c_int) :: commInt
+   end subroutine pget_sub_neighbours_c
+end interface
+
       ! work according to number of subdomains
       if (nsub.eq.0) then
          ! zero subdomains is errorneous
@@ -327,7 +377,7 @@ integer :: ierr
          ncommonnodes = neighbouring
 
          if (myid.eq.0 .and. debug) then
-            write(*,'(a,i6,a)') 'Calling PGET_SUB_NEIGBOURS_C routine to find neigbours for ',nsub,' subdomains...'
+            write(*,'(a,i6,a)') 'Calling PGET_SUB_NEIGHBOURS_C routine to find neigbours for ',nsub,' subdomains...'
             call flush(6)
          end if
          ! debug

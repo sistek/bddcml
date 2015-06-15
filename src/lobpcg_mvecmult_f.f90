@@ -14,21 +14,22 @@
 ! <http://www.gnu.org/copyleft/lesser.html>.
 !________________________________________________________________
 
-subroutine lobpcg_mvecmult_f(n,x,lx,y,ly,idoper)
+subroutine lobpcg_mvecmult_f(n,x,lx,y,ly,idoper) bind(c)
 ! this is an externally callable Fortran routine that is called from C driver
 ! and just calls the module function for adaptive BDDC
+use iso_c_binding
 use module_levels 
 implicit none
 ! type of reals
 integer,parameter :: kr = kind(1.D0)
 
 ! length of vector
-integer,intent(in) ::   n 
-integer,intent(in) ::  lx 
-real(kr),intent(in) ::  x(lx)
-integer,intent(in) ::  ly 
-real(kr),intent(out) :: y(ly)
-integer,intent(inout) ::  idoper 
+integer(c_int),intent(in) ::   n 
+integer(c_int),intent(in) ::  lx 
+real(c_double),intent(in) ::   x(lx)
+integer(c_int),intent(in) ::  ly 
+real(c_double),intent(out) ::  y(ly)
+integer(c_int),intent(inout) ::  idoper 
 
 call levels_adaptivity_mvecmult(n,x,lx,y,ly,idoper)
 
