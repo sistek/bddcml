@@ -27,10 +27,10 @@
 #include "pcg_multi.h"
 
 /* function prototypes */
-int (*dsygv)(int *itype, char *jobz, char *uplo, int *n, double *a, int *lda, double *b, int *ldb,
-             double *w, double *work, int *lwork, int *info);
+int lobpcg_dsygv(int *itype, char *jobz, char *uplo, int *n, double *a, int *lda, double *b, int *ldb,
+                 double *w, double *work, int *lwork, int *info);
                     
-int (*dpotrf)(char *uplo, int *n, double *a, int *lda, int *info);
+int lobpcg_dpotrf(char *uplo, int *n, double *a, int *lda, int *info);
 
 void lobpcg_mvecmult_f(int *n, double *x, int *lx, double *y, int *ly, int *idmatrix);
 /* end prototypes */
@@ -237,8 +237,8 @@ extern void lobpcg_driver(int *N, int *NVEC, double *TOL, int *MAXIT, int *VERBO
    xx = mv_MultiVectorWrap( &ii, x, 0);
 
 /* set pointers to lapack functions */
-   blap_fn.dpotrf = dpotrf;
-   blap_fn.dsygv  = dsygv;
+   blap_fn.dpotrf = lobpcg_dpotrf;
+   blap_fn.dsygv  = lobpcg_dsygv;
 
    /* execute lobpcg */
    ierr = lobpcg_solve_double( 

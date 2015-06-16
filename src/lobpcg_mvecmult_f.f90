@@ -34,3 +34,42 @@ integer(c_int),intent(inout) ::  idoper
 call levels_adaptivity_mvecmult(n,x,lx,y,ly,idoper)
 
 end subroutine
+
+subroutine lobpcg_dsygv(itype, jobz, uplo, n, a, lda, b, ldb, w, work, lwork, info) & 
+           bind(c,name='lobpcg_dsygv')
+! Fortran wrapper of LAPACK DSYGV for unique symbol name callable from C
+use iso_c_binding
+implicit none
+
+integer(c_int),intent(in)    :: itype 
+character(c_char),intent(in) :: jobz 
+character(c_char),intent(in) :: uplo 
+integer(c_int),intent(in)    :: n 
+real(c_double),intent(inout) :: a(lda*n) 
+integer(c_int),intent(in)    :: lda 
+real(c_double),intent(inout) :: b(n) 
+integer(c_int),intent(in)    :: ldb
+real(c_double),intent(out)   :: w 
+real(c_double),intent(out)   :: work(lwork) 
+integer(c_int),intent(in)    :: lwork 
+integer(c_int),intent(out)   :: info
+
+call dsygv(itype, jobz, uplo, n, a, lda, b, ldb, w, work, lwork, info)
+
+end subroutine
+
+subroutine lobpcg_dpotrf(uplo, n, a, lda, info) & 
+           bind(c,name='lobpcg_dpotrf')
+! Fortran wrapper of LAPACK DPOTRF for unique symbol name callable from C
+use iso_c_binding
+implicit none
+
+character(c_char),intent(in) :: uplo 
+integer(c_int),intent(in)    :: n 
+real(c_double),intent(inout) :: a(lda*n) 
+integer(c_int),intent(in)    :: lda 
+integer(c_int),intent(out)   :: info
+
+call dpotrf(uplo, n, a, lda, info)
+
+end subroutine
