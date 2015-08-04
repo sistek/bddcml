@@ -410,8 +410,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
       !   print *, 'myid ',myid,':level ',iactive_level,': subs:', levels(iactive_level)%indexsub
       !   print *, 'myid ',myid,':level ',iactive_level,': I am active:', levels(iactive_level)%i_am_active_in_this_level
       !end do
-
-      iactive_level = nlevels
+      !iactive_level = nlevels
 end subroutine
 
 !***********************************************************************************
@@ -676,14 +675,6 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       logical :: is_mesh_loaded 
       integer :: isub_loc
 
-      ! time info
-      real(kr) :: timer
-      integer :: myid, ierr
-
-      myid = -1
-
-      call MPI_COMM_RANK(levels(iactive_level)%comm_all,myid,ierr)
-
       ! set active level to zero
       iactive_level = 0
 
@@ -731,25 +722,10 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
          call error( routine_name, 'It appears that mesh was already loaded for subdomain', isub )
       end if
 
-!-----profile
-      if (profile) then
-         ! no barrier should be here since not all processes need to call this routine
-         call time_start
-      end if
-!-----profile
       call dd_upload_sub_mesh(levels(iactive_level)%subdomains(isub_loc), nelems, nnods, ndofs, ndim, &
                               nndf,lnndf, nnet,lnnet, levels_numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
                               xyz,lxyz1,lxyz2, find_components)
-!-----profile
-      if (profile) then
-         ! no barrier should be here since not all processes need to call this routine
-         call time_end(timer)
-         if (myid.eq.0) then
-            call time_print('uploading subdomain mesh',timer)
-         end if
-      end if
-!-----profile
 
       call dd_upload_bc(levels(iactive_level)%subdomains(isub_loc), ifix,lifix, fixv,lfixv)
 
@@ -778,7 +754,6 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
 
       ! check matrix
       call dd_check_local_matrix(levels(iactive_level)%subdomains(isub_loc))
-!-----profile
 
       ! load user's constraints
       call dd_upload_sub_user_constraints(levels(iactive_level)%subdomains(isub_loc), &
