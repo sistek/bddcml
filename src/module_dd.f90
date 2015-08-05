@@ -8577,6 +8577,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
       integer             :: lcornermerge
       integer,allocatable ::  cornermerge(:)
       integer             :: indcg, icscn
+      integer             :: minindex
 
 
       ! orient in communicator
@@ -9221,16 +9222,17 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
             indedges = ncorners + iedges
 
             ! get interface index of first node of glob
-            call get_index(indedges,kglobs,lkglobs,inodi)
-            if (inodi .eq. -1) then
-               call error(routine_name,'Index of edge not found in kglobs ', indedges)
-            end if
+            !call get_index(indedges,kglobs,lkglobs,inodi)
+            !if (inodi .eq. -1) then
+            !   call error(routine_name,'Index of edge not found in kglobs ', indedges)
+            !end if
 
-            inds = suba(isub_loc)%iin(inodi)
-            indg = suba(isub_loc)%isngn(inds)
+            !inds = suba(isub_loc)%iin(inodi)
+            !indg = suba(isub_loc)%isngn(inds)
 
             ! add this edge index to the list
-            sub_aux(isub_loc)%iegn(iedges) = indg
+            minindex = minval(suba(isub_loc)%isngn(suba(isub_loc)%iin),kglobs == indedges)
+            sub_aux(isub_loc)%iegn(iedges) = minindex
          end do
          sub_aux(isub_loc)%lifgn  = nfaces
          allocate(sub_aux(isub_loc)%ifgn(sub_aux(isub_loc)%lifgn))
@@ -9238,16 +9240,19 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
             indfaces = ncorners + nedges + ifaces
 
             ! get interface index of first node of glob
-            call get_index(indfaces,kglobs,lkglobs,inodi)
-            if (inodi .eq. -1) then
-               call error(routine_name,'Index of face not found in kglobs ', indfaces)
-            end if
+            !call get_index(indfaces,kglobs,lkglobs,inodi)
+            !if (inodi .eq. -1) then
+            !   call error(routine_name,'Index of face not found in kglobs ', indfaces)
+            !end if
 
-            inds = suba(isub_loc)%iin(inodi)
-            indg = suba(isub_loc)%isngn(inds)
+            !inds = suba(isub_loc)%iin(inodi)
+            !indg = suba(isub_loc)%isngn(inds)
+
+            !print *, 'isub',isub,'faces position', minindex, 'vs. ',indg
 
             ! add this face index to the list
-            sub_aux(isub_loc)%ifgn(ifaces) = indg
+            minindex = minval(suba(isub_loc)%isngn(suba(isub_loc)%iin),kglobs == indfaces)
+            sub_aux(isub_loc)%ifgn(ifaces) = minindex
          end do
 
          nullify(globtypes)
