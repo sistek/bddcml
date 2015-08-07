@@ -765,6 +765,7 @@
              else
                 ndecr = ndecr + 1
                 if (ndecr.ge.ndecrmax) then
+                   nw = iter-1
                    if (myid.eq.0) then
                       call warning(routine_name,'Residual did not decrease for maximal number of iterations:',ndecrmax)
                    end if
@@ -1238,7 +1239,7 @@
 
     ! Print residual to screen
              if (myid.eq.0) then
-                 call info (routine_name, 'iteration: ',dble(iter-0.5) )
+                call info (routine_name, 'iteration: ',dble(iter-0.5) )
                 call info (routine_name, '          relative residual: ',relres)
              end if
 
@@ -1260,8 +1261,11 @@
                 ndecr = ndecr + 1
                 if (ndecr.ge.ndecrmax) then
                    if (myid.eq.0) then
-                      call error(routine_name,'Residual did not decrease for maximal number of iterations:',ndecrmax)
+                      call warning(routine_name,'Residual did not decrease for maximal number of iterations:',ndecrmax)
                    end if
+                   num_iter = iter
+                   converged_reason = -2
+                   exit
                 end if
              end if
              lastres = relres
