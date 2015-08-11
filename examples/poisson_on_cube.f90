@@ -267,6 +267,10 @@ program poisson_on_cube
       call MPI_COMM_SIZE(comm_all,nproc,ierr)
 !***************************************************************PARALLEL
 
+! measuring time
+      call MPI_BARRIER(comm_all,ierr)
+      call time_start
+
 ! Initial screen
       if (myid.eq.0) then
          write(*,'(a)') ' ===========Possion on cube solver=========== '
@@ -278,29 +282,19 @@ program poisson_on_cube
       end if
 
 ! Number of elements in an edge of a subdomain and number of subdomains in an edge of the unit cube
-      if ( myid .eq. 0 ) then
-         if(iargc().eq.3) then
-            call getarg(1,aux)
-            read(aux,*) num_el_per_sub_edge
-            call getarg(2,aux)
-            read(aux,*) num_sub_per_cube_edge
-            call getarg(3,aux)
-            read(aux,*) nlevels
-         else
+      if(iargc().eq.3) then
+         call getarg(1,aux)
+         read(aux,*) num_el_per_sub_edge
+         call getarg(2,aux)
+         read(aux,*) num_sub_per_cube_edge
+         call getarg(3,aux)
+         read(aux,*) nlevels
+      else
+         if ( myid .eq. 0 ) then
             write (*,'(a)') ' Usage: mpirun -np X ./poisson_on_cube NUM_EL_PER_SUB_EDGE NUM_SUB_PER_CUBE_EDGE NLEVELS'
             call error(routine_name,'trouble getting problem sizes')
          end if
       end if
-! Broadcast of name of the problem      
-!***************************************************************PARALLEL
-      call MPI_BCAST(num_el_per_sub_edge,   1, MPI_INTEGER,   0, comm_all, ierr)
-      call MPI_BCAST(num_sub_per_cube_edge, 1, MPI_INTEGER,   0, comm_all, ierr)
-      call MPI_BCAST(nlevels,               1, MPI_INTEGER,   0, comm_all, ierr)
-!***************************************************************PARALLEL
-
-! measuring time
-      call MPI_BARRIER(comm_all,ierr)
-      call time_start
 
 ! number of elements on an edge of the unit cube
       num_el_per_cube_edge = num_el_per_sub_edge * num_sub_per_cube_edge
