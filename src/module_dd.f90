@@ -14078,7 +14078,8 @@ subroutine dd_plot_subdomain_data_vtu(prefix,sub)
       call paraview_open_subdomain_file(prefix,sub%isub,idvtu)
 
       ! write header of VTU file
-      call paraview_write_mesh(idvtu, sub%nelem,sub%nnod, sub%inet,sub%linet, sub%nnet,sub%lnnet, sub%xyz,sub%lxyz1,sub%lxyz2)
+      call paraview_write_mesh(idvtu, sub%nelem,sub%nnod, sub%ndim, sub%inet,sub%linet, sub%nnet,sub%lnnet, &
+                               sub%xyz,sub%lxyz1,sub%lxyz2)
 
       ! write cell data
       call paraview_open_celldata(idvtu)

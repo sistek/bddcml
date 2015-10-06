@@ -145,11 +145,11 @@ subroutine paraview_export_pvd_file(prefix, nsub)
 
 end subroutine paraview_export_pvd_file
 
-!*****************************************************************************************
-subroutine paraview_write_mesh(idvtu, nelem,nnod, inet,linet, nnet,lnnet, xyz,lxyz1,lxyz2)
-!*****************************************************************************************
+!**************************************************************************************************
+subroutine paraview_write_mesh(idvtu, nelem,nnod, meshdim, inet,linet, nnet,lnnet, xyz,lxyz1,lxyz2)
+!**************************************************************************************************
 ! Subroutine for starting header and writing the mesh into it
-!*****************************************************************************************
+!**************************************************************************************************
       use module_utils
       implicit none
       
@@ -159,6 +159,8 @@ subroutine paraview_write_mesh(idvtu, nelem,nnod, inet,linet, nnet,lnnet, xyz,lx
       integer, intent(in) :: nelem
       ! number of nodes
       integer, intent(in) :: nnod
+      ! dimension of the mesh
+      integer, intent(in) :: meshdim
       ! array with mesh description
       integer, intent(in) :: linet,       lnnet
       integer, intent(in) ::  inet(linet), nnet(lnnet)
@@ -224,8 +226,16 @@ subroutine paraview_write_mesh(idvtu, nelem,nnod, inet,linet, nnet,lnnet, xyz,lx
                ! hexahedron
                VTKtype = 12
             case (4)
-               ! tertahedron
-               VTKtype = 10
+               if (meshdim == 3) then
+                  ! tetrahedron
+                  VTKtype = 10
+               else if (meshdim == 2) then
+                  ! quadrilateral
+                  VTKtype = 9
+               end if
+            case (3)
+               ! triangle
+               VTKtype = 5
             case default
                ! default to convex point set
                VTKtype = 41

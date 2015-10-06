@@ -922,12 +922,13 @@ program poisson_on_cube
       integer ::  idvtu
       integer ::             lsubdomain
       integer, allocatable :: subdomain(:)
+      integer,parameter ::   meshdim = 3
 
       ! write solution to a separate VTU file
       call paraview_open_subdomain_file(prefix,isub,idvtu)
 
       ! write header of VTU file
-      call paraview_write_mesh(idvtu, nelems,nnods, inets,linets, nnets,lnnets, xyzs,lxyzs1,lxyzs2)
+      call paraview_write_mesh(idvtu, nelems,nnods, meshdim, inets,linets, nnets,lnnets, xyzs,lxyzs1,lxyzs2)
 
       ! write cell data
       call paraview_open_celldata(idvtu)
