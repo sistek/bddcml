@@ -5095,6 +5095,10 @@ subroutine dd_prepare_aug(sub,comm_self)
       sub%nnzaaug = nnzaaug
       sub%laaug   = laaug
 
+!      call sm_print(100+sub%isub, &
+!                    sub%i_aaug_sparse, sub%j_aaug_sparse, sub%aaug_sparse, &
+!                    sub%laaug, sub%nnzaaug)
+
       if (sub%is_degenerated) then
          goto 133
       end if
@@ -13893,169 +13897,173 @@ subroutine dd_dotprod_local(sub, vec1,lvec1, vec2,lvec2, dotprod)
 
 end subroutine
  
-!***************************
-subroutine dd_print_sub(sub)
-!***************************
+!*********************************
+subroutine dd_print_sub(iunit,sub)
+!*********************************
 ! Subroutine for printing the state of sub structure
       use module_sm
       implicit none
 ! Subdomain structure
       type(subdomain_type),intent(in) :: sub
+      integer,intent(in) :: iunit
+
 
 ! local variables
       integer :: i, j, ia, kishnadj
 
-      write(*,*) '****** start subdomain export '
-      write(*,*) '*** HEADER INFO :             '
-      write(*,*) '     subdomain initialized:   ', sub%is_initialized
-      write(*,*) '     global subdomain number: ', sub%isub
-      write(*,*) '     number of subdomains:    ', sub%nsub
-      write(*,*) '     processor number:        ', sub%proc
-      write(*,*) '*** MESH INFO :               '
-      write(*,*) '     mesh loaded:             ', sub%is_mesh_loaded
-      write(*,*) '     number of elements:      ', sub%nelem
-      write(*,*) '     number of nodes:         ', sub%nnod
-      write(*,*) '     number of DOF:           ', sub%ndof
-      write(*,*) '     number of dimensions:    ', sub%ndim
-      write(*,*) '*** BOUNDARY CONDITIONS :     '
-      write(*,*) '     is bc present:           ', sub%is_bc_present
-      write(*,*) '     is bc nonzero:           ', sub%is_bc_nonzero
-      write(*,*) '     is bc loaded:            ', sub%is_bc_loaded
-      write(*,*) '*** CORNER INFO :             '
-      write(*,*) '     are corners loaded:      ', sub%is_corners_loaded
-      write(*,*) '     number of corners:       ', sub%ncorner
-      write(*,*) '*** GLOB INFO :               '
-      write(*,*) '     are globs loaded:        ', sub%is_globs_loaded
-      write(*,*) '     number of globs:         ', sub%nglob
-      write(*,*) '*** NEIGHBOURING INFO :       '
-      write(*,*) '     interface ready:         ', sub%is_interface_loaded
-      write(*,*) '     neighbouring ready:      ', sub%is_neighbouring_ready
-      write(*,*) '     number of neighbours:    ', sub%nadj
-      write(*,*) '     indices of neighbours:   ', sub%iadj
+      write(iunit,*) '****** start subdomain export '
+      write(iunit,*) '*** HEADER INFO :             '
+      write(iunit,*) '     subdomain initialized:   ', sub%is_initialized
+      write(iunit,*) '     global subdomain number: ', sub%isub
+      write(iunit,*) '     number of subdomains:    ', sub%nsub
+      write(iunit,*) '     processor number:        ', sub%proc
+      write(iunit,*) '*** MESH INFO :               '
+      write(iunit,*) '     mesh loaded:             ', sub%is_mesh_loaded
+      write(iunit,*) '     number of elements:      ', sub%nelem
+      write(iunit,*) '     number of nodes:         ', sub%nnod
+      write(iunit,*) '     number of DOF:           ', sub%ndof
+      write(iunit,*) '     number of dimensions:    ', sub%ndim
+      write(iunit,*) '*** BOUNDARY CONDITIONS :     '
+      write(iunit,*) '     is bc present:           ', sub%is_bc_present
+      write(iunit,*) '     is bc nonzero:           ', sub%is_bc_nonzero
+      write(iunit,*) '     is bc loaded:            ', sub%is_bc_loaded
+      write(iunit,*) '*** CORNER INFO :             '
+      write(iunit,*) '     are corners loaded:      ', sub%is_corners_loaded
+      write(iunit,*) '     number of corners:       ', sub%ncorner
+      write(iunit,*) '*** GLOB INFO :               '
+      write(iunit,*) '     are globs loaded:        ', sub%is_globs_loaded
+      write(iunit,*) '     number of globs:         ', sub%nglob
+      write(iunit,*) '*** NEIGHBOURING INFO :       '
+      write(iunit,*) '     interface ready:         ', sub%is_interface_loaded
+      write(iunit,*) '     neighbouring ready:      ', sub%is_neighbouring_ready
+      write(iunit,*) '     number of neighbours:    ', sub%nadj
+      write(iunit,*) '     indices of neighbours:   ', sub%iadj
       if (sub%is_neighbouring_ready) then
          kishnadj = 0
          do ia = 1,sub%nadj
-            write(*,*) '      number of nodes shared with subdomain ',sub%iadj(ia),'is: ', sub%nshnadj(ia)
-            write(*,*) '      indices of nodes shared: ', sub%ishnadj(kishnadj+1:kishnadj+sub%nshnadj(ia))
+            write(iunit,*) '      number of nodes shared with subdomain ',sub%iadj(ia),'is: ', sub%nshnadj(ia)
+            write(iunit,*) '      indices of nodes shared: ', sub%ishnadj(kishnadj+1:kishnadj+sub%nshnadj(ia))
             kishnadj = kishnadj + sub%nshnadj(ia)
          end do
       end if
-      write(*,*) '*** WEIGHTS INFO :            '
-      write(*,*) '     are weights ready?:      ', sub%is_weights_ready
+      write(iunit,*) '     indices of interface nodes:   ', sub%iin
+      write(iunit,*) '*** WEIGHTS INFO :            '
+      write(iunit,*) '     are weights ready?:      ', sub%is_weights_ready
       if (sub%is_weights_ready) then
-         write(*,*) '     weights:                 ', sub%wi
+         write(iunit,*) '     weights:                 ', sub%wi
       end if
-      write(*,*) '*** COARSE NODES INFO :       '
-      write(*,*) '     coarse nodes ready:      ', sub%is_cnodes_loaded
-      write(*,*) '     number of coarse nodes:  ', sub%ncnodes
+      write(iunit,*) '*** COARSE NODES INFO :       '
+      write(iunit,*) '     coarse nodes ready:      ', sub%is_cnodes_loaded
+      write(iunit,*) '     number of coarse nodes:  ', sub%ncnodes
       if (sub%is_cnodes_loaded) then
          do i = 1,sub%ncnodes
-            call dd_print_cnode(sub,i)
+            call dd_print_cnode(iunit,sub,i)
          end do
       end if
-      write(*,*) '*** MATRIX INFO :             '
-      write(*,*) '     matrix loaded:           ', sub%is_matrix_loaded
-      write(*,*) '     matrix blocked:          ', sub%is_blocked
-      write(*,*) '     interior block factor.:  ', sub%is_interior_factorized
+      write(iunit,*) '*** MATRIX INFO :             '
+      write(iunit,*) '     matrix loaded:           ', sub%is_matrix_loaded
+      write(iunit,*) '     matrix blocked:          ', sub%is_blocked
+      write(iunit,*) '     interior block factor.:  ', sub%is_interior_factorized
       if (debug) then
          if (sub%is_matrix_loaded.and.sub%is_triplet) then
-            write(*,*) '     matrix data:           '
-            call sm_print(6, sub%i_a_sparse, sub%j_a_sparse, sub%a_sparse, &
+            write(iunit,*) '     matrix data:           '
+            call sm_print(iunit, sub%i_a_sparse, sub%j_a_sparse, sub%a_sparse, &
                           sub%la, sub%nnza)
          end if
          if (sub%is_matrix_loaded.and.sub%is_blocked) then
-            write(*,*) '     matrix blocks:           '
-            write(*,*) '     A_11:                     '
-            call sm_print(6, sub%i_a11_sparse, sub%j_a11_sparse, sub%a11_sparse, &
+            write(iunit,*) '     matrix blocks:           '
+            write(iunit,*) '     A_11:                     '
+            call sm_print(iunit, sub%i_a11_sparse, sub%j_a11_sparse, sub%a11_sparse, &
                           sub%la11, sub%nnza11)
-            write(*,*) '     A_12:                     '
-            call sm_print(6, sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, &
+            write(iunit,*) '     A_12:                     '
+            call sm_print(iunit, sub%i_a12_sparse, sub%j_a12_sparse, sub%a12_sparse, &
                           sub%la12, sub%nnza12)
-            write(*,*) '     A_21:                     '
-            call sm_print(6, sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, &
+            write(iunit,*) '     A_21:                     '
+            call sm_print(iunit, sub%i_a21_sparse, sub%j_a21_sparse, sub%a21_sparse, &
                           sub%la21, sub%nnza21)
-            write(*,*) '     A_22:                     '
-            call sm_print(6, sub%i_a22_sparse, sub%j_a22_sparse, sub%a22_sparse, &
+            write(iunit,*) '     A_22:                     '
+            call sm_print(iunit, sub%i_a22_sparse, sub%j_a22_sparse, sub%a22_sparse, &
                           sub%la22, sub%nnza22)
          end if
       end if
-      write(*,*) '*** BDDC INFO:                '
-      write(*,*) '     matrix C loaded:         ', sub%is_c_loaded
+      write(iunit,*) '*** BDDC INFO:                '
+      write(iunit,*) '     matrix C loaded:         ', sub%is_c_loaded
       if (debug) then
          if (sub%is_c_loaded) then
-            call sm_print(6, sub%i_c_sparse, sub%j_c_sparse, sub%c_sparse, &
+            call sm_print(iunit, sub%i_c_sparse, sub%j_c_sparse, sub%c_sparse, &
                           sub%lc, sub%nnzc)
          end if
       end if
-      write(*,*) '     matrix Kaug factorized:  ', sub%is_aug_factorized
+      write(iunit,*) '     matrix Kaug factorized:  ', sub%is_aug_factorized
       if (debug) then
          if (sub%is_matrix_loaded.and.sub%is_aug_factorized) then
             if (debug) then
-               call sm_print(6, sub%i_aaug_sparse, sub%j_aaug_sparse, sub%aaug_sparse, &
+               call sm_print(iunit, sub%i_aaug_sparse, sub%j_aaug_sparse, sub%aaug_sparse, &
                              sub%laaug, sub%nnzaaug)
             end if
          end if
       end if
-      write(*,*) '     matrix PHIS prepared:    ', sub%is_phisi_prepared
+      write(iunit,*) '     matrix PHIS prepared:    ', sub%is_phisi_prepared
       if (debug) then
          if (sub%is_coarse_prepared) then
             do i = 1,sub%lphisi1
-               write(*,'(1000f13.6)') (sub%phisi(i,j),j = 1,sub%lphisi2)
+               write(iunit,'(1000f13.6)') (sub%phisi(i,j),j = 1,sub%lphisi2)
             end do
          end if
       end if
-      write(*,*) '     matrix PHIS_DUAL prepared:    ', sub%is_phisi_dual_prepared
+      write(iunit,*) '     matrix PHIS_DUAL prepared:    ', sub%is_phisi_dual_prepared
       if (debug) then
          if (sub%is_coarse_prepared) then
             do i = 1,sub%lphisi_dual1
-               write(*,'(1000f13.6)') (sub%phisi_dual(i,j),j = 1,sub%lphisi_dual2)
+               write(iunit,'(1000f13.6)') (sub%phisi_dual(i,j),j = 1,sub%lphisi_dual2)
             end do
          end if
       end if
-      write(*,*) '     coarse matrix prepared:  ', sub%is_coarse_prepared
+      write(iunit,*) '     coarse matrix prepared:  ', sub%is_coarse_prepared
       if (debug) then
          if (sub%is_coarse_prepared) then
 !      write(*,'(f13.6)') (sub%coarsem(j),j = 1,sub%lcoarsem)
-            write(*,*) ' embedding of corse matrix :  '
-            write(*,'(i8)') (sub%indrowc(j),j = 1,sub%lindrowc)
+            write(iunit,*) ' embedding of corse matrix :  '
+            write(iunit,'(i8)') (sub%indrowc(j),j = 1,sub%lindrowc)
          end if
       end if
       ! PCG data
-      write(*,*) '     reduced RHS loaded:  ', sub%is_reduced_rhs_loaded
+      write(iunit,*) '     reduced RHS loaded:  ', sub%is_reduced_rhs_loaded
       if (debug) then
          if (sub%is_reduced_rhs_loaded) then
 !      write(*,'(f13.6)') (sub%coarsem(j),j = 1,sub%lcoarsem)
-            write(*,*) ' reduced RHS :  '
-            write(*,'(e15.5)') (sub%g(j),j = 1,sub%lg)
+            write(iunit,*) ' reduced RHS :  '
+            write(iunit,'(e15.5)') (sub%g(j),j = 1,sub%lg)
          end if
       end if
 end subroutine
 
-!************************************
-subroutine dd_print_cnode(sub,icnode)
-!************************************
+!******************************************
+subroutine dd_print_cnode(iunit,sub,icnode)
+!******************************************
 ! Subroutine for printing content of one coarse node
       implicit none
 ! Subdomain structure
       type(subdomain_type),intent(in) :: sub
       integer,intent(in) :: icnode
+      integer,intent(in) :: iunit
 
 ! basic structure
-      write(*,*) '****** start coarse node export '
-      write(*,*) '     coarse node number:      ', icnode
-      write(*,*) '     type of coarse node:     ', sub%cnodes(icnode)%itype
-      write(*,*) '     used for constraints?:   ', sub%cnodes(icnode)%used
-      write(*,*) '     coordinates:             ', sub%cnodes(icnode)%xyz
-      write(*,*) '****** where it maps to? '
-      write(*,*) '     global coarse node number:', sub%cnodes(icnode)%global_cnode_number
-      write(*,*) '     number of coarse degrees of freedom:', sub%cnodes(icnode)%ncdof
-!      write(*,*) '     indices of coarse dof:', sub%cnodes(icnode)%igcdof
-!      write(*,*) '****** where it maps from? '
-!      write(*,*) '     number of nodes it contains:', sub%cnodes(icnode)%nnod
-!      write(*,*) '     indices of nodes on subdomain int:', sub%cnodes(icnode)%insin
-      write(*,*) '     number of nodes it contains:', sub%cnodes(icnode)%nvar
-      write(*,*) '     indices of variables on subdomain int:', sub%cnodes(icnode)%ivsivn
-      write(*,*) '****** end coarse nodes export '
+      write(iunit,*) '****** start coarse node export '
+      write(iunit,*) '     coarse node number:      ', icnode
+      write(iunit,*) '     type of coarse node:     ', sub%cnodes(icnode)%itype
+      write(iunit,*) '     used for constraints?:   ', sub%cnodes(icnode)%used
+      write(iunit,*) '     coordinates:             ', sub%cnodes(icnode)%xyz
+      write(iunit,*) '****** where it maps to? '
+      write(iunit,*) '     global coarse node number:', sub%cnodes(icnode)%global_cnode_number
+      write(iunit,*) '     number of coarse degrees of freedom:', sub%cnodes(icnode)%ncdof
+!      write(iunit,*) '     indices of coarse dof:', sub%cnodes(icnode)%igcdof
+!      write(iunit,*) '****** where it maps from? '
+!      write(iunit,*) '     number of nodes it contains:', sub%cnodes(icnode)%nnod
+!      write(iunit,*) '     indices of nodes on subdomain int:', sub%cnodes(icnode)%insin
+      write(iunit,*) '     number of nodes it contains:', sub%cnodes(icnode)%nvar
+      write(iunit,*) '     indices of variables on subdomain int:', sub%cnodes(icnode)%ivsivn
+      write(iunit,*) '****** end coarse nodes export '
 end subroutine
 
 !************************************************

@@ -2183,6 +2183,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
 
+
       ! PARALLEL IDENTIFICATION OF GLOBS
 !-----profile 
       if (profile) then
@@ -2495,6 +2496,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
 
+
       ! For first level, prepare Schur complements
 !-----profile
       if (profile) then
@@ -2557,6 +2559,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             end if
          end if
 !-----profile
+
       ! prepare augmented matrix for BDDC
 !-----profile
          if (profile) then
@@ -2652,6 +2655,10 @@ subroutine levels_prepare_standard_level(parallel_division,&
          end if
          ! prepare user constraints on faces on the first level
          if (use_user_constraints .and. ilevel.eq.1) then
+!            glbtype = 3
+!            call dd_load_user_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+!            glbtype = 2
+!            call dd_load_user_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
             glbtype = 1
             call dd_load_user_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
             call dd_orthogonalize_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)

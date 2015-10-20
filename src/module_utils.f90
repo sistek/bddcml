@@ -1418,5 +1418,29 @@ fuzzyLessThan = x+overlap .lt. y
 
 end function
 
+!*************************************
+subroutine counts2starts(array,larray)
+!*************************************
+! routine that converts counts to starts
+! e.g. 
+! input:  | 3 4 2  2  2  X | 
+! output: | 1 4 8 10 12 14 |
+implicit none
+integer, intent(in) ::   larray
+integer, intent(inout) :: array(larray)
+! local vars
+integer :: i
+
+do i = 2,larray
+   array(i) = array(i-1) + array(i)
+end do
+! shift it one back and add one 
+do i = larray, 2, - 1 
+   array(i) = array(i-1) + 1
+end do
+! put one in the beginning
+array(1) = 1
+end subroutine
+
 end module module_utils
 
