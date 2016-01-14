@@ -1442,5 +1442,25 @@ end do
 array(1) = 1
 end subroutine
 
+!*********************************
+subroutine push_back(iarray, ival)
+!*********************************
+! an analog to C++ push_back member function of std::vector
+! makes array iarray larger by one and adds value ival at the end of the array
+implicit none
+integer,allocatable,intent(inout) :: iarray(:)
+integer,intent(in) :: ival
+
+! local vars
+integer,allocatable :: tmp_arr(:)
+
+allocate(tmp_arr(size(iarray)+1))
+tmp_arr(1:size(iarray)) = iarray
+tmp_arr(size(iarray)+1) = ival
+deallocate(iarray)
+allocate(iarray(size(tmp_arr)))
+call move_alloc(tmp_arr, iarray)
+end subroutine
+
 end module module_utils
 
