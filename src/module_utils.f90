@@ -870,6 +870,131 @@ END SUBROUTINE iinterchange_sort_simultaneous
 
 END SUBROUTINE iquick_sort_simultaneous
 
+recursive subroutine iquick_array_sort_simultaneous(array1,larray1,larray2,list2,llist2)
+! quick sort that sorts two arrays based on sorting of first array
+! Quick sort routine from:
+! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
+! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
+! modified by Jakub Sistek
+
+implicit none
+integer,intent(in) :: larray1
+integer,intent(in) :: larray2
+integer,intent(inout)  :: array1(larray1,larray2)
+integer,intent(in) :: llist2
+integer,intent(inout)  :: list2(llist2)
+! local vars
+
+character(*),parameter:: routine_name = 'IQUICK_ARRAY_SORT_SIMULTANEOUS'
+
+! check dimension
+if (larray1.ne.llist2) then
+   call error(routine_name,'dimension of arrays mismatch')
+end if
+
+CALL iquick_array_sort_simultaneous_1(1, larray1)
+
+contains
+
+recursive subroutine iquick_array_sort_simultaneous_1(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     local variables
+integer             :: i, j
+integer             :: temp1
+integer             :: reference(larray2), temp(larray2)
+integer, parameter  :: max_simple_sort_size = 6
+
+if (right_end < left_end + max_simple_sort_size) then
+  ! use interchange sort for small lists
+  call iinterchange_array_sort_simultaneous(left_end, right_end)
+
+else
+  ! Use partition ("quick") sort
+  reference = array1((left_end + right_end)/2,:)
+  i = left_end  - 1 
+  j = right_end + 1
+
+  do
+    ! scan list from left end until element >= reference is found
+    do
+      i = i + 1
+      if ( .not. is_less_than(array1(i,:),reference,larray2) ) exit
+    end do
+    ! scan list from right end until element <= reference is found
+    do
+      j = j - 1
+      if ( .not. is_less_than(reference,array1(j,:),larray2) ) exit
+    end do
+
+    if (i < j) then
+      ! swap two out-of-order elements
+      temp  = array1(i,:) ; array1(i,:) = array1(j,:) ; array1(j,:) = temp
+      temp1 = list2(i) ;    list2(i) = list2(j) ;       list2(j)   = temp1
+    else if (i == j) then
+      i = i + 1
+      exit
+    else
+      exit
+    end if
+  end do
+
+  if (left_end < j) call iquick_array_sort_simultaneous_1(left_end, j)
+  if (i < right_end) call iquick_array_sort_simultaneous_1(i, right_end)
+end if
+
+end subroutine iquick_array_sort_simultaneous_1
+
+subroutine iinterchange_array_sort_simultaneous(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     local variables
+integer             :: i, j
+integer             :: temp1
+integer             :: temp(larray2)
+
+do i = left_end, right_end - 1
+  do j = i+1, right_end
+    if ( is_less_than(array1(j,:),array1(i,:),larray2) ) then
+      temp  = array1(i,:); array1(i,:) = array1(j,:); array1(j,:) = temp
+      temp1 = list2(i); list2(i) = list2(j); list2(j) = temp1
+    end if
+  end do
+end do
+
+end subroutine iinterchange_array_sort_simultaneous
+
+function is_less_than(array1,array2,length) result(ilt)
+implicit none
+integer,intent(in) :: length
+integer,intent(in) :: array1(length)
+integer,intent(in) :: array2(length)
+logical :: ilt
+
+integer i
+
+ilt = .false.
+do i = 1,length
+   if   (array1(i) < array2(i)) then
+      ilt = .true.
+      exit
+   else if (array2(i) < array1(i)) then
+      ilt = .false.
+      exit
+   else 
+      ! element is equal at this point
+      cycle
+   end if
+end do
+
+end function
+
+
+end subroutine iquick_array_sort_simultaneous
+
+
 subroutine iquick_sort_2(list1,llist1,list2,llist2)
 ! routine to sort array of two columns first by first index and then by second index
 implicit none
