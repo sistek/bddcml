@@ -1450,7 +1450,9 @@ subroutine levels_prepare_standard_level(parallel_division,&
                   t_reduced_rhs_prepare, t_prepare_c, t_prepare_aug,&
                   t_prepare_coarse, t_standard_coarse_prepare, t_adaptive_coarse_prepare,&
                   t_par_globs_search, t_construct_cnodes, &
-                  t_schur_prepare_local, t_schur_prepare_local_cpu
+                  t_schur_prepare_local, t_schur_prepare_local_cpu, &
+                  t_prepare_aug_local, t_prepare_aug_local_cpu, &
+                  t_prepare_coarse_local, t_prepare_coarse_local_cpu
 
       if (.not.levels(ilevel-1)%is_level_prepared .and.  levels(ilevel)%nsub_loc .gt. 0 ) then
          call error(routine_name, 'Previous level not ready:', ilevel-1)
@@ -2709,7 +2711,19 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
       do isub_loc = 1,nsub_loc
+   ! measure the time
+         call time_start
+         call time_start(use_cpu_time = .true.)
+
          call dd_prepare_aug(levels(ilevel)%subdomains(isub_loc),comm_self)
+
+         call time_end(t_prepare_aug_local_cpu)
+         call time_print('CPU for preparing augmented problem on subdomain',&
+                         levels(ilevel)%subdomains(isub_loc)%isub,t_prepare_aug_local_cpu)
+         call time_end(t_prepare_aug_local)
+         call time_print('preparing augmented problem on subdomain',&
+                         levels(ilevel)%subdomains(isub_loc)%isub,t_prepare_aug_local)
+
       end do
 !-----profile
       if (profile) then
@@ -2733,7 +2747,18 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
       do isub_loc = 1,nsub_loc
+         call time_start
+         call time_start(use_cpu_time = .true.)
+
          call dd_prepare_coarse(levels(ilevel)%subdomains(isub_loc),keep_global)
+
+         call time_end(t_prepare_coarse_local_cpu)
+         call time_print('CPU for preparing coarse matrices and shape functions on subdomain',&
+                         levels(ilevel)%subdomains(isub_loc)%isub,t_prepare_coarse_local_cpu)
+         call time_end(t_prepare_coarse_local)
+         call time_print('preparing coarse matrices and shape functions on subdomain',&
+                         levels(ilevel)%subdomains(isub_loc)%isub,t_prepare_coarse_local)
+
       end do
 !-----profile
       if (profile) then
