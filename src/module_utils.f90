@@ -61,6 +61,7 @@ end interface time_print
 ! Time measurements
 integer,parameter,private :: level_time_max = 30
 real(kr),private ::          times(level_time_max) = 0._kr
+logical,private ::           is_wall_time(level_time_max) 
 integer,private  ::          level_time = 0
 integer,private  ::          time_verbose = 1
 
@@ -1382,19 +1383,27 @@ real(kr), intent(out) :: x
 
 end subroutine
 
-!*******************************
-subroutine time_start
-!*******************************
+!**********************************
+subroutine time_start(use_cpu_time)
+!**********************************
 ! Routine that starts new time measurement
 ! Levels of timing work like opening and closing brackets,
 ! measuring time elapsed between a pair of them.
 ! This routine is like opening a bracket, 
 ! see routine TIME_END for the opposite.
       implicit none
+      logical, intent(in), optional :: use_cpu_time
       
 ! Local variables
       character(*),parameter:: routine_name = 'TIME_START'
+      logical :: uct = .false.
       
+      uct = .false.
+      if (present(use_cpu_time)) then
+         if (use_cpu_time) then
+            uct = .true.
+         end if
+      end if
 
 ! add new level of timing
       level_time = level_time + 1
@@ -1409,9 +1418,14 @@ subroutine time_start
       end if
 
 ! measure the time and add it to the times array
-!***************************************************************PARALLEL
-      call wall_time(times(level_time))
-!***************************************************************PARALLEL
+      if (uct) then
+         ! use CPU time
+         call processor_time(times(level_time))
+         is_wall_time(level_time) = .false.
+      else
+         call wall_time(times(level_time))
+         is_wall_time(level_time) = .true.
+      end if
 
       return
 end subroutine
@@ -1434,15 +1448,17 @@ subroutine time_end(time)
       character(*),parameter:: routine_name = 'TIME_END'
       real(kr) :: current_time
 
-! measure the time
-!***************************************************************PARALLEL
-      call wall_time(current_time)
-!***************************************************************PARALLEL
-
 ! check if it is not too few
       if (level_time.le.0) then
          write(*,*) 'TIME_END: All time levels already finished.'
          stop
+      end if
+
+! measure the time
+      if (is_wall_time(level_time)) then
+         call wall_time(current_time)
+      else
+         call processor_time(current_time)
       end if
 
 ! find the elapsed time
@@ -1502,10 +1518,20 @@ integer(8) :: timems
 !integer count,rate,cmax
 !call system_clock(count,rate,cmax)
 !t=dble(count)/dble(rate)
-CALL DATE_AND_TIME(VALUES=v) 
+call date_and_time(values=v) 
 timems=(v(8)+1000*(v(7)+60*(v(6)+60*(v(5)+24*(v(3))))))
 t= timems / 1000._kr
 end subroutine wall_time
+
+!***********************************************************************
+subroutine processor_time(t)
+!***********************************************************************
+! return CPU time in s
+!***********************************************************************
+implicit none
+real(kr) :: t
+call cpu_time(t) 
+end subroutine processor_time
 
 !************************************
 subroutine logical2integer(tf_int,tf)

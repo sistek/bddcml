@@ -14,8 +14,10 @@ EXAMPLES = bddcml_global bddcml_local poisson_on_cube
 all: $(EXAMPLES)
 
 # general rule s for compiling objects
-%.o : %.f90
+%.o : %.f90 
 	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) -I../src -c $<
+
+poisson_on_cube.o: ../src/module_utils.mod
 
 # building binaries
 poisson_on_cube: \

@@ -34,7 +34,7 @@ module module_levels
 ! plot input data in ParaView - useful for debugging
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
-      logical,private ::           profile = .false.
+      logical,private ::           profile = .true.
 ! damping division
       logical,parameter,private :: damp_division = .false.
 ! export matrix of subdomains on the second level for further analysis
@@ -1449,7 +1449,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
                   t_matrix_assembly, t_schur_prepare, t_weights_prepare,&
                   t_reduced_rhs_prepare, t_prepare_c, t_prepare_aug,&
                   t_prepare_coarse, t_standard_coarse_prepare, t_adaptive_coarse_prepare,&
-                  t_par_globs_search, t_construct_cnodes 
+                  t_par_globs_search, t_construct_cnodes, &
+                  t_schur_prepare_local, t_schur_prepare_local_cpu
 
       if (.not.levels(ilevel-1)%is_level_prepared .and.  levels(ilevel)%nsub_loc .gt. 0 ) then
          call error(routine_name, 'Previous level not ready:', ilevel-1)
@@ -2183,7 +2184,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
 
-
       ! PARALLEL IDENTIFICATION OF GLOBS
 !-----profile 
       if (profile) then
@@ -2508,7 +2508,15 @@ subroutine levels_prepare_standard_level(parallel_division,&
       remove_original = .false.
       do isub_loc = 1,nsub_loc
          call dd_matrix_tri2blocktri(levels(ilevel)%subdomains(isub_loc),remove_original)
+         call time_start
+         call time_start(use_cpu_time = .true.)
          call dd_prepare_schur(levels(ilevel)%subdomains(isub_loc),comm_self)
+         call time_end(t_schur_prepare_local_cpu)
+         call time_print('CPU for preparing Sch. complement matrices on subdomain',&
+                         levels(ilevel)%subdomains(isub_loc)%isub,t_schur_prepare_local_cpu)
+         call time_end(t_schur_prepare_local)
+         call time_print('preparing Sch. complement matrices on subdomain',&
+                         levels(ilevel)%subdomains(isub_loc)%isub,t_schur_prepare_local)
       end do
 !-----profile
       if (profile) then
@@ -2856,6 +2864,17 @@ subroutine levels_prepare_standard_level(parallel_division,&
          end if
 !-----profile
       end if  ! use_adaptive_constraints
+
+
+      ! print data about the subdomain
+      do isub_loc = 1,nsub_loc
+         isub = levels(ilevel)%indexsub(isub_loc)
+         
+         write(*,*) 'Number of interior dofs on subdomain',isub,' is ',levels(ilevel)%subdomains(isub_loc)%ndofo
+         write(*,*) 'Number of constraints on subdomain',isub,' is ',levels(ilevel)%subdomains(isub_loc)%ndofc
+      end do
+
+
 
       ! print the output
       !do isub_loc = 1,nsub_loc
