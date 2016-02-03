@@ -1441,6 +1441,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       character(256) :: prefix
       character(300) :: command
       character(6) :: isub_string
+      character(MPI_MAX_PROCESSOR_NAME) :: pname
+      integer :: lsize
 
 
       ! time variables
@@ -2513,11 +2515,12 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call time_start
          call time_start(use_cpu_time = .true.)
          call dd_prepare_schur(levels(ilevel)%subdomains(isub_loc),comm_self)
+         call MPI_GET_PROCESSOR_NAME(pname,lsize,ierr)
          call time_end(t_schur_prepare_local_cpu)
-         call time_print('CPU for preparing Sch. complement matrices on subdomain',&
+         call time_print('CPU for preparing Sch. complement matrices on subdomain on process '//trim(pname),&
                          levels(ilevel)%subdomains(isub_loc)%isub,t_schur_prepare_local_cpu)
          call time_end(t_schur_prepare_local)
-         call time_print('preparing Sch. complement matrices on subdomain',&
+         call time_print('preparing Sch. complement matrices on subdomain on process '//trim(pname),&
                          levels(ilevel)%subdomains(isub_loc)%isub,t_schur_prepare_local)
       end do
 !-----profile
