@@ -474,7 +474,6 @@ integer :: ie_loc, indel, indneibe, isubneib, iadje, n_graph_edge, pkadjsub
 integer :: graphtype = 0
 
 ! Create graph of mesh
-      call info( routine_name, 'Create list of elements at a node ... ')
 ! Allocate proper sizes of two-dimensional field for list of touching elements
       lnetn  = nnod
       lietn  = linet
@@ -484,31 +483,15 @@ integer :: graphtype = 0
 ! Create list of elements touching particular node
       call graph_get_dual_mesh(nelem,nnod,inet,linet,nnet,lnnet, &
                                netn,lnetn,ietn,lietn,kietn,lkietn)
-      call info( routine_name, 'done.' )
-
-      call info( routine_name, 'Count list of neighbours of elements ... ' )
-! Count elements adjacent to element
-      lxadj = nelem + 1
-      allocate(xadj(lxadj))
-      
-      call graph_from_mesh_size(nelem,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
-                                xadj,lxadj, n_graph_edge, ladjncy, ladjwgt)
-      call info( routine_name, 'done.' )
-
-      call info( routine_name, 'Create list of neighbours of elements ... ' )
-
-! Allocate proper field for graph
-      allocate(adjncy(ladjncy),adjwgt(ladjwgt))
-
 ! Create graph
       call graph_from_mesh(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
-                           xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
-      call info( routine_name, 'done.' )
+                           n_graph_edge, xadj, adjncy, adjwgt)
+      lxadj   = size(xadj)
+      ladjncy = size(adjncy)
+      ladjwgt = size(adjwgt)
 
-      call info( routine_name, 'Check graph ... ' )
 ! Check the graph
       call graph_check(nelem,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
-      call info( routine_name, 'done.' )
 
       deallocate(netn,ietn,kietn)
 
@@ -1141,7 +1124,6 @@ integer :: nelemsmax, nelemsmin
 logical :: one_more_check_needed = .false.
 
       call info( routine_name, 'Building a graph ... ' )
-      call info( routine_name, 'Create list of elements at a node ... ' )
 ! Allocate proper sizes of two-dimensional field for list of touching elements
       lnetn  = nnod
       lietn  = linet
@@ -1151,25 +1133,12 @@ logical :: one_more_check_needed = .false.
 ! Create list of elements touching particular node
       call graph_get_dual_mesh(nelem,nnod,inet,linet,nnet,lnnet, &
                                netn,lnetn,ietn,lietn,kietn,lkietn)
-      call info( routine_name, 'done.' )
-
-      call info( routine_name, 'Count list of neighbours of elements ... ' )
-! Count elements adjacent to element
-      lxadj = nelem + 1
-      allocate(xadj(lxadj))
-      
-      call graph_from_mesh_size(nelem,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
-                                xadj,lxadj, nedge, ladjncy, ladjwgt)
-      call info( routine_name, 'done.' )
-
-      call info( routine_name, 'Create list of neighbours of elements ... ' )
-
-! Allocate proper field for graph
-      allocate(adjncy(ladjncy),adjwgt(ladjwgt))
-
 ! Create graph
       call graph_from_mesh(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
-                           xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+                           nedge, xadj, adjncy, adjwgt)
+      lxadj   = size(xadj)
+      ladjncy = size(adjncy)
+      ladjwgt = size(adjwgt)
       call info( routine_name, 'done.' )
       ! free memory
       deallocate(netn,ietn,kietn)
@@ -1246,22 +1215,13 @@ logical :: one_more_check_needed = .false.
 ! Create list of elements touching particular node
          call graph_get_dual_mesh(nelems,nnods,inets,linets,nnets,lnnets, &
                                   netns,lnetns,ietns,lietns,kietns,lkietns)
-
-! Count elements adjacent to element
-         lxadjs = nelems + 1
-         allocate(xadjs(lxadjs))
-      
-         call graph_from_mesh_size(nelems,neighbouring,inets,linets,nnets,lnnets,&
-                                   ietns,lietns,netns,lnetns,kietns,lkietns,&
-                                   xadjs,lxadjs, nedges, ladjncys, ladjwgts)
-
-! Allocate proper field for subdomain graph
-         allocate(adjncys(ladjncys),adjwgts(ladjwgts))
-
 ! Create graph
          call graph_from_mesh(nelems,graphtype,neighbouring,inets,linets,nnets,lnnets,&
                               ietns,lietns,netns,lnetns,kietns,lkietns,&
-                              xadjs,lxadjs, adjncys,ladjncys, adjwgts,ladjwgts)
+                              nedges, xadjs, adjncys, adjwgts)
+         lxadjs   = size(xadjs)
+         ladjncys = size(adjncys)
+         ladjwgts = size(adjwgts)
 
 ! Check the graph
          call graph_check(nelems,graphtype, xadjs,lxadjs, adjncys,ladjncys, adjwgts,ladjwgts)

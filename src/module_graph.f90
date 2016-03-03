@@ -87,89 +87,89 @@ integer :: ie, indinet, indnode, ine, nne, indelmn, pointietn, inod
       end do
 end subroutine graph_get_dual_mesh
 
-subroutine graph_from_mesh_size(nelem,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
-                                xadj,lxadj, nedge, ladjncy, ladjwgt)
-! find size for graph from mesh in PMD format 
-use module_utils
-implicit none
-! number of elements in mesh
-integer, intent(in) :: nelem
-! prescribed value of number of shared nodes between two neighbours
-integer, intent(in) :: neighbouring
-
-! PMD mesh description
-integer, intent(in) :: linet
-integer, intent(in) ::  inet(linet)
-integer, intent(in) :: lnnet
-integer, intent(in) ::  nnet(lnnet)
-! PMD dual mesh description
-integer, intent(in) :: lietn
-integer, intent(in) ::  ietn(lietn)
-integer, intent(in) :: lnetn
-integer, intent(in) ::  netn(lnetn)
-integer, intent(in) :: lkietn
-integer, intent(in) ::  kietn(lkietn)
-
-! METIS graph description
-integer, intent(in)  :: lxadj
-integer, intent(out) ::  xadj(lxadj)
-integer, intent(out) ::  nedge
-integer, intent(out) ::  ladjncy
-integer, intent(out) ::  ladjwgt
-
-! local variables
-integer,allocatable :: onerow(:), onerowweig(:)
-integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionerow, nelmn, nne, pointietn, lorin, lorout
-
-! prepare arrays for storing a row
-      nnetx = maxval(nnet)
-      netnx = maxval(netn)
-      lonerow = nnetx * netnx
-      lonerowweig = lonerow
-      allocate(onerow(lonerow),onerowweig(lonerowweig))
-      
-      ! zero whole array
-      xadj(1) = 1
-
-      indinet = 0
-      do ie = 1,nelem
-         nne = nnet(ie)
-         ! zero local row
-         onerow     = 0
-         onerowweig = 0
-         ionerow = 0
-         do ine = 1,nne
-            indinet = indinet + 1
-            indnode = inet(indinet)
-            nelmn   = netn(indnode)
-            pointietn = kietn(indnode)
-            onerow(ionerow+1:ionerow + nelmn) = ietn(pointietn+1:pointietn+nelmn)
-            ionerow = ionerow + nelmn
-         end do
-         lorin = ionerow
-         ! parse onerow
-         call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lorin,lorout)
-         xadj(ie + 1) = xadj(ie) + count(onerowweig.ge.neighbouring)
-      end do
-
-      ladjncy = xadj(nelem+1)-1
-      ! check the graph
-      if (mod(ladjncy,2).ne.0) then
-         write(*,*) 'GRAPH_FROM_MESH_SIZE: Number of nodes has to be even number!'
-         call error_exit
-      end if
-      nedge = ladjncy / 2
-      !if (graphtype.eq.1) then
-      ladjwgt = ladjncy
-      !else
-      !   ladjwgt = 0
-      !end if
-
-      deallocate(onerow,onerowweig)
-end subroutine graph_from_mesh_size
+!subroutine graph_from_mesh_size(nelem,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
+!                                xadj,lxadj, nedge, ladjncy, ladjwgt)
+!! find size for graph from mesh in PMD format 
+!use module_utils
+!implicit none
+!! number of elements in mesh
+!integer, intent(in) :: nelem
+!! prescribed value of number of shared nodes between two neighbours
+!integer, intent(in) :: neighbouring
+!
+!! PMD mesh description
+!integer, intent(in) :: linet
+!integer, intent(in) ::  inet(linet)
+!integer, intent(in) :: lnnet
+!integer, intent(in) ::  nnet(lnnet)
+!! PMD dual mesh description
+!integer, intent(in) :: lietn
+!integer, intent(in) ::  ietn(lietn)
+!integer, intent(in) :: lnetn
+!integer, intent(in) ::  netn(lnetn)
+!integer, intent(in) :: lkietn
+!integer, intent(in) ::  kietn(lkietn)
+!
+!! METIS graph description
+!integer, intent(in)  :: lxadj
+!integer, intent(out) ::  xadj(lxadj)
+!integer, intent(out) ::  nedge
+!integer, intent(out) ::  ladjncy
+!integer, intent(out) ::  ladjwgt
+!
+!! local variables
+!integer,allocatable :: onerow(:), onerowweig(:)
+!integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionerow, nelmn, nne, pointietn, lorin, lorout
+!
+!! prepare arrays for storing a row
+!      nnetx = maxval(nnet)
+!      netnx = maxval(netn)
+!      lonerow = nnetx * netnx
+!      lonerowweig = lonerow
+!      allocate(onerow(lonerow),onerowweig(lonerowweig))
+!      
+!      ! zero whole array
+!      xadj(1) = 1
+!
+!      indinet = 0
+!      do ie = 1,nelem
+!         nne = nnet(ie)
+!         ! zero local row
+!         onerow     = 0
+!         onerowweig = 0
+!         ionerow = 0
+!         do ine = 1,nne
+!            indinet = indinet + 1
+!            indnode = inet(indinet)
+!            nelmn   = netn(indnode)
+!            pointietn = kietn(indnode)
+!            onerow(ionerow+1:ionerow + nelmn) = ietn(pointietn+1:pointietn+nelmn)
+!            ionerow = ionerow + nelmn
+!         end do
+!         lorin = ionerow
+!         ! parse onerow
+!         call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lorin,lorout)
+!         xadj(ie + 1) = xadj(ie) + count(onerowweig.ge.neighbouring)
+!      end do
+!
+!      ladjncy = xadj(nelem+1)-1
+!      ! check the graph
+!      if (mod(ladjncy,2).ne.0) then
+!         write(*,*) 'GRAPH_FROM_MESH_SIZE: Number of nodes has to be even number!'
+!         call error_exit
+!      end if
+!      nedge = ladjncy / 2
+!      !if (graphtype.eq.1) then
+!      ladjwgt = ladjncy
+!      !else
+!      !   ladjwgt = 0
+!      !end if
+!
+!      deallocate(onerow,onerowweig)
+!end subroutine graph_from_mesh_size
 
 subroutine graph_from_mesh(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,ietn,lietn,netn,lnetn,kietn,lkietn,&
-                           xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+                           nedge, xadj, adjncy, adjwgt)
 ! find size for graph from mesh in PMD format 
 use module_utils
 implicit none
@@ -194,16 +194,17 @@ integer, intent(in) :: lkietn
 integer, intent(in) ::  kietn(lkietn)
 
 ! METIS graph description
-integer, intent(in) :: lxadj
-integer, intent(in) ::  xadj(lxadj)
-integer, intent(in) :: ladjncy
-integer, intent(out) :: adjncy(ladjncy)
-integer, intent(in) :: ladjwgt
-integer, intent(out) :: adjwgt(ladjwgt)
+integer, intent(out) ::  nedge
+integer, allocatable, intent(out) :: xadj(:)
+integer, allocatable, intent(out) :: adjncy(:)
+integer, allocatable, intent(out) :: adjwgt(:)
 
 ! local variables
 integer,allocatable :: onerow(:), onerowweig(:)
 integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionerow, nelmn, nne, pointietn, lorin, lorout
+integer :: lxadj
+integer :: ladjncy
+integer :: ladjwgt
 
 ! prepare arrays for storing a row
       nnetx = maxval(nnet)
@@ -212,6 +213,50 @@ integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, ionero
       lonerowweig = lonerow
       allocate(onerow(lonerow),onerowweig(lonerowweig))
       
+
+! construct the array of pointers XADJ
+      lxadj = nelem + 1
+      allocate(xadj(lxadj))
+
+      ! zero whole array
+      xadj(1) = 1
+      indinet = 0
+      do ie = 1,nelem
+         nne = nnet(ie)
+         ! zero local row
+         onerow     = 0
+         onerowweig = 0
+         ionerow = 0
+         do ine = 1,nne
+            indinet = indinet + 1
+            indnode = inet(indinet)
+            nelmn   = netn(indnode)
+            pointietn = kietn(indnode)
+            onerow(ionerow+1:ionerow + nelmn) = ietn(pointietn+1:pointietn+nelmn)
+            ionerow = ionerow + nelmn
+         end do
+         lorin = ionerow
+         ! parse onerow
+         call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lorin,lorout)
+         xadj(ie + 1) = xadj(ie) + count(onerowweig.ge.neighbouring)
+      end do
+
+! construct the array of edges ADJNCY and ADJWGT
+      ladjncy = xadj(nelem+1)-1
+      ! check the graph
+      if (mod(ladjncy,2).ne.0) then
+         write(*,*) 'GRAPH_FROM_MESH: Number of nodes has to be even number!'
+         call error_exit
+      end if
+      nedge = ladjncy / 2
+      !if (graphtype.eq.1) then
+      ladjwgt = ladjncy
+      !else
+      !   ladjwgt = 0
+      !end if
+
+      allocate(adjncy(ladjncy),adjwgt(ladjwgt))
+
       indinet = 0
       do ie = 1,nelem
          onerow     = 0

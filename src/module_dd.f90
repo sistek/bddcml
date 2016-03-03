@@ -2443,13 +2443,18 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
       ! local vars
       character(*),parameter:: routine_name = 'DD_UPLOAD_SUB_MESH'
 ! ################ parameters to set
-      integer,parameter :: node_neighbouring = 1       ! any element connecting nodes counts as a graph edge
+      integer,parameter :: node_neighbouring = 1       ! any element connecting nodes counts as a graph edge (default)
+      integer :: element_neighbouring                  ! how many nodes need elements to share to call it an edge in graph
+      logical, parameter :: use_dual_mesh_graph = .true. ! switch if you know what you are doing
 ! ################ end parameter to set
       integer :: i, j
+      integer :: ie, indinet, indnode, ine, nne, indcomponent, nelcomponents
 
       ! check continuity of nodal graph
       integer             :: lnetn,  lietn,  lkietn,   lkinet
       integer, allocatable :: netn(:),ietn(:),kietn(:), kinet(:)
+      integer             :: lelcomponents
+      integer, allocatable :: elcomponents(:)
 
       integer ::              graphtype
       integer ::              ngraph_edge
@@ -2570,30 +2575,68 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
                                   sub%inet,sub%linet,sub%nnet,sub%lnnet,&
                                   netn,lnetn,ietn,lietn,kietn,lkietn)
 
-         ! prepare graph of subdomain nodes - i.e. dual graph
-         graphtype    = 0 ! unweighted
-         ngraph_vertex = nnod
-         lxadj = nnod + 1
-         allocate(xadj(lxadj))
-         call graph_from_mesh_size(ngraph_vertex,node_neighbouring,&
-                                   ietn,lietn, netn,lnetn,&
-                                   sub%inet,sub%linet,&
-                                   sub%nnet,sub%lnnet,&
-                                   kinet,lkinet,&
-                                   xadj,lxadj, ngraph_edge, ladjncy,ladjwgt)
-         allocate(adjncy(ladjncy),adjwgt(ladjwgt))
-         call graph_from_mesh(ngraph_vertex,graphtype,node_neighbouring,&
-                              ietn,lietn, netn,lnetn,&
-                              sub%inet,sub%linet,&
-                              sub%nnet,sub%lnnet,&
-                              kinet,lkinet,&
-                              xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
-         call graph_check(ngraph_vertex,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+         if (use_dual_mesh_graph) then
+            ! prepare graph of subdomain elements - i.e. dual graph
+            graphtype    = 1 ! weighted
+            ngraph_vertex = nelem
+            ! how many nodes have to share two elements to call them adjacent in a graph
+            ! set properly !!!!!!!!!!!!!!!!!
+            element_neighbouring = ndim
+            !!!!!!!!!!!!!!!!!!
+            call graph_from_mesh(ngraph_vertex,graphtype,element_neighbouring,&
+                                 sub%inet,sub%linet,&
+                                 sub%nnet,sub%lnnet,&
+                                 ietn,lietn, netn,lnetn,&
+                                 kietn,lkietn,&
+                                 ngraph_edge, xadj, adjncy, adjwgt)
+            lxadj   = size(xadj)
+            ladjncy = size(adjncy)
+            ladjwgt = size(adjwgt)
+            call graph_check(ngraph_vertex,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+   
+            ! determine continuity of ELEMENT components
+            lelcomponents = nelem
+            allocate(elcomponents(lelcomponents))
+            call graph_components(ngraph_vertex,xadj,lxadj,adjncy,ladjncy,&
+                                  elcomponents,lelcomponents, nelcomponents)
+            
+            ! copy element components into its nodes 
+            sub%nnodal_components = nelcomponents
+            indinet = 0
+            do ie = 1,nelem
+               nne = sub%nnet(ie)
 
+               indcomponent = elcomponents(ie)
 
-         ! determine continuity of components
-         call graph_components(ngraph_vertex,xadj,lxadj,adjncy,ladjncy,&
-                               sub%nodal_components,sub%lnodal_components,sub%nnodal_components)
+               do ine = 1,nne
+                  indinet = indinet + 1
+                  indnode = sub%inet(indinet)
+                  sub%nodal_components(indnode) = indcomponent
+               end do
+            end do
+
+            deallocate(elcomponents)
+   
+         else
+            ! prepare graph of subdomain nodes - i.e. primal graph
+            graphtype    = 0 ! unweighted
+            ngraph_vertex = nnod
+            call graph_from_mesh(ngraph_vertex,graphtype,node_neighbouring,&
+                                 ietn,lietn, netn,lnetn,&
+                                 sub%inet,sub%linet,&
+                                 sub%nnet,sub%lnnet,&
+                                 kinet,lkinet,&
+                                 ngraph_edge, xadj, adjncy, adjwgt)
+            lxadj   = size(xadj)
+            ladjncy = size(adjncy)
+            ladjwgt = size(adjwgt)
+            call graph_check(ngraph_vertex,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+   
+   
+            ! determine continuity of components
+            call graph_components(ngraph_vertex,xadj,lxadj,adjncy,ladjncy,&
+                                  sub%nodal_components,sub%lnodal_components,sub%nnodal_components)
+         end if
 
 
          deallocate(kinet)
