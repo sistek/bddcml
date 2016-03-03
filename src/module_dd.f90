@@ -1793,7 +1793,7 @@ subroutine dd_write_solution_to_file(problemname, isub, sol,lsol, print_solution
 end subroutine
 
 !**************************************************************************
-subroutine dd_localize_mesh(sub,isub,ndim,nelem,nnod,&
+subroutine dd_localize_mesh(sub,isub,ndim,meshdim,nelem,nnod,&
                             inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
                             iets,liets)
 !**************************************************************************
@@ -1809,6 +1809,8 @@ subroutine dd_localize_mesh(sub,isub,ndim,nelem,nnod,&
       integer,intent(in) :: isub
 ! space dimension
       integer,intent(in) :: ndim
+! mesh dimension
+      integer,intent(in) :: meshdim
 ! number of elements
       integer,intent(in) :: nelem
 ! number of nodes
@@ -1930,7 +1932,7 @@ subroutine dd_localize_mesh(sub,isub,ndim,nelem,nnod,&
          end do
       end do
 
-      call dd_upload_sub_mesh(sub, nelems, nnods, ndofs, ndim, &
+      call dd_upload_sub_mesh(sub, nelems, nnods, ndofs, ndim, meshdim, &
                               nndfs,lnndfs, nnets,lnnets, 0, inets,linets, isngns,lisngns, &
                               isvgvns,lisvgvns, isegns,lisegns,&
                               xyzs,lxyzs1,lxyzs2, find_components) 
@@ -2413,7 +2415,7 @@ subroutine dd_load_eliminated_bc(sub, bc,lbc)
 end subroutine
 
 !*********************************************************************************
-subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
+subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
                               nndf,lnndf, nnet,lnnet, numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
                               xyz,lxyz1,lxyz2, find_components)
@@ -2426,7 +2428,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
 ! Subdomain structure
       type(subdomain_type),intent(inout) :: sub
       ! mesh
-      integer,intent(in) :: nelem, nnod, ndof, ndim
+      integer,intent(in) :: nelem, nnod, ndof, ndim, meshdim
       integer,intent(in) :: numshift
       integer,intent(in) :: lnndf,       lnnet,       linet
       integer,intent(in) ::  nndf(lnndf), nnet(lnnet), inet(linet)
@@ -2581,7 +2583,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, &
             ngraph_vertex = nelem
             ! how many nodes have to share two elements to call them adjacent in a graph
             ! set properly !!!!!!!!!!!!!!!!!
-            element_neighbouring = ndim
+            element_neighbouring = meshdim
             !!!!!!!!!!!!!!!!!!
             call graph_from_mesh(ngraph_vertex,graphtype,element_neighbouring,&
                                  sub%inet,sub%linet,&

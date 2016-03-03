@@ -722,7 +722,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
          call error( routine_name, 'It appears that mesh was already loaded for subdomain', isub )
       end if
 
-      call dd_upload_sub_mesh(levels(iactive_level)%subdomains(isub_loc), nelems, nnods, ndofs, ndim, &
+      call dd_upload_sub_mesh(levels(iactive_level)%subdomains(isub_loc), nelems, nnods, ndofs, ndim, meshdim, &
                               nndf,lnndf, nnet,lnnet, levels_numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
                               xyz,lxyz1,lxyz2, find_components)
@@ -1817,6 +1817,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             call warning(routine_name,'Partition does not contain subdomain',isub)
          end if
          call dd_localize_mesh(levels(ilevel)%subdomains(isub_loc),isub,levels(ilevel)%ndim,&
+                               levels(ilevel)%meshdim,&
                                levels(ilevel)%nelem,levels(ilevel)%nnod,&
                                levels(ilevel)%inet,levels(ilevel)%linet,&
                                levels(ilevel)%nnet,levels(ilevel)%lnnet,&
