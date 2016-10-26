@@ -27,6 +27,10 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
                      int *vwgt, int *lvwgt, int *adjwgt, int *ladjwgt, int *nsub, 
                      int *edgecut, int *part, int *lpart )
 {
+  int i;
+  int *options;
+  int wgtflag;
+
   /***********************************/
   /* Try and take care of bad inputs */
   /***********************************/
@@ -40,7 +44,6 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
 
 
   /* prepare options */
-  int i;
 #if (METIS_VER_MAJOR >= 5)
   if ( sizeof(idx_t) != sizeof(int) ) {
      printf("ERROR in GRAPH_DIVIDE_C: Wrong type of integers for METIS.\n");
@@ -51,7 +54,7 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
   /*real_t ubvec[1];*/
   /*ubvec[0] = 1.001;*/
   /*int *options = NULL;*/
-  int * options = malloc(METIS_NOPTIONS * sizeof(int));
+  options = malloc(METIS_NOPTIONS * sizeof(int));
 
   for (i = 0;i < METIS_NOPTIONS;i++) {
      options[i] = -1;
@@ -75,14 +78,13 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
 #else
   /*printf(" METIS < 5.0 recognized.\n");*/
   /* weights */
-  int wgtflag;
   if (*graphtype == 1) {
      wgtflag = 1;
   }
   else {
      wgtflag = 0;
   }
-  int * options = malloc(8 * sizeof(int));
+  options = malloc(8 * sizeof(int));
   for ( i = 0; i < 8; i++ ) {
      options[i] = 0;
   }
