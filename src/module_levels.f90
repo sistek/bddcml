@@ -34,7 +34,7 @@ module module_levels
 ! plot input data in ParaView - useful for debugging
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
-      logical,private ::           profile = .true.
+      logical,private ::           profile = .false.
 ! damping division
       logical,parameter,private :: damp_division = .false.
 ! export matrix of subdomains on the second level for further analysis

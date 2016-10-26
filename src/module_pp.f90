@@ -1144,12 +1144,15 @@ logical :: one_more_check_needed = .false.
       deallocate(netn,ietn,kietn)
 
       call info( routine_name, 'Check graph ... ' )
+      !call info( routine_name, 'Neighbouring is: ', neighbouring )
 ! Check the graph
       call graph_check(nelem,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
       call info( routine_name, 'done.' )
 ! Check components of the graph
       call info( routine_name, 'Check mesh components ... ' )
       lcomponents = nelem
+      !print *, 'xadj', xadj
+      !print *, 'adjncy', adjncy
       allocate(components(lcomponents))
       call graph_components(nelem, xadj,lxadj, adjncy,ladjncy, components,lcomponents, ncomponents)
       if (ncomponents.eq.1) then

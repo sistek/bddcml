@@ -2652,6 +2652,9 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
       end if
       sub%is_nodal_components_loaded = .true.
 
+      ! debug
+      !call info(routine_name,'number of components:',sub%nnodal_components)
+
 end subroutine
 
 !**************************************************
