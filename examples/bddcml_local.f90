@@ -27,6 +27,8 @@ program bddcml_local
       use module_sm
 ! Program name
       use module_utils
+! Data types for float numbers
+      use, intrinsic :: iso_fortran_env
 
       implicit none
       
@@ -34,7 +36,7 @@ program bddcml_local
 
 !######### PARAMETERS TO SET
 ! precision of floats
-      integer,parameter :: kr = kind(1.D0)
+      integer,parameter :: kr = REAL64
 
 ! numerical properties of the matrix (MUMPS-like notation)
 !     0 - general (full storage)

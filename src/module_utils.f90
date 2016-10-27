@@ -17,10 +17,10 @@
 module module_utils
 ! Module for various auxiliary utilities
 
+use, intrinsic :: iso_fortran_env
 implicit none
-integer,parameter,private :: kr = kind(1.D0)
+integer,parameter,private :: kr = REAL64
 
-real(kr),parameter,private :: numerical_zero = 1.e-14
 logical,parameter,private :: debug = .false.
 
 ! standard UNIX units

@@ -20,13 +20,14 @@ module module_levels
 ! Jakub Sistek, Bologna 11/2010
 
 !     definition of MUMPS structure
+      use, intrinsic :: iso_fortran_env
       use module_dd
 
       implicit none
 
 ! adjustable parameters ############################
 ! type of real variables
-      integer,parameter,private :: kr = kind(1.D0)
+      integer,parameter,private :: kr = REAL64
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! debugging 

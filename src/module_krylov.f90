@@ -16,14 +16,14 @@
 
     module module_krylov
     ! module for some Krylov subspace iterative methods suitable for DD implementation
-
+          use, intrinsic :: iso_fortran_env
     ! module for distributed Krylov data storage
           use module_krylov_types_def
 
           implicit none
     ! adjustable parameters ############################
     ! type of real variables
-          integer,parameter,private :: kr = kind(1.D0)
+          integer,parameter,private :: kr = REAL64
     ! debugging 
           logical,parameter,private :: debug = .false.
     ! profiling 

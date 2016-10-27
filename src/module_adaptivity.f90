@@ -19,12 +19,14 @@ module module_adaptivity
 ! Module for adaptive search of constraints for BDDC preconditioner
 ! Jakub Sistek, Bologna, 11/2010, Praha 1/2011
 
+use, intrinsic :: iso_fortran_env
 use module_dd
+implicit none
 
 !=================================================
 ! basic parameters related to adaptivity
 ! type of reals
-integer,parameter,private  :: kr = kind(1.D0)
+integer,parameter,private :: kr = REAL64
 ! numerical zero
 real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 

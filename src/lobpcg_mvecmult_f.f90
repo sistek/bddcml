@@ -18,10 +18,11 @@ subroutine lobpcg_mvecmult_f(n,x,lx,y,ly,idoper) bind(c)
 ! this is an externally callable Fortran routine that is called from C driver
 ! and just calls the module function for adaptive BDDC
 use iso_c_binding
+use, intrinsic :: iso_fortran_env
 use module_levels 
 implicit none
 ! type of reals
-integer,parameter :: kr = kind(1.D0)
+integer,parameter :: kr = REAL64
 
 ! length of vector
 integer(c_int),intent(in) ::   n 

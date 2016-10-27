@@ -17,10 +17,11 @@
 module module_paraview
 ! Module for export to VTK ASCII XML data file loadable by ParaView
 
+      use, intrinsic :: iso_fortran_env
       implicit none
 ! adjustable parameters ############################
 ! type of real variables
-      integer,parameter,private :: kr = kind(1.D0)
+      integer,parameter,private :: kr = REAL64
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! debugging 

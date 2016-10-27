@@ -30,13 +30,15 @@ program poisson_on_cube
       use module_utils
 ! functions for exporting to ParaView format
       use module_paraview
+! data types for float numbers
+      use, intrinsic :: iso_fortran_env
 
       implicit none
       
       include "mpif.h"
 
 ! precision of floats - depends on precision chosen for compiling the BDDCML library, do not change
-      integer,parameter :: kr = kind(1.D0)
+      integer,parameter :: kr = REAL64
 
 ! **************************
 ! GENERAL BDDCML PARAMETERS:
@@ -723,10 +725,11 @@ program poisson_on_cube
 !************************************************************************************************
 ! subroutine creating data for one subdomain
       use module_utils
+      use, intrinsic :: iso_fortran_env
 
       implicit none
 ! precision of floats
-      integer,parameter :: kr = kind(1.D0)
+      integer,parameter :: kr = REAL64
 
       integer, intent(in) :: isub                  ! global subdomain index
       integer, intent(in) :: num_sub_per_cube_edge ! number of subdomains in one edge of a cube 
@@ -898,10 +901,11 @@ program poisson_on_cube
 ! subroutine for exporting a VTU file
       use module_utils
       use module_paraview
+      use, intrinsic :: iso_fortran_env
 
       implicit none
 ! precision of floats
-      integer,parameter :: kr = kind(1.D0)
+      integer,parameter :: kr = REAL64
 
       character(*), intent(in) :: prefix           ! basename of vtu files
       integer, intent(in) :: isub                  ! global subdomain index

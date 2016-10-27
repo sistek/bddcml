@@ -19,7 +19,10 @@ module module_mumps
 ! Module for more convenient using of MUMPS
 ! Jakub Sistek, Denver, 12/2007
 
-integer,parameter,private:: kr = kind(1.D0)
+use, intrinsic :: iso_fortran_env
+implicit none
+
+integer,parameter,private :: kr = REAL64
 
 ! may relaxing memory be tried in factorization?
 logical,parameter,private:: allow_memory_relaxation = .true.

@@ -19,10 +19,11 @@ module module_krylov_types_def
 ! Module for definition of vectors for Krylov method
 ! Jakub Sistek, Praha 6/2010
 
+      use, intrinsic :: iso_fortran_env
       implicit none
 
 ! type of real variables
-      integer,parameter,private :: kr = kind(1.D0)
+      integer,parameter,private :: kr = REAL64
 
 ! type for auxiliary handling of data for Krylov methods in distributed manner
       type common_krylov_data_type

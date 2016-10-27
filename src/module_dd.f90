@@ -19,12 +19,13 @@ module module_dd
 ! Module for handling domain decomposition structures
 ! Jakub Sistek, Denver, 4/2009, Praha 1/2010, Cambridge 5/2011
 
-!     definition of MUMPS structure
+      use, intrinsic :: iso_fortran_env
       implicit none
+!     definition of MUMPS structure
       include "dmumps_struc.h"
 
 ! type of real variables
-      integer,parameter,private :: kr = kind(1.D0)
+      integer,parameter,private :: kr = REAL64
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! maximal allowed length of file names

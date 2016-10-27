@@ -24,10 +24,11 @@ module module_bddcml
 ! Module for BDDCML interface
 ! Jakub Sistek, Praha 2015
 
+use, intrinsic :: iso_fortran_env
 implicit none
 
 ! type of real variables
-integer,parameter,private :: kr = kind(1.D0)
+integer,parameter,private :: kr = REAL64
 
 contains
 

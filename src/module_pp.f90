@@ -17,13 +17,12 @@
 module module_pp
 ! module for parallel preprocessing
 ! Jakub Sistek, Bologna, 2010
+use, intrinsic :: iso_fortran_env
 implicit none 
 
 ! adjustable parameters ############################
 ! type of real variables
-      integer,parameter,private :: kr = kind(1.D0)
-! numerical zero
-      real(kr),parameter,private :: numerical_zero = 1.e-12_kr
+      integer,parameter,private :: kr = REAL64
 ! debugging 
       logical,parameter,private :: debug = .false.
 ! profiling 

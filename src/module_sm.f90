@@ -18,9 +18,11 @@ module module_sm
 !***************
 ! Module for operations with sparse matrices in triplets I,J,A
 ! Jakub Sistek, Denver, 12/2007
+      use, intrinsic :: iso_fortran_env
+      implicit none 
 
 ! type of real variables
-      integer,parameter,private :: kr = kind(1.D0)
+      integer,parameter,private :: kr = REAL64
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-16_kr
 
