@@ -37,7 +37,7 @@ subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_leve
 !*****************************************************************************************************************
 ! initialization of LEVELS module
       use module_levels, only : levels_init, levels_set_profile_on
-      use module_utils , only : suppress_output_on, logical2integer, warning, error
+      use module_utils , only : suppress_output_on, integer2logical, warning, error
       use module_krylov , only : krylov_set_profile_on
       implicit none
       include "mpif.h"
@@ -75,7 +75,7 @@ subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_leve
       logical :: just_direct_solve
       integer :: nproc, ierr
 
-      call logical2integer(just_direct_solve_int,just_direct_solve)
+      call integer2logical(just_direct_solve_int,just_direct_solve)
 
       call MPI_COMM_SIZE(comm_init,nproc,ierr)
       if (nsublev(1) == 1 .and. nproc == 1) then
@@ -174,7 +174,7 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
       ! local variables
       logical :: load_division          
 
-      call logical2integer(load_division_int,load_division)
+      call integer2logical(load_division_int,load_division)
 
       call levels_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
                                      inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
@@ -196,7 +196,7 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         user_constraints,luser_constraints1,luser_constraints2,&
                                         element_data,lelement_data1,lelement_data2, &
                                         dof_data,ldof_data, &
-                                        find_components_int)
+                                        find_components_int, use_dual_mesh_graph_int, neighbouring)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
       use module_levels
@@ -305,20 +305,40 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       real(kr), intent(in):: dof_data(ldof_data) ! array for data on degrees of freedom
 
       ! should the mesh components be detected ? 
+      ! Should be the same for all subdomains.
       integer, intent(in)::  find_components_int  ! 0 = mesh components will not be detected and the subdomain is considered to be connected
                                                   ! 1 = components will be detected based on the dual graph of the mesh 
                                                   ! This is recommended for unstructured meshes where a subdomains might be of disconnected parts. 
                                                   ! However it may become expensive for high order elements.
 
+      ! if find_components_int = 1, should the dual graph of mesh be used for detecting components? 
+      ! Not accessed if detection of subdomain components is switched off by find_components_int = 0.
+      ! Should be the same for all subdomains.
+      integer, intent(in)::  use_dual_mesh_graph_int  ! 0 = mesh components will be detected from primal graph of the mesh, 
+                                                      !     where element nodes are graph vertices and a graph edge is introduced 
+                                                      !     if they are connected by the same element
+                                                      ! 1 = dual graph of mesh will be used for detecting components.
+                                                      !     Dual graph of mesh contains elements as graph vertices and a graph edge is
+                                                      !     introduced if two elements share at least the number of nodes prescribed by
+                                                      !     the neighbouring parameter.
+
+      ! How many nodes need to be shared by two elements to declare a graph edge between them? 
+      ! Accessed only if find_components_int = 1 and use_dual_mesh_graph_int = 1. A graph edge is introduced between two elements if
+      ! they share number of nodes >= neighbouring. Should be the same for all subdomains.
+      integer, intent(in)::  neighbouring         
+
+
       ! local vars
       logical :: is_assembled
       logical :: is_rhs_complete
       logical :: find_components
+      logical :: use_dual_mesh_graph
 
       ! translate integer to logical
-      call logical2integer(is_assembled_int,    is_assembled)
-      call logical2integer(is_rhs_complete_int, is_rhs_complete)
-      call logical2integer(find_components_int, find_components) 
+      call integer2logical(is_assembled_int,         is_assembled)
+      call integer2logical(is_rhs_complete_int,      is_rhs_complete)
+      call integer2logical(find_components_int,      find_components) 
+      call integer2logical(use_dual_mesh_graph_int,  use_dual_mesh_graph) 
 
       call levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isub, nelems, nnods, ndofs, &
@@ -331,7 +351,8 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled, &
                                         user_constraints,luser_constraints1,luser_constraints2, &
                                         element_data,lelement_data1,lelement_data2, &
-                                        dof_data,ldof_data, find_components )
+                                        dof_data,ldof_data, &
+                                        find_components, use_dual_mesh_graph, neighbouring)
 
 end subroutine
 
@@ -405,16 +426,16 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       character(*),parameter:: routine_name = 'BDDCML_SETUP_PRECONDITIONER'
 
       ! convert logical parameters (entered as integers for C compatibility)
-      call logical2integer(use_defaults_int,use_defaults)
+      call integer2logical(use_defaults_int,use_defaults)
 
       if (use_defaults) then
          call info(routine_name,'using default preconditioner parameters')
       else
-         call logical2integer(parallel_division_int,parallel_division)
-         call logical2integer(use_corner_constraints_int,use_corner_constraints)
-         call logical2integer(use_arithmetic_constraints_int,use_arithmetic_constraints)
-         call logical2integer(use_adaptive_constraints_int,use_adaptive_constraints)
-         call logical2integer(use_user_constraints_int,use_user_constraints)
+         call integer2logical(parallel_division_int,parallel_division)
+         call integer2logical(use_corner_constraints_int,use_corner_constraints)
+         call integer2logical(use_arithmetic_constraints_int,use_arithmetic_constraints)
+         call integer2logical(use_adaptive_constraints_int,use_adaptive_constraints)
+         call integer2logical(use_user_constraints_int,use_user_constraints)
          levels_parallel_division      =  parallel_division    
          levels_use_corner_constraints     = use_corner_constraints
          levels_use_arithmetic_constraints = use_arithmetic_constraints
@@ -502,7 +523,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       character(*),parameter:: routine_name = 'BDDCML_SOLVE'
       logical :: recycling
 
-      call logical2integer(recycling_int,recycling)
+      call integer2logical(recycling_int,recycling)
 
       ! determine Krylov method and parameters
       if (method .ne. -1) then
@@ -689,7 +710,7 @@ subroutine bddcml_change_subdomain_data(isub, &
       logical :: is_rhs_complete
 
       ! translate integer to logical
-      call logical2integer(is_rhs_complete_int, is_rhs_complete)
+      call integer2logical(is_rhs_complete_int, is_rhs_complete)
 
       call levels_change_subdomain_data(isub, &
                                         ifix,lifix, fixv,lfixv, &

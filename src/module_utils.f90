@@ -1534,7 +1534,7 @@ call cpu_time(t)
 end subroutine processor_time
 
 !************************************
-subroutine logical2integer(tf_int,tf)
+subroutine integer2logical(tf_int,tf)
 !************************************
 ! translates C-like logical value as integer 0 = false, 1 = true into Fortran logical type
 !************************************
@@ -1543,7 +1543,7 @@ integer, intent(in) :: tf_int
 logical, intent(out) :: tf
 
 ! local vars
-character(*),parameter:: routine_name = 'LOGICAL2INTEGER'
+character(*),parameter:: routine_name = 'INTEGER2LOGICAL'
 
 if      (tf_int.eq.0) then
    tf = .false.

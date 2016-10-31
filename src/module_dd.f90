@@ -77,6 +77,7 @@ module module_dd
          integer ::             nnod    ! number of nodes
          integer ::             ndof    ! number of degrees of freedom
          integer ::             ndim    ! dimension of the problem
+         integer ::             meshdim ! dimension of the mesh - e.g. shells in 3D have 2, beams have 1, etc.
          ! description of subdomain mesh
          integer ::             linet    ! length of INET array 
          integer,allocatable ::  inet(:) ! INET array - indices of nodes on elements
@@ -94,6 +95,9 @@ module module_dd
          integer ::             lxyz2    ! number of x,y,z vectors
          real(kr),allocatable :: xyz(:,:)! array of coordinates
          ! components of the nodal graph
+         logical ::             find_components     = .false.  
+         logical ::             use_dual_mesh_graph = .false. ! use dual mesh graph for detecting components?
+         integer ::             neighbouring = 1              ! how many nodes need element to share to create an edge in graph?
          logical ::             is_nodal_components_loaded = .false.
          integer ::             nnodal_components    ! number of local subcomponents of the mesh - 1 for contiguous domain
          integer ::             lnodal_components    ! lenght of NODAL_COMPONENTS array - number of nodes
@@ -1796,7 +1800,8 @@ end subroutine
 !**************************************************************************
 subroutine dd_localize_mesh(sub,isub,ndim,meshdim,nelem,nnod,&
                             inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2,&
-                            iets,liets)
+                            iets,liets,&
+                            find_components, use_dual_mesh_graph, neighbouring)
 !**************************************************************************
 ! Subroutine for localization of global mesh to particular subdomain, 
 ! loads the data directly to the structure
@@ -1829,6 +1834,11 @@ subroutine dd_localize_mesh(sub,isub,ndim,meshdim,nelem,nnod,&
       integer,intent(in) :: liets
       integer,intent(in) ::  iets(liets)
 
+! detection of components
+      logical,intent(in) :: find_components      
+      logical,intent(in) :: use_dual_mesh_graph  
+      integer,intent(in) :: neighbouring ! element_neighbouring
+
 ! local vars
       character(*),parameter:: routine_name = 'DD_LOCALIZE_MESH'
       integer ::            lkdof
@@ -1842,7 +1852,6 @@ subroutine dd_localize_mesh(sub,isub,ndim,meshdim,nelem,nnod,&
       integer ::             i, j, ie, inod, inods, idofn 
       integer ::             indn, indvg, indvs
 
-      logical :: find_components = .true.
 
       if (isub .ne. sub%isub) then
          call error(routine_name,'subdomain index mismatch for subdomain:', isub)
@@ -1936,7 +1945,8 @@ subroutine dd_localize_mesh(sub,isub,ndim,meshdim,nelem,nnod,&
       call dd_upload_sub_mesh(sub, nelems, nnods, ndofs, ndim, meshdim, &
                               nndfs,lnndfs, nnets,lnnets, 0, inets,linets, isngns,lisngns, &
                               isvgvns,lisvgvns, isegns,lisegns,&
-                              xyzs,lxyzs1,lxyzs2, find_components) 
+                              xyzs,lxyzs1,lxyzs2, &
+                              find_components, use_dual_mesh_graph, neighbouring) 
 
       deallocate(nndfs,kdofs)
       deallocate(xyzs)
@@ -2419,7 +2429,8 @@ end subroutine
 subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
                               nndf,lnndf, nnet,lnnet, numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
-                              xyz,lxyz1,lxyz2, find_components)
+                              xyz,lxyz1,lxyz2, &
+                              find_components, use_dual_mesh_graph, neighbouring)
 !*********************************************************************************
 ! Subroutine for loading mesh data into sub structure
       use module_utils
@@ -2441,15 +2452,13 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
       integer,intent(in) ::  isegn(lisegn)
       integer,intent(in) :: lxyz1, lxyz2
       real(kr),intent(in)::  xyz(lxyz1,lxyz2)
-      logical,intent(in) :: find_components  ! find and store components of nodal graph
+      logical,intent(in) :: find_components      
+      logical,intent(in) :: use_dual_mesh_graph  
+      integer,intent(in) :: neighbouring ! element_neighbouring
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_UPLOAD_SUB_MESH'
-! ################ parameters to set
-      integer,parameter :: node_neighbouring = 1       ! any element connecting nodes counts as a graph edge (default)
-      integer :: element_neighbouring                  ! how many nodes need elements to share to call it an edge in graph
-      logical, parameter :: use_dual_mesh_graph = .true. ! switch if you know what you are doing
-! ################ end parameter to set
+      integer,parameter :: node_neighbouring = 1  ! any element connecting nodes counts as a graph edge (default)
       integer :: i, j
       integer :: ie, indinet, indnode, ine, nne, indcomponent, nelcomponents
 
@@ -2502,6 +2511,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
       sub%nnod    = nnod
       sub%ndof    = ndof
       sub%ndim    = ndim
+      sub%meshdim = meshdim
 
       sub%linet   = linet
       allocate(sub%inet(linet))
@@ -2584,10 +2594,10 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
             ngraph_vertex = nelem
             ! how many nodes have to share two elements to call them adjacent in a graph
             ! set properly !!!!!!!!!!!!!!!!!
-            element_neighbouring = meshdim
+            !element_neighbouring = meshdim
             !element_neighbouring = 1
             !!!!!!!!!!!!!!!!!!
-            call graph_from_mesh(ngraph_vertex,graphtype,element_neighbouring,&
+            call graph_from_mesh(ngraph_vertex,graphtype,neighbouring,&
                                  sub%inet,sub%linet,&
                                  sub%nnet,sub%lnnet,&
                                  ietn,lietn, netn,lnetn,&
@@ -2642,6 +2652,10 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
                                   sub%nodal_components,sub%lnodal_components,sub%nnodal_components)
          end if
 
+         ! data for creating components
+         sub%find_components = find_components
+         sub%use_dual_mesh_graph = use_dual_mesh_graph
+         sub%neighbouring = neighbouring
 
          deallocate(kinet)
          deallocate(netn,ietn,kietn)

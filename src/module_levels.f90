@@ -139,7 +139,11 @@ module module_levels
 
          integer ::             idelm    ! unit with opened Fortran unformatted file with element matrices
 
-         integer ::             neighbouring = 0 ! how many nodes must be shared to call two elements neighbours
+         logical ::             find_components = .true. ! should components be detected?
+         logical ::             use_dual_mesh_graph = .false. ! if yes, should they be derived from 
+                                                              ! the dual graph of subdomain mesh?
+         integer ::             neighbouring = 1              ! if yes, how many nodes two elements need to share 
+                                                              ! to define an edge in the graph?
          logical ::      load_division = .false. ! should division into subdomains be read from file?
 
          logical :: compute_reactions = .false. ! should reactions be computed on the level?
@@ -619,7 +623,8 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled, &
                                         user_constraints,luser_constraints1,luser_constraints2, &
                                         element_data,lelement_data1,lelement_data2, &
-                                        dof_data,ldof_data, find_components)
+                                        dof_data,ldof_data, &
+                                        find_components, use_dual_mesh_graph, neighbouring)
 !***********************************************************************************
 ! Subroutine for loading LOCAL data of one subdomain at first level
       use module_utils
@@ -669,6 +674,8 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       integer, intent(in)::  ldof_data           ! length of array DOF_DATA
       real(kr), intent(in):: dof_data(ldof_data) ! array for additional data on dofs      
       logical, intent(in)::  find_components
+      logical, intent(in)::  use_dual_mesh_graph  
+      integer, intent(in)::  neighbouring         
 
       ! local vars 
       character(*),parameter:: routine_name = 'LEVELS_UPLOAD_SUBDOMAIN_DATA'
@@ -726,7 +733,7 @@ subroutine levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       call dd_upload_sub_mesh(levels(iactive_level)%subdomains(isub_loc), nelems, nnods, ndofs, ndim, meshdim, &
                               nndf,lnndf, nnet,lnnet, levels_numshift, inet,linet, &
                               isngn,lisngn, isvgvn,lisvgvn, isegn,lisegn,&
-                              xyz,lxyz1,lxyz2, find_components)
+                              xyz,lxyz1,lxyz2, find_components, use_dual_mesh_graph, neighbouring)
 
       call dd_upload_bc(levels(iactive_level)%subdomains(isub_loc), ifix,lifix, fixv,lfixv)
 
@@ -1476,16 +1483,26 @@ subroutine levels_prepare_standard_level(parallel_division,&
       levels(ilevel)%ndim    = levels(ilevel-1)%ndim
       levels(ilevel)%meshdim = levels(ilevel-1)%meshdim
       ! set neighbouring for higher levels than 1 - it is never given
+      !if ( ilevel.gt.1 ) then
+      !   if      ( levels(ilevel)%meshdim .eq. 3 ) then
+      !      levels(ilevel)%neighbouring = 4
+      !   else if ( levels(ilevel)%meshdim .eq. 2 ) then
+      !      levels(ilevel)%neighbouring = 3
+      !   else if ( levels(ilevel)%meshdim .eq. 1 ) then
+      !      levels(ilevel)%neighbouring = 1
+      !   else
+      !      call error ( routine_name, 'Unsupported mesh dimension :', levels(ilevel)%meshdim )
+      !   end if
+      !end if
       if ( ilevel.gt.1 ) then
-         if      ( levels(ilevel)%meshdim .eq. 3 ) then
-            levels(ilevel)%neighbouring = 4
-         else if ( levels(ilevel)%meshdim .eq. 2 ) then
-            levels(ilevel)%neighbouring = 3
-         else if ( levels(ilevel)%meshdim .eq. 1 ) then
-            levels(ilevel)%neighbouring = 1
-         else
-            call error ( routine_name, 'Unsupported mesh dimension :', levels(ilevel)%meshdim )
-         end if
+         levels(ilevel)%find_components     = levels(ilevel-1)%find_components
+         levels(ilevel)%use_dual_mesh_graph = levels(ilevel-1)%use_dual_mesh_graph
+         levels(ilevel)%neighbouring        = levels(ilevel-1)%neighbouring
+      else
+         ! copy the parameters from the first subdomain to the global data for the level
+         levels(ilevel)%find_components     = levels(ilevel)%subdomains(1)%find_components
+         levels(ilevel)%use_dual_mesh_graph = levels(ilevel)%subdomains(1)%use_dual_mesh_graph
+         levels(ilevel)%neighbouring        = levels(ilevel)%subdomains(1)%neighbouring
       end if
       ! for debugging purposes
       !if (ilevel.gt.1) then
@@ -1824,7 +1841,10 @@ subroutine levels_prepare_standard_level(parallel_division,&
                                levels(ilevel)%nnet,levels(ilevel)%lnnet,&
                                levels(ilevel)%nndf,levels(ilevel)%lnndf,&
                                levels(ilevel)%xyz,levels(ilevel)%lxyz1,levels(ilevel)%lxyz2,&
-                               levels(ilevel)%iets,levels(ilevel)%liets)
+                               levels(ilevel)%iets,levels(ilevel)%liets, &
+                               levels(ilevel)%find_components, &
+                               levels(ilevel)%use_dual_mesh_graph, &
+                               levels(ilevel)%neighbouring)
       end do
 
 !-----profile

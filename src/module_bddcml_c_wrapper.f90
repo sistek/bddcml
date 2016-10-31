@@ -156,7 +156,8 @@ subroutine bddcml_upload_subdomain_data_c(nelem, nnod, ndof, ndim, meshdim, &
                                           matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int,&
                                           user_constraints,luser_constraints1,luser_constraints2,&
                                           element_data,lelement_data1,lelement_data2, &
-                                          dof_data,ldof_data, find_components_int) &
+                                          dof_data,ldof_data, &
+                                          find_components_int, use_dual_mesh_graph_int, neighbouring) &
            bind(c)
 !**************************************************************************************
 ! Subroutine for loading global data as zero level
@@ -263,7 +264,27 @@ subroutine bddcml_upload_subdomain_data_c(nelem, nnod, ndof, ndim, meshdim, &
       real(c_real_type), intent(in):: dof_data(ldof_data) ! array for data on degrees of freedom
 
       ! should the mesh components be detected ? 
-      integer(c_integer_type), intent(in)::  find_components_int 
+      ! Should be the same for all subdomains.
+      integer(c_integer_type), intent(in)::  find_components_int  ! 0 = mesh components will not be detected and the subdomain is considered to be connected
+                                                                  ! 1 = components will be detected based on the dual graph of the mesh 
+                                                                  ! This is recommended for unstructured meshes where a subdomains might be of disconnected parts. 
+                                                                  ! However it may become expensive for high order elements.
+
+      ! if find_components_int = 1, should the dual graph of mesh be used for detecting components? 
+      ! Not accessed if detection of subdomain components is switched off by find_components_int = 0.
+      ! Should be the same for all subdomains.
+      integer(c_integer_type), intent(in)::  use_dual_mesh_graph_int  ! 0 = mesh components will be detected from primal graph of the mesh, 
+                                                                      !     where element nodes are graph vertices and a graph edge is introduced 
+                                                                      !     if they are connected by the same element
+                                                                      ! 1 = dual graph of mesh will be used for detecting components.
+                                                                      !     Dual graph of mesh contains elements as graph vertices and a graph edge is
+                                                                      !     introduced if two elements share at least the number of nodes prescribed by
+                                                                      !     the neighbouring parameter.
+
+      ! How many nodes need to be shared by two elements to declare a graph edge between them? 
+      ! Accessed only if find_components_int = 1 and use_dual_mesh_graph_int = 1. A graph edge is introduced between two elements if
+      ! they share number of nodes >= neighbouring. Should be the same for all subdomains.
+      integer(c_integer_type), intent(in)::  neighbouring         
 
 
       call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
@@ -277,7 +298,8 @@ subroutine bddcml_upload_subdomain_data_c(nelem, nnod, ndof, ndim, meshdim, &
                                         matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int,&
                                         user_constraints,luser_constraints1,luser_constraints2,&
                                         element_data,lelement_data1,lelement_data2, &
-                                        dof_data,ldof_data, find_components_int) 
+                                        dof_data,ldof_data, &
+                                        find_components_int, use_dual_mesh_graph_int, neighbouring) 
 end subroutine
 
 !************************************************************************************************

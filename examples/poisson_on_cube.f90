@@ -124,6 +124,13 @@ program poisson_on_cube
 ! recommended for unstructured meshes, but could be switched off for these simple cubes
       integer,parameter :: find_components_int = 1
 
+! if yes, should dual graph of the mesh be used for detecting components?
+      integer,parameter :: use_dual_mesh_graph_int = 1
+
+! if yes, how many nodes need two element to share to define them as neighbours? Usually, enough nodes to mark a face, but not
+! edge or just vertex.
+      integer,parameter :: neighbouring = 3
+
 ! *******************
 ! PROBLEM PARAMETERS:
 ! *******************
@@ -496,7 +503,8 @@ program poisson_on_cube
                                            matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int, &
                                            user_constraints,luser_constraints1,luser_constraints2, &
                                            element_data,lelement_data1,lelement_data2,&
-                                           dof_data,ldof_data, find_components_int)
+                                           dof_data,ldof_data, &
+                                           find_components_int, use_dual_mesh_graph_int, neighbouring)
 
          deallocate(inets,nnets,nndfs,isegns,isngns,isvgvns)
          deallocate(xyzs)

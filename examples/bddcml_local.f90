@@ -54,6 +54,13 @@ program bddcml_local
 ! find components of the mesh and handle them as independent subdomains when selecting coarse dofs 
       integer,parameter :: find_components_int = 1
 
+      ! if yes, should dual graph of the mesh be used for detecting components?
+      integer,parameter :: use_dual_mesh_graph_int = 1
+
+      ! if yes, how many nodes need two element to share to define them as neighbours? Usually, enough nodes to mark a face, but not
+      ! edge or just vertex.
+      integer,parameter :: neighbouring = 3
+
 ! use default values in preconditioner? In such case, all other parameters are ignored
       integer,parameter :: use_preconditioner_defaults = 0
 
@@ -594,7 +601,8 @@ program bddcml_local
                                            matrixtype, i_sparse, j_sparse, a_sparse, la, is_assembled_int, &
                                            user_constraints,luser_constraints1,luser_constraints2, &
                                            element_data,lelement_data1,lelement_data2,&
-                                           dof_data,ldof_data,find_components_int)
+                                           dof_data,ldof_data, &
+                                           find_components_int, use_dual_mesh_graph_int, neighbouring)
          deallocate(inets,nnets,nndfs,xyzs)
          deallocate(kdofs)
          deallocate(rhss)
