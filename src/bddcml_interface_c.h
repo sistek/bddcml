@@ -23,7 +23,8 @@ void bddcml_upload_subdomain_data_c( int *nelem, int *nnod, int *ndof, int *ndim
                                      int *matrixtype, int *i_sparse, int *j_sparse, double *a_sparse, int *la, int *is_assembled_int,
                                      double *user_constraints, int *luser_constraints1, int *luser_constraints2,
                                      double *element_data, int *lelement_data1, int *lelement_data2,
-                                     double *dof_data, int *ldof_data, int *find_components_int );
+                                     double *dof_data, int *ldof_data, 
+                                     int *find_components_int, int *use_dual_mesh_graph_int, int *neighbouring );
 
 void bddcml_setup_preconditioner_c( int *matrixtype, int *use_defaults_int,
                                     int *parallel_division_int, 
