@@ -2585,6 +2585,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
             ! how many nodes have to share two elements to call them adjacent in a graph
             ! set properly !!!!!!!!!!!!!!!!!
             element_neighbouring = meshdim
+            !element_neighbouring = 1
             !!!!!!!!!!!!!!!!!!
             call graph_from_mesh(ngraph_vertex,graphtype,element_neighbouring,&
                                  sub%inet,sub%linet,&
