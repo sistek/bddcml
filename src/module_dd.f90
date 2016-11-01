@@ -1131,7 +1131,7 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
          if (is_bc_present) then
             lbc = ndofs
             allocate(bc(lbc))
-            call zero(bc,lbc)
+            bc(:) = 0._kr
          end if
 
          if (suba(isub_loc)%is_fixed_rows_matrix_loaded) then
@@ -1205,7 +1205,7 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
             ndofis = suba(isub_loc)%ndofi
             lbci = ndofis
             allocate(bci(lbci))
-            call zero(bci,lbci)
+            bci(:) = 0._kr
             call dd_map_sub_to_subi(suba(isub_loc), bc,lbc, bci,lbci) 
             call dd_comm_upload(suba(isub_loc), bci,lbci) 
             call dd_load_eliminated_bc(suba(isub_loc), bc,lbc)
@@ -1225,7 +1225,7 @@ subroutine dd_fix_constraints(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsub,
             ndofis = suba(isub_loc)%ndofi
             lbci = ndofis
             allocate(bci(lbci))
-            call zero(bci,lbci)
+            bci(:) = 0._kr
 
             call dd_comm_download(suba(isub_loc), bci,lbci) 
             ! add correction from neighbours
@@ -1308,7 +1308,7 @@ subroutine dd_compute_reactions(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsu
          if (.not.allocated(suba(isub_loc)%rea)) then
             allocate(suba(isub_loc)%rea(lrea))
          end if
-         call zero(suba(isub_loc)%rea,suba(isub_loc)%lrea)
+         suba(isub_loc)%rea(:) = 0._kr
 
          ! eliminate natural BC
          if (suba(isub_loc)%is_bc_present) then
@@ -1327,7 +1327,7 @@ subroutine dd_compute_reactions(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsu
             ndofis = suba(isub_loc)%ndofi
             lreai = ndofis
             allocate(reai(lreai))
-            call zero(reai,lreai)
+            reai(:) = 0._kr
             call dd_map_sub_to_subi(suba(isub_loc), suba(isub_loc)%rea,suba(isub_loc)%lrea, reai,lreai) 
             call dd_comm_upload(suba(isub_loc), reai,lreai) 
             deallocate(reai)
@@ -1342,7 +1342,7 @@ subroutine dd_compute_reactions(suba,lsuba, comm_all, sub2proc,lsub2proc,indexsu
             ndofis = suba(isub_loc)%ndofi
             lreai = ndofis
             allocate(reai(lreai))
-            call zero(reai,lreai)
+            reai(:) = 0._kr
 
             call dd_comm_download(suba(isub_loc), reai,lreai) 
             ! add correction from neighbours
@@ -3939,8 +3939,8 @@ subroutine dd_matrix_tri2blocktri(sub,remove_original)
       lmaski = ndof
       lmasko = ndof
       allocate(maski(lmaski),masko(lmasko))
-      call zero(maski,lmaski)
-      call zero(masko,lmasko)
+      maski(:) = 0
+      masko(:) = 0
 
       ndofi  = sub%ndofi
       do idofi = 1,ndofi
@@ -4185,7 +4185,7 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
             lmatrix1 = ncdof
             lmatrix2 = nvar
             allocate(matrix(lmatrix1,lmatrix2))
-            call zero(matrix,lmatrix1,lmatrix2)
+            matrix(:,:) = 0._kr
 
             pointdof = 0
             do inod = 1,nnod
@@ -4267,7 +4267,7 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2)
       lmatrix1 = lcadapt2
       lmatrix2 = nvarglb
       allocate(matrix(lmatrix1,lmatrix2))
-      call zero(matrix,lmatrix1,lmatrix2)
+      matrix(:,:) = 0._kr
       
       ! copy transposed constraints
       do i = 1,nvarglb
@@ -4352,7 +4352,7 @@ subroutine dd_load_user_constraints(sub,itype)
             lmatrix2 = nvar
 
             allocate(matrix(lmatrix1,lmatrix2))
-            call zero(matrix,lmatrix1,lmatrix2)
+            matrix(:,:) = 0._kr
 
             do iconstr = 1,nuser_constraints
                pointdof = 0
@@ -4612,7 +4612,7 @@ subroutine dd_orthogonalize_constraints(sub,itype)
             sub%cnodes(icnode)%lmatrix2 = lmatrix2
             deallocate(sub%cnodes(icnode)%matrix)
             allocate(sub%cnodes(icnode)%matrix(sub%cnodes(icnode)%lmatrix1,sub%cnodes(icnode)%lmatrix2))
-            call zero(sub%cnodes(icnode)%matrix,sub%cnodes(icnode)%lmatrix1,sub%cnodes(icnode)%lmatrix2)
+            sub%cnodes(icnode)%matrix(:,:) = 0._kr
       
             nnz = 0
             do i = 1,nvalid
@@ -4815,7 +4815,7 @@ subroutine dd_construct_cnodes(sub)
          lxyz = sub%ndim
          sub%cnodes(icnode)%lxyz = lxyz
          allocate(sub%cnodes(icnode)%xyz(lxyz))
-         call zero(sub%cnodes(icnode)%xyz,lxyz)
+         sub%cnodes(icnode)%xyz(:) = 0._kr
          ! create averaged coordinates
          do i = 1,nnodgl
             indin = sub%ignsin(iglob,i)
@@ -5315,7 +5315,7 @@ subroutine dd_prepare_coarse(sub,keep_global)
       lphis = ndofaaug*nconstr
       allocate(phis(lphis))
       ! zero all entries
-      call zero(phis,lphis)
+      phis(:) = 0._kr
 
       ! put identity into the block of constraints
       do j = 1,nconstr
@@ -5387,7 +5387,7 @@ subroutine dd_prepare_coarse(sub,keep_global)
       ! A^T
       if (sub%matrixtype .eq. 0) then
          ! zero all entries
-         call zero(phis,lphis)
+         phis(:) = 0._kr
 
          ! put identity into the block of constraints
          do j = 1,nconstr
@@ -6782,8 +6782,8 @@ subroutine dd_prepare_reduced_rhs(sub,rhs,lrhs, solo,lsolo, g,lg)
       end if
 
       ! initialize solo and g
-      call zero(solo,lsolo)
-      call zero(g,lg)
+      solo(:) = 0._kr
+      g(:)    = 0._kr
 
       ! continue for nontrivial interior block
       if (ndofo.gt.0) then
@@ -6902,7 +6902,7 @@ subroutine dd_fix_reduced_rhs(sub, g,lg)
 
          lrhs = ndof
          allocate(rhs(lrhs))
-         call zero(rhs,lrhs)
+         rhs(:) = 0._kr
 
          call dd_map_subi_to_sub(sub, g,lg, rhs,lrhs)
 
@@ -7563,7 +7563,7 @@ subroutine dd_prepare_explicit_schur(sub)
       allocate(e(le))
       do j = 1,ndofi
          ! construct vector of cartesian basis
-         call zero(e,le)
+         e(:) = 0._kr
          e(j) = 1._kr
 
          ! get column of S*I
@@ -8681,7 +8681,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          sub_aux(isub_loc)%lnsubnode = lnsubnode
          allocate(sub_aux(isub_loc)%nsubnode(lnsubnode))
          nsubnode => sub_aux(isub_loc)%nsubnode
-         call zero(nsubnode,lnsubnode)
+         nsubnode(:) = 0
 
          kishnadj  = 0
          do ia = 1,nadj
@@ -8721,7 +8721,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          globsubs => sub_aux(isub_loc)%globsubs
          globsubs = 0
          ! use now nsubnode as counters
-         call zero(nsubnode,lnsubnode)
+         nsubnode(:) = 0
          kishnadj  = 0
          do ia = 1,nadj
             ! get index of neighbour
@@ -8791,7 +8791,7 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
 
          ! Initialize KGLOBS
          kglobs = -1
-         call zero(globtypes,lglobtypes)
+         globtypes(:) = 0
 
          iglobs   = 0
          icorners = 0
@@ -9451,11 +9451,11 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          ligvsivns1 = nglobs
          ligvsivns2 = maxval(nglobvars)
          allocate(igvsivns(ligvsivns1,ligvsivns2))
-         call zero(igvsivns,ligvsivns1,ligvsivns2)
+         igvsivns(:,:) = 0
          lignsins1 = nglobs
          lignsins2 = maxval(nglobnodess)
          allocate(ignsins(lignsins1,lignsins2))
-         call zero(ignsins,lignsins1,lignsins2)
+         ignsins(:,:) = 0
 
          lkdofi = nnodi
          allocate(kdofi(lkdofi))
@@ -9473,8 +9473,8 @@ subroutine dd_create_globs(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, co
          !call flush(6)
 
          ! use nglobnodess as counter
-         call zero(nglobnodess,lnglobnodess)
-         call zero(nglobvars,lnglobvars)
+         nglobnodess(:) = 0
+         nglobvars(:) = 0
          do inodi = 1,nnodi
             if (globtypes(inodi) .eq. 1 .or. globtypes(inodi) .eq. 2 ) then
                ! it is a face or edge
@@ -10592,7 +10592,7 @@ subroutine dd_create_globs2(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, c
          sub_aux(isub_loc)%lnsubnode = lnsubnode
          allocate(sub_aux(isub_loc)%nsubnode(lnsubnode))
          nsubnode => sub_aux(isub_loc)%nsubnode
-         call zero(nsubnode,lnsubnode)
+         nsubnode(:) = 0
 
          kishnadj  = 0
          do ia = 1,nadj
@@ -10632,7 +10632,7 @@ subroutine dd_create_globs2(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, c
          globsubs => sub_aux(isub_loc)%globsubs
          globsubs = 0
          ! use now nsubnode as counters
-         call zero(nsubnode,lnsubnode)
+         nsubnode(:) = 0
          kishnadj  = 0
          do ia = 1,nadj
             ! get index of neighbour
@@ -10702,7 +10702,7 @@ subroutine dd_create_globs2(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, c
 
          ! Initialize KGLOBS
          kglobs = -1
-         call zero(globtypes,lglobtypes)
+         globtypes(:) = 0
 
          iglobs   = 0
          icorners = 0
@@ -11744,10 +11744,10 @@ subroutine dd_create_globs2(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, c
          allocate(global_glob_numbers(lglobal_glob_numbers))
          lnglobvars = nglobs
          allocate(nglobvars(lnglobvars))
-         call zero(nglobvars,lnglobvars)
+         nglobvars(:) = 0
          lnglobnodess = nglobs
          allocate(nglobnodess(lnglobnodess))
-         call zero(nglobnodess,lnglobnodess)
+         nglobnodess(:) = 0
          lglob_types = nglobs
          allocate(glob_types(lglob_types))
 
@@ -11829,11 +11829,11 @@ subroutine dd_create_globs2(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, c
          ligvsivns1 = nglobs
          ligvsivns2 = maxval(nglobvars)
          allocate(igvsivns(ligvsivns1,ligvsivns2))
-         call zero(igvsivns,ligvsivns1,ligvsivns2)
+         igvsivns(:,:) = 0
          lignsins1 = nglobs
          lignsins2 = maxval(nglobnodess)
          allocate(ignsins(lignsins1,lignsins2))
-         call zero(ignsins,lignsins1,lignsins2)
+         ignsins(:,:) = 0
 
          lkdofi = nnodi
          allocate(kdofi(lkdofi))
@@ -11851,8 +11851,8 @@ subroutine dd_create_globs2(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub, c
          !call flush(6)
 
          ! use nglobnodess as counter
-         call zero(nglobnodess,lnglobnodess)
-         call zero(nglobvars,lnglobvars)
+         nglobnodess(:) = 0
+         nglobvars(:) = 0
          do inodi = 1,nnodi
             if (globtypes(inodi) .eq. 1 .or. globtypes(inodi) .eq. 2 ) then
                ! it is a face or edge
@@ -12801,7 +12801,7 @@ subroutine dd_weights_prepare(suba,lsuba, sub2proc,lsub2proc,indexsub,lindexsub,
          lwi = ndofi
          allocate(wi(lwi))
 
-         call zero(rhoiaux,lrhoi)
+         rhoiaux(:) = 0._kr
          call dd_comm_download(suba(isub_loc), rhoiaux,lrhoi)
 
          call dd_get_my_coefficients_for_weights(suba(isub_loc), weights_type, rhoi,lrhoi)
@@ -13077,7 +13077,7 @@ subroutine dd_get_interface_diagonal(sub, rhoi,lrhoi)
       ! allocate vector for whole subdomain diagonal
       lrho = ndof
       allocate(rho(lrho))
-      call zero(rho,lrho)
+      rho(:) = 0._kr
 
       la = sub%la
       do ia = 1,la
@@ -13306,7 +13306,7 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
       lvaug2 = ndofnx
       allocate(vaug(lvaug1,lvaug2))
 
-      call zero(vi,lvi)
+      vi(:) = 0._kr
 
       ! only continue for non-degenerate subdomains
       if (ndofnx .gt. 0 ) then
@@ -13475,7 +13475,7 @@ subroutine dd_generate_interface_schur_row_sums(sub, vi,lvi)
 
       ! prepare unit load vector at subdomain interface
       ndofi = sub%ndofi
-      call zero(vi,lvi)
+      vi(:) = 0._kr
 
       lri = ndofi
       allocate(ri(lri))
@@ -13558,7 +13558,7 @@ subroutine dd_generate_interface_face_schur_row_sums(sub, vi,lvi)
       lsi2 = ndofnx
       allocate(si(lsi1*lsi2))
 
-      call zero(vi,lvi)
+      vi(:) = 0._kr
 
       if (ndofnx.gt.0) then
 
@@ -13743,7 +13743,7 @@ subroutine dd_generate_interface_unit_jump(sub, vi,lvi)
       lalphas = ndofnx
       allocate(alphas(lalphas))
 
-      call zero(vi,lvi)
+      vi(:) = 0._kr
 
       if (ndofnx.gt.0) then
 

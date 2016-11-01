@@ -1164,7 +1164,7 @@ subroutine levels_read_level_from_file(problemname,comm,ilevel)
 !*****************************************************************MPI
       ! when reading from L* file, array of numbers of degrees of freedom at nodes is not yet available
       ndofc = 0
-      call zero(nndfc,lnndfc)
+      nndfc(:) = 0
 
       ! save mesh into structure
       levels(ilevel)%nelem = nelem
@@ -2570,7 +2570,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          ! in nndfc, nodes are ordered as corners - edges - faces
          lnndfc   = nnodc
          allocate (nndfc(lnndfc))
-         call zero(nndfc,lnndfc)
+         nndfc(:) = 0
          call dd_embed_cnodes(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                               levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
                               comm_all, nndfc,lnndfc)
@@ -2704,7 +2704,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       ! in nndfc, nodes are ordered as corners - edges - faces
       lnndfc   = nnodc
       allocate (nndfc(lnndfc))
-      call zero(nndfc,lnndfc)
+      nndfc(:) = 0
       call dd_embed_cnodes(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                            levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
                            comm_all, nndfc,lnndfc)
@@ -2829,7 +2829,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
             lpairs1 = npair
             lpairs2 = 3
             allocate(pairs(lpairs1,lpairs2))
-            call zero(pairs,lpairs1,lpairs2)
+            pairs(:,:) = 0
             if (myid.eq.0) then
                do ipair = 1,npair
                   ! first column is associated with processors - initialize it to -1 = no processor assigned
@@ -3718,7 +3718,7 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
 
       ! prepare global residual 
       allocate(rescaux(lresc))
-      call zero(rescaux,lresc)
+      rescaux(:) = 0._kr
 
       ! get local contribution to coarse residual
       do isub_loc = 1,nsub_loc
@@ -3736,7 +3736,7 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
 
          lrescs = ndofcs
          allocate(rescs(lrescs))
-         call zero(rescs,lrescs)
+         rescs(:) = 0._kr
 
          ! rc = phis_dual' * wi * resi
          call dd_phisi_dual_apply(levels(ilevel)%subdomains(isub_loc), aux,laux, rescs,lrescs)
@@ -3749,7 +3749,7 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
          call dd_get_aug_size(levels(ilevel)%subdomains(isub_loc), ndofaaugs)
          laux2 = ndofaaugs
          allocate(aux2(laux2))
-         call zero(aux2,laux2)
+         aux2(:) = 0._kr
          call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
          ! truncate the vector for embedding - zeros at the end
          call dd_map_subi_to_sub(levels(ilevel)%subdomains(isub_loc), aux,laux, aux2,ndofs)
@@ -3759,7 +3759,7 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
          call dd_solve_aug(levels(ilevel)%subdomains(isub_loc), aux2,laux2, nrhs, solve_adjoint)
 
          ! get interface part of the vector of preconditioned residual
-         call zero(common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
+         common_krylov_data(isub_loc)%vec_out(:) = 0._kr
          call dd_map_sub_to_subi(levels(ilevel)%subdomains(isub_loc), aux2,ndofs, &
                                  common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
 
@@ -3867,11 +3867,11 @@ subroutine levels_corsub_standard_level(ilevel)
 
       ! prepare global coarse residual 
       allocate(rescaux(lresc))
-      call zero(rescaux,lresc)
+      rescaux(:) = 0._kr
 
       ! prepare global residual 
       allocate(resaux(lres))
-      call zero(resaux,lres)
+      resaux(:) = 0._kr
 
       do isub_loc = 1,nsub_loc
          isub = levels(ilevel)%indexsub(isub_loc)
@@ -3893,13 +3893,13 @@ subroutine levels_corsub_standard_level(ilevel)
          ! prepare local residual from condensed RHS
          lress = ndofs
          allocate(ress(lress))
-         call zero(ress,lress)
+         ress(:) = 0._kr
 
          call dd_map_subi_to_sub(levels(ilevel)%subdomains(isub_loc),gs,lgs,ress,lress)
 
          lrescs = ndofcs
          allocate(rescs(lrescs))
-         call zero(rescs,lrescs)
+         rescs(:) = 0._kr
 
          ! rc = phis_dual' * wi * resi
          call dd_phis_dual_apply(levels(ilevel)%subdomains(isub_loc), ress,lress, rescs,lrescs)
@@ -3912,7 +3912,7 @@ subroutine levels_corsub_standard_level(ilevel)
          call dd_get_aug_size(levels(ilevel)%subdomains(isub_loc), ndofaaugs)
          lresaugs = ndofaaugs
          allocate(resaugs(lresaugs))
-         call zero(resaugs,lresaugs)
+         resaugs(:) = 0._kr
          ! truncate the vector for embedding - zeros at the end
          do i = 1,ndofs
             resaugs(i) = ress(i)
@@ -4058,8 +4058,8 @@ subroutine levels_add_standard_level(ilevel)
       ! prepare memory for coarse contribution
       allocate(solaux(lsol))
       allocate(solaux2(lsol))
-      call zero(solaux,lsol)
-      call zero(solaux2,lsol)
+      solaux(:)  = 0._kr
+      solaux2(:) = 0._kr
 
       do isub_loc = 1,nsub_loc
 
@@ -4071,7 +4071,7 @@ subroutine levels_add_standard_level(ilevel)
 
          lsols  = ndofs
          allocate(sols(lsols))
-         call zero(sols,lsols)
+         sols(:)  = 0._kr
 
          ! restrict global solc to local solcs
          call dd_map_globc_to_subc(levels(ilevel)%subdomains(isub_loc), solc,lsolc, solcs,lsolcs)
@@ -4102,7 +4102,7 @@ subroutine levels_add_standard_level(ilevel)
       ! now SOL contains coarse and subdomain corrections
 
       ! interior POST-CORRECTION
-      call zero(solaux,lsol) 
+      solaux(:) = 0._kr
       do isub_loc = 1,nsub_loc
          isub = levels(ilevel)%indexsub(isub_loc)
 
@@ -4112,7 +4112,7 @@ subroutine levels_add_standard_level(ilevel)
 
          lsols  = ndofs
          allocate(sols(lsols))
-         call zero(sols,lsols)
+         sols(:) = 0._kr
 
          ! restrict global corrections to local sols
          call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), sol,lsol, sols,lsols)
@@ -4127,7 +4127,7 @@ subroutine levels_add_standard_level(ilevel)
                                         resos,lresos)
 
          ! map interior solution to subdomain
-         call zero(sols,lsols)
+         sols(:) = 0._kr
          call dd_map_subo_to_sub(levels(ilevel)%subdomains(isub_loc), resos,lresos, sols,lsols)
          deallocate(resos)
 
@@ -4146,7 +4146,7 @@ subroutine levels_add_standard_level(ilevel)
       deallocate(solaux2)
 
       ! add stored solution at interior
-      call zero(solaux,lsol) 
+      solaux(:) = 0._kr
       do isub_loc = 1,nsub_loc
 
          call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
@@ -4348,14 +4348,14 @@ subroutine levels_prepare_interface_initial_data(isub_loc,solis,lsolis,resis,lre
       else
          ! set zero initial guess
          ! u_0 = 0
-         call zero(sols,lsols)
+         sols(:) = 0._kr
       end if
 
       ! set initial guess to satisfy Dirichlet boundary conditions
       call dd_fix_bc(levels(ilevel)%subdomains(isub_loc), sols,lsols)
 
       ! restrict solution to interface
-      call zero(solis,lsolis)
+      solis(:) = 0._kr
       call dd_map_sub_to_subi(levels(ilevel)%subdomains(isub_loc), sols,lsols, solis,lsolis)
       deallocate(sols)
 
@@ -4407,7 +4407,7 @@ subroutine levels_sm_apply(common_krylov_data,lcommon_krylov_data)
       ! Upload data
       do isub_loc = 1,levels(ilevel)%nsub_loc
 
-         call zero(common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
+         common_krylov_data(isub_loc)%vec_out(:) = 0._kr
 
          ncol = 1
          call dd_multiply_by_schur(levels(ilevel)%subdomains(isub_loc),&
@@ -4480,7 +4480,7 @@ subroutine levels_postprocess_solution(krylov_data,lkrylov_data)
          allocate(sols(lsols))
 
          ! set zero solution
-         call zero(sols,lsols)
+         sols(:) = 0._kr
 
          ! resolve interior values
          call dd_resolve_interior(levels(ilevel)%subdomains(isub_loc), &
@@ -4589,7 +4589,7 @@ subroutine levels_get_global_solution(sol,lsol)
          if (lsol.ne.levels(ilevel)%ndof) then
             call error( routine_name, 'Space for global solution not properly allocated on root.',levels(ilevel)%ndof)
          end if
-         call zero(sol,lsol)
+         sol(:) = 0._kr
       end if
 
       do isub_loc = 1,levels(ilevel)%nsub_loc
@@ -4629,7 +4629,7 @@ subroutine levels_get_global_solution(sol,lsol)
       if (myid.eq.0) then
          lacceptedp = nproc
          allocate(acceptedp(lacceptedp))
-         call zero(acceptedp,lacceptedp)
+         acceptedp(:) = 0
          acceptedp(1) = levels(ilevel)%nsub_loc
          ! get solutions from others 
          do 
@@ -4757,7 +4757,7 @@ subroutine levels_get_global_reactions(rea,lrea)
          if (lrea.ne.levels(ilevel)%ndof) then
             call error( routine_name, 'Space for global reactions not properly allocated on root.')
          end if
-         call zero(rea,lrea)
+         rea(:) = 0._kr
       end if
 
       do isub_loc = 1,levels(ilevel)%nsub_loc
@@ -4797,7 +4797,7 @@ subroutine levels_get_global_reactions(rea,lrea)
       if (myid.eq.0) then
          lacceptedp = nproc
          allocate(acceptedp(lacceptedp))
-         call zero(acceptedp,lacceptedp)
+         acceptedp(:) = 0
          acceptedp(1) = levels(ilevel)%nsub_loc
          ! get reactions from others 
          do 

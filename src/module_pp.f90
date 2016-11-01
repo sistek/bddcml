@@ -496,7 +496,7 @@ integer :: graphtype = 0
 
       ! loop over subdomains
       ! initialize kadjsub array
-      call zero(kadjsub,lkadjsub)
+      kadjsub(:) = 0
       do isub = 1,nsub
       ! create submesh
          nelems = 0
@@ -2115,8 +2115,8 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       if (nnewvertex.ne.ncorners) then
          call error('PP_GET_GLOBS','Total number of corners does not match.')
       end if
-      call zero(kglobs,lkglobs)
-      call zero(typeglobs,ltypeglobs)
+      kglobs(:) = 0
+      typeglobs(:) = 0
 
 ! order globs as corners, edges, faces
       inodc = 0 ! pseudo coarse nodes (includes corners, edges and faces)

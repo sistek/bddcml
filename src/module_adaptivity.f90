@@ -207,7 +207,7 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
 ! copy pairs to module array
       lpair_subdomains1 = npair
       allocate(pair_subdomains(lpair_subdomains1,lpair_subdomains2))
-      call zero(pair_subdomains,lpair_subdomains1,lpair_subdomains2)
+      pair_subdomains(:,:) = 0
       do ipair = 1,npair
          ! first column is associated with processors - initialize it to -1 = no processor assigned
          do j = 1,lpair_subdomains2
@@ -564,7 +564,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             i_compute_pair = .false.
          end if
 
-         call zero(pair_data,lpair_data)
+         pair_data(:) = 0
          if (i_compute_pair) then
 
             call adaptivity_get_pair_data(my_pair,pair_data,lpair_data)
@@ -952,7 +952,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             ldij1 = ndofi_i + ndofi_j
             ldij2 = ncommon_crows
             allocate(dij(ldij1,ldij2))
-            call zero(dij,ldij1,ldij2)
+            dij(:,:) = 0
 
             ! prepare arrays kdofi_i and kdofi_j
             lkdofi_i = nnodi_i
@@ -1147,7 +1147,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
             lpairslavery = ndofi_i + ndofi_j
             allocate(pairslavery(lpairslavery))
-            call zero(pairslavery,lpairslavery)
+            pairslavery(:) = 0
 
             irhoicomm = 0
             shift = ndofi_i
@@ -1290,7 +1290,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                lz2 = lphisi2_i + lphisi2_j
 
                allocate(z(lz1,lz2))
-               call zero(z,lz1,lz2)
+               z(:,:) = 0
 
                ! copy phisi_i into Z
                do j = 1,lphisi2_i
@@ -1608,7 +1608,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                ldoubleschur1 = problemsize
                ldoubleschur2 = problemsize
                allocate(doubleschur(ldoubleschur1,ldoubleschur2))
-               call zero(doubleschur,ldoubleschur1,ldoubleschur2)
+               doubleschur(:,:) = 0
 
                ! initialize the matrices with local Schur complements
                do j = 1,lschur2_i
@@ -1631,11 +1631,11 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                lmata1 = problemsize
                lmata2 = problemsize
                allocate(mata(lmata1,lmata2))
-               call zero(mata,lmata1,lmata2)
+               mata(:,:) = 0
                lmatb1 = problemsize
                lmatb2 = problemsize
                allocate(matb(lmatb1,lmatb2))
-               call zero(matb,lmatb1,lmatb2)
+               matb(:,:) = 0
 
                lxaux = problemsize
                allocate(xaux(lxaux))
@@ -1645,7 +1645,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                ! build matrix A = P(I-RE)^T S (I-RE)P 
                do jcol = 1,problemsize
                   ! prepare auxiliary vector - a column of identity
-                  call zero(xaux,lxaux)
+                  xaux(:) = 0
                   xaux(jcol) = 1._kr
 
                   ! xaux = P xaux
@@ -1703,7 +1703,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
                do jcol = 1,problemsize
                   ! prepare auxiliary vector - a column of identity
-                  call zero(xaux,lxaux)
+                  xaux(:) = 0
                   xaux(jcol) = 1._kr
 
                   ! xaux = P xaux
@@ -1852,7 +1852,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   lcoarsem_adapt1 = lindrowc_i + lindrowc_j - ncommon_crows
                   lcoarsem_adapt2 = lcoarsem_adapt1
                   allocate(coarsem_adapt(lcoarsem_adapt1,lcoarsem_adapt2))
-                  call zero(coarsem_adapt,lcoarsem_adapt1,lcoarsem_adapt2)
+                  coarsem_adapt(:,:) = 0
 
                   ! construct embedding of local coarse matrices to coarse matrix of the pair
                   ! order unknowns as:  unique_i   |   unique_j   | common_crows
@@ -2788,7 +2788,7 @@ do iinstr = 1,ninstructions
       call dd_get_aug_size(suba(isub_loc), ndofaaugs)
       laux2 = ndofaaugs
       allocate(aux2(laux2))
-      call zero(aux2,laux2)
+      aux2(:) = 0
       call dd_get_size(suba(isub_loc), ndofs,nnods,nelems)
       ! truncate the vector for embedding - zeros at the end
       call dd_map_subi_to_sub(suba(isub_loc), bufrecv(point),length, aux2,ndofs)
@@ -2802,7 +2802,7 @@ do iinstr = 1,ninstructions
 
       lrescs = lindrowc
       allocate(rescs(lrescs))
-      call zero(rescs,lrescs)
+      rescs(:) = 0
 
       ! rc = phis_dual' * x
       call dd_phisi_dual_apply(suba(isub_loc), bufrecv(point),length, rescs,lrescs)
@@ -2826,7 +2826,7 @@ ireq = 0
 if (idoper.eq.5) then
 
    ! assemble local residuals to single residual
-   call zero(comm_resc,comm_lresc)
+   comm_resc(:) = 0
    do i = 1,lindrowc_adapt_i
       indc = indrowc_adapt_i(i)
 
@@ -2909,7 +2909,7 @@ do iinstr = 1,ninstructions
 
       lsolis = ndofi
       allocate(solis(lsolis))
-      call zero(solis,lsolis)
+      solis(:) = 0._kr
 
       ! z_i = z_i + phis_i * uc_i
       call dd_phisi_apply(suba(isub_loc), rescs,lrescs, solis,lsolis)
@@ -3029,7 +3029,7 @@ subroutine adaptivity_apply_complementary_projection(vec,lvec)
 ! P = I - nullB (nullB' nullB) nullB' = I - Q_1Q_1'
 ! where nullB = QR = [ Q_1 | Q_2 ] R, is the FULL QR decomposition of nullB, Q_1 has
 ! n columns, which corresponds to number of columns in null(B) 
-      use module_utils, only: zero, error
+      use module_utils, only: error
 
       implicit none
       integer, intent(in) ::    lvec
@@ -3054,7 +3054,7 @@ subroutine adaptivity_apply_complementary_projection(vec,lvec)
          call error(routine_name,'in LAPACK during first application of Q',lapack_info)
       end if
       ! put zeros in first N positions of vec
-      call zero(vec,lnullB2)
+      vec(1:lnullB2) = 0._kr
       ! xaux = Q_2 * xaux
       call DORMQR( 'Left', 'Non-Transpose', lvec, 1, lnullB2, nullB, ldnullB, &
                    tau3, vec, lvec, &
@@ -3071,8 +3071,6 @@ subroutine adaptivity_apply_null_projection(vec,lvec)
 ! P = I - D' (DD')^-1 D = I - Q_1Q_1'
 ! where D' = QR = [ Q_1 | Q_2 ] R, is the FULL QR decomposition of D', Q_1 has
 ! n columns, which corresponds to number of rows in D
-      use module_utils, only: zero
-
       implicit none
       integer, intent(in) ::    lvec
       real(kr), intent(inout) :: vec(lvec)
@@ -3088,7 +3086,7 @@ subroutine adaptivity_apply_null_projection(vec,lvec)
                    tau, vec, ldvec, &
                    work,lwork, lapack_info)
       ! put zeros in first N positions of vec
-      call zero(vec,ldij2)
+      vec(1:ldij2) = 0._kr
       ! xaux = Q_2 * xaux
       call DORMQR( 'Left', 'Non-Transpose', ldij1, 1, ldij2, dij, lddij, &
                    tau, vec, ldvec, &

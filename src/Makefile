@@ -39,7 +39,7 @@ modules: $(OBJ)
 
 bddclib: $(LIBBDDCML)
 
-# general rule s for compiling objects
+# general rule for compiling objects
 %.o : %.f90
 	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) $(INC) -c $<
 

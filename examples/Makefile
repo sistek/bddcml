@@ -13,7 +13,7 @@ EXAMPLES = bddcml_global bddcml_local poisson_on_cube
 # rules
 all: $(EXAMPLES)
 
-# general rule s for compiling objects
+# general rule for compiling objects
 %.o : %.f90 
 	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) -I../src -c $<
 

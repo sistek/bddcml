@@ -28,13 +28,6 @@ logical,private :: suppress_output = .false.
 integer,parameter,private:: unit_err    = 0 ! stderr
 integer,parameter,private:: unit_stdout = 6 ! stdout
 
-interface zero
-   module procedure zero_int_1
-   module procedure zero_int_2
-   module procedure zero_real_1
-   module procedure zero_real_2
-end interface zero
-
 interface info
    module procedure info_plain
    module procedure info_with_number_int
@@ -66,65 +59,9 @@ integer,private  ::          level_time = 0
 integer,private  ::          time_verbose = 1
 
 ! data for pseudo-random numbers
-logical :: initialized_random_numbers = .false.
+logical,private :: initialized_random_numbers = .false.
 
 contains
-
-subroutine zero_int_1(ia,lia)
-! zero integer array
-
-integer,intent(in)  :: lia
-integer,intent(out) ::  ia(lia)
-! local
-integer :: i
-
-do i = 1,lia
-   ia(i) = 0
-end do
-end subroutine zero_int_1
-
-subroutine zero_int_2(ia,lia1,lia2)
-! zero integer array
-
-integer,intent(in)  :: lia1, lia2
-integer,intent(out) ::  ia(lia1,lia2)
-! local
-integer :: i,j
-
-do j = 1,lia2
-   do i = 1,lia1
-      ia(i,j) = 0
-   end do
-end do
-end subroutine zero_int_2
-
-subroutine zero_real_1(x,lx)
-! zero real array
-
-integer,intent(in)   :: lx
-real(kr),intent(out) ::  x(lx)
-! local
-integer :: i
-
-do i = 1,lx
-   x(i) = 0.0_kr
-end do
-end subroutine zero_real_1
-
-subroutine zero_real_2(x,lx1,lx2)
-! zero real array
-
-integer,intent(in)   :: lx1, lx2
-real(kr),intent(out) ::  x(lx1,lx2)
-! local
-integer :: i,j
-
-do j = 1,lx2
-   do i = 1,lx1
-      x(i,j) = 0.0_kr
-   end do
-end do
-end subroutine zero_real_2
 
 !***********************************
 subroutine integer2string(i,stringi)
@@ -163,6 +100,28 @@ subroutine integer2string(i,stringi)
       end if
 
 end subroutine
+
+!************************************
+subroutine integer2logical(tf_int,tf)
+!************************************
+! translates C-like logical value as integer 0 = false, 1 = true into Fortran logical type
+implicit none
+integer, intent(in) :: tf_int
+logical, intent(out) :: tf
+
+! local vars
+character(*),parameter:: routine_name = 'INTEGER2LOGICAL'
+
+if      (tf_int.eq.0) then
+   tf = .false.
+else if (tf_int.eq.1) then
+   tf = .true.
+else
+   call error(routine_name, 'Illegal value of integer true/false type - not 0 nor 1 but ', tf_int)
+end if
+
+end subroutine
+
 !*************************************************
 subroutine getfname(problemname,isub,suffix,fname)
 !*************************************************
@@ -196,8 +155,10 @@ subroutine getfname(problemname,isub,suffix,fname)
 
 end subroutine
 
-! find an empty IO unit (originally written by Jaroslav Hajek)
+!******************************
 subroutine allocate_unit(iunit)
+!******************************
+! find an empty IO unit (originally written by Jaroslav Hajek)
 integer,parameter:: iunit_start = 7
 ! 
 ! purpose:      find an unused i/o unit
@@ -217,17 +178,23 @@ do
 end do
 end subroutine
 
+!****************************
 subroutine suppress_output_on
+!****************************
 ! set output suppressing flag on
 suppress_output = .true.
 end subroutine suppress_output_on
 
+!*****************************
 subroutine suppress_output_off
+!*****************************
 ! set output suppressing flag off
 suppress_output = .false.
 end subroutine suppress_output_off
 
+!*******************************
 subroutine info_plain(mname,msg)
+!*******************************
 character(*),intent(in):: mname,msg
 character(*),parameter:: info_fmt = '(a,": ",a)'
 if ( .not. suppress_output ) then
@@ -236,7 +203,9 @@ if ( .not. suppress_output ) then
 end if
 end subroutine
 
+!*************************************************
 subroutine info_with_number_int(mname,msg,inumber)
+!*************************************************
 character(*),intent(in):: mname,msg
 integer,intent(in) :: inumber
 character(*),parameter:: info_fmt = '(a,": ",a,X,i10)'
@@ -246,7 +215,9 @@ if ( .not. suppress_output ) then
 end if
 end subroutine
 
+!************************************************
 subroutine info_with_number_rp(mname,msg,rnumber)
+!************************************************
 character(*),intent(in):: mname,msg
 real(kr),intent(in) :: rnumber
 character(*),parameter:: info_fmt = '(a,": ",a,X,e17.9)'
@@ -256,7 +227,9 @@ if ( .not. suppress_output ) then
 end if
 end subroutine
 
+!**********************************
 subroutine warning_plain(mname,msg)
+!**********************************
 character(*),intent(in):: mname,msg
 character(*),parameter:: wrn_fmt = '("WARNING in ",a,": ",a)'
 if ( .not. suppress_output ) then
@@ -265,7 +238,9 @@ if ( .not. suppress_output ) then
 end if
 end subroutine
 
+!****************************************************
 subroutine warning_with_number_int(mname,msg,inumber)
+!****************************************************
 character(*),intent(in):: mname,msg
 integer,intent(in) :: inumber
 character(*),parameter:: wrn_fmt = '("WARNING in ",a,": ",a,X,i10)'
@@ -275,7 +250,9 @@ if ( .not. suppress_output ) then
 end if
 end subroutine
 
+!***************************************************
 subroutine warning_with_number_rp(mname,msg,rnumber)
+!***************************************************
 character(*),intent(in):: mname,msg
 real(kr),intent(in) :: rnumber
 character(*),parameter:: wrn_fmt = '("WARNING in ",a,": ",a,X,e17.9)'
@@ -285,7 +262,9 @@ if ( .not. suppress_output ) then
 end if
 end subroutine
 
+!********************************
 subroutine error_plain(mname,msg)
+!********************************
 character(*),intent(in):: mname,msg
 character(*),parameter:: err_fmt = '("ERROR in ",a,": ",a)'
 write(unit_err,err_fmt) mname,msg
@@ -293,7 +272,9 @@ call flush(unit_err)
 call error_exit
 end subroutine
 
+!**************************************************
 subroutine error_with_number_int(mname,msg,inumber)
+!**************************************************
 character(*),intent(in):: mname,msg
 integer,intent(in) :: inumber
 character(*),parameter:: err_fmt = '("ERROR in ",a,": ",a,X,i10)'
@@ -302,7 +283,9 @@ call flush(unit_err)
 call error_exit
 end subroutine
 
+!*************************************************
 subroutine error_with_number_rp(mname,msg,rnumber)
+!*************************************************
 character(*),intent(in):: mname,msg
 real(kr),intent(in) :: rnumber
 character(*),parameter:: err_fmt = '("ERROR in ",a,": ",a,X,e17.9)'
@@ -335,7 +318,7 @@ subroutine build_operator(op_routine,mat,lmat1,lmat2)
 
       ! allocate columns of identity to apply the operator
       do j = 1,lmat1
-         call zero(vec,lvec)
+         vec(:) = 0._kr
 
          vec(j) = 1._kr
 
@@ -396,6 +379,454 @@ if (present(info)) info = ios
 end subroutine
 
 
+!*******************************************
+recursive subroutine iquick_sort(list,llist)
+!*******************************************
+! Intiger quick sort routine from:
+! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
+! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
+! modified by Jakub Sistek
+
+implicit none
+integer,intent(in) :: llist
+integer,intent(inout)  :: list(llist)
+
+call iquick_sort_1(1, llist)
+
+contains
+
+recursive subroutine iquick_sort_1(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     Local variables
+integer             :: i, j
+integer             :: reference, temp
+integer, parameter  :: max_simple_sort_size = 6
+
+if (right_end < left_end + max_simple_sort_size) then
+  ! use interchange sort for small lists
+  call iinterchange_sort(left_end, right_end)
+
+else
+  ! use partition ("quick") sort
+  reference = list((left_end + right_end)/2)
+  i = left_end - 1; j = right_end + 1
+
+  do
+    ! scan list from left end until element >= reference is found
+    do
+      i = i + 1
+      if (list(i) >= reference) exit
+    end do
+    ! scan list from right end until element <= reference is found
+    do
+      j = j - 1
+      if (list(j) <= reference) exit
+    end do
+
+
+    if (i < j) then
+      ! swap two out-of-order elements
+      temp = list(i); list(i) = list(j); list(j) = temp
+    else if (i == j) then
+      i = i + 1
+      exit
+    else
+      exit
+    end if
+  end do
+
+  if (left_end < j) call iquick_sort_1(left_end, j)
+  if (i < right_end) call iquick_sort_1(i, right_end)
+end if
+
+end subroutine iquick_sort_1
+
+
+subroutine iinterchange_sort(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     local variables
+integer             :: i, j
+integer             :: temp
+
+do i = left_end, right_end - 1
+  do j = i+1, right_end
+    if (list(i) > list(j)) then
+      temp = list(i); list(i) = list(j); list(j) = temp
+    end if
+  end do
+end do
+
+end subroutine iinterchange_sort
+end subroutine iquick_sort
+
+!***********************************************************************
+recursive subroutine iquick_sort_simultaneous(list1,llist1,list2,llist2)
+!***********************************************************************
+! quick sort that sorts two arrays based on sorting of first array
+! Quick sort routine from:
+! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
+! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
+! modified by Jakub Sistek
+
+implicit none
+integer,intent(in) :: llist1
+integer,intent(in out)  :: list1(llist1)
+integer,intent(in) :: llist2
+integer,intent(in out)  :: list2(llist2)
+
+! local vars
+character(*),parameter:: routine_name = 'IQUICK_SORT_SIMULTANEOUS'
+
+! check dimension
+if (llist1.ne.llist2) then
+   call error(routine_name,'dimension of arrays mismatch')
+end if
+
+call iquick_sort_simultaneous_1(1, llist1)
+
+contains
+
+recursive subroutine iquick_sort_simultaneous_1(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     local variables
+integer             :: i, j
+integer             :: reference, temp
+integer, parameter  :: max_simple_sort_size = 6
+
+if (right_end < left_end + max_simple_sort_size) then
+  ! use interchange sort for small lists
+  call iinterchange_sort_simultaneous(left_end, right_end)
+
+else
+  ! use partition ("quick") sort
+  reference = list1((left_end + right_end)/2)
+  i = left_end  - 1 
+  j = right_end + 1
+
+  do
+    ! scan list from left end until element >= reference is found
+    do
+      i = i + 1
+      if (list1(i) >= reference) exit
+    end do
+    ! scan list from right end until element <= reference is found
+    do
+      j = j - 1
+      if (list1(j) <= reference) exit
+    end do
+
+
+    if (i < j) then
+      ! swap two out-of-order elements
+      temp = list1(i) ; list1(i) = list1(j) ; list1(j) = temp
+      temp = list2(i) ; list2(i) = list2(j) ; list2(j) = temp
+    else if (i == j) then
+      i = i + 1
+      exit
+    else
+      exit
+    end if
+  end do
+
+  if (left_end < j) call iquick_sort_simultaneous_1(left_end, j)
+  if (i < right_end) call iquick_sort_simultaneous_1(i, right_end)
+end if
+
+end subroutine iquick_sort_simultaneous_1
+
+subroutine iinterchange_sort_simultaneous(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     local variables
+integer             :: i, j
+integer             :: temp
+
+do i = left_end, right_end - 1
+  do j = i+1, right_end
+    if (list1(i) > list1(j)) then
+      temp = list1(i); list1(i) = list1(j); list1(j) = temp
+      temp = list2(i); list2(i) = list2(j); list2(j) = temp
+    end if
+  end do
+end do
+
+end subroutine iinterchange_sort_simultaneous
+
+end subroutine iquick_sort_simultaneous
+
+!***************************************************************************************
+recursive subroutine iquick_array_sort_simultaneous(array1,larray1,larray2,list2,llist2)
+!***************************************************************************************
+! quick sort that sorts two arrays based on sorting of first array
+! Quick sort routine from:
+! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
+! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
+! modified by Jakub Sistek
+
+implicit none
+integer,intent(in) :: larray1
+integer,intent(in) :: larray2
+integer,intent(inout)  :: array1(larray1,larray2)
+integer,intent(in) :: llist2
+integer,intent(inout)  :: list2(llist2)
+
+! local vars
+character(*),parameter:: routine_name = 'IQUICK_ARRAY_SORT_SIMULTANEOUS'
+
+! check dimension
+if (larray1.ne.llist2) then
+   call error(routine_name,'dimension of arrays mismatch')
+end if
+
+CALL iquick_array_sort_simultaneous_1(1, larray1)
+
+contains
+
+recursive subroutine iquick_array_sort_simultaneous_1(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     local variables
+integer             :: i, j
+integer             :: temp1
+integer             :: reference(larray2), temp(larray2)
+integer, parameter  :: max_simple_sort_size = 6
+
+if (right_end < left_end + max_simple_sort_size) then
+  ! use interchange sort for small lists
+  call iinterchange_array_sort_simultaneous(left_end, right_end)
+
+else
+  ! Use partition ("quick") sort
+  reference = array1((left_end + right_end)/2,:)
+  i = left_end  - 1 
+  j = right_end + 1
+
+  do
+    ! scan list from left end until element >= reference is found
+    do
+      i = i + 1
+      if ( .not. is_less_than(array1(i,:),reference,larray2) ) exit
+    end do
+    ! scan list from right end until element <= reference is found
+    do
+      j = j - 1
+      if ( .not. is_less_than(reference,array1(j,:),larray2) ) exit
+    end do
+
+    if (i < j) then
+      ! swap two out-of-order elements
+      temp  = array1(i,:) ; array1(i,:) = array1(j,:) ; array1(j,:) = temp
+      temp1 = list2(i) ;    list2(i) = list2(j) ;       list2(j)   = temp1
+    else if (i == j) then
+      i = i + 1
+      exit
+    else
+      exit
+    end if
+  end do
+
+  if (left_end < j) call iquick_array_sort_simultaneous_1(left_end, j)
+  if (i < right_end) call iquick_array_sort_simultaneous_1(i, right_end)
+end if
+
+end subroutine iquick_array_sort_simultaneous_1
+
+subroutine iinterchange_array_sort_simultaneous(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     local variables
+integer             :: i, j
+integer             :: temp1
+integer             :: temp(larray2)
+
+do i = left_end, right_end - 1
+  do j = i+1, right_end
+    if ( is_less_than(array1(j,:),array1(i,:),larray2) ) then
+      temp  = array1(i,:); array1(i,:) = array1(j,:); array1(j,:) = temp
+      temp1 = list2(i); list2(i) = list2(j); list2(j) = temp1
+    end if
+  end do
+end do
+
+end subroutine iinterchange_array_sort_simultaneous
+
+function is_less_than(array1,array2,length) result(ilt)
+implicit none
+integer,intent(in) :: length
+integer,intent(in) :: array1(length)
+integer,intent(in) :: array2(length)
+logical :: ilt
+
+integer i
+
+ilt = .false.
+do i = 1,length
+   if   (array1(i) < array2(i)) then
+      ilt = .true.
+      exit
+   else if (array2(i) < array1(i)) then
+      ilt = .false.
+      exit
+   else 
+      ! element is equal at this point
+      cycle
+   end if
+end do
+
+end function
+end subroutine iquick_array_sort_simultaneous
+
+
+!**************************************************
+subroutine iquick_sort_2(list1,llist1,list2,llist2)
+!**************************************************
+! routine to sort array of two columns first by first index and then by second index
+implicit none
+integer,intent(in) ::   llist1
+integer,intent(inout) :: list1(llist1)
+integer,intent(in) ::   llist2
+integer,intent(inout) :: list2(llist2)
+! local vars
+character(*),parameter:: routine_name = 'IQUICK_SORT_2'
+integer :: ibegin, iend, indbegin, indend
+integer :: nvals
+
+! check dimension
+if (llist1.ne.llist2) then
+   call error(routine_name,'dimension of arrays mismatch')
+end if
+
+! sort the array first by first index
+call iquick_sort_simultaneous(list1,llist1,list2,llist2)
+
+! Sort by second index
+ibegin = 1
+iend   = ibegin
+do while (iend.le.llist1)
+   indbegin = list1(ibegin)
+   indend   = list1(iend)
+   ! find the index of last same value
+   do while (indend.eq.indbegin)
+      iend = iend + 1
+      ! correction at the end of the array
+      if (iend.gt.llist1) exit
+      indend = list1(iend)
+   end do
+   iend = iend - 1
+      
+   nvals = iend-ibegin + 1
+   call iquick_sort(list2(ibegin:iend),nvals)
+      
+   ibegin = iend + 1
+   iend   = ibegin
+end do
+
+end subroutine iquick_sort_2
+
+!***********************************************************************
+recursive subroutine rquick_sort(list,llist1,llist2,indsort,istart,iend)
+!***********************************************************************
+! Quick sort routine from:
+! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
+! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
+! modified by Jakub Sistek
+! sort two-dimensional real array according to indsort-th column
+
+implicit none
+integer,intent(in) ::      llist1, llist2
+real(kr),intent(inout) ::  list(llist1,llist2)
+integer,intent(in) ::      indsort
+integer,intent(in) ::      istart, iend
+
+call rquick_sort_1(istart, iend)
+
+contains
+
+recursive subroutine rquick_sort_1(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     local variables
+integer             :: i, j, k
+real(kr)            :: reference, temp
+integer, parameter  :: max_simple_sort_size = 6
+
+if (right_end < left_end + max_simple_sort_size) then
+  ! use interchange sort for small lists
+  call rinterchange_sort(left_end, right_end)
+
+else
+  ! use partition ("quick") sort
+  reference = list((left_end + right_end)/2,indsort)
+  i = left_end  - 1 
+  j = right_end + 1
+
+  do
+    ! scan list from left end until element >= reference is found
+    do
+      i = i + 1
+      if (list(i,indsort) >= reference) exit
+    end do
+    ! scan list from right end until element <= reference is found
+    do
+      j = j - 1
+      if (list(j,indsort) <= reference) exit
+    end do
+
+
+    if (i < j) then
+      ! swap two out-of-order elements
+      do k = 1,llist2
+         temp = list(i,k) 
+         list(i,k) = list(j,k) 
+         list(j,k) = temp
+      end do
+    else if (i == j) then
+      i = i + 1
+      exit
+    else
+      exit
+    end if
+  end do
+
+  if (left_end < j) call rquick_sort_1(left_end, j)
+  if (i < right_end) call rquick_sort_1(i, right_end)
+end if
+
+end subroutine rquick_sort_1
+
+subroutine rinterchange_sort(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     local variables
+integer             :: i, j, k
+real(kr)            :: temp
+
+do i = left_end, right_end - 1
+  do j = i+1, right_end
+    if (list(i,indsort) > list(j,indsort)) then
+      ! swap two out-of-order rows
+      do k = 1,llist2
+         temp = list(i,k) 
+         list(i,k) = list(j,k) 
+         list(j,k) = temp
+      end do
+    end if
+  end do
+end do
+
+end subroutine rinterchange_sort
+end subroutine rquick_sort
 
 !****************************************************************************
 subroutine get_array_union(array1,larray1,array2,larray2,union,lunion,nunion)
@@ -690,452 +1121,49 @@ subroutine get_array_norepeat_2(array1,larray1,array2,larray2,nentries)
       end do
 end subroutine
 
-RECURSIVE SUBROUTINE iquick_sort(list,llist)
-
-! Quick sort routine from:
-! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
-! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
-! modified by Jakub Sistek
-
-IMPLICIT NONE
-INTEGER,INTENT(IN) :: llist
-INTEGER,INTENT(IN OUT)  :: list(llist)
-
-CALL iquick_sort_1(1, llist)
-
-CONTAINS
-
-RECURSIVE SUBROUTINE iquick_sort_1(left_end, right_end)
-
-INTEGER, INTENT(IN) :: left_end, right_end
-
-!     Local variables
-INTEGER             :: i, j
-INTEGER             :: reference, temp
-INTEGER, PARAMETER  :: max_simple_sort_size = 6
-
-IF (right_end < left_end + max_simple_sort_size) THEN
-  ! Use interchange sort for small lists
-  CALL iinterchange_sort(left_end, right_end)
-
-ELSE
-  ! Use partition ("quick") sort
-  reference = list((left_end + right_end)/2)
-  i = left_end - 1; j = right_end + 1
-
-  DO
-    ! Scan list from left end until element >= reference is found
-    DO
-      i = i + 1
-      IF (list(i) >= reference) EXIT
-    END DO
-    ! Scan list from right end until element <= reference is found
-    DO
-      j = j - 1
-      IF (list(j) <= reference) EXIT
-    END DO
-
-
-    IF (i < j) THEN
-      ! Swap two out-of-order elements
-      temp = list(i); list(i) = list(j); list(j) = temp
-    ELSE IF (i == j) THEN
-      i = i + 1
-      EXIT
-    ELSE
-      EXIT
-    END IF
-  END DO
-
-  IF (left_end < j) CALL iquick_sort_1(left_end, j)
-  IF (i < right_end) CALL iquick_sort_1(i, right_end)
-END IF
-
-END SUBROUTINE iquick_sort_1
-
-
-SUBROUTINE iinterchange_sort(left_end, right_end)
-
-INTEGER, INTENT(IN) :: left_end, right_end
-
-!     Local variables
-INTEGER             :: i, j
-INTEGER             :: temp
-
-DO i = left_end, right_end - 1
-  DO j = i+1, right_end
-    IF (list(i) > list(j)) THEN
-      temp = list(i); list(i) = list(j); list(j) = temp
-    END IF
-  END DO
-END DO
-
-END SUBROUTINE iinterchange_sort
-
-END SUBROUTINE iquick_sort
-
-RECURSIVE SUBROUTINE iquick_sort_simultaneous(list1,llist1,list2,llist2)
-
-! quick sort that sorts two arrays based on sorting of first array
-! Quick sort routine from:
-! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
-! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
-! modified by Jakub Sistek
-
-IMPLICIT NONE
-INTEGER,INTENT(IN) :: llist1
-INTEGER,INTENT(IN OUT)  :: list1(llist1)
-INTEGER,INTENT(IN) :: llist2
-INTEGER,INTENT(IN OUT)  :: list2(llist2)
-! local vars
-
-character(*),parameter:: routine_name = 'IQUICK_SORT_SIMULTANEOUS'
-
-! check dimension
-if (llist1.ne.llist2) then
-   call error(routine_name,'dimension of arrays mismatch')
-end if
-
-CALL iquick_sort_simultaneous_1(1, llist1)
-
-CONTAINS
-
-RECURSIVE SUBROUTINE iquick_sort_simultaneous_1(left_end, right_end)
-
-INTEGER, INTENT(IN) :: left_end, right_end
-
-!     Local variables
-INTEGER             :: i, j
-INTEGER             :: reference, temp
-INTEGER, PARAMETER  :: max_simple_sort_size = 6
-
-IF (right_end < left_end + max_simple_sort_size) THEN
-  ! Use interchange sort for small lists
-  CALL iinterchange_sort_simultaneous(left_end, right_end)
-
-ELSE
-  ! Use partition ("quick") sort
-  reference = list1((left_end + right_end)/2)
-  i = left_end  - 1 
-  j = right_end + 1
-
-  DO
-    ! Scan list from left end until element >= reference is found
-    DO
-      i = i + 1
-      IF (list1(i) >= reference) EXIT
-    END DO
-    ! Scan list from right end until element <= reference is found
-    DO
-      j = j - 1
-      IF (list1(j) <= reference) EXIT
-    END DO
-
-
-    IF (i < j) THEN
-      ! Swap two out-of-order elements
-      temp = list1(i) ; list1(i) = list1(j) ; list1(j) = temp
-      temp = list2(i) ; list2(i) = list2(j) ; list2(j) = temp
-    ELSE IF (i == j) THEN
-      i = i + 1
-      EXIT
-    ELSE
-      EXIT
-    END IF
-  END DO
-
-  IF (left_end < j) CALL iquick_sort_simultaneous_1(left_end, j)
-  IF (i < right_end) CALL iquick_sort_simultaneous_1(i, right_end)
-END IF
-
-END SUBROUTINE iquick_sort_simultaneous_1
-
-SUBROUTINE iinterchange_sort_simultaneous(left_end, right_end)
-
-INTEGER, INTENT(IN) :: left_end, right_end
-
-!     Local variables
-INTEGER             :: i, j
-INTEGER             :: temp
-
-DO i = left_end, right_end - 1
-  DO j = i+1, right_end
-    IF (list1(i) > list1(j)) THEN
-      temp = list1(i); list1(i) = list1(j); list1(j) = temp
-      temp = list2(i); list2(i) = list2(j); list2(j) = temp
-    END IF
-  END DO
-END DO
-
-END SUBROUTINE iinterchange_sort_simultaneous
-
-END SUBROUTINE iquick_sort_simultaneous
-
-recursive subroutine iquick_array_sort_simultaneous(array1,larray1,larray2,list2,llist2)
-! quick sort that sorts two arrays based on sorting of first array
-! Quick sort routine from:
-! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
-! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
-! modified by Jakub Sistek
-
+!*********************************
+subroutine push_back(iarray, ival)
+!*********************************
+! an analog to C++ push_back member function of std::vector
+! makes array iarray larger by one and adds value ival at the end of the array
 implicit none
-integer,intent(in) :: larray1
-integer,intent(in) :: larray2
-integer,intent(inout)  :: array1(larray1,larray2)
-integer,intent(in) :: llist2
-integer,intent(inout)  :: list2(llist2)
+integer,allocatable,intent(inout) :: iarray(:)
+integer,intent(in) :: ival
+
 ! local vars
+integer,allocatable :: tmp_arr(:)
 
-character(*),parameter:: routine_name = 'IQUICK_ARRAY_SORT_SIMULTANEOUS'
+allocate(tmp_arr(size(iarray)+1))
+tmp_arr(1:size(iarray)) = iarray
+tmp_arr(size(iarray)+1) = ival
+deallocate(iarray)
+allocate(iarray(size(tmp_arr)))
+call move_alloc(tmp_arr, iarray)
+end subroutine
 
-! check dimension
-if (larray1.ne.llist2) then
-   call error(routine_name,'dimension of arrays mismatch')
-end if
-
-CALL iquick_array_sort_simultaneous_1(1, larray1)
-
-contains
-
-recursive subroutine iquick_array_sort_simultaneous_1(left_end, right_end)
-
-integer, intent(in) :: left_end, right_end
-
-!     local variables
-integer             :: i, j
-integer             :: temp1
-integer             :: reference(larray2), temp(larray2)
-integer, parameter  :: max_simple_sort_size = 6
-
-if (right_end < left_end + max_simple_sort_size) then
-  ! use interchange sort for small lists
-  call iinterchange_array_sort_simultaneous(left_end, right_end)
-
-else
-  ! Use partition ("quick") sort
-  reference = array1((left_end + right_end)/2,:)
-  i = left_end  - 1 
-  j = right_end + 1
-
-  do
-    ! scan list from left end until element >= reference is found
-    do
-      i = i + 1
-      if ( .not. is_less_than(array1(i,:),reference,larray2) ) exit
-    end do
-    ! scan list from right end until element <= reference is found
-    do
-      j = j - 1
-      if ( .not. is_less_than(reference,array1(j,:),larray2) ) exit
-    end do
-
-    if (i < j) then
-      ! swap two out-of-order elements
-      temp  = array1(i,:) ; array1(i,:) = array1(j,:) ; array1(j,:) = temp
-      temp1 = list2(i) ;    list2(i) = list2(j) ;       list2(j)   = temp1
-    else if (i == j) then
-      i = i + 1
-      exit
-    else
-      exit
-    end if
-  end do
-
-  if (left_end < j) call iquick_array_sort_simultaneous_1(left_end, j)
-  if (i < right_end) call iquick_array_sort_simultaneous_1(i, right_end)
-end if
-
-end subroutine iquick_array_sort_simultaneous_1
-
-subroutine iinterchange_array_sort_simultaneous(left_end, right_end)
-
-integer, intent(in) :: left_end, right_end
-
-!     local variables
-integer             :: i, j
-integer             :: temp1
-integer             :: temp(larray2)
-
-do i = left_end, right_end - 1
-  do j = i+1, right_end
-    if ( is_less_than(array1(j,:),array1(i,:),larray2) ) then
-      temp  = array1(i,:); array1(i,:) = array1(j,:); array1(j,:) = temp
-      temp1 = list2(i); list2(i) = list2(j); list2(j) = temp1
-    end if
-  end do
-end do
-
-end subroutine iinterchange_array_sort_simultaneous
-
-function is_less_than(array1,array2,length) result(ilt)
+!*************************************
+subroutine counts2starts(array,larray)
+!*************************************
+! routine that converts counts to starts
+! e.g. 
+! input:  | 3 4 2  2  2  X | 
+! output: | 1 4 8 10 12 14 |
 implicit none
-integer,intent(in) :: length
-integer,intent(in) :: array1(length)
-integer,intent(in) :: array2(length)
-logical :: ilt
-
-integer i
-
-ilt = .false.
-do i = 1,length
-   if   (array1(i) < array2(i)) then
-      ilt = .true.
-      exit
-   else if (array2(i) < array1(i)) then
-      ilt = .false.
-      exit
-   else 
-      ! element is equal at this point
-      cycle
-   end if
-end do
-
-end function
-
-
-end subroutine iquick_array_sort_simultaneous
-
-
-subroutine iquick_sort_2(list1,llist1,list2,llist2)
-! routine to sort array of two columns first by first index and then by second index
-implicit none
-integer,intent(in) ::   llist1
-integer,intent(inout) :: list1(llist1)
-integer,intent(in) ::   llist2
-integer,intent(inout) :: list2(llist2)
+integer, intent(in) ::   larray
+integer, intent(inout) :: array(larray)
 ! local vars
-character(*),parameter:: routine_name = 'IQUICK_SORT_2'
-integer :: ibegin, iend, indbegin, indend
-integer :: nvals
+integer :: i
 
-! check dimension
-if (llist1.ne.llist2) then
-   call error(routine_name,'dimension of arrays mismatch')
-end if
-
-! sort the array first by first index
-call iquick_sort_simultaneous(list1,llist1,list2,llist2)
-
-! Sort by second index
-ibegin = 1
-iend   = ibegin
-do while (iend.le.llist1)
-   indbegin = list1(ibegin)
-   indend   = list1(iend)
-   ! find the index of last same value
-   do while (indend.eq.indbegin)
-      iend = iend + 1
-      ! correction at the end of the array
-      if (iend.gt.llist1) exit
-      indend = list1(iend)
-   end do
-   iend = iend - 1
-      
-   nvals = iend-ibegin + 1
-   call iquick_sort(list2(ibegin:iend),nvals)
-      
-   ibegin = iend + 1
-   iend   = ibegin
+do i = 2,larray
+   array(i) = array(i-1) + array(i)
 end do
-
-end subroutine iquick_sort_2
-
-RECURSIVE SUBROUTINE rquick_sort(list,llist1,llist2,indsort,istart,iend)
-
-! Quick sort routine from:
-! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
-! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
-! modified by Jakub Sistek
-! sort two-dimensional real array according to indsort-th column
-
-IMPLICIT NONE
-INTEGER,INTENT(IN) ::      llist1, llist2
-REAL(KR),INTENT(IN OUT) ::  list(llist1,llist2)
-INTEGER,INTENT(IN) ::      indsort
-INTEGER,INTENT(IN) ::      istart, iend
-
-CALL rquick_sort_1(istart, iend)
-
-CONTAINS
-
-RECURSIVE SUBROUTINE rquick_sort_1(left_end, right_end)
-
-INTEGER, INTENT(IN) :: left_end, right_end
-
-!     Local variables
-INTEGER             :: i, j, k
-REAL(KR)            :: reference, temp
-INTEGER, PARAMETER  :: max_simple_sort_size = 6
-
-IF (right_end < left_end + max_simple_sort_size) THEN
-  ! Use interchange sort for small lists
-  CALL rinterchange_sort(left_end, right_end)
-
-ELSE
-  ! Use partition ("quick") sort
-  reference = list((left_end + right_end)/2,indsort)
-  i = left_end  - 1 
-  j = right_end + 1
-
-  DO
-    ! Scan list from left end until element >= reference is found
-    DO
-      i = i + 1
-      IF (list(i,indsort) >= reference) EXIT
-    END DO
-    ! Scan list from right end until element <= reference is found
-    DO
-      j = j - 1
-      IF (list(j,indsort) <= reference) EXIT
-    END DO
-
-
-    IF (i < j) THEN
-      ! Swap two out-of-order elements
-      do k = 1,llist2
-         temp = list(i,k) 
-         list(i,k) = list(j,k) 
-         list(j,k) = temp
-      end do
-    ELSE IF (i == j) THEN
-      i = i + 1
-      EXIT
-    ELSE
-      EXIT
-    END IF
-  END DO
-
-  IF (left_end < j) CALL rquick_sort_1(left_end, j)
-  IF (i < right_end) CALL rquick_sort_1(i, right_end)
-END IF
-
-END SUBROUTINE rquick_sort_1
-
-
-SUBROUTINE rinterchange_sort(left_end, right_end)
-
-INTEGER, INTENT(IN) :: left_end, right_end
-
-!     Local variables
-INTEGER             :: i, j, k
-real(kr)            :: temp
-
-DO i = left_end, right_end - 1
-  DO j = i+1, right_end
-    IF (list(i,indsort) > list(j,indsort)) THEN
-      ! Swap two out-of-order rows
-      do k = 1,llist2
-         temp = list(i,k) 
-         list(i,k) = list(j,k) 
-         list(j,k) = temp
-      end do
-    END IF
-  END DO
-END DO
-
-END SUBROUTINE rinterchange_sort
-
-END SUBROUTINE rquick_sort
+! shift it one back and add one 
+do i = larray, 2, - 1 
+   array(i) = array(i-1) + 1
+end do
+! put one in the beginning
+array(1) = 1
+end subroutine
 
 !********************************************************
 subroutine get_index_sorted(ivalue,iarray,liarray,iindex)
@@ -1173,8 +1201,8 @@ subroutine get_index_sorted(ivalue,iarray,liarray,iindex)
         ! Use interchange sort for small lists
         call get_index(ivalue,iarray(left_end:right_end),right_end - left_end + 1,iindex_loc)
         if (iindex_loc.lt.0) then
-           print *,'left_end, right_end', left_end, right_end
-           print *,'iarray', iarray(left_end:right_end)
+           !print *,'left_end, right_end', left_end, right_end
+           !print *,'iarray', iarray(left_end:right_end)
            call warning(routine_name,'index does not appear to be in list')
            iindex = -1
         else
@@ -1222,117 +1250,19 @@ subroutine get_index(ivalue,iarray,liarray,iindex)
       end do
 end subroutine
 
-!************************************
-subroutine condtri(nw,nwx,w,lw, cond)
-!************************************
-! Routine that estimates condition number of a real symmetric tridiagonal matrix 
-! using LAPACK
-      implicit none
+!*************************************************
+logical elemental pure function fuzzyLessThan(x,y)
+!*************************************************
+! function for comparison of two reals with some tolerance
+! x - eps < y
 
-! used dimension of matrix
-      integer,intent(in) :: nw
-! allocated size of matrix (leading dimension)
-      integer,intent(in) :: nwx
+real(kr),intent(in) :: x,y
+! local vars
+real(kr),parameter :: overlap = 1.e-8
 
-! tridiagonal matrix
-      integer,intent(in) :: lw
-      real(kr),intent(in) :: w(lw)
+fuzzyLessThan = x+overlap .lt. y 
 
-! estimate of the condition number
-      real(kr),intent(out) :: cond
-
-! local variables
-      ! diagonal of the matrix
-      real(kr),allocatable :: d(:)
-      real(kr),allocatable :: e(:)
-
-      integer ::  i
-      integer ::  ld, le
-
-      ld = nw
-      le = nw-1
-      allocate(d(ld),e(le))
-      ! prepare data for LAPACK
-      ! diagonal
-      do i = 1,nw
-         d(i) = w((i-1)*nwx + i)
-      end do
-      ! subdiagonal
-      do i = 1,nw-1
-         e(i) = w((i-1)*nwx + i + 1)
-      end do
-      if (debug) then
-         write(*,*) 'diagonal = '
-         write(*,*) d(1:nw)
-         write(*,*) 'subdiagonal = '
-         write(*,*) e(1:nw-1)
-      end if
-
-      ld = nw
-      le = nw-1
-      call condsparse(nw,d,ld,e,le, cond)
-
-      deallocate(d,e)
-end subroutine
-
-!****************************************
-subroutine condsparse(nw,d,ld,e,le, cond)
-!****************************************
-! Routine that estimates condition number of a real symmetric tridiagonal matrix 
-! using LAPACK
-      implicit none
-
-! used dimension of matrix
-      integer,intent(in) :: nw
-
-! diagonal of matrix
-      integer,intent(in) :: ld
-      real(kr),intent(in) :: d(ld)
-! subdiagonal of matrix
-      integer,intent(in) :: le
-      real(kr),intent(in) :: e(le)
-
-! estimate of the condition number
-      real(kr),intent(out) :: cond
-
-      ! auxiliary variables
-      integer ::  iaux
-      real(kr) :: raux(1)
-
-      real(kr) :: eigmax
-
-      ! LAPACK
-      integer :: lapack_info
-
-      ! checks
-      if (ld.ne.nw .or. le .ne. ld-1) then
-         write(*,*) 'CONDSPARSE: Dimensions mismatch.'
-         call error_exit
-      end if
-
-      ! return silently if only 1 or less iterations were performed
-      if (nw.le.1) then
-         cond = 1._kr
-         return
-      end if
-
-      ! LAPACK routine for searching eigenvalues (returned in ascending order)
-      iaux = 1
-      call DSTEV( 'N', nw, d, e, raux, iaux, raux, lapack_info)
-      if (debug) then
-         write(*,*) 'eigenvalues = '
-         write(*,*) d(1:nw)
-      end if
-
-      ! compute condition number
-      eigmax = d(nw)
-      ! do not get the lowest eigenvalue from the Lanczos sequence - the Ritz value may not converge (cf Treffethen, Bau)
-      if (debug) then
-         write(*,*) 'eigmax = ',eigmax
-      end if
-      cond = eigmax
-
-end subroutine
+end function
 
 !**********************************
 subroutine initialize_random_number
@@ -1506,11 +1436,10 @@ if ( .not. suppress_output ) then
 end if
 end subroutine
 
-!***********************************************************************
+!**********************
 subroutine wall_time(t)
-!***********************************************************************
+!**********************
 ! return wall clock time in s
-!***********************************************************************
 implicit none
 real(kr) :: t
 integer, dimension(8):: v
@@ -1523,95 +1452,15 @@ timems=(v(8)+1000*(v(7)+60*(v(6)+60*(v(5)+24*(v(3))))))
 t= timems / 1000._kr
 end subroutine wall_time
 
-!***********************************************************************
+!***************************
 subroutine processor_time(t)
-!***********************************************************************
+!***************************
 ! return CPU time in s
-!***********************************************************************
 implicit none
 real(kr) :: t
 call cpu_time(t) 
 end subroutine processor_time
 
-!************************************
-subroutine integer2logical(tf_int,tf)
-!************************************
-! translates C-like logical value as integer 0 = false, 1 = true into Fortran logical type
-!************************************
-implicit none
-integer, intent(in) :: tf_int
-logical, intent(out) :: tf
-
-! local vars
-character(*),parameter:: routine_name = 'INTEGER2LOGICAL'
-
-if      (tf_int.eq.0) then
-   tf = .false.
-else if (tf_int.eq.1) then
-   tf = .true.
-else
-   call error(routine_name, 'Illegal value of integer true/false type - not 0 nor 1 but ', tf_int)
-end if
-
-end subroutine
-
-!********************************************
-logical elemental function fuzzyLessThan(x,y)
-!********************************************
-! function for comparison of two reals with some tolerance
-! x - eps < y
-
-real(kr),intent(in) :: x,y
-! local vars
-real(kr),parameter :: overlap = 1.e-8
-
-fuzzyLessThan = x+overlap .lt. y 
-
-end function
-
-!*************************************
-subroutine counts2starts(array,larray)
-!*************************************
-! routine that converts counts to starts
-! e.g. 
-! input:  | 3 4 2  2  2  X | 
-! output: | 1 4 8 10 12 14 |
-implicit none
-integer, intent(in) ::   larray
-integer, intent(inout) :: array(larray)
-! local vars
-integer :: i
-
-do i = 2,larray
-   array(i) = array(i-1) + array(i)
-end do
-! shift it one back and add one 
-do i = larray, 2, - 1 
-   array(i) = array(i-1) + 1
-end do
-! put one in the beginning
-array(1) = 1
-end subroutine
-
-!*********************************
-subroutine push_back(iarray, ival)
-!*********************************
-! an analog to C++ push_back member function of std::vector
-! makes array iarray larger by one and adds value ival at the end of the array
-implicit none
-integer,allocatable,intent(inout) :: iarray(:)
-integer,intent(in) :: ival
-
-! local vars
-integer,allocatable :: tmp_arr(:)
-
-allocate(tmp_arr(size(iarray)+1))
-tmp_arr(1:size(iarray)) = iarray
-tmp_arr(size(iarray)+1) = ival
-deallocate(iarray)
-allocate(iarray(size(tmp_arr)))
-call move_alloc(tmp_arr, iarray)
-end subroutine
 
 end module module_utils
 

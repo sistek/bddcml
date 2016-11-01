@@ -159,8 +159,8 @@
           lsubdiag = maxit 
           allocate(diag(ldiag))
           allocate(subdiag(lsubdiag))
-          call zero(diag,ldiag)
-          call zero(subdiag,lsubdiag)
+          diag(:) = 0._kr
+          subdiag(:) = 0._kr
 
           ! prepare data and memory for PCG
           call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
@@ -858,7 +858,7 @@
 
     ! Condition number estimation on root processor, if there are no NaNs
           if (nw.gt.0) then
-             call condsparse(nw,diag,nw,subdiag,nw-1, cond)
+             call krylov_condsparse(nw,diag,nw,subdiag,nw-1, cond)
           else
              cond = 1._kr
           end if
@@ -1086,11 +1086,11 @@
           omega  = 1._kr
           ! v = 0
           do isub_loc = 1,nsub_loc
-             call zero(bicgstab_data(isub_loc)%v,bicgstab_data(isub_loc)%lv)
+             bicgstab_data(isub_loc)%v(:) = 0._kr
           end do
           ! p = 0
           do isub_loc = 1,nsub_loc
-             call zero(bicgstab_data(isub_loc)%p,bicgstab_data(isub_loc)%lp)
+             bicgstab_data(isub_loc)%p(:) = 0._kr
           end do
           ! shadow residual
           do isub_loc = 1,nsub_loc
@@ -2023,6 +2023,68 @@
       !end if
 
       end subroutine
+
+      !***********************************************
+      subroutine krylov_condsparse(nw,d,ld,e,le, cond)
+      !***********************************************
+      ! Routine that estimates condition number of a real symmetric tridiagonal matrix 
+      ! using LAPACK
+            use module_utils
+            implicit none
+      
+      ! used dimension of matrix
+            integer,intent(in) :: nw
+      
+      ! diagonal of matrix
+            integer,intent(in) :: ld
+            real(kr),intent(in) :: d(ld)
+      ! subdiagonal of matrix
+            integer,intent(in) :: le
+            real(kr),intent(in) :: e(le)
+      
+      ! estimate of the condition number
+            real(kr),intent(out) :: cond
+      
+            ! auxiliary variables
+            character(*),parameter:: routine_name = 'KRYLOV_CONDSPARSE'
+            integer ::  iaux
+            real(kr) :: raux(1)
+      
+            real(kr) :: eigmax
+      
+            ! LAPACK
+            integer :: lapack_info
+      
+            ! checks
+            if (ld.ne.nw .or. le .ne. ld-1) then
+               call error(routine_name,'Dimensions mismatch.')
+            end if
+      
+            ! return silently if only 1 or less iterations were performed
+            if (nw.le.1) then
+               cond = 1._kr
+               return
+            end if
+      
+            ! LAPACK routine for searching eigenvalues (returned in ascending order)
+            iaux = 1
+            call DSTEV( 'N', nw, d, e, raux, iaux, raux, lapack_info)
+            if (debug) then
+               write(*,*) 'eigenvalues = '
+               write(*,*) d(1:nw)
+            end if
+      
+            ! compute condition number
+            eigmax = d(nw)
+            ! do not get the lowest eigenvalue from the Lanczos sequence - the Ritz value may not converge (cf Treffethen, Bau)
+            if (debug) then
+               write(*,*) 'eigmax = ',eigmax
+            end if
+            cond = eigmax
+      
+      end subroutine
+
+
 
       !*******************************
       subroutine krylov_set_profile_on
