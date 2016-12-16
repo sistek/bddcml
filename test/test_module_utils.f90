@@ -17,6 +17,7 @@
 ! Tester of module_utils
 program test_module_utils
       use module_utils
+      use module_test
       implicit none
 
       integer,parameter :: kr = kind(1.D0)
@@ -230,19 +231,5 @@ program test_module_utils
       call time_print('the execution (CPU) was:', time_of_execution_cpu)
       call time_end(time_of_execution_wall)
       call time_print('the execution (WALL) was on proc', 0, time_of_execution_wall)
-
-contains
-
-      subroutine print_test_result(success, test_name)
-      implicit none
-      character(len=*), intent(in) :: test_name
-      logical, intent(in) :: success
-
-      if (success) then
-          write(*,*) 'Success in '// trim(test_name) // ' test.'
-      else
-          write(*,*) 'FAILED in '// trim(test_name) // ' test.'
-      end if
-      end subroutine print_test_result
 
 end program test_module_utils
