@@ -2692,10 +2692,10 @@ subroutine levels_prepare_standard_level(parallel_division,&
          if (use_user_constraints .and. ilevel.eq.1) then
 !            glbtype = 3
 !            call dd_load_user_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
-!            glbtype = 2
-!            call dd_load_user_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
-            glbtype = 1
+            glbtype = 2
             call dd_load_user_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+            !glbtype = 1
+            !call dd_load_user_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
             call dd_orthogonalize_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
          end if
       end do
