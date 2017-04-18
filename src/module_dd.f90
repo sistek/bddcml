@@ -4327,7 +4327,7 @@ subroutine dd_load_user_constraints(sub,itype)
       ! get number of coarse nodes
       ncnodes = sub%ncnodes
 
-      ! generate arithmetic averages on coarse nodes of prescribed type (e.g. edges)
+      ! generate user constraints on coarse nodes of prescribed type (e.g. edges)
       do icnode = 1,ncnodes
          if (sub%cnodes(icnode)%itype .eq. itype) then
          
@@ -4379,6 +4379,12 @@ subroutine dd_load_user_constraints(sub,itype)
                   pointdof = pointdof + ndofn
                end do
             end do
+
+            !print *,'indices:', sub%iin(sub%cnodes(icnode)%insin)
+            !print *,'matrix:'  
+            !do i = 1,lmatrix1
+            !   print *, matrix(i,:)
+            !end do
 
             nnz_new = count(matrix.ne.0._kr)   ! number of new nonzeroes equal NVAR thanks to the structure
             if (nnz_new.gt.0) then

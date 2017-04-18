@@ -94,7 +94,7 @@ integer,private :: comm_myid
 integer,private :: neigvec, problemsize
 
 integer,private :: ndofi_i, ndofi_j
-integer,private :: lindrowc_i, lindrowc_j
+!integer,private :: lindrowc_i, lindrowc_j
 integer,private :: nnodi_i,nnodi_j
 integer ::            lindrowc_adapt_i,   lindrowc_adapt_j
 integer,allocatable :: indrowc_adapt_i(:), indrowc_adapt_j(:)

@@ -56,7 +56,6 @@ integer,parameter,private :: level_time_max = 30
 real(kr),private ::          times(level_time_max) = 0._kr
 logical,private ::           is_wall_time(level_time_max) 
 integer,private  ::          level_time = 0
-integer,private  ::          time_verbose = 1
 
 ! data for pseudo-random numbers
 logical,private :: initialized_random_numbers = .false.
