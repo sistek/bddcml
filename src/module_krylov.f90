@@ -25,7 +25,7 @@
     ! type of real variables
           integer,parameter,private :: kr = REAL64
     ! debugging 
-          logical,parameter,private :: debug = .false.
+          logical,parameter,private :: debug = .true.
     ! profiling 
           logical,private ::           profile = .false.
     ! adjustable parameters ############################
@@ -967,6 +967,8 @@
 
           ! BICGSTAB vars
           real(kr) :: normrhs, normres2, normres, normres2_loc, normres2_sub
+          real(kr) :: normrhs_u, normres2_u, normres_u, normres2_u_loc, normres2_u_sub
+          real(kr) :: normrhs_p, normres2_p, normres_p, normres2_p_loc, normres2_p_sub
           real(kr) :: tt, tt_loc, tt_sub
           real(kr) :: ts, ts_loc, ts_sub
           real(kr) :: vrstab, vrstab_loc, vrstab_sub
@@ -974,6 +976,7 @@
           real(kr) :: alpha, beta
           real(kr) :: omega
           real(kr) :: relres, lastres
+          real(kr) :: relres_u, relres_p
 
           ! MPI vars
           integer :: ierr
@@ -1019,6 +1022,12 @@
              allocate(bicgstab_data(isub_loc)%s(bicgstab_data(isub_loc)%ls))
              bicgstab_data(isub_loc)%lt    = ndofis
              allocate(bicgstab_data(isub_loc)%t(bicgstab_data(isub_loc)%lt))
+             bicgstab_data(isub_loc)%lmask = ndofis
+             allocate(bicgstab_data(isub_loc)%mask(bicgstab_data(isub_loc)%lmask))
+             bicgstab_data(isub_loc)%lresi_u = ndofis
+             allocate(bicgstab_data(isub_loc)%resi_u(bicgstab_data(isub_loc)%lresi_u))
+             bicgstab_data(isub_loc)%lresi_p = ndofis
+             allocate(bicgstab_data(isub_loc)%resi_p(bicgstab_data(isub_loc)%lresi_p))
           end do
 
           do isub_loc = 1,nsub_loc
@@ -1053,6 +1062,23 @@
              call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,bicgstab_data(isub_loc)%resi,bicgstab_data(isub_loc)%lresi)
           end do
 
+          ! get mask for pressure dofs
+          do isub_loc = 1,nsub_loc
+             call levels_dd_get_dof_mask(ilevel,isub_loc,4,bicgstab_data(isub_loc)%mask,bicgstab_data(isub_loc)%lmask)
+             !print *, 'mask:', bicgstab_data(isub_loc)%mask
+          end do
+
+          ! split the residual
+          do isub_loc = 1,nsub_loc
+             ! prepare residual of velocities
+             bicgstab_data(isub_loc)%resi_u = bicgstab_data(isub_loc)%resi 
+             where (bicgstab_data(isub_loc)%mask == 1) bicgstab_data(isub_loc)%resi_u = 0
+
+             ! prepare residual of pressure
+             bicgstab_data(isub_loc)%resi_p = bicgstab_data(isub_loc)%resi 
+             where (bicgstab_data(isub_loc)%mask == 0) bicgstab_data(isub_loc)%resi_p = 0
+          end do
+
           ! compute norm of right-hand side
           normres2_loc = 0._kr
           do isub_loc = 1,nsub_loc
@@ -1069,6 +1095,34 @@
           if (debug) then
              if (myid.eq.0) then
                 call info(routine_name,'Norm of the right-hand side =',normrhs)
+             end if
+          end if
+
+          normres2_u_loc = 0._kr
+          normres2_p_loc = 0._kr
+          do isub_loc = 1,nsub_loc
+             call levels_dd_dotprod_local(ilevel,isub_loc,bicgstab_data(isub_loc)%resi_u,bicgstab_data(isub_loc)%lresi_u, &
+                                          bicgstab_data(isub_loc)%resi_u,bicgstab_data(isub_loc)%lresi_u, &
+                                          normres2_u_sub)
+             normres2_u_loc = normres2_u_loc + normres2_u_sub
+
+             call levels_dd_dotprod_local(ilevel,isub_loc,bicgstab_data(isub_loc)%resi_p,bicgstab_data(isub_loc)%lresi_p, &
+                                          bicgstab_data(isub_loc)%resi_p,bicgstab_data(isub_loc)%lresi_p, &
+                                          normres2_p_sub)
+             normres2_p_loc = normres2_p_loc + normres2_p_sub
+          end do
+    !***************************************************************PARALLEL
+          call MPI_ALLREDUCE(normres2_u_loc,normres2_u, 1, MPI_DOUBLE_PRECISION,&
+                             MPI_SUM, comm_all, ierr) 
+          call MPI_ALLREDUCE(normres2_p_loc,normres2_p, 1, MPI_DOUBLE_PRECISION,&
+                             MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+          normrhs_u = sqrt(normres2_u)
+          normrhs_p = sqrt(normres2_p)
+          if (debug) then
+             if (myid.eq.0) then
+                call info(routine_name,'Norm of the right-hand side of velocities =',normrhs_u)
+                call info(routine_name,'Norm of the right-hand side of pressure =',normrhs_p)
              end if
           end if
 
@@ -1237,10 +1291,54 @@
              ! Evaluation of stopping criterion
              relres = normres/normrhs
 
+             ! split the residual
+             do isub_loc = 1,nsub_loc
+                ! prepare residual of velocities
+                bicgstab_data(isub_loc)%resi_u = bicgstab_data(isub_loc)%s 
+                where (bicgstab_data(isub_loc)%mask == 1) bicgstab_data(isub_loc)%resi_u = 0
+
+                ! prepare residual of pressure
+                bicgstab_data(isub_loc)%resi_p = bicgstab_data(isub_loc)%s 
+                where (bicgstab_data(isub_loc)%mask == 0) bicgstab_data(isub_loc)%resi_p = 0
+             end do
+             normres2_u_loc = 0._kr
+             normres2_p_loc = 0._kr
+             do isub_loc = 1,nsub_loc
+                call levels_dd_dotprod_local(ilevel,isub_loc,bicgstab_data(isub_loc)%resi_u,bicgstab_data(isub_loc)%lresi_u, &
+                                             bicgstab_data(isub_loc)%resi_u,bicgstab_data(isub_loc)%lresi_u, &
+                                             normres2_u_sub)
+                normres2_u_loc = normres2_u_loc + normres2_u_sub
+
+                call levels_dd_dotprod_local(ilevel,isub_loc,bicgstab_data(isub_loc)%resi_p,bicgstab_data(isub_loc)%lresi_p, &
+                                             bicgstab_data(isub_loc)%resi_p,bicgstab_data(isub_loc)%lresi_p, &
+                                             normres2_p_sub)
+                normres2_p_loc = normres2_p_loc + normres2_p_sub
+             end do
+       !***************************************************************PARALLEL
+             call MPI_ALLREDUCE(normres2_u_loc,normres2_u, 1, MPI_DOUBLE_PRECISION,&
+                                MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(normres2_p_loc,normres2_p, 1, MPI_DOUBLE_PRECISION,&
+                                MPI_SUM, comm_all, ierr) 
+       !***************************************************************PARALLEL
+             normres_u = sqrt(normres2_u)
+             normres_p = sqrt(normres2_p)
+             if (debug) then
+                if (myid.eq.0) then
+                   call info(routine_name,'Norm of the half-residual of velocities =',normres_u)
+                   call info(routine_name,'Norm of the half-residual of pressure =',normres_p)
+                end if
+             end if
+
+             ! Evaluation of stopping criterion
+             relres_u = normres_u/normrhs_u
+             relres_p = normres_p/normrhs_p
+
     ! Print residual to screen
              if (myid.eq.0) then
                 call info (routine_name, 'iteration: ',dble(iter-0.5) )
                 call info (routine_name, '          relative residual: ',relres)
+                call info (routine_name, '          relative residual u: ',relres_u)
+                call info (routine_name, '          relative residual p: ',relres_p)
              end if
 
     ! Check convergence in the half step
@@ -1378,10 +1476,54 @@
              ! Evaluation of stopping criterion
              relres = normres/normrhs
                 
+             ! split the residual
+             do isub_loc = 1,nsub_loc
+                ! prepare residual of velocities
+                bicgstab_data(isub_loc)%resi_u = bicgstab_data(isub_loc)%resi 
+                where (bicgstab_data(isub_loc)%mask == 1) bicgstab_data(isub_loc)%resi_u = 0
+
+                ! prepare residual of pressure
+                bicgstab_data(isub_loc)%resi_p = bicgstab_data(isub_loc)%resi 
+                where (bicgstab_data(isub_loc)%mask == 0) bicgstab_data(isub_loc)%resi_p = 0
+             end do
+             normres2_u_loc = 0._kr
+             normres2_p_loc = 0._kr
+             do isub_loc = 1,nsub_loc
+                call levels_dd_dotprod_local(ilevel,isub_loc,bicgstab_data(isub_loc)%resi_u,bicgstab_data(isub_loc)%lresi_u, &
+                                             bicgstab_data(isub_loc)%resi_u,bicgstab_data(isub_loc)%lresi_u, &
+                                             normres2_u_sub)
+                normres2_u_loc = normres2_u_loc + normres2_u_sub
+
+                call levels_dd_dotprod_local(ilevel,isub_loc,bicgstab_data(isub_loc)%resi_p,bicgstab_data(isub_loc)%lresi_p, &
+                                             bicgstab_data(isub_loc)%resi_p,bicgstab_data(isub_loc)%lresi_p, &
+                                             normres2_p_sub)
+                normres2_p_loc = normres2_p_loc + normres2_p_sub
+             end do
+       !***************************************************************PARALLEL
+             call MPI_ALLREDUCE(normres2_u_loc,normres2_u, 1, MPI_DOUBLE_PRECISION,&
+                                MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(normres2_p_loc,normres2_p, 1, MPI_DOUBLE_PRECISION,&
+                                MPI_SUM, comm_all, ierr) 
+       !***************************************************************PARALLEL
+             normres_u = sqrt(normres2_u)
+             normres_p = sqrt(normres2_p)
+             if (debug) then
+                if (myid.eq.0) then
+                   call info(routine_name,'Norm of the half-residual of velocities =',normres_u)
+                   call info(routine_name,'Norm of the half-residual of pressure =',normres_p)
+                end if
+             end if
+
+             ! Evaluation of stopping criterion
+             relres_u = normres_u/normrhs_u
+             relres_p = normres_p/normrhs_p
+
     ! Print residual to screen
              if (myid.eq.0) then
                 call info (routine_name, 'iteration: ',dble(iter))
                 call info (routine_name, '          relative residual: ',relres)
+                call info (routine_name, '          relative residual u: ',relres_u)
+                call info (routine_name, '          relative residual p: ',relres_p)
              end if
 
     ! Check convergence
@@ -1456,6 +1598,9 @@
          deallocate(bicgstab_data(isub_loc)%z)
          deallocate(bicgstab_data(isub_loc)%s)
          deallocate(bicgstab_data(isub_loc)%t)
+         deallocate(bicgstab_data(isub_loc)%mask)
+         deallocate(bicgstab_data(isub_loc)%resi_u)
+         deallocate(bicgstab_data(isub_loc)%resi_p)
       end do
       deallocate(bicgstab_data)
 

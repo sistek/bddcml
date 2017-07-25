@@ -4905,6 +4905,24 @@ subroutine levels_dd_dotprod_local(ilevel,isub_loc, vec1,lvec1, vec2,lvec2, dotp
 
 end subroutine
 
+!*************************************************************************
+subroutine levels_dd_get_dof_mask(ilevel, isub_loc, dof_index, mask,lmask)
+!*************************************************************************
+! Subroutine for selecting pressure dofs.
+      use module_utils
+      implicit none
+
+      integer,intent(in) :: ilevel 
+      integer,intent(in) :: isub_loc 
+      integer,intent(in) :: dof_index
+
+      ! vectors to multiply
+      integer,intent(in)   :: lmask
+      integer, intent(out) ::  mask(lmask)
+      
+      call dd_get_dof_mask(levels(ilevel)%subdomains(isub_loc), dof_index, mask,lmask)
+end subroutine
+
 !***********************************************************************
 subroutine levels_dd_get_interface_size(ilevel,isub_loc, ndofis, nnodis)
 !***********************************************************************

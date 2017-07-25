@@ -67,6 +67,12 @@ module module_krylov_types_def
          real(kr),allocatable :: s(:)       
          integer ::             lt
          real(kr),allocatable :: t(:)      
+         integer ::             lmask
+         integer,allocatable ::  mask(:)     ! array of mask of dofs
+         integer ::             lresi_u
+         real(kr),allocatable :: resi_u(:)     ! array of residual at interface
+         integer ::             lresi_p
+         real(kr),allocatable :: resi_p(:)     ! array of residual at interface
       end type bicgstab_data_type
 
 ! type for storing data for steepest descent iterative method in distributed manner

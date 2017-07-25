@@ -13967,6 +13967,47 @@ subroutine dd_dotprod_local(sub, vec1,lvec1, vec2,lvec2, dotprod)
 
 end subroutine
  
+!*****************************************************
+subroutine dd_get_dof_mask(sub, dof_index, mask,lmask)
+!*****************************************************
+! Subroutine for selecting pressure dofs.
+      use module_utils
+      implicit none
+! Subdomain structure
+      type(subdomain_type),intent(in) :: sub
+      integer,intent(in) :: dof_index
+
+      ! vectors to multiply
+      integer,intent(in)   :: lmask
+      integer, intent(out) ::  mask(lmask)
+      
+      ! local vars
+      integer :: i, point, indn
+      integer :: idofn, ndofn
+
+      ! check dimensions
+      if (lmask .ne. sub%ndofi) then
+         write(*,*) 'DD_GET_MASK: Dimensions mismatch.'
+         call error_exit
+      end if
+
+      mask = 0
+
+      point = 0
+      do i = 1,sub%nnodi
+         indn  = sub%iin(i)
+         ndofn = sub%nndf(indn)
+
+         do idofn = 1,ndofn
+            if (idofn == dof_index) then
+               mask(point + idofn) = 1
+            end if
+         end do
+         
+         point = point + ndofn
+      end do
+end subroutine
+ 
 !*********************************
 subroutine dd_print_sub(iunit,sub)
 !*********************************
