@@ -938,6 +938,7 @@ subroutine levels_pc_setup( parallel_division,&
       ! 5 - weights by Marta Certikova - unit jump
       ! 6 - weights by Schur row sums for whole subdomain
       ! 7 - weights by Schur row sums computed face by face
+      ! 8 - weights by Schur diagonal - available for explicit Schur complements
       integer,intent(in) :: weights_type
 
 
@@ -1420,7 +1421,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer ::            lpair2proc
       integer,allocatable :: pair2proc(:)
 
-      logical :: remove_original 
       logical :: remove_bc_nodes 
       logical :: keep_global 
       logical :: is_mesh_loaded 
@@ -1443,7 +1443,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer ::            lsub2proc_aux
       integer,allocatable :: sub2proc_aux(:)
 
-      logical,parameter :: use_explicit_schurs = .false.
+      logical,parameter :: use_explicit_schurs = .true.
 
       character(1) :: levelstring
       character(256) :: prefix
@@ -1451,6 +1451,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       character(6) :: isub_string
       !character(MPI_MAX_PROCESSOR_NAME) :: pname
       !integer :: lsize
+
+      logical :: explicit_schurs
 
 
       ! time variables
@@ -2531,12 +2533,15 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
 !-----profile
       ! Schur only for first level
-      remove_original = .false.
       do isub_loc = 1,nsub_loc
-         call dd_matrix_tri2blocktri(levels(ilevel)%subdomains(isub_loc),remove_original)
          !call time_start
          !call time_start(use_cpu_time = .true.)
-         call dd_prepare_schur(levels(ilevel)%subdomains(isub_loc),comm_self)
+         if (use_explicit_schurs .and. ilevel == 1) then
+             explicit_schurs = .true.
+         else
+             explicit_schurs = .false.
+         end if
+         call dd_prepare_schur(levels(ilevel)%subdomains(isub_loc),comm_self,explicit_schurs)
          !call MPI_GET_PROCESSOR_NAME(pname,lsize,ierr)
          !call time_end(t_schur_prepare_local_cpu)
          !call time_print('CPU for preparing Sch. complement matrices on subdomain on process '//trim(pname),&
@@ -2866,22 +2871,27 @@ subroutine levels_prepare_standard_level(parallel_division,&
          allocate(pair2proc(lpair2proc))
          call pp_distribute_linearly(npair,nproc,pair2proc,lpair2proc)
 
-         if (use_explicit_schurs) then
-            do isub_loc = 1,nsub_loc
-               call dd_prepare_explicit_schur(levels(ilevel)%subdomains(isub_loc))
-            end do
+         !if (use_explicit_schurs) then
+         !   do isub_loc = 1,nsub_loc
+         !      call dd_prepare_explicit_schur(levels(ilevel)%subdomains(isub_loc))
+         !   end do
+         !end if
+         if (use_explicit_schurs .and. ilevel == 1) then
+             explicit_schurs = .true.
+         else
+             explicit_schurs = .false.
          end if
          call adaptivity_solve_eigenvectors(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                                             levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                                             levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
-                                            pair2proc,lpair2proc, comm_all, use_explicit_schurs, weights_type, &
+                                            pair2proc,lpair2proc, comm_all, explicit_schurs, weights_type, &
                                             matrixtype, levels(ilevel)%adaptivity_estimate)
 
-         if (use_explicit_schurs) then
-            do isub_loc = 1,nsub_loc
-               call dd_destroy_explicit_schur(levels(ilevel)%subdomains(isub_loc))
-            end do
-         end if
+         !if (use_explicit_schurs) then
+         !   do isub_loc = 1,nsub_loc
+         !      call dd_destroy_explicit_schur(levels(ilevel)%subdomains(isub_loc))
+         !   end do
+         !end if
 
          call adaptivity_finalize
          deallocate(pair2proc)
@@ -3684,6 +3694,7 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
       real(kr),allocatable :: aux2(:)
 
       integer :: ndofs, nnods, nelems, ndofaaugs, ndofcs, nnodcs
+      integer :: ndofi, nnodi
       integer :: nsub_loc, isub_loc, i, nrhs
       integer :: ilevel
       logical :: solve_adjoint
@@ -3751,17 +3762,29 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
          allocate(aux2(laux2))
          aux2(:) = 0._kr
          call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
+         call dd_get_interface_size(levels(ilevel)%subdomains(isub_loc), ndofi, nnodi)
+
          ! truncate the vector for embedding - zeros at the end
-         call dd_map_subi_to_sub(levels(ilevel)%subdomains(isub_loc), aux,laux, aux2,ndofs)
+         if (levels(ilevel)%subdomains(isub_loc)%is_aug_dense_active) then
+            ! using Schur complement
+            aux2(1:ndofi) = aux
+         else
+            ! not using Schur complement
+            call dd_map_subi_to_sub(levels(ilevel)%subdomains(isub_loc), aux,laux, aux2,ndofs)
+         end if
 
          nrhs = 1
          solve_adjoint = .false.
          call dd_solve_aug(levels(ilevel)%subdomains(isub_loc), aux2,laux2, nrhs, solve_adjoint)
 
          ! get interface part of the vector of preconditioned residual
-         common_krylov_data(isub_loc)%vec_out(:) = 0._kr
-         call dd_map_sub_to_subi(levels(ilevel)%subdomains(isub_loc), aux2,ndofs, &
-                                 common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
+         if (levels(ilevel)%subdomains(isub_loc)%is_aug_dense_active) then
+            common_krylov_data(isub_loc)%vec_out = aux2(1:ndofi)
+         else
+            common_krylov_data(isub_loc)%vec_out(:) = 0._kr
+            call dd_map_sub_to_subi(levels(ilevel)%subdomains(isub_loc), aux2,ndofs, &
+                                    common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
+         end if
 
          deallocate(aux2)
          deallocate(aux)
@@ -3806,7 +3829,7 @@ subroutine levels_corsub_standard_level(ilevel)
       real(kr),allocatable :: resaugs(:)
 
       integer :: ndofs, nnods, nelems, ndofaaugs, ndofcs, nnodcs, ndofis, nnodis
-      integer :: nsub_loc, isub_loc, i, nrhs, isub
+      integer :: nsub_loc, isub_loc, nrhs, isub
       logical :: solve_adjoint
 
       ! MPI vars
@@ -3891,18 +3914,18 @@ subroutine levels_corsub_standard_level(ilevel)
 
          ! make new residual on whole subdomain from gs
          ! prepare local residual from condensed RHS
-         lress = ndofs
-         allocate(ress(lress))
-         ress(:) = 0._kr
+         !lress = ndofs
+         !allocate(ress(lress))
+         !ress(:) = 0._kr
 
-         call dd_map_subi_to_sub(levels(ilevel)%subdomains(isub_loc),gs,lgs,ress,lress)
+         !call dd_map_subi_to_sub(levels(ilevel)%subdomains(isub_loc),gs,lgs,ress,lress)
 
          lrescs = ndofcs
          allocate(rescs(lrescs))
          rescs(:) = 0._kr
 
          ! rc = phis_dual' * wi * resi
-         call dd_phis_dual_apply(levels(ilevel)%subdomains(isub_loc), ress,lress, rescs,lrescs)
+         call dd_phisi_dual_apply(levels(ilevel)%subdomains(isub_loc), gs,lgs, rescs,lrescs)
 
          ! embed local resc to global one
          call dd_map_subc_to_globc(levels(ilevel)%subdomains(isub_loc), rescs,lrescs, rescaux,lresc)
@@ -3913,10 +3936,12 @@ subroutine levels_corsub_standard_level(ilevel)
          lresaugs = ndofaaugs
          allocate(resaugs(lresaugs))
          resaugs(:) = 0._kr
+
          ! truncate the vector for embedding - zeros at the end
-         do i = 1,ndofs
-            resaugs(i) = ress(i)
-         end do
+         call dd_map_subi_to_sub(levels(ilevel)%subdomains(isub_loc),gs,lgs,resaugs,ndofs)
+         !do i = 1,ndofs
+         !   resaugs(i) = ress(i)
+         !end do
 
          nrhs = 1
          solve_adjoint = .false.
@@ -3930,7 +3955,7 @@ subroutine levels_corsub_standard_level(ilevel)
          call dd_map_sub_to_glob(levels(ilevel)%subdomains(isub_loc), resaugs,ndofs, resaux,lres)
 
          deallocate(resaugs)
-         deallocate(ress)
+         !deallocate(ress)
          deallocate(gs)
          deallocate(rescs)
       end do

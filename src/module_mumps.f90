@@ -268,7 +268,7 @@ contains
       type(DMUMPS_STRUC),intent(inout) :: mumps
       integer, intent(out) :: mloc, nloc
 
-! Set the dimensions
+! Get the dimensions
       mloc = mumps%SCHUR_MLOC
       nloc = mumps%SCHUR_NLOC
 
@@ -294,6 +294,140 @@ contains
       mumps%SCHUR_LLD = mloc
 ! Associate memory for Schur complement
       mumps%SCHUR => schur
+
+      end subroutine
+
+!************************************************************************
+      subroutine mumps_get_reduced_rhs(mumps, nrhs, rhs,lrhs, rrhs,lrrhs)
+!************************************************************************
+! Subroutine for getting the reduced right-hand side corresponding to 
+! the Schur complement.
+      use module_utils
+      implicit none
+      include "dmumps_struc.h"
+      type(DMUMPS_STRUC),intent(inout) :: mumps
+      integer,intent(in)::        nrhs
+      integer,intent(in)::        lrhs
+      real(kr),intent(inout)::     rhs(lrhs)   ! whole right-hand side
+      integer,intent(in)::        lrrhs
+      real(kr),intent(in),target:: rrhs(lrrhs) ! reduced right-hand side
+
+      ! local vars
+      character(*),parameter:: routine_name = 'MUMPS_GET_REDUCED_RHS'
+      integer :: schur_size
+
+
+      ! check inputs
+      schur_size = lrrhs/nrhs
+
+      if ( schur_size /= mumps%SIZE_SCHUR ) then
+         call error( routine_name, 'array length mismatch', lrrhs )
+      end if
+
+! Specify reduced RHS
+!  0 - only Schur complement is obtained
+!  1 - reduced RHS will be constructed
+!  2 - the rrhs array is considered as the solution corresponding to the Schur unknowns and MUMPS resolves the unknowns
+      mumps%ICNTL(26) = 1
+
+! Set the leading dimension for reduced RHS
+      mumps%LREDRHS = schur_size
+
+! Associate memory for reduced right-hand side
+      mumps%REDRHS => rrhs
+
+! call the solve with these parameters
+      call mumps_resolve(mumps,rhs,lrhs,nrhs)
+
+! return the object to the initial state
+!      mumps%ICNTL(26) = 0
+
+      end subroutine
+
+!***************************************************************************************************
+      subroutine mumps_get_expanded_solution(mumps, nrhs, rsolution,lrsolution, solution, lsolution)
+!***************************************************************************************************
+! Associates parts of MUMPS structure with program data.
+! Subroutine for expanding solution from interior to the whole subdomain.
+      use module_utils
+      implicit none
+      include "dmumps_struc.h"
+      type(DMUMPS_STRUC),intent(inout) :: mumps
+      integer,intent(in)::        nrhs
+      integer,intent(in)::        lrsolution
+      real(kr),intent(in),target:: rsolution(lrsolution) ! reduced solution
+      integer,intent(in)::        lsolution
+      real(kr),intent(out),target:: solution(lsolution)   ! full solution
+
+      ! local vars
+      character(*),parameter:: routine_name = 'MUMPS_GET_EXPANDED_SOLUTION'
+
+      integer :: size_schur
+      integer :: size_full
+
+      ! check inputs
+      size_schur = lrsolution/nrhs
+      size_full  = lsolution/nrhs
+
+      if ( size_schur /= mumps%SIZE_SCHUR ) then
+         call error( routine_name, 'array length mismatch', size_schur )
+      end if
+      if ( size_full /= mumps%N ) then
+         call error( routine_name, 'array length mismatch', size_full )
+      end if
+
+! Specify reduced RHS
+!  0 - only Schur complement is obtained
+!  1 - reduced RHS will be constructed
+!  2 - the rrhs array is considered as the solution corresponding to the
+!      Schur unknowns and MUMPS resolves the unknowns
+      mumps%ICNTL(26) = 2
+
+! Set the leading dimension for reduced RHS
+      mumps%LREDRHS = size_schur
+
+! Associate memory for reduced right-hand side
+      mumps%REDRHS => rsolution
+
+! call the solve with these parameters
+      call mumps_resolve(mumps,solution,lsolution,nrhs)
+
+      end subroutine
+
+!*****************************************************************************
+      subroutine mumps_get_interior_solution(mumps, nrhs, solution, lsolution)
+!*****************************************************************************
+! Associates parts of MUMPS structure with program data.
+! Subroutine for expanding solution from interior to the whole subdomain.
+      use module_utils
+      implicit none
+      include "dmumps_struc.h"
+      type(DMUMPS_STRUC),intent(inout) :: mumps
+      integer,intent(in)::        nrhs
+      integer,intent(in)::        lsolution
+      real(kr),intent(inout),target:: solution(lsolution)   ! full solution
+
+      ! local vars
+      character(*),parameter:: routine_name = 'MUMPS_GET_INTERIOR_SOLUTION'
+
+      integer :: size_full
+
+      ! check inputs
+      size_full  = lsolution/nrhs
+
+      if ( size_full /= mumps%N ) then
+         call error( routine_name, 'array length mismatch', size_full )
+      end if
+
+! Specify reduced RHS
+!  0 - resolve interior solution
+!  1 - reduced RHS will be constructed
+!  2 - the rrhs array is considered as the solution corresponding to the
+!      Schur unknowns and MUMPS resolves the unknowns
+      mumps%ICNTL(26) = 0
+
+! call the solve with these parameters
+      call mumps_resolve(mumps,solution,lsolution,nrhs)
 
       end subroutine
 
@@ -377,9 +511,9 @@ contains
 
       end subroutine
 
-!*************************************************************
+!*******************************************************************
       subroutine mumps_resolve(mumps,rhs,lrhs,nrhs,solve_transposed)
-!*************************************************************
+!*******************************************************************
 !     Performs backward step of multifrontal algorithm by MUMPS
 !     in the beginning, RHS contains RHS
 !     in the end, RHS contains solution

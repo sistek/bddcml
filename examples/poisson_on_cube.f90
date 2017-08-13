@@ -115,6 +115,7 @@ program poisson_on_cube
       ! 5 - weights by Marta Certikova - unit jump
       ! 6 - weights by Schur row sums for whole subdomain
       ! 7 - weights by Schur row sums computed face by face
+      ! 8 - weights by Schur diagonal - available for explicit Schur complements
       integer,parameter :: weights_type = 0
 
 ! should parallel division be used (ParMETIS instead of METIS) on the first level?
