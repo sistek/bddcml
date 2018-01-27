@@ -2585,7 +2585,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
       ! determine nodal components of the mesh
       sub%lnodal_components = nnod
       allocate(sub%nodal_components(sub%lnodal_components))
-      if (find_components) then
+      if (find_components .and. .not.sub%is_degenerated) then
          ! prepare kinet
          lkinet = nelem
          allocate(kinet(lkinet))
