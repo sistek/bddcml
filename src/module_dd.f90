@@ -2523,6 +2523,13 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
       sub%ndim    = ndim
       sub%meshdim = meshdim
 
+      !write (*,*) 'subdomain statistics:'
+      !write (*,*) ' nelem:   ', sub%nelem
+      !write (*,*) ' nnod:    ', sub%nnod
+      !write (*,*) ' ndof:    ', sub%ndof
+      !write (*,*) ' ndim:    ', sub%ndim
+      !write (*,*) ' meshdim: ', sub%meshdim
+
       sub%linet   = linet
       allocate(sub%inet(linet))
       do i = 1,linet
@@ -2568,7 +2575,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
          end do
       end do
 
-      if (nelem.eq.0) then
+      if (ndof.eq.0) then
          sub%is_degenerated = .true.
       else
          sub%is_degenerated = .false.
@@ -5214,9 +5221,9 @@ subroutine dd_prepare_aug(sub,comm_self)
             jconstr = sub%i_c_sparse(i)
             icoli   = sub%j_c_sparse(i)
             if (icoli.gt.sub%ndofi) then
-               print *,'ndofi',sub%ndofi
-               print *,'icoli',icoli
-               print *,'j_c_sparse',sub%j_c_sparse
+               !print *,'ndofi',sub%ndofi
+               !print *,'icoli',icoli
+               !print *,'j_c_sparse',sub%j_c_sparse
                call error(routine_name,'out of bounds of interface for subdomain',sub%isub)
             end if
 
@@ -5377,6 +5384,10 @@ subroutine dd_prepare_aug(sub,comm_self)
          ndofaaug = ndof + nconstr
 
          if (ndofaaug.eq.0) then
+            !print *, 'ndof = ', ndof
+            !print *, 'nconstr = ', nconstr
+            !print *, 'nelem = ', sub%nelem
+            !print *, 'nnod = ', sub%nnod
             call error(routine_name, 'This is strange - subdomain not degenerated but still ndofaaug = 0,',&
                        sub%isub)
          end if
@@ -6064,6 +6075,9 @@ subroutine dd_phisi_dual_apply(sub, vec1,lvec1, vec2,lvec2)
       real(kr) :: alpha, beta
 
       ! check the prerequisities
+      if (sub%is_degenerated) then
+         return
+      end if
       if ((sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) ) then
           
          if ( .not.sub%is_phisi_prepared) then

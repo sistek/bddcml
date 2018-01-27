@@ -1121,6 +1121,7 @@ integer :: ie, isub, nedges, nsubcomponents, iadje, icomp, ies,&
            necomp, necompx, nelemsadj, nesubmin, nneib
 integer :: nelemsmax, nelemsmin
 logical :: one_more_check_needed = .false.
+real(kr) :: imbalance
 
       call info( routine_name, 'Building a graph ... ' )
 ! Allocate proper sizes of two-dimensional field for list of touching elements
@@ -1185,10 +1186,15 @@ logical :: one_more_check_needed = .false.
 
       nelemsmax = maxval(nelemsa)
       nelemsmin = minval(nelemsa)
+      if (nelemsmin > 0) then
+         imbalance = dble(nelemsmax-nelemsmin)/dble(nelemsmin)
+      else
+         imbalance = -1.
+      endif
       call info( routine_name, 'final quality of division:' )
       call info( routine_name, 'largest subdomain contains elements :',nelemsmax )
       call info( routine_name, 'smallest subdomain contains elements :',nelemsmin )
-      call info( routine_name, 'imbalance of division [%]:',dble(nelemsmax-nelemsmin)/dble(nelemsmin)*100 )
+      call info( routine_name, 'imbalance of division [%]:',imbalance*100 )
 
 ! check division into subdomains
       one_more_check_needed = .false.
@@ -1231,7 +1237,7 @@ logical :: one_more_check_needed = .false.
          lsubcomponents = nelems
          allocate(subcomponents(lsubcomponents))
          call graph_components(nelems, xadjs,lxadjs, adjncys,ladjncys, subcomponents,lsubcomponents, nsubcomponents)
-         if (nsubcomponents.ne.1) then
+         if (nsubcomponents.gt.1) then
             call warning(routine_name, 'Subdomain discontinuous: ', isub )
             call warning(routine_name, '   - number of components: ', nsubcomponents )
 
