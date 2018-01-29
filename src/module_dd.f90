@@ -5166,9 +5166,9 @@ subroutine dd_prepare_aug(sub,comm_self)
       integer :: lapack_info
 
       ! check the prerequisities
-      if (sub%is_degenerated) then
-         return
-      end if
+      !if (sub%is_degenerated) then
+      !   return
+      !end if
 
       if (.not.sub%is_interface_loaded) then
          call error(routine_name,'Interface not loaded for subdomain:', sub%isub)
@@ -5402,9 +5402,8 @@ subroutine dd_prepare_aug(sub,comm_self)
          ! Factorize matrix 
          call mumps_factorize(sub%mumps_aug) 
 
-         sub%is_mumps_aug_active = .true.
-
- 134     sub%is_aug_factorized = .true.
+ 134     sub%is_mumps_aug_active = .true.
+         sub%is_aug_factorized = .true.
       end if
 
 end subroutine
@@ -5451,9 +5450,9 @@ subroutine dd_prepare_coarse(sub,keep_global)
       real(kr),allocatable :: ac(:,:)
 
       ! check the prerequisities
-      if (sub%is_degenerated) then
-         return
-      end if
+      !if (sub%is_degenerated) then
+      !   return
+      !end if
       if (.not.sub%is_aug_factorized) then
          call error(routine_name, 'Augmented matrix is not factorized for subdomain:', sub%isub)
       end if
