@@ -417,6 +417,7 @@ integer :: valid, ivalid, nvalid, i, i2
 
          ! trim initial zeros
          !  - find where nonzeros start
+         i2 = 1
          do i = 1,lorin
             if (onerow(i) .ne. 0) then
                i2 = i
