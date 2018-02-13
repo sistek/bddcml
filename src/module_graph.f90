@@ -509,7 +509,8 @@ integer :: io, indel
 
 end subroutine graph_parse_onerow2
 
-subroutine graph_divide(graphtype,nvertex,xadj,lxadj,adjncy,ladjncy,vwgt,lvwgt,adjwgt,ladjwgt,nsub,edgecut,part,lpart)
+subroutine graph_divide(graphtype,nvertex,xadj,lxadj,adjncy,ladjncy,vwgt,lvwgt,adjwgt,ladjwgt,nsub,contiguous_clusters, &
+                        edgecut,part,lpart)
 ! Divide graph by METIS
 use module_utils
 use iso_c_binding
@@ -526,6 +527,7 @@ integer*4, intent(in) ::  vwgt(lvwgt)
 integer, intent(in) ::   ladjwgt
 integer*4, intent(in) ::  adjwgt(ladjwgt)
 integer, intent(in) ::   nsub
+integer, intent(in) ::   contiguous_clusters
 integer, intent(out) ::  edgecut
 integer, intent(in) ::    lpart
 integer*4, intent(out) ::  part(lpart)
@@ -537,6 +539,7 @@ integer*4 :: numflag !( 1 - Fortran-like arrays (0 - C-like arrays)
 interface
    subroutine graph_divide_c( numflag, graphtype, nvertex, &
                               xadj, lxadj, adjncy, ladjncy, vwgt, lvwgt, adjwgt, ladjwgt, nsub, &
+                              contiguous_clusters, &
                               edgecut, part, lpart ) &
               bind(c, name='graph_divide_c')
       use iso_c_binding
@@ -553,6 +556,7 @@ interface
       integer(c_int) :: ladjwgt
       integer(c_int) :: adjwgt(ladjwgt)
       integer(c_int) :: nsub 
+      integer(c_int) :: contiguous_clusters 
       integer(c_int) :: edgecut 
       integer(c_int) :: lpart 
       integer(c_int) :: part(lpart)
@@ -561,7 +565,7 @@ end interface
 
 numflag = 1
 call graph_divide_c( numflag, graphtype, nvertex, xadj, lxadj, adjncy, ladjncy, &
-                     vwgt, lvwgt, adjwgt, ladjwgt, nsub, &
+                     vwgt, lvwgt, adjwgt, ladjwgt, nsub, contiguous_clusters, &
                      edgecut, part, lpart ) 
 
 end subroutine graph_divide

@@ -1444,6 +1444,9 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer,allocatable :: sub2proc_aux(:)
 
       logical,parameter :: use_explicit_schurs = .false.
+      logical,parameter :: use_contiguous_subdomains = .true.
+
+      integer :: contiguous_subdomains_int
 
       character(1) :: levelstring
       character(256) :: prefix
@@ -1784,10 +1787,16 @@ subroutine levels_prepare_standard_level(parallel_division,&
   
   123       continue     
          else ! divide mesh serially on root process
+            if (use_contiguous_subdomains) then
+               contiguous_subdomains_int = 1
+            else
+               contiguous_subdomains_int = 0
+            end if
             if (myid.eq.0) then
                call pp_divide_mesh(graphtype,levels_correct_division,levels(ilevel)%neighbouring,&
                                    levels(ilevel)%nelem,levels(ilevel)%nnod,&
                                    levels(ilevel)%inet,levels(ilevel)%linet,levels(ilevel)%nnet,levels(ilevel)%lnnet,nsub,&
+                                   contiguous_subdomains_int, &
                                    edgecut,levels(ilevel)%iets,levels(ilevel)%liets)
             end if 
          end if

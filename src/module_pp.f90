@@ -1064,7 +1064,7 @@ end subroutine pp_pread_pmd_mesh
 
 !**********************************************************************************
 subroutine pp_divide_mesh(graphtype,correct_division,neighbouring,nelem,nnod,&
-                          inet,linet,nnet,lnnet,nsub,&
+                          inet,linet,nnet,lnnet,nsub,contiguous_subdomains,&
                           edgecut,part,lpart)
 !**********************************************************************************
 ! serial division of mesh using METIS
@@ -1091,6 +1091,8 @@ integer, intent(in)   :: lnnet
 integer*4, intent(in) ::  nnet(lnnet)
 ! number of subdomains
 integer, intent(in)   :: nsub
+! should clusters be contiguous?
+integer, intent(in)   :: contiguous_subdomains
 ! OUTPUT:
 integer,intent(out):: edgecut ! number of cut edges
 integer, intent(in)    :: lpart
@@ -1169,7 +1171,8 @@ real(kr) :: imbalance
       lvwgt = nelem
       allocate(vwgt(lvwgt))
       vwgt = 1
-      call graph_divide(graphtype,nelem,xadj,lxadj,adjncy,ladjncy,vwgt,lvwgt,adjwgt,ladjwgt,nsub,edgecut,part,lpart)
+      call graph_divide(graphtype,nelem,xadj,lxadj,adjncy,ladjncy,vwgt,lvwgt,adjwgt,ladjwgt,&
+                        nsub,contiguous_subdomains,edgecut,part,lpart)
       deallocate(vwgt)
       call info( routine_name, 'resulting number of cut edges:', edgecut )
 
@@ -1207,6 +1210,12 @@ real(kr) :: imbalance
                linets = linets + nnet(ie)
             end if
          end do
+
+         ! continue only if number of elements in the subdomain is larger than 0
+         if (nelems == 0) then
+            cycle
+         end if
+
          lnnets  = nelems
          lisegns = nelems
          lisngns = linets
