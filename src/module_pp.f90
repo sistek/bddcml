@@ -1103,7 +1103,7 @@ character(*),parameter:: routine_name = 'PP_DIVIDE_MESH'
 
 ! type of algorithm for the division
 ! 0 - graph-based
-! 1 - index-based
+! 1 - chunk-based
 integer :: division_type = 0
 
 select case (division_type)
