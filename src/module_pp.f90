@@ -1100,6 +1100,101 @@ integer*4, intent(out) ::  part(lpart) ! distribution
 
 ! local vars
 character(*),parameter:: routine_name = 'PP_DIVIDE_MESH'
+
+! type of algorithm for the division
+! 0 - graph-based
+! 1 - index-based
+integer :: division_type = 0
+
+select case (division_type)
+   case (0)
+      call pp_divide_mesh_graph(graphtype,correct_division,neighbouring,nelem,nnod,&
+                                inet,linet,nnet,lnnet,nsub,contiguous_subdomains,&
+                                edgecut,part,lpart)
+   case (1)
+      call pp_divide_mesh_chunks(nelem, nsub, part,lpart)
+   case default
+      call error(routine_name, 'Unknown division type.')
+end select
+
+
+
+end subroutine pp_divide_mesh
+
+!**********************************************************************************
+subroutine pp_divide_mesh_chunks(nelem, nsub, part,lpart)
+!**********************************************************************************
+! serial division of mesh using METIS
+use module_graph
+use module_utils
+implicit none
+
+! INPUT:
+! number of elements
+integer, intent(in) :: nelem
+! number of subdomains
+integer, intent(in)   :: nsub
+! OUTPUT:
+integer, intent(in)    :: lpart
+integer, intent(out) ::  part(lpart) ! distribution
+
+integer :: ie, isub
+integer :: lel2sub
+integer,allocatable :: el2sub(:)
+
+      lel2sub = nsub + 1
+      allocate(el2sub(lel2sub))
+
+      call pp_distribute_linearly(nelem, nsub, el2sub,lel2sub)
+
+      do isub = 1,nsub
+         do ie = el2sub(isub), el2sub(isub+1)-1
+            part(ie) = isub
+         end do
+      end do
+
+      deallocate(el2sub)
+      
+end subroutine pp_divide_mesh_chunks
+
+!**********************************************************************************
+subroutine pp_divide_mesh_graph(graphtype,correct_division,neighbouring,nelem,nnod,&
+                                inet,linet,nnet,lnnet,nsub,contiguous_subdomains,&
+                                edgecut,part,lpart)
+!**********************************************************************************
+! serial division of mesh using METIS
+use module_graph
+use module_utils
+implicit none
+
+! INPUT:
+! type of output graph
+integer, intent(in) :: graphtype
+! correct division to make subdomain continuous?
+logical, intent(in) :: correct_division
+! number of nodes to consider elements adjacent 
+integer, intent(in) :: neighbouring
+! number of elements
+integer, intent(in) :: nelem
+! number of nodes
+integer, intent(in) :: nnod
+! INET array
+integer, intent(in)   :: linet
+integer*4, intent(in) ::  inet(linet)
+! NNET array
+integer, intent(in)   :: lnnet
+integer*4, intent(in) ::  nnet(lnnet)
+! number of subdomains
+integer, intent(in)   :: nsub
+! should clusters be contiguous?
+integer, intent(in)   :: contiguous_subdomains
+! OUTPUT:
+integer,intent(out):: edgecut ! number of cut edges
+integer, intent(in)    :: lpart
+integer*4, intent(out) ::  part(lpart) ! distribution
+
+! local vars
+character(*),parameter:: routine_name = 'PP_DIVIDE_MESH'
 integer:: nedge, ncomponents
 integer :: lnetn, lietn, lkietn
 integer,allocatable:: ietn(:), kietn(:), netn(:)
@@ -1337,7 +1432,7 @@ real(kr) :: imbalance
       deallocate(adjncy,adjwgt)
       deallocate(xadj)
 
-end subroutine pp_divide_mesh
+end subroutine pp_divide_mesh_graph
 
 !************************************************************************
 subroutine pp_create_submesh(isub,nelem,inet,linet,nnet,lnnet,iets,liets,&
