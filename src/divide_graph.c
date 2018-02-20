@@ -69,7 +69,7 @@ void graph_divide_c( int *numflag, int *graphtype, int *nvertex, int *xadj, int 
   options[METIS_OPTION_NITER]     = 10;
   options[METIS_OPTION_SEED]      = 12345;
   options[METIS_OPTION_MINCONN]   = 1;
-  options[METIS_OPTION_CONTIG]    = contiguous_clusters; 
+  options[METIS_OPTION_CONTIG]    = *contiguous_clusters; 
   options[METIS_OPTION_COMPRESS]  = 0;
   options[METIS_OPTION_CCORDER]   = 0;
   options[METIS_OPTION_UFACTOR]   = 0;
