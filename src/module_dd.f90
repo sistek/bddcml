@@ -5351,58 +5351,57 @@ subroutine dd_prepare_aug(sub,comm_self)
 !                       sub%i_aaug_sparse, sub%j_aaug_sparse, sub%aaug_sparse, &
 !                       sub%laaug, sub%nnzaaug)
 
-         if (sub%is_degenerated) then
-            goto 134
+         if (.not. sub%is_degenerated) then
+
+            ! factorize matrix Aaug
+            ! Set type of matrix
+            if      (sub%matrixtype .eq. 0) then
+               ! unsymmetric case:
+               aaugmatrixtype = 0
+            else if (sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) then
+               ! in symmetric case, saddle point problem makes the augmented matrix indefinite,
+               ! even if the original matrix is SPD:
+               aaugmatrixtype = 2
+            else 
+               call error(routine_name,'Matrixtype not set for subdomain:', sub%isub)
+            end if
+
+            call mumps_init(sub%mumps_aug,comm_self,aaugmatrixtype)
+
+            ! Verbosity level of MUMPS
+            if (debug) then
+               mumpsinfo = 2
+            else
+               mumpsinfo = 0
+            end if
+            call mumps_set_info(sub%mumps_aug,mumpsinfo)
+
+            ! Load matrix to MUMPS
+            ndof     = sub%ndof
+            nconstr  = sub%nconstr
+            ndofaaug = ndof + nconstr
+
+            if (ndofaaug.eq.0) then
+               !print *, 'ndof = ', ndof
+               !print *, 'nconstr = ', nconstr
+               !print *, 'nelem = ', sub%nelem
+               !print *, 'nnod = ', sub%nnod
+               call error(routine_name, 'This is strange - subdomain not degenerated but still ndofaaug = 0,',&
+                          sub%isub)
+            end if
+
+            nnzaaug = sub%nnzaaug
+            laaug   = sub%laaug
+            call mumps_load_triplet_centralized(sub%mumps_aug,ndofaaug,nnzaaug,&
+                                                sub%i_aaug_sparse,sub%j_aaug_sparse,sub%aaug_sparse,nnzaaug)
+            ! Analyze matrix
+            iparallel = 1 ! force serial analysis
+            call mumps_analyze(sub%mumps_aug,iparallel) 
+            ! Factorize matrix 
+            call mumps_factorize(sub%mumps_aug) 
          end if
 
-         ! factorize matrix Aaug
-         ! Set type of matrix
-         if      (sub%matrixtype .eq. 0) then
-            ! unsymmetric case:
-            aaugmatrixtype = 0
-         else if (sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) then
-            ! in symmetric case, saddle point problem makes the augmented matrix indefinite,
-            ! even if the original matrix is SPD:
-            aaugmatrixtype = 2
-         else 
-            call error(routine_name,'Matrixtype not set for subdomain:', sub%isub)
-         end if
-
-         call mumps_init(sub%mumps_aug,comm_self,aaugmatrixtype)
-
-         ! Verbosity level of MUMPS
-         if (debug) then
-            mumpsinfo = 2
-         else
-            mumpsinfo = 0
-         end if
-         call mumps_set_info(sub%mumps_aug,mumpsinfo)
-
-         ! Load matrix to MUMPS
-         ndof     = sub%ndof
-         nconstr  = sub%nconstr
-         ndofaaug = ndof + nconstr
-
-         if (ndofaaug.eq.0) then
-            !print *, 'ndof = ', ndof
-            !print *, 'nconstr = ', nconstr
-            !print *, 'nelem = ', sub%nelem
-            !print *, 'nnod = ', sub%nnod
-            call error(routine_name, 'This is strange - subdomain not degenerated but still ndofaaug = 0,',&
-                       sub%isub)
-         end if
-
-         nnzaaug = sub%nnzaaug
-         laaug   = sub%laaug
-         call mumps_load_triplet_centralized(sub%mumps_aug,ndofaaug,nnzaaug,&
-                                             sub%i_aaug_sparse,sub%j_aaug_sparse,sub%aaug_sparse,nnzaaug)
-         ! Analyze matrix
-         iparallel = 1 ! force serial analysis
-         call mumps_analyze(sub%mumps_aug,iparallel) 
-         ! Factorize matrix 
-         call mumps_factorize(sub%mumps_aug) 
-
- 134     sub%is_mumps_aug_active = .true.
+         sub%is_mumps_aug_active = .true.
          sub%is_aug_factorized = .true.
       end if
 
@@ -14834,7 +14833,9 @@ subroutine dd_finalize(sub)
       end if
 
       if (sub%is_mumps_aug_active) then
-         call mumps_finalize(sub%mumps_aug)
+         if (.not. sub%is_degenerated) then
+            call mumps_finalize(sub%mumps_aug)
+         end if
          sub%is_mumps_aug_active = .false.
       end if
 
