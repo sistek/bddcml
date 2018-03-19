@@ -227,7 +227,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
 
 ! initial checks 
       if (nl.lt.2) then
-         call error(routine_name,'Number of levels must be at least 1.')
+         call error(routine_name,'Number of levels must be at least 2.')
       end if
       if (nsublev(nl).ne.1) then
          call error(routine_name,'Number of subdomains at last level must be 1.')
@@ -241,8 +241,8 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
             call error(routine_name,'Number of local subdomains on first level must sum up to given global number:', nsublev(1))
          end if
       end if
-      !if (any(nsublev(2:nl).ge.nsublev(1:nl-1)).and. .not.levels_just_direct_solve) then
-      !   call error(routine_name,'Number of subdomains must be decreasing with levels.')
+      !if (any(nsublev(2:nl-1).ge.nsublev(1:nl-2)).and. .not.levels_just_direct_solve) then
+      !   call error(routine_name,'Number of subdomains must be decreasing with levels except for the last level.')
       !end if
 
 ! set index shift for C/Fortran
@@ -1503,6 +1503,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          levels(ilevel)%find_components     = levels(ilevel-1)%find_components
          levels(ilevel)%use_dual_mesh_graph = levels(ilevel-1)%use_dual_mesh_graph
          levels(ilevel)%neighbouring        = levels(ilevel-1)%neighbouring
+         !levels(ilevel)%neighbouring        = 1
       else
          ! copy the parameters from the first subdomain to the global data for the level
          levels(ilevel)%find_components     = levels(ilevel)%subdomains(1)%find_components

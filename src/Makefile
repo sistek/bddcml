@@ -24,7 +24,7 @@ OBJ = \
    module_pp.o \
    pget_sub_neighbours.o \
    pdivide_mesh.o \
-   divide_graph.o \
+   graph_divide.o \
    module_parsing.o \
    module_sm.o \
    module_paraview.o \
@@ -90,7 +90,7 @@ module_sm.o: \
 
 module_graph.o: \
    module_parsing.o \
-   divide_graph.o \
+   graph_divide.o \
    module_utils.o 
 
 module_pp.o: \

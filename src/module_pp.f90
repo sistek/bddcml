@@ -1106,18 +1106,23 @@ character(*),parameter:: routine_name = 'PP_DIVIDE_MESH'
 ! 1 - chunk-based
 integer :: division_type = 0
 
+! METIS is not great in dividing small graphs into large number of parts, avoid it.
+if (nsub > nelem / 2) then
+   division_type = 1
+end if
+
 select case (division_type)
    case (0)
+      call info(routine_name, 'Using graph-based partitioning.')
       call pp_divide_mesh_graph(graphtype,correct_division,neighbouring,nelem,nnod,&
                                 inet,linet,nnet,lnnet,nsub,contiguous_subdomains,&
                                 edgecut,part,lpart)
    case (1)
+      call info(routine_name, 'Using chunk-based partitioning.')
       call pp_divide_mesh_chunks(nelem, nsub, part,lpart)
    case default
       call error(routine_name, 'Unknown division type.')
 end select
-
-
 
 end subroutine pp_divide_mesh
 
