@@ -1502,8 +1502,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       if ( ilevel.gt.1 ) then
          levels(ilevel)%find_components     = levels(ilevel-1)%find_components
          levels(ilevel)%use_dual_mesh_graph = levels(ilevel-1)%use_dual_mesh_graph
-         levels(ilevel)%neighbouring        = levels(ilevel-1)%neighbouring
-         !levels(ilevel)%neighbouring        = 1
+         !levels(ilevel)%neighbouring        = levels(ilevel-1)%neighbouring
+         levels(ilevel)%neighbouring        = 1
       else
          ! copy the parameters from the first subdomain to the global data for the level
          levels(ilevel)%find_components     = levels(ilevel)%subdomains(1)%find_components
