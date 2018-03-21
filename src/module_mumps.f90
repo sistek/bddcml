@@ -61,7 +61,7 @@ contains
       mumps%JOB = -1
       mumps%KEEP = 0
 
-      CALL DMUMPS(mumps)
+      call DMUMPS(mumps)
 
 ! Check output
       if (mumps%INFOG(1) .ne. 0) then
@@ -248,8 +248,10 @@ contains
       end if
 
 ! Job type = 1 for matrix analysis
-      mumps%JOB = 1
-      CALL DMUMPS(mumps)
+      if (mumps%N > 0) then
+         mumps%JOB = 1
+         call DMUMPS(mumps)
+      end if
 
 ! Check output
       if (mumps%INFOG(1) .ne. 0) then
@@ -337,7 +339,9 @@ contains
       mumps%REDRHS => rrhs
 
 ! call the solve with these parameters
-      call mumps_resolve(mumps,rhs,lrhs,nrhs)
+      if (mumps%N > 0) then
+         call mumps_resolve(mumps,rhs,lrhs,nrhs)
+      end if
 
 ! return the object to the initial state
 !      mumps%ICNTL(26) = 0
@@ -390,7 +394,9 @@ contains
       mumps%REDRHS => rsolution
 
 ! call the solve with these parameters
-      call mumps_resolve(mumps,solution,lsolution,nrhs)
+      if (mumps%N > 0) then
+         call mumps_resolve(mumps,solution,lsolution,nrhs)
+      end if
 
       end subroutine
 
@@ -427,7 +433,9 @@ contains
       mumps%ICNTL(26) = 0
 
 ! call the solve with these parameters
-      call mumps_resolve(mumps,solution,lsolution,nrhs)
+      if (mumps%N > 0) then
+         call mumps_resolve(mumps,solution,lsolution,nrhs)
+      end if
 
       end subroutine
 
@@ -449,7 +457,11 @@ contains
 
 ! Job type = 2 for factorization
  13   mumps%JOB = 2
-      CALL DMUMPS(mumps)
+      mumps%INFOG(1) = 0
+      ! skip the factorization if the problem is empty
+      if (mumps%N > 0) then
+         call DMUMPS(mumps)
+      end if
 
 ! Check output
       if (mumps%INFOG(1) .ne. 0) then
@@ -550,7 +562,10 @@ contains
 
 ! Job type = 3 for backsubstitution
       mumps%JOB = 3
-      CALL DMUMPS(mumps)
+      ! skip the factorization if the problem is empty
+      if (mumps%N > 0) then
+         call DMUMPS(mumps)
+      end if
 
 ! Check output
       if (mumps%INFOG(1) .ne. 0) then
@@ -577,7 +592,7 @@ contains
       character(*),parameter:: routine_name = 'MUMPS_FINALIZE'
 
       mumps%JOB = -2
-      CALL DMUMPS(mumps)
+      call DMUMPS(mumps)
 
 ! Check output
       if (mumps%INFOG(1) .ne. 0) then

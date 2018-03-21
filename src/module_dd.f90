@@ -684,148 +684,148 @@ end subroutine
 !
 !end subroutine
 
-!!**************************************************************
-!subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
-!!**************************************************************
-!! Subroutine for initialization of subdomain data
-!      use module_utils
-!      use module_sm
-!      implicit none
-!      include "mpif.h"
-!
-!! Subdomain structure
-!      type(subdomain_type),intent(inout) :: sub
-!! type of matrix
-!      integer,intent(in) :: matrixtype
-!! name of problem
-!      character(*),intent(in) :: problemname
-!
-!! local variables
-!      character(lfnamex):: fname
-!
-!      integer :: isub
-!      integer :: idelm, nelem, nnod, ndof
-!
-!!     Matrix in IJA sparse format - triplet
-!      integer::  la, nnza
-!      integer,allocatable  :: i_sparse(:), j_sparse(:)
-!      real(kr),allocatable :: a_sparse(:)
-!      logical :: is_assembled
-!
-!
-!!     kdof array
-!      integer::              lkdof
-!      integer,allocatable  :: kdof(:)
-!
-!!     BC array
-!      integer::              lbc
-!      real(kr),allocatable :: bc(:)
-!
-!      integer :: inod
-!      integer :: ios
-!
-!! check prerequisites
-!      if (.not.sub%is_initialized) then
-!         call error('DD_READ_MATRIX_FROM_FILE','Subdomain is not initialized.')
-!      end if
-!
-!! get data from subdomain
-!      isub  = sub%isub
-!      nelem = sub%nelem
-!      nnod  = sub%nnod
-!
-!! check prerequisites
-!      if (.not.sub%is_mesh_loaded) then
-!         write(*,*) 'DD_READ_MATRIX_FROM_FILE: Mesh is not loaded for subdomain:', isub
-!         call error_exit
-!      end if
-!      if (.not.sub%is_bc_loaded) then
-!         write(*,*) 'DD_READ_MATRIX_FROM_FILE: BC not loaded for subdomain:', isub
-!         call error_exit
-!      end if
-!
-!      ! import PMD file to memory
-!      call sm_pmd_get_length(matrixtype,nelem,sub%inet,sub%linet,&
-!                             sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
-!                             la)
-!      ! allocate memory for triplet
-!      allocate(i_sparse(la), j_sparse(la), a_sparse(la))
-!
-!      ! Creation of field KDOF(NNOD) with addresses before first global dof of node
-!      lkdof = nnod
-!      allocate(kdof(lkdof))
-!      kdof(1) = 0
-!      do inod = 2,nnod
-!         kdof(inod) = kdof(inod-1) + sub%nndf(inod-1)
-!      end do
-!
-!      ! try with subdomain ELM file with element matrices
-!      call allocate_unit(idelm)
-!      call getfname(problemname,isub,'ELM',fname)
-!      open (unit=idelm,file=trim(fname),status='old',form='unformatted',iostat=ios)
-!      if (ios.eq.0) then
-!         ! the subdomain file should exist, try reading it
-!         call sm_pmd_load(matrixtype,idelm,nelem,sub%inet,sub%linet,&
-!                          sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
-!                          kdof,lkdof,&
-!                          i_sparse, j_sparse, a_sparse, la)
-!         close (idelm)
-!      else
-!         write(*,*) 'WARNING: File ',trim(fname), ' does not open. Trying with global ELM file...'
-!         ! (this could have a negative impact on performance)
-!
-!         ! use global filename
-!         fname = trim(problemname)//'.ELM'
-!         open (unit=idelm,file=trim(fname),status='old',form='unformatted')
-!         call sm_pmd_load_masked(matrixtype,idelm,nelem,sub%inet,sub%linet,&
-!                                 sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
-!                                 kdof,lkdof,sub%isegn,sub%lisegn,&
-!                                 i_sparse, j_sparse, a_sparse, la)
-!         close (idelm)
-!      end if
-!      if (debug) then
-!         write(*,*) 'DD_READ_MATRIX_FROM_FILE: File with element matrices read.'
-!      end if
-!
-!      nnza = la
-!
-!      ! eliminate boundary conditions
-!      if (sub%is_bc_present) then
-!         ndof =  sub%ndof
-!         if (sub%is_bc_nonzero) then
-!            lbc = ndof
-!            allocate(bc(lbc))
-!         else
-!            lbc = 0
-!         end if
-!
-!         ! eliminate natural BC
-!         call sm_apply_bc(matrixtype,sub%ifix,sub%lifix,sub%fixv,sub%lfixv,&
-!                          nnza, i_sparse,j_sparse,a_sparse,la, bc,lbc, .false., 0)
-!         if (sub%is_bc_nonzero) then
-!            call dd_load_eliminated_bc(sub, bc,lbc)
-!         else
-!            sub%lbc = 0
-!         end if
-!      end if
-!
-!      ! load matrix to our structure
-!      is_assembled = .false.
-!      call dd_load_matrix_triplet(sub, matrixtype, 0, &
-!                                  i_sparse,j_sparse,a_sparse,la,nnza,is_assembled)
-!
-!
-!      if (debug) then
-!         write(*,*) 'DD_READ_MATRIX_FROM_FILE: isub =',isub,' matrix loaded.'
-!      end if
-!
-!      deallocate(kdof)
-!      deallocate(i_sparse, j_sparse, a_sparse)
-!      if (allocated(bc)) then
-!         deallocate(bc)
-!      end if
-!
-!end subroutine
+!**************************************************************
+subroutine dd_read_matrix_from_file(sub,matrixtype,problemname)
+!**************************************************************
+! Subroutine for initialization of subdomain data
+      use module_utils
+      use module_sm
+      implicit none
+      include "mpif.h"
+
+! Subdomain structure
+      type(subdomain_type),intent(inout) :: sub
+! type of matrix
+      integer,intent(in) :: matrixtype
+! name of problem
+      character(*),intent(in) :: problemname
+
+! local variables
+      character(lfnamex):: fname
+
+      integer :: isub
+      integer :: idelm, nelem, nnod, ndof
+
+!     Matrix in IJA sparse format - triplet
+      integer::  la, nnza
+      integer,allocatable  :: i_sparse(:), j_sparse(:)
+      real(kr),allocatable :: a_sparse(:)
+      logical :: is_assembled
+
+
+!     kdof array
+      integer::              lkdof
+      integer,allocatable  :: kdof(:)
+
+!     BC array
+      integer::              lbc
+      real(kr),allocatable :: bc(:)
+
+      integer :: inod
+      integer :: ios
+
+! check prerequisites
+      if (.not.sub%is_initialized) then
+         call error('DD_READ_MATRIX_FROM_FILE','Subdomain is not initialized.')
+      end if
+
+! get data from subdomain
+      isub  = sub%isub
+      nelem = sub%nelem
+      nnod  = sub%nnod
+
+! check prerequisites
+      if (.not.sub%is_mesh_loaded) then
+         write(*,*) 'DD_READ_MATRIX_FROM_FILE: Mesh is not loaded for subdomain:', isub
+         call error_exit
+      end if
+      if (.not.sub%is_bc_loaded) then
+         write(*,*) 'DD_READ_MATRIX_FROM_FILE: BC not loaded for subdomain:', isub
+         call error_exit
+      end if
+
+      ! import PMD file to memory
+      call sm_pmd_get_length(matrixtype,nelem,sub%inet,sub%linet,&
+                             sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
+                             la)
+      ! allocate memory for triplet
+      allocate(i_sparse(la), j_sparse(la), a_sparse(la))
+
+      ! Creation of field KDOF(NNOD) with addresses before first global dof of node
+      lkdof = nnod
+      allocate(kdof(lkdof))
+      kdof(1) = 0
+      do inod = 2,nnod
+         kdof(inod) = kdof(inod-1) + sub%nndf(inod-1)
+      end do
+
+      ! try with subdomain ELM file with element matrices
+      call allocate_unit(idelm)
+      call getfname(problemname,isub,'ELM',fname)
+      open (unit=idelm,file=trim(fname),status='old',form='unformatted',iostat=ios)
+      if (ios.eq.0) then
+         ! the subdomain file should exist, try reading it
+         call sm_pmd_load(matrixtype,idelm,nelem,sub%inet,sub%linet,&
+                          sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
+                          kdof,lkdof,&
+                          i_sparse, j_sparse, a_sparse, la)
+         close (idelm)
+      else
+         write(*,*) 'WARNING: File ',trim(fname), ' does not open. Trying with global ELM file...'
+         ! (this could have a negative impact on performance)
+
+         ! use global filename
+         fname = trim(problemname)//'.ELM'
+         open (unit=idelm,file=trim(fname),status='old',form='unformatted')
+         call sm_pmd_load_masked(matrixtype,idelm,nelem,sub%inet,sub%linet,&
+                                 sub%nnet,sub%lnnet,sub%nndf,sub%lnndf,&
+                                 kdof,lkdof,sub%isegn,sub%lisegn,&
+                                 i_sparse, j_sparse, a_sparse, la)
+         close (idelm)
+      end if
+      if (debug) then
+         write(*,*) 'DD_READ_MATRIX_FROM_FILE: File with element matrices read.'
+      end if
+
+      nnza = la
+
+      ! eliminate boundary conditions
+      if (sub%is_bc_present) then
+         ndof =  sub%ndof
+         if (sub%is_bc_nonzero) then
+            lbc = ndof
+            allocate(bc(lbc))
+         else
+            lbc = 0
+         end if
+
+         ! eliminate natural BC
+         call sm_apply_bc(matrixtype,sub%ifix,sub%lifix,sub%fixv,sub%lfixv,&
+                          nnza, i_sparse,j_sparse,a_sparse,la, bc,lbc, .false., 0)
+         if (sub%is_bc_nonzero) then
+            call dd_load_eliminated_bc(sub, bc,lbc)
+         else
+            sub%lbc = 0
+         end if
+      end if
+
+      ! load matrix to our structure
+      is_assembled = .false.
+      call dd_load_matrix_triplet(sub, matrixtype, 0, &
+                                  i_sparse,j_sparse,a_sparse,la,nnza,is_assembled)
+
+
+      if (debug) then
+         write(*,*) 'DD_READ_MATRIX_FROM_FILE: isub =',isub,' matrix loaded.'
+      end if
+
+      deallocate(kdof)
+      deallocate(i_sparse, j_sparse, a_sparse)
+      if (allocated(bc)) then
+         deallocate(bc)
+      end if
+
+end subroutine
 
 !****************************************************************************************
 subroutine dd_read_matrix_by_root(suba,lsuba, comm_all,idelm,nsub,nelem,matrixtype,&
