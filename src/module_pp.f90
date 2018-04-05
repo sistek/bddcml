@@ -1199,7 +1199,7 @@ integer, intent(in)    :: lpart
 integer*4, intent(out) ::  part(lpart) ! distribution
 
 ! local vars
-character(*),parameter:: routine_name = 'PP_DIVIDE_MESH'
+character(*),parameter:: routine_name = 'PP_DIVIDE_MESH_GRAPH'
 integer:: nedge, ncomponents
 integer :: lnetn, lietn, lkietn
 integer,allocatable:: ietn(:), kietn(:), netn(:)
