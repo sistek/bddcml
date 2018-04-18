@@ -487,10 +487,10 @@ contains
             ! broadcast the error code from errorneous process
             call MPI_BCAST(errcode, 1, MPI_INTEGER, errproc, comm, ierr)
             ! if the error is with local memory, try to rerun the factorization
-            if (errcode.eq.-9) then
+            if (errcode.eq.-8 .or. errcode.eq.-9) then
                if (myid.eq.errproc) then 
                   if (mumps%ICNTL(14) .lt. mem_relax_lim) then
-                     ! add 20% to relaxation parameter up to limit
+                     ! add 50% to relaxation parameter up to limit
                      mumps%ICNTL(14) = mumps%ICNTL(14) + 50
                      mumps%ICNTL(14) = min(mumps%ICNTL(14),mem_relax_lim)
                      if (debug) then
