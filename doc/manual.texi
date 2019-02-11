@@ -16,7 +16,7 @@ END-INFO-DIR-ENTRY
 @titlepage
 @title BDDCML
 @subtitle solver library based on Multi-Level Balancing Domain Decomposition by Constraints
-@subtitle copyright (C) 2010-2016 Jakub @v{S}@'{@dotless{i}}stek
+@subtitle copyright (C) 2010-2019 Jakub @v{S}@'{@dotless{i}}stek
 @subtitle version 2.6
 @author Jakub @v{S}@'{@dotless{i}}stek
 
