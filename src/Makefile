@@ -27,6 +27,7 @@ OBJ = \
    graph_divide.o \
    module_parsing.o \
    module_sm.o \
+   module_densela.o \
    module_paraview.o \
    module_utils.o \
    lobpcg_driver.o 
@@ -41,6 +42,9 @@ bddclib: $(LIBBDDCML)
 
 # general rule for compiling objects
 %.o : %.f90
+	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) $(INC) -c $<
+
+%.o : %.F90
 	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) $(INC) -c $<
 
 %.o : %.c
@@ -82,6 +86,7 @@ module_dd.o: \
    module_pp.o \
    module_mumps.o \
    module_sm.o \
+   module_densela.o \
    module_paraview.o \
    module_utils.o 
 
