@@ -20,6 +20,9 @@ module module_densela
 ! PLASMA, MAGMA etc.
 
       use, intrinsic :: iso_fortran_env
+#if defined(BDDCML_WITH_MAGMA)
+      use magma
+#endif
       implicit none
 
 ! type of real variables
@@ -28,14 +31,23 @@ module module_densela
 ! debugging mode
       logical,parameter,private :: debug = .false.
 
+! library to use
+      integer,parameter :: DENSELA_LAPACK = 1
+      integer,parameter :: DENSELA_MAGMA  = 2
+
+      !integer,parameter,private :: library = DENSELA_MAGMA
+      !integer,parameter,private :: library = DENSELA_LAPACK
+
 contains
 
-!*******************************************
-subroutine densela_getrf(m, n, A, lda, ipiv)
-!*******************************************
+!****************************************************
+subroutine densela_getrf(library, m, n, A, lda, ipiv)
+!****************************************************
 ! LU factorization of a matrix.
       use module_utils
       implicit none
+! Numerical library to use
+      integer,intent(in) :: library
 ! Number of rows in the matrix
       integer,intent(in) :: m
 ! Number of columns in the matrix
@@ -58,23 +70,40 @@ subroutine densela_getrf(m, n, A, lda, ipiv)
          call error(routine_name, 'Size of ipiv not sufficient.')
       end if
 
-      ! LAPACK version
-      if (kr.eq.8) then
-         ! double precision
-         call dgetrf(m, n, A, lda, ipiv, lapack_info)
-      else if (kr.eq.4) then
-         ! single precision
-         call sgetrf(m, n, A, lda, ipiv, lapack_info)
-      end if
+      select case (library)
+         case (DENSELA_LAPACK)
+            ! LAPACK version
+            if      (kr == REAL64) then
+               ! double precision
+               call dgetrf(m, n, A, lda, ipiv, lapack_info)
+            else if (kr == REAL32) then
+               ! single precision
+               call sgetrf(m, n, A, lda, ipiv, lapack_info)
+            end if
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            !if      (kr == REAL64) then
+               ! double precision
+            call magmaf_dgetrf(m, n, A, lda, ipiv, lapack_info)
+            !else if (kr == REAL32) then
+               ! single precision
+            !   call magmaf_sgetrf(m, n, A, lda, ipiv, lapack_info)
+            !end if
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
 
 end subroutine
 
-!*************************************************************
-subroutine densela_getrs(trans, n, nrhs, A, lda, ipiv, B, ldb)
-!*************************************************************
+!**********************************************************************
+subroutine densela_getrs(library, trans, n, nrhs, A, lda, ipiv, B, ldb)
+!**********************************************************************
 ! Solve by LU factorization
       use module_utils
       implicit none
+! Numerical library to use
+      integer,intent(in) :: library
 ! Solve transposed problem
       character, intent(in) :: trans
 ! Number of rows and columns in the matrix
@@ -97,23 +126,40 @@ subroutine densela_getrs(trans, n, nrhs, A, lda, ipiv, B, ldb)
       character(*),parameter:: routine_name = 'densela_getrs'
       integer :: lapack_info
 
-      ! LAPACK version
-      if (kr.eq.8) then
-         ! double precision
-         call dgetrs(trans, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
-      else if (kr.eq.4) then
-         ! single precision
-         call sgetrs(trans, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
-      end if
+      select case (library)
+         case (DENSELA_LAPACK)
+            ! LAPACK version
+            if      (kr == REAL64) then
+               ! double precision
+               call dgetrs(trans, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
+            else if (kr == REAL32) then
+               ! single precision
+               call sgetrs(trans, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
+            end if
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            if      (kr == REAL64) then
+               ! double precision
+               call dgetrs(trans, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
+            else if (kr == REAL32) then
+               ! single precision
+               call sgetrs(trans, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
+            end if
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
 
 end subroutine
 
-!**********************************************
-subroutine densela_sytrf(uplo, n, A, lda, ipiv)
-!**********************************************
+!*******************************************************
+subroutine densela_sytrf(library, uplo, n, A, lda, ipiv)
+!*******************************************************
 ! LDLT factorization of a matrix.
       use module_utils
       implicit none
+! Numerical library to use
+      integer,intent(in) :: library
 ! Upper or lower part of the matrix
       character, intent(in) :: uplo
 ! Number of rows and columns in the matrix
@@ -142,37 +188,54 @@ subroutine densela_sytrf(uplo, n, A, lda, ipiv)
          call error(routine_name, 'Size of ipiv not sufficient.')
       end if
 
-      if (kr.eq.8) then
-         ! double precision
-         function_name = 'DSYTRF'
-      else if (kr.eq.4) then
-         ! single precision
-         function_name = 'SSYTRF'
-      end if
+      select case (library)
+         case (DENSELA_LAPACK)
+            ! LAPACK version
+            if      (kr == REAL64) then
+               ! double precision
+               function_name = 'DSYTRF'
+            else if (kr == REAL32) then
+               ! single precision
+               function_name = 'SSYTRF'
+            end if
 
-      nb = ilaenv(1, function_name, uplo,  n, 0, 0, 0)
-      lwork = lda*nb
-      allocate(work(lwork))
+            nb = ilaenv(1, function_name, uplo,  n, 0, 0, 0)
+            lwork = lda*nb
+            allocate(work(lwork))
 
-      ! LAPACK version
-      if (kr.eq.8) then
-         ! double precision
-         call dsytrf(uplo, n, A, lda, ipiv, work, lwork, lapack_info)
-      else if (kr.eq.4) then
-         ! single precision
-         call ssytrf(uplo, n, A, lda, ipiv, work, lwork, lapack_info)
-      end if
+            if      (kr == REAL64) then
+               ! double precision
+               call dsytrf(uplo, n, A, lda, ipiv, work, lwork, lapack_info)
+            else if (kr == REAL32) then
+               ! single precision
+               call ssytrf(uplo, n, A, lda, ipiv, work, lwork, lapack_info)
+            end if
 
-      deallocate(work)
+            deallocate(work)
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            !if      (kr == REAL64) then
+               ! double precision
+            call magmaf_dsytrf(uplo, n, A, lda, ipiv, lapack_info)
+            !else if (kr == REAL32) then
+               ! single precision
+            !   call magmaf_ssytrf(uplo, n, A, lda, ipiv, lapack_info)
+            !end if
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
 
 end subroutine
 
-!************************************************************
-subroutine densela_sytrs(uplo, n, nrhs, A, lda, ipiv, B, ldb)
-!************************************************************
+!*********************************************************************
+subroutine densela_sytrs(library, uplo, n, nrhs, A, lda, ipiv, B, ldb)
+!*********************************************************************
 ! LDLT factorization of a matrix.
       use module_utils
       implicit none
+! Numerical library to use
+      integer,intent(in) :: library
 ! Solve transposed problem
       character, intent(in) :: uplo
 ! Number of rows and columns in the matrix
@@ -195,23 +258,41 @@ subroutine densela_sytrs(uplo, n, nrhs, A, lda, ipiv, B, ldb)
       character(*),parameter:: routine_name = 'densela_sytrs'
       integer :: lapack_info
 
-      ! LAPACK version
-      if (kr.eq.8) then
-         ! double precision
-         call dsytrs(uplo, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
-      else if (kr.eq.4) then
-         ! single precision
-         call ssytrs(uplo, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
-      end if
+      select case (library)
+         case (DENSELA_LAPACK)
+            ! LAPACK version
+            if      (kr == REAL64) then
+               ! double precision
+               call dsytrs(uplo, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
+            else if (kr == REAL32) then
+               ! single precision
+               call ssytrs(uplo, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
+            end if
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            if      (kr == REAL64) then
+               ! double precision
+               call dsytrs(uplo, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
+            else if (kr == REAL32) then
+               ! single precision
+               call ssytrs(uplo, n, nrhs, A, lda, ipiv, B, ldb, lapack_info)
+            end if
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
 
 end subroutine
 
-!**************************************************************************
-subroutine densela_gemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy)
-!**************************************************************************
+!***********************************************************************************
+subroutine densela_gemv(library, trans, m, n, alpha, A, lda, x, incx, beta, y, incy)
+!***********************************************************************************
 ! Matrix-vector product in the form y := alpha*A*x + beta*y, for general A
       use module_utils
+      use iso_c_binding
       implicit none
+! Numerical library to use
+      integer,intent(in) :: library
 ! Solve transposed problem
       character, intent(in) :: trans
 ! Number of rows in the matrix
@@ -237,24 +318,89 @@ subroutine densela_gemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy)
 
 ! local vars
       character(*),parameter:: routine_name = 'densela_gemv'
+#if defined(BDDCML_WITH_MAGMA)
+      integer(8) :: queue
+      integer(c_int) :: device
+      integer(8) :: dA
+      integer(8) :: dx
+      integer(8) :: dy
+      integer :: ldda
+      integer :: ierr
+      integer :: lx, ly
+#endif
 
-      ! LAPACK version
-      if (kr.eq.8) then
-         ! double precision
-         call dgemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy)
-      else if (kr.eq.4) then
-         ! single precision
-         call sgemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy)
-      end if
+      select case (library)
+         case (DENSELA_LAPACK)
+            ! LAPACK version
+            if      (kr == REAL64) then
+               ! double precision
+               call dgemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy)
+            else if (kr == REAL32) then
+               ! single precision
+               call sgemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy)
+            end if
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            ! simly call LAPACK anyway
+            !call dgemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy)
+
+            call magmaf_getdevice(device)
+            call magmaf_queue_create(device, queue)
+
+            ! allocate memory on GPU
+            ierr = magmaf_dmalloc(dA, m*n)
+
+            if (trans == 'T' .or. trans == 't') then
+               lx = m
+               ly = n
+            else
+               lx = n
+               ly = m
+            end if
+            ierr = magmaf_dmalloc(dx, lx)
+            ierr = magmaf_dmalloc(dy, ly)
+
+            ! copy the matrix from CPU to GPU
+            lddA = m
+            call magmaf_dsetmatrix( m, n, A, lda, dA, lddA, queue )
+
+            ! copy vectors from CPU to GPU
+            call magmaf_dsetvector(lx, x, incx, dx, 1, queue)
+            call magmaf_dsetvector(ly, y, incy, dy, 1, queue)
+
+            !if      (kr == REAL64) then
+            !   ! double precision
+            call magmaf_dgemv(trans, m, n, alpha, dA, lddA, dx, 1, beta, dy, 1, queue)
+            !else if (kr == REAL32) then
+            !   ! single precision
+            !   call magmaf_sgemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy, queue)
+            !end if
+
+            ! copy data from GPU to CPU
+            call magmaf_dgetvector(ly, dy, 1, y, incy, queue)
+
+            call magmaf_queue_destroy(queue)
+
+            ! free memory on GPU
+            ierr = magmaf_free(dA)
+            ierr = magmaf_free(dx)
+            ierr = magmaf_free(dy)
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
 
 end subroutine
 
-!**********************************************************************
-subroutine densela_symv(uplo, n, alpha, A, lda, x, incx, beta, y, incy)
-!**********************************************************************
+!*******************************************************************************
+subroutine densela_symv(library, uplo, n, alpha, A, lda, x, incx, beta, y, incy)
+!*******************************************************************************
 ! Matrix-vector product in the form y := alpha*A*x + beta*y, for symmetric A
       use module_utils
+      use iso_c_binding
       implicit none
+! Numerical library to use
+      integer,intent(in) :: library
 ! Upper or lower part of the matrix
       character, intent(in) :: uplo
 ! Size of the matrix
@@ -278,15 +424,68 @@ subroutine densela_symv(uplo, n, alpha, A, lda, x, incx, beta, y, incy)
 
 ! local vars
       character(*),parameter:: routine_name = 'densela_symv'
+#if defined(BDDCML_WITH_MAGMA)
+      integer(8) :: queue
+      integer(c_int) :: device
+      integer(8) :: dA
+      integer(8) :: dx
+      integer(8) :: dy
+      integer :: ldda
+      integer :: ierr
+#endif
 
-      ! LAPACK version
-      if (kr.eq.8) then
-         ! double precision
-         call dsymv(uplo, n, alpha, A, lda, x, incx, beta, y, incy)
-      else if (kr.eq.4) then
-         ! single precision
-         call ssymv(uplo, n, alpha, A, lda, x, incx, beta, y, incy)
-      end if
+      select case (library)
+         case (DENSELA_LAPACK)
+            ! LAPACK version
+            if      (kr == REAL64) then
+               ! double precision
+               call dsymv(uplo, n, alpha, A, lda, x, incx, beta, y, incy)
+            else if (kr == REAL32) then
+               ! single precision
+               call ssymv(uplo, n, alpha, A, lda, x, incx, beta, y, incy)
+            end if
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            ! simply call LAPACK anyway
+            !call dsymv(uplo, n, alpha, A, lda, x, incx, beta, y, incy)
+
+            call magmaf_getdevice(device)
+            call magmaf_queue_create(device, queue)
+
+            ! allocate memory on GPU
+            ierr = magmaf_dmalloc(dA, n*n)
+            ierr = magmaf_dmalloc(dx, n)
+            ierr = magmaf_dmalloc(dy, n)
+
+            ! copy the matrix from CPU to GPU
+            lddA = n
+            call magmaf_dsetmatrix( n, n, A, lda, dA, lddA, queue )
+
+            ! copy vectors from CPU to GPU
+            call magmaf_dsetvector(n, x, incx, dx, 1, queue)
+            call magmaf_dsetvector(n, y, incx, dy, 1, queue)
+
+            !if      (kr == REAL64) then
+            !   ! double precision
+            call magmaf_dsymv(uplo, n, alpha, dA, lda, dx, incx, beta, dy, incy, queue)
+            !else if (kr == REAL32) then
+            !   ! single precision
+            !   call magmaf_ssymv(uplo, n, alpha, A, lda, x, incx, beta, y, incy, queue)
+            !end if
+ 
+            ! copy data from GPU to CPU
+            call magmaf_dgetvector(n, dy, 1, y, incy, queue)
+
+            call magmaf_queue_destroy(queue)
+
+            ! free memory on GPU
+            ierr = magmaf_free(dA)
+            ierr = magmaf_free(dx)
+            ierr = magmaf_free(dy)
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
 
 end subroutine
 

@@ -2,7 +2,12 @@
 include ../make.inc
 
 # include files needed
-INC = $(BDDCML_INCMUMPS) $(BDDCML_INCPARMETIS) $(BDDCML_INCMETIS) $(BDDCML_INCBLOPEX) $(BDDCML_INCMPI)
+INC = $(BDDCML_INCMUMPS) \
+      $(BDDCML_INCPARMETIS) \
+      $(BDDCML_INCMETIS) \
+      $(BDDCML_INCBLOPEX) \
+      $(BDDCML_INCMAGMA) \
+      $(BDDCML_INCMPI)
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -45,10 +50,10 @@ bddclib: $(LIBBDDCML)
 	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) $(INC) -c $<
 
 %.o : %.F90
-	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) $(INC) -c $<
+	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) $(BDDCML_DEFS) $(INC) -c $<
 
 %.o : %.c
-	$(BDDCML_MPCC) $(BDDCML_MPCFLAGS) $(BDDCML_CDEFS) $(INC) -c $<
+	$(BDDCML_MPCC) $(BDDCML_MPCFLAGS) $(BDDCML_DEFS) $(INC) -c $<
 
 # module dependencies
 module_bddcml_c_wrapper.o: \
