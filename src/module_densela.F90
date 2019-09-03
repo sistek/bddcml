@@ -324,7 +324,7 @@ subroutine densela_gemv(library, trans, m, n, alpha, A, lda, x, incx, beta, y, i
       integer(8) :: dA
       integer(8) :: dx
       integer(8) :: dy
-      integer :: ldda
+      integer :: lddA
       integer :: ierr
       integer :: lx, ly
 #endif
@@ -392,6 +392,93 @@ subroutine densela_gemv(library, trans, m, n, alpha, A, lda, x, incx, beta, y, i
 
 end subroutine
 
+!***************************************************************************************************
+subroutine densela_gemv_matrix_on_gpu(library, trans, m, n, alpha, dA, lddA, x, incx, beta, y, incy)
+!***************************************************************************************************
+! Matrix-vector product in the form y := alpha*A*x + beta*y, for general A
+      use module_utils
+      use iso_c_binding
+      implicit none
+! Numerical library to use
+      integer,intent(in) :: library
+! Solve transposed problem
+      character, intent(in) :: trans
+! Number of rows in the matrix
+      integer,intent(in) :: m
+! Number of columns in the matrix
+      integer,intent(in) :: n
+! Coefficient alpha 
+      real(kr),intent(in) :: alpha
+! Matrix A
+      integer(8),intent(in) :: dA
+! Leading dimension of A
+      integer,intent(in) :: lddA
+! Input array X
+      real(kr),intent(in) :: x(*)
+! Increment of X
+      integer,intent(in) :: incx
+! Coefficient beta 
+      real(kr),intent(in) :: beta
+! Input/output array Y
+      real(kr),intent(inout) :: y(*)
+! Increment of Y
+      integer,intent(in) :: incy
+
+! local vars
+      character(*),parameter:: routine_name = 'densela_gemv'
+#if defined(BDDCML_WITH_MAGMA)
+      integer(8) :: queue
+      integer(c_int) :: device
+      integer(8) :: dx
+      integer(8) :: dy
+      integer :: ierr
+      integer :: lx, ly
+#endif
+
+      select case (library)
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            call magmaf_getdevice(device)
+            call magmaf_queue_create(device, queue)
+
+            ! allocate memory on GPU
+            if (trans == 'T' .or. trans == 't') then
+               lx = m
+               ly = n
+            else
+               lx = n
+               ly = m
+            end if
+            ierr = magmaf_dmalloc(dx, lx)
+            ierr = magmaf_dmalloc(dy, ly)
+
+            ! copy vectors from CPU to GPU
+            call magmaf_dsetvector(lx, x, incx, dx, 1, queue)
+            call magmaf_dsetvector(ly, y, incy, dy, 1, queue)
+
+            !if      (kr == REAL64) then
+            !   ! double precision
+            call magmaf_dgemv(trans, m, n, alpha, dA, lddA, dx, 1, beta, dy, 1, queue)
+            !else if (kr == REAL32) then
+            !   ! single precision
+            !   call magmaf_sgemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy, queue)
+            !end if
+
+            ! copy data from GPU to CPU
+            call magmaf_dgetvector(ly, dy, 1, y, incy, queue)
+
+            call magmaf_queue_destroy(queue)
+
+            ! free memory on GPU
+            ierr = magmaf_free(dx)
+            ierr = magmaf_free(dy)
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
+
+end subroutine
+
 !*******************************************************************************
 subroutine densela_symv(library, uplo, n, alpha, A, lda, x, incx, beta, y, incy)
 !*******************************************************************************
@@ -430,7 +517,7 @@ subroutine densela_symv(library, uplo, n, alpha, A, lda, x, incx, beta, y, incy)
       integer(8) :: dA
       integer(8) :: dx
       integer(8) :: dy
-      integer :: ldda
+      integer :: lddA
       integer :: ierr
 #endif
 
@@ -467,8 +554,7 @@ subroutine densela_symv(library, uplo, n, alpha, A, lda, x, incx, beta, y, incy)
 
             !if      (kr == REAL64) then
             !   ! double precision
-            call magmaf_dsymv(uplo, n, alpha, dA, lda, dx, incx, beta, dy, incy, queue)
-            !else if (kr == REAL32) then
+            call magmaf_dsymv(uplo, n, alpha, dA, lddA, dx, incx, beta, dy, incy, queue) !else if (kr == REAL32) then
             !   ! single precision
             !   call magmaf_ssymv(uplo, n, alpha, A, lda, x, incx, beta, y, incy, queue)
             !end if
@@ -482,6 +568,169 @@ subroutine densela_symv(library, uplo, n, alpha, A, lda, x, incx, beta, y, incy)
             ierr = magmaf_free(dA)
             ierr = magmaf_free(dx)
             ierr = magmaf_free(dy)
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
+
+end subroutine
+
+!**************************************************************(********************************
+subroutine densela_symv_matrix_on_gpu(library, uplo, n, alpha, dA, lddA, x, incx, beta, y, incy)
+!***********************************************************************************************
+! Matrix-vector product in the form y := alpha*A*x + beta*y, for symmetric A
+      use module_utils
+      use iso_c_binding
+      implicit none
+! Numerical library to use
+      integer,intent(in) :: library
+! Upper or lower part of the matrix
+      character, intent(in) :: uplo
+! Size of the matrix
+      integer,intent(in) :: n
+! Coefficient alpha 
+      real(kr),intent(in) :: alpha
+! Matrix A
+      integer(8),intent(in) :: dA
+! Leading dimension of A
+      integer,intent(in) :: lddA
+! Input array X
+      real(kr),intent(in) :: x(*)
+! Increment of X
+      integer,intent(in) :: incx
+! Coefficient beta 
+      real(kr),intent(in) :: beta
+! Input/output array Y
+      real(kr),intent(inout) :: y(*)
+! Increment of Y
+      integer,intent(in) :: incy
+
+! local vars
+      character(*),parameter:: routine_name = 'densela_symv_matrix_on_gpu'
+#if defined(BDDCML_WITH_MAGMA)
+      integer(8) :: queue
+      integer(c_int) :: device
+      integer(8) :: dx
+      integer(8) :: dy
+      integer :: ierr
+#endif
+
+      select case (library)
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            ! simply call LAPACK anyway
+            !call dsymv(uplo, n, alpha, A, lda, x, incx, beta, y, incy)
+
+            call magmaf_getdevice(device)
+            call magmaf_queue_create(device, queue)
+
+            ! allocate memory on GPU
+            ierr = magmaf_dmalloc(dx, n)
+            ierr = magmaf_dmalloc(dy, n)
+
+            ! copy vectors from CPU to GPU
+            call magmaf_dsetvector(n, x, incx, dx, 1, queue)
+            call magmaf_dsetvector(n, y, incx, dy, 1, queue)
+
+            !if      (kr == REAL64) then
+            !   ! double precision
+            call magmaf_dsymv(uplo, n, alpha, dA, lddA, dx, incx, beta, dy, incy, queue)
+            !else if (kr == REAL32) then
+            !   ! single precision
+            !   call magmaf_ssymv(uplo, n, alpha, A, lda, x, incx, beta, y, incy, queue)
+            !end if
+ 
+            ! copy data from GPU to CPU
+            call magmaf_dgetvector(n, dy, 1, y, incy, queue)
+
+            call magmaf_queue_destroy(queue)
+
+            ! free memory on GPU
+            ierr = magmaf_free(dx)
+            ierr = magmaf_free(dy)
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
+
+end subroutine
+
+!***************************************************************
+subroutine densela_copy_matrix_to_gpu(library, m, n, A, dA, lda)
+!***************************************************************
+! Allocates memory and copies a matrix on GPU
+      use module_utils
+      use iso_c_binding
+      implicit none
+! Numerical library to use
+      integer,intent(in) :: library
+! Size of the matrix
+      integer,intent(in) :: m
+! Size of the matrix
+      integer,intent(in) :: n
+! Matrix A
+      real(kr),intent(in) :: A(lda,*)
+! Pointer to matrix A on GPU
+      integer(8),intent(in) :: dA
+! Leading dimension of A
+      integer,intent(in) :: lda
+
+! local vars
+      character(*),parameter:: routine_name = 'densela_copy_matrix_to_gpu'
+#if defined(BDDCML_WITH_MAGMA)
+      integer(8) :: queue
+      integer(c_int) :: device
+      integer :: lddA
+      integer :: ierr
+#endif
+
+      select case (library)
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            ! simply call LAPACK anyway
+            !call dsymv(uplo, n, alpha, A, lda, x, incx, beta, y, incy)
+
+            call magmaf_getdevice(device)
+            call magmaf_queue_create(device, queue)
+
+            ! allocate memory on GPU
+            ierr = magmaf_dmalloc(dA, m*n)
+
+            ! copy the matrix from CPU to GPU
+            lddA = m
+            call magmaf_dsetmatrix(m, n, A, lda, dA, lddA, queue)
+
+            call magmaf_queue_destroy(queue)
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
+
+end subroutine
+
+!**************************************************
+subroutine densela_clear_matrix_on_gpu(library, dA)
+!**************************************************
+! Allocates memory and copies a matrix on GPU
+      use module_utils
+      use iso_c_binding
+      implicit none
+! Numerical library to use
+      integer,intent(in) :: library
+! Pointer to matrix A on GPU
+      integer(8),intent(inout) :: dA
+
+! local vars
+      character(*),parameter:: routine_name = 'densela_clear_matrix_on_gpu'
+#if defined(BDDCML_WITH_MAGMA)
+      integer :: ierr
+#endif
+
+      select case (library)
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            ! free memory on GPU
+            ierr = magmaf_free(dA)
 #endif
          case default
             call error(routine_name, "Illegal library.")
