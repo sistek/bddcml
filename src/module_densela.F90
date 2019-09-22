@@ -96,6 +96,55 @@ subroutine densela_getrf(library, m, n, A, lda, ipiv)
 
 end subroutine
 
+!********************************************************************
+subroutine densela_getrf_matrix_on_gpu(library, m, n, dA, lddA, ipiv)
+!********************************************************************
+! LU factorization of a matrix.
+      use module_utils
+      implicit none
+! Numerical library to use
+      integer,intent(in) :: library
+! Number of rows in the matrix
+      integer,intent(in) :: m
+! Number of columns in the matrix
+      integer,intent(in) :: n
+! Pointer to matrix A on GPU
+      integer(8),intent(inout) :: dA
+! Leading dimension of A
+      integer,intent(in) :: lddA
+! Sequence of pivots
+      integer,intent(out),allocatable :: ipiv(:)
+
+! local vars
+      character(*),parameter:: routine_name = 'densela_getrf_matrix_on_gpu'
+      integer :: lapack_info
+
+      if (.not. allocated(ipiv)) then
+         allocate(ipiv(min(m,n)))
+      end if
+      if (size(ipiv) < min(m,n)) then
+         call error(routine_name, 'Size of ipiv not sufficient.')
+      end if
+
+      select case (library)
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+
+            !if      (kr == REAL64) then
+            !   ! double precision
+            call magmaf_dgetrf_gpu(m, n, dA, lddA, ipiv, lapack_info)
+            !else if (kr == REAL32) then
+            !   ! single precision
+            !   call magmaf_sgemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy, queue)
+            !end if
+
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
+
+end subroutine
+
 !**********************************************************************
 subroutine densela_getrs(library, trans, n, nrhs, A, lda, ipiv, B, ldb)
 !**********************************************************************
@@ -152,6 +201,80 @@ subroutine densela_getrs(library, trans, n, nrhs, A, lda, ipiv, B, ldb)
 
 end subroutine
 
+!**************************************************************************************
+subroutine densela_getrs_matrix_on_gpu(library, trans, n, nrhs, dA, lddA, ipiv, B, ldb)
+!**************************************************************************************
+! LU factorization of a matrix.
+      use iso_c_binding
+      use module_utils
+      implicit none
+! Numerical library to use
+      integer,intent(in) :: library
+! Solve transposed problem
+      character, intent(in) :: trans
+! Number of rows and columns in the matrix
+      integer,intent(in) :: n
+! Number of right-hand sides
+      integer,intent(in) :: nrhs
+! Matrix A with LU factors
+      integer(8),intent(in) :: dA
+! Leading dimension of A
+      integer,intent(in) :: lddA
+! Sequence of pivots
+      integer,intent(in) :: ipiv(:)
+! On entry, the right hand side matrix B.
+! On exit, the solution matrix X.
+      real(kr),intent(inout) :: B(ldb,*)
+! Leading dimension of B
+      integer,intent(in) :: ldb
+
+! local vars
+      character(*),parameter:: routine_name = 'densela_getrs_matrix_on_gpu'
+      integer :: lapack_info
+#if defined(BDDCML_WITH_MAGMA)
+      integer(8) :: queue
+      integer(c_int) :: device
+      integer(8) :: dB
+      integer :: lddB
+      integer :: ierr
+#endif
+
+      select case (library)
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+
+            call magmaf_getdevice(device)
+            call magmaf_queue_create(device, queue)
+
+            ! allocate memory on GPU
+            ierr = magmaf_dmalloc(dB, n*nrhs)
+
+            ! copy the matrix from CPU to GPU
+            lddB = n
+            call magmaf_dsetmatrix( n, nrhs, B, ldb, dB, lddB, queue )
+
+            !if      (kr == REAL64) then
+            !   ! double precision
+            call magmaf_dgetrs_gpu(trans, n, nrhs, dA, lddA, ipiv, dB, lddB, lapack_info)
+            !else if (kr == REAL32) then
+            !   ! single precision
+            !   call magmaf_sgemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy, queue)
+            !end if
+
+            ! copy data from GPU to CPU
+            call magmaf_dgetmatrix(n, nrhs, dB, lddB, B, ldb, queue)
+
+            call magmaf_queue_destroy(queue)
+
+            ! free memory on GPU
+            ierr = magmaf_free(dB)
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
+
+end subroutine
+
 !*******************************************************
 subroutine densela_sytrf(library, uplo, n, A, lda, ipiv)
 !*******************************************************
@@ -180,6 +303,7 @@ subroutine densela_sytrf(library, uplo, n, A, lda, ipiv)
       integer :: lwork
       integer :: lapack_info
       character(6) :: function_name
+      integer :: i
 
       if (.not. allocated(ipiv)) then
          allocate(ipiv(n))
@@ -217,6 +341,10 @@ subroutine densela_sytrf(library, uplo, n, A, lda, ipiv)
             !if      (kr == REAL64) then
                ! double precision
             call magmaf_dsytrf(uplo, n, A, lda, ipiv, lapack_info)
+            !call magmaf_dsytrf_nopiv(uplo, n, A, lda, lapack_info)
+            !do i = 1,size(ipiv)
+            !   ipiv(i) = i
+            !end do
             !else if (kr == REAL32) then
                ! single precision
             !   call magmaf_ssytrf(uplo, n, A, lda, ipiv, lapack_info)
