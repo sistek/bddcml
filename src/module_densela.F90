@@ -30,6 +30,8 @@ module module_densela
 
 ! debugging mode
       logical,parameter,private :: debug = .false.
+! profiling 
+      logical,private ::           profile = .false.
 
 ! library to use
       integer,parameter :: DENSELA_LAPACK = 1
@@ -39,6 +41,34 @@ module module_densela
       !integer,parameter,private :: library = DENSELA_LAPACK
 
 contains
+
+!*******************************
+subroutine densela_init(library)
+!*******************************
+! Initialization of a library for dense LA.
+! Some libraries do not need this.
+      use module_utils
+      implicit none
+! Numerical library to use
+      integer,intent(in) :: library
+
+! local vars
+      character(*),parameter:: routine_name = 'densela_init'
+
+      select case (library)
+         case (DENSELA_LAPACK)
+            ! LAPACK version
+            continue
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            ! MAGMA
+            call magmaf_init()
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
+
+end subroutine
 
 !****************************************************
 subroutine densela_getrf(library, m, n, A, lda, ipiv)
@@ -118,6 +148,14 @@ subroutine densela_getrf_matrix_on_gpu(library, m, n, dA, lddA, ipiv)
 ! local vars
       character(*),parameter:: routine_name = 'densela_getrf_matrix_on_gpu'
       integer :: lapack_info
+      real(REAL64) :: time_factorization
+
+
+      call info( routine_name, ' LU factorization of a system of size  n  = ', n)
+
+      if (profile) then
+         call time_start(.true.)
+      end if
 
       if (.not. allocated(ipiv)) then
          allocate(ipiv(min(m,n)))
@@ -137,11 +175,15 @@ subroutine densela_getrf_matrix_on_gpu(library, m, n, dA, lddA, ipiv)
             !   ! single precision
             !   call magmaf_sgemv(trans, m, n, alpha, A, lda, x, incx, beta, y, incy, queue)
             !end if
-
 #endif
          case default
             call error(routine_name, "Illegal library.")
       end select
+
+      if (profile) then
+         call time_end(time_factorization)
+         call time_print('dense LU factorization', time_factorization)
+      end if
 
 end subroutine
 
@@ -238,6 +280,11 @@ subroutine densela_getrs_matrix_on_gpu(library, trans, n, nrhs, dA, lddA, ipiv, 
       integer :: lddB
       integer :: ierr
 #endif
+      real(REAL64) :: time_backsubstitution
+
+      if (profile) then
+         call time_start(.true.)
+      end if
 
       select case (library)
 #if defined(BDDCML_WITH_MAGMA)
@@ -273,6 +320,11 @@ subroutine densela_getrs_matrix_on_gpu(library, trans, n, nrhs, dA, lddA, ipiv, 
             call error(routine_name, "Illegal library.")
       end select
 
+      if (profile) then
+         call time_end(time_backsubstitution)
+         call time_print('dense LU backsubstitution', time_backsubstitution)
+      end if
+
 end subroutine
 
 !*******************************************************
@@ -303,7 +355,6 @@ subroutine densela_sytrf(library, uplo, n, A, lda, ipiv)
       integer :: lwork
       integer :: lapack_info
       character(6) :: function_name
-      integer :: i
 
       if (.not. allocated(ipiv)) then
          allocate(ipiv(n))
@@ -742,6 +793,11 @@ subroutine densela_symv_matrix_on_gpu(library, uplo, n, alpha, dA, lddA, x, incx
       integer(8) :: dy
       integer :: ierr
 #endif
+      real(REAL64) :: time_symv
+
+      if (profile) then
+         call time_start(.true.)
+      end if
 
       select case (library)
 #if defined(BDDCML_WITH_MAGMA)
@@ -780,6 +836,11 @@ subroutine densela_symv_matrix_on_gpu(library, uplo, n, alpha, dA, lddA, x, incx
          case default
             call error(routine_name, "Illegal library.")
       end select
+
+      if (profile) then
+         call time_end(time_symv)
+         call time_print('symmetric matrix-vector product', time_symv)
+      end if
 
 end subroutine
 
@@ -859,6 +920,34 @@ subroutine densela_clear_matrix_on_gpu(library, dA)
          case (DENSELA_MAGMA)
             ! free memory on GPU
             ierr = magmaf_free(dA)
+#endif
+         case default
+            call error(routine_name, "Illegal library.")
+      end select
+
+end subroutine
+
+!***********************************
+subroutine densela_finalize(library)
+!***********************************
+! Finalization of a library for dense LA.
+! Some libraries do not need this.
+      use module_utils
+      implicit none
+! Numerical library to use
+      integer,intent(in) :: library
+
+! local vars
+      character(*),parameter:: routine_name = 'densela_finalize'
+
+      select case (library)
+         case (DENSELA_LAPACK)
+            ! LAPACK version
+            continue
+#if defined(BDDCML_WITH_MAGMA)
+         case (DENSELA_MAGMA)
+            ! MAGMA
+            call magmaf_finalize()
 #endif
          case default
             call error(routine_name, "Illegal library.")

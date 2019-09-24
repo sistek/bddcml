@@ -35,7 +35,7 @@ module module_levels
 ! plot input data in ParaView - useful for debugging
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
-      logical,private ::           profile = .false.
+      logical,private ::           profile = .true.
 ! damping division
       logical,parameter,private :: damp_division = .false.
 ! export matrix of subdomains on the second level for further analysis
@@ -191,6 +191,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
       ! L(1)   :   0 1 2 3 4 5 6 7 8 9 10
       ! L(0)   :   0 1 2 3 4 5 6 7 8 9 10
       use module_utils
+      use module_densela
       use module_pp
       implicit none
       include "mpif.h"
@@ -407,6 +408,8 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
       levels(iactive_level)%comm_all  = levels(iactive_level-1)%comm_all
       levels(iactive_level)%i_am_active_in_this_level = levels(iactive_level-1)%i_am_active_in_this_level
       levels(iactive_level)%is_new_comm_created       = .false.
+
+      call densela_init(DENSELA_MAGMA)
 
       !do iactive_level = 1,nlevels
       !   print *, 'myid ',myid,':level ',iactive_level,': Active cores:', &
@@ -5112,6 +5115,7 @@ subroutine levels_finalize
 !*************************
 ! Subroutine for initialization of levels data
       use module_mumps
+      use module_densela
       implicit none
       include "mpif.h"
 
@@ -5158,6 +5162,8 @@ subroutine levels_finalize
       nlevels = 0
       iactive_level = 0
 
+      ! Finalize the dense LA library.
+      call densela_init(DENSELA_MAGMA)
 
 end subroutine
 

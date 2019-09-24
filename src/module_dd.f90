@@ -4120,6 +4120,7 @@ subroutine dd_prepare_schur(sub,comm_self,use_explicit_schurs)
       integer :: mumpsinfo
       integer :: iparallel
       logical :: remove_original
+      integer :: i, j
 
       ! check the prerequisities
       if (.not.sub%is_interface_loaded) then
@@ -4181,6 +4182,15 @@ subroutine dd_prepare_schur(sub,comm_self,use_explicit_schurs)
          call mumps_factorize(sub%mumps_subdomain_matrix) 
 
          sub%is_explicit_schur_prepared = .true.
+
+         if (sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) then
+            ! symmetrize the dense Schur complement for symmetric matrices
+            do j = 1, sub%lschur2
+               do i = j+1, sub%lschur1
+                  sub%schur(i,j) = sub%schur(j,i)
+               end do
+            end do
+         end if
 
          call densela_copy_matrix_to_gpu(DENSELA_MAGMA, sub%lschur1, sub%lschur2, sub%schur, sub%dschur, sub%lschur1)
       else
@@ -5229,29 +5239,21 @@ subroutine dd_prepare_aug(sub,comm_self)
                call error(routine_name,'out of bounds of interface for subdomain',sub%isub)
             end if
 
-            sub%aaug_dense(icoli,ndofi + jconstr) = sub%c_sparse(i)
+            sub%aaug_dense(icoli,ndofi + jconstr)  = sub%c_sparse(i)
+            sub%aaug_dense(ndofi + jconstr, icoli) = sub%c_sparse(i)
          end do
-         if      (sub%matrixtype .eq. 0) then
-            ! unsymmetric case: apply lower block of C
-            do i = 1,nnzc
-               iconstr = sub%i_c_sparse(i)
-               jcoli   = sub%j_c_sparse(i)
+         !if      (sub%matrixtype .eq. 0) then
+         !   ! unsymmetric case: apply lower block of C
+         !   do i = 1,nnzc
+         !      iconstr = sub%i_c_sparse(i)
+         !      jcoli   = sub%j_c_sparse(i)
 
-               sub%aaug_dense(ndofi + iconstr, jcoli) = sub%c_sparse(i)
-            end do
-         end if
+         !      sub%aaug_dense(ndofi + iconstr, jcoli) = sub%c_sparse(i)
+         !   end do
+         !end if
 
          if (sub%is_degenerated) then
             goto 133
-         end if
-
-         if (sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) then
-            ! symmetrize the matrix
-            do j = 1, sub%laaug_dense2
-               do i = j+1, sub%laaug_dense1
-                  sub%aaug_dense(i,j) = sub%aaug_dense(j,i)
-               end do
-            end do
          end if
 
          call densela_copy_matrix_to_gpu(DENSELA_MAGMA, sub%laaug_dense1, sub%laaug_dense2, sub%aaug_dense, &
