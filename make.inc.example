@@ -2,7 +2,7 @@
 # the whole link sequence for BDDC
 #*********************************
 BDDCML_LINK_SEQUENCE = $(LIBBDDCML) $(BDDCML_LIBMUMPS) $(BDDCML_LIBPARMETIS) $(BDDCML_LIBMETIS) $(BDDCML_LIBSCALAPACK) $(BDDCML_LIBBLACS) \
-                       $(BDDCML_LIBPORD) $(BDDCML_LIBLAPACK) $(BDDCML_LIBBLAS) $(BDDCML_BLOPEXLINK) $(BDDCML_LIBOTHERS) 
+                       $(BDDCML_LIBPORD) $(BDDCML_LIBMAGMA) $(BDDCML_LIBLAPACK) $(BDDCML_LIBBLAS) $(BDDCML_BLOPEXLINK) $(BDDCML_LIBOTHERS) 
 BDDCML_INC           = -I$(BDDCML_ROOT)/src
 
 #*********** Compilers
@@ -28,6 +28,11 @@ BDDCML_INCPARMETIS = -I$(HOME)/software/PARMETIS/include
 BDDCML_INCMETIS = -I$(HOME)/software/METIS/include
 # MUMPS
 BDDCML_INCMUMPS    = -I$(HOME)/software/MUMPS/include
+
+# MAGMA - leave undefined if not needed
+BDDCML_WITH_MAGMA = 1
+#BDDCML_INCMAGMA    =
+BDDCML_INCMAGMA    = -I$(HOME)/magma-2.5.1/include
 
 #*********** Libraries
 # library being created
@@ -65,3 +70,7 @@ BDDCML_OBJBLOPEX = \
 BDDCML_LIBBLOPEX = -L$(BDDCML_BLOPEXDIR)/blopex_abstract/lib -lBLOPEX
 BDDCML_BLOPEXLINK = $(BDDCML_OBJBLOPEX) $(BDDCML_LIBBLOPEX)
 
+# MAGMA library
+ifeq ($(strip $(BDDCML_WITH_MAGMA)), 1)
+   BDDCML_DEFS += -DBDDCML_WITH_MAGMA
+endif
