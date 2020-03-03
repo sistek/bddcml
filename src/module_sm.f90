@@ -1550,7 +1550,7 @@ subroutine sm_check_matrix(matrixtype,ibound,jbound, i_sparse, j_sparse, la, nnz
          end do
 
          if (any(col_counts.eq.0)) then
-            call error(routine_name,'There seems to be a zero column in the matrix around column ', minloc(col_counts,1))
+            call warning(routine_name,'There seems to be a zero column in the matrix around column ', minloc(col_counts,1))
          end if
 
          deallocate(col_counts)

@@ -916,6 +916,8 @@ subroutine densela_clear_matrix_on_gpu(library, dA)
 #endif
 
       select case (library)
+         case (DENSELA_LAPACK)
+            ! do nothing
 #if defined(BDDCML_WITH_MAGMA)
          case (DENSELA_MAGMA)
             ! free memory on GPU
