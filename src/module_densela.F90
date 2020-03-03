@@ -65,7 +65,7 @@ subroutine densela_init(library)
             call magmaf_init()
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
 end subroutine
@@ -121,7 +121,7 @@ subroutine densela_getrf(library, m, n, A, lda, ipiv)
             !end if
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
 end subroutine
@@ -177,7 +177,7 @@ subroutine densela_getrf_matrix_on_gpu(library, m, n, dA, lddA, ipiv)
             !end if
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
       if (profile) then
@@ -238,7 +238,7 @@ subroutine densela_getrs(library, trans, n, nrhs, A, lda, ipiv, B, ldb)
             end if
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
 end subroutine
@@ -317,7 +317,7 @@ subroutine densela_getrs_matrix_on_gpu(library, trans, n, nrhs, dA, lddA, ipiv, 
             ierr = magmaf_free(dB)
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
       if (profile) then
@@ -402,7 +402,7 @@ subroutine densela_sytrf(library, uplo, n, A, lda, ipiv)
             !end if
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
 end subroutine
@@ -458,7 +458,7 @@ subroutine densela_sytrs(library, uplo, n, nrhs, A, lda, ipiv, B, ldb)
             end if
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
 end subroutine
@@ -566,7 +566,7 @@ subroutine densela_gemv(library, trans, m, n, alpha, A, lda, x, incx, beta, y, i
             ierr = magmaf_free(dy)
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
 end subroutine
@@ -653,7 +653,7 @@ subroutine densela_gemv_matrix_on_gpu(library, trans, m, n, alpha, dA, lddA, x, 
             ierr = magmaf_free(dy)
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
 end subroutine
@@ -749,7 +749,7 @@ subroutine densela_symv(library, uplo, n, alpha, A, lda, x, incx, beta, y, incy)
             ierr = magmaf_free(dy)
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
 end subroutine
@@ -834,7 +834,7 @@ subroutine densela_symv_matrix_on_gpu(library, uplo, n, alpha, dA, lddA, x, incx
             ierr = magmaf_free(dy)
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
       if (profile) then
@@ -892,7 +892,7 @@ subroutine densela_copy_matrix_to_gpu(library, m, n, A, dA, lda)
             call magmaf_queue_destroy(queue)
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
 end subroutine
@@ -924,7 +924,7 @@ subroutine densela_clear_matrix_on_gpu(library, dA)
             ierr = magmaf_free(dA)
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
 end subroutine
@@ -952,7 +952,7 @@ subroutine densela_finalize(library)
             call magmaf_finalize()
 #endif
          case default
-            call error(routine_name, "Illegal library.")
+            call error(routine_name, "Illegal library:", library)
       end select
 
 end subroutine
