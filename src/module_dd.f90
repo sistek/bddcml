@@ -13182,6 +13182,10 @@ subroutine dd_get_my_coefficients_for_weights(sub, weights_type, rhoi,lrhoi)
          rhoi = 1._kr
       else if (weights_type .eq. 1) then
          call dd_get_interface_diagonal(sub, rhoi,lrhoi)
+         ! if zeros can be on diagonal, correct it
+         call warning(routine_name, 'Replacing zeros in weights by diagonal stiffness', &
+                      count(rhoi == 0.))
+         where (rhoi == 0.) rhoi = 1._kr
       else if (weights_type .eq. 2) then
          call dd_get_interface_element_data(sub, rhoi,lrhoi)
       else if (weights_type .eq. 3) then
