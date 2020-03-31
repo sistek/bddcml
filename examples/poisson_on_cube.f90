@@ -69,7 +69,7 @@ program poisson_on_cube
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
 !     2 - steepest descent method
 !     5 - direct solve by MUMPS
-      integer,parameter :: krylov_method = 0
+      integer,parameter :: krylov_method = 0  
 
 ! use recycling of Krylov subspace
 !     0 - no recycling used

@@ -290,8 +290,6 @@ module module_dd
          integer ::             lschur2
          real(kr), allocatable :: schur(:,:)
          logical :: is_explicit_schur_prepared = .false.
-         ! GPU copy stored as a pointer
-         integer(8) :: dschur
 
          ! Matrices for BDDC 
          integer ::              ndofc            ! number of coarse degrees of freedom on subdomain
@@ -316,8 +314,6 @@ module module_dd
          integer ::             laaug_dense1
          integer ::             laaug_dense2
          real(kr), allocatable :: aaug_dense(:,:)
-         ! GPU copy stored as a pointer
-         integer(8) :: daaug_dense
          integer ::              laaug_ipiv
          integer, allocatable ::  aaug_ipiv(:)
 
@@ -4102,7 +4098,6 @@ subroutine dd_prepare_schur(sub,comm_self,use_explicit_schurs)
 !*************************************************************
 ! Subroutine for preparing data for computing with reduced problem
       use module_mumps
-      use module_densela
       use module_utils
       implicit none
 
@@ -4120,7 +4115,6 @@ subroutine dd_prepare_schur(sub,comm_self,use_explicit_schurs)
       integer :: mumpsinfo
       integer :: iparallel
       logical :: remove_original
-      integer :: i, j
 
       ! check the prerequisities
       if (.not.sub%is_interface_loaded) then
@@ -4183,16 +4177,6 @@ subroutine dd_prepare_schur(sub,comm_self,use_explicit_schurs)
 
          sub%is_explicit_schur_prepared = .true.
 
-         if (sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) then
-            ! symmetrize the dense Schur complement for symmetric matrices
-            do j = 1, sub%lschur2
-               do i = j+1, sub%lschur1
-                  sub%schur(i,j) = sub%schur(j,i)
-               end do
-            end do
-         end if
-
-         call densela_copy_matrix_to_gpu(DENSELA_MAGMA, sub%lschur1, sub%lschur2, sub%schur, sub%dschur, sub%lschur1)
       else
          ! block the matrix into four blocks
          remove_original = .false.
@@ -5154,7 +5138,6 @@ subroutine dd_prepare_aug(sub,comm_self)
 ! and its factorization
       use module_mumps
       use module_sm
-      use module_densela
       use module_utils
       implicit none
 
@@ -5167,7 +5150,7 @@ subroutine dd_prepare_aug(sub,comm_self)
       character(*),parameter:: routine_name = 'DD_PREPARE_AUG'
       integer ::  nnzc, nnza, ndof, nconstr
       integer ::  nnzaaug, laaug, ndofaaug
-      integer ::  i, iaaug, j
+      integer ::  i, iaaug
       integer ::  mumpsinfo, aaugmatrixtype
       integer ::  icol, icoli
       integer ::  jcoli, iconstr, jconstr
@@ -5176,6 +5159,11 @@ subroutine dd_prepare_aug(sub,comm_self)
 
       ! LAPACK related variables
       integer, external :: ILAENV
+
+      integer ::  nb
+      integer :: lwork
+      real(kr), allocatable :: work(:)
+      integer :: lapack_info
 
       ! check the prerequisities
       !if (sub%is_degenerated) then
@@ -5239,25 +5227,21 @@ subroutine dd_prepare_aug(sub,comm_self)
                call error(routine_name,'out of bounds of interface for subdomain',sub%isub)
             end if
 
-            sub%aaug_dense(icoli,ndofi + jconstr)  = sub%c_sparse(i)
-            sub%aaug_dense(ndofi + jconstr, icoli) = sub%c_sparse(i)
+            sub%aaug_dense(icoli,ndofi + jconstr) = sub%c_sparse(i)
          end do
-         !if      (sub%matrixtype .eq. 0) then
-         !   ! unsymmetric case: apply lower block of C
-         !   do i = 1,nnzc
-         !      iconstr = sub%i_c_sparse(i)
-         !      jcoli   = sub%j_c_sparse(i)
+         if      (sub%matrixtype .eq. 0) then
+            ! unsymmetric case: apply lower block of C
+            do i = 1,nnzc
+               iconstr = sub%i_c_sparse(i)
+               jcoli   = sub%j_c_sparse(i)
 
-         !      sub%aaug_dense(ndofi + iconstr, jcoli) = sub%c_sparse(i)
-         !   end do
-         !end if
+               sub%aaug_dense(ndofi + iconstr, jcoli) = sub%c_sparse(i)
+            end do
+         end if
 
          if (sub%is_degenerated) then
             goto 133
          end if
-
-         call densela_copy_matrix_to_gpu(DENSELA_MAGMA, sub%laaug_dense1, sub%laaug_dense2, sub%aaug_dense, &
-                                         sub%daaug_dense, sub%laaug_dense1)
 
          ! factorize matrix Aaug by LAPACK
          ! Set type of matrix
@@ -5265,17 +5249,19 @@ subroutine dd_prepare_aug(sub,comm_self)
             ! unsymmetric case, use LU
             sub%laaug_ipiv = sub%laaug_dense1
             allocate(sub%aaug_ipiv(sub%laaug_ipiv))
-            !call densela_getrf(DENSELA_LAPACK, sub%laaug_dense1, sub%laaug_dense2, sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv)
-            call densela_getrf_matrix_on_gpu(DENSELA_MAGMA, sub%laaug_dense1, sub%laaug_dense2, sub%daaug_dense, &
-                                             sub%laaug_dense1, sub%aaug_ipiv)
+            call DGETRF(sub%laaug_dense1, sub%laaug_dense2, sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv, lapack_info)
+
          else if (sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) then
             ! in symmetric case, saddle point problem makes the augmented matrix indefinite,
             ! even if the original matrix is SPD, use LDLT
+            !SUBROUTINE DSYTRF( UPLO, N, A, LDA, IPIV, WORK, LWORK, INFO )
             sub%laaug_ipiv = sub%laaug_dense1
             allocate(sub%aaug_ipiv(sub%laaug_ipiv))
-            !call densela_sytrf(DENSELA_LAPACK, 'U', sub%laaug_dense1, sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv)
-            call densela_getrf_matrix_on_gpu(DENSELA_MAGMA, sub%laaug_dense1, sub%laaug_dense2, sub%daaug_dense, &
-                                             sub%laaug_dense1, sub%aaug_ipiv)
+            nb = ILAENV(1, 'DSYTRF', 'U',  sub%laaug_dense1, 0, 0, 0)
+            lwork = sub%laaug_dense1*nb
+            allocate(work(lwork))
+            call DSYTRF('U', sub%laaug_dense1, sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv, work, lwork, lapack_info)
+            deallocate(work)
          else 
             call error(routine_name,'Matrixtype not set for subdomain:', sub%isub)
          end if
@@ -5785,7 +5771,6 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs, solve_adjoint)
 ! on exit, vec contains z_i
 
       use module_mumps
-      use module_densela
       use module_utils
       implicit none
 
@@ -5804,6 +5789,7 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs, solve_adjoint)
       ! local vars
       integer ::  ldb
       character(1) :: transa
+      integer ::  lapack_info
 
       if (sub%is_degenerated) then
          return
@@ -5842,17 +5828,11 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs, solve_adjoint)
             else
                 transa = 'N'
             end if
-            !call densela_getrs(DENSELA_LAPACK, transa, sub%laaug_dense1, nrhs, &
-            !                   sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
-            call densela_getrs_matrix_on_gpu(DENSELA_MAGMA, transa, sub%laaug_dense1, nrhs, sub%daaug_dense, &
-                                             sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
+            call DGETRS(transa, sub%laaug_dense1, nrhs, sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv, vec, ldb, lapack_info)
          else if (sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) then
             ! in symmetric case, saddle point problem makes the augmented matrix indefinite,
             ! even if the original matrix is SPD, use LDLT
-            !call densela_sytrs(DENSELA_LAPACK, 'U', sub%laaug_dense1, nrhs, &
-            !                   sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
-            call densela_getrs_matrix_on_gpu(DENSELA_MAGMA, 'N', sub%laaug_dense1, nrhs, sub%daaug_dense, &
-                                             sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
+            call DSYTRS('U', sub%laaug_dense1, nrhs, sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv, vec, ldb, lapack_info)
          else 
             write(*,*) 'DD_SOLVE_AUG: Matrixtype not set for subdomain:', sub%isub
             call error_exit
@@ -5956,7 +5936,6 @@ subroutine dd_phisi_apply(sub, vec1,lvec1, vec2,lvec2)
 ! vec2 = phisi * vec1 + vec2
 ! phisi are coarse space basis functions on subdomain restricted to interface
 
-      use module_densela
       use module_utils
       implicit none
 
@@ -5973,6 +5952,11 @@ subroutine dd_phisi_apply(sub, vec1,lvec1, vec2,lvec2)
       ! local vars
       character(*),parameter:: routine_name = 'DD_PHISI_APPLY'
 
+      ! BLAS vars
+      character(1) :: TRANS
+      integer :: M, N, LDA, INCX, INCY
+      real(kr) :: alpha, beta
+
       ! check the prerequisities
       if (.not.sub%is_phisi_prepared) then
          call error(routine_name, 'PHISI matrix not ready for sub: ', sub%isub)
@@ -5983,8 +5967,22 @@ subroutine dd_phisi_apply(sub, vec1,lvec1, vec2,lvec2)
       end if
 
       ! checking done, perform multiply by BLAS
-      call densela_gemv(DENSELA_LAPACK, 'N', sub%lphisi1, sub%lphisi2, 1._kr, sub%phisi, max(1,sub%lphisi1), &
-                        vec1, 1, 1._kr, vec2, 1)
+      TRANS = 'N'
+      M = sub%lphisi1
+      N = sub%lphisi2
+      ALPHA = 1._kr
+      LDA = max(1,M)
+      INCX = 1
+      BETA = 1._kr ! sum second vector
+      INCY = 1
+      if (kr.eq.8) then
+         ! double precision
+         call DGEMV(TRANS,M,N,ALPHA,sub%phisi,LDA,vec1,INCX,BETA,vec2,INCY)
+      else if (kr.eq.4) then
+         ! single precision
+         call SGEMV(TRANS,M,N,ALPHA,sub%phisi,LDA,vec1,INCX,BETA,vec2,INCY)
+      end if
+
 end subroutine
 
 !****************************************************
@@ -5994,7 +5992,6 @@ subroutine dd_phis_apply(sub, vec1,lvec1, vec2,lvec2)
 ! vec2 = phis * vec1 + vec2
 ! phis are coarse space basis functions on subdomain
 
-      use module_densela
       use module_utils
       implicit none
 
@@ -6011,6 +6008,11 @@ subroutine dd_phis_apply(sub, vec1,lvec1, vec2,lvec2)
       ! local vars
       character(*),parameter:: routine_name = 'DD_PHIS_APPLY'
 
+      ! BLAS vars
+      character(1) :: TRANS
+      integer :: M, N, LDA, INCX, INCY
+      real(kr) :: alpha, beta
+
       ! check the prerequisities
       if (sub%is_degenerated) then
          return
@@ -6024,8 +6026,21 @@ subroutine dd_phis_apply(sub, vec1,lvec1, vec2,lvec2)
       end if
 
       ! checking done, perform multiply by BLAS
-      call densela_gemv(DENSELA_LAPACK, 'N', sub%lphis1, sub%lphis2, 1._kr, sub%phis, max(1,sub%lphis1), &
-                        vec1, 1, 1._kr, vec2, 1)
+      TRANS = 'N'
+      M = sub%lphis1
+      N = sub%lphis2
+      ALPHA = 1._kr
+      LDA = max(1,M)
+      INCX = 1
+      BETA = 1._kr ! sum second vector
+      INCY = 1
+      if (kr.eq.8) then
+         ! double precision
+         call DGEMV(TRANS,M,N,ALPHA,sub%phis,LDA,vec1,INCX,BETA,vec2,INCY)
+      else if (kr.eq.4) then
+         ! single precision
+         call SGEMV(TRANS,M,N,ALPHA,sub%phis,LDA,vec1,INCX,BETA,vec2,INCY)
+      end if
 
 end subroutine
 
@@ -6036,7 +6051,6 @@ subroutine dd_phisi_dual_apply(sub, vec1,lvec1, vec2,lvec2)
 ! vec2 = phisi_dual^T * vec1 + vec2
 ! phisi_dual are dual coarse space basis functions on subdomain restricted to interface
 
-      use module_densela
       use module_utils
       implicit none
 
@@ -6052,6 +6066,11 @@ subroutine dd_phisi_dual_apply(sub, vec1,lvec1, vec2,lvec2)
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_PHISI_DUAL_APPLY'
+
+      ! BLAS vars
+      character(1) :: TRANS
+      integer :: M, N, LDA, INCX, INCY
+      real(kr) :: alpha, beta
 
       ! check the prerequisities
       if (sub%is_degenerated) then
@@ -6077,24 +6096,33 @@ subroutine dd_phisi_dual_apply(sub, vec1,lvec1, vec2,lvec2)
       end if
 
       ! checking done, perform multiply by BLAS
-      !TRANS = 'T' ! Transposed matrix
-      !ALPHA = 1._kr
-      !INCX = 1
-      !BETA = 1._kr ! sum second vector
-      !INCY = 1
+      TRANS = 'T'
+      ALPHA = 1._kr
+      INCX = 1
+      BETA = 1._kr ! sum second vector
+      INCY = 1
       if ((sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) ) then
-         !M = sub%lphisi1
-         !N = sub%lphisi2
-         !LDA = max(1,M)
-         call densela_gemv(DENSELA_LAPACK, 'T', sub%lphisi1, sub%lphisi2, 1._kr, &
-                           sub%phisi, max(1, sub%lphisi1), vec1, 1, 1._kr, vec2, 1)
+         M = sub%lphisi1
+         N = sub%lphisi2
+         LDA = max(1,M)
+         if (kr.eq.8) then
+            ! double precision
+            call DGEMV(TRANS,M,N,ALPHA,sub%phisi,LDA,vec1,INCX,BETA,vec2,INCY)
+         else if (kr.eq.4) then
+            ! single precision
+            call SGEMV(TRANS,M,N,ALPHA,sub%phisi,LDA,vec1,INCX,BETA,vec2,INCY)
+         end if
       else
-         !M = sub%lphisi_dual1
-         !N = sub%lphisi_dual2
-         !LDA = max(1,M)
-         !call densela_gemv(DENSELA_MAGMA, 'T',M,N,ALPHA,sub%phisi_dual,LDA,vec1,INCX,BETA,vec2,INCY)
-         call densela_gemv(DENSELA_LAPACK, 'T', sub%lphisi_dual1, sub%lphisi_dual2, 1._kr, &
-                           sub%phisi_dual, max(1, sub%lphisi_dual1), vec1, 1, 1._kr, vec2, 1)
+         M = sub%lphisi_dual1
+         N = sub%lphisi_dual2
+         LDA = max(1,M)
+         if (kr.eq.8) then
+            ! double precision
+            call DGEMV(TRANS,M,N,ALPHA,sub%phisi_dual,LDA,vec1,INCX,BETA,vec2,INCY)
+         else if (kr.eq.4) then
+            ! single precision
+            call SGEMV(TRANS,M,N,ALPHA,sub%phisi_dual,LDA,vec1,INCX,BETA,vec2,INCY)
+         end if
       end if
 
 end subroutine
@@ -6106,7 +6134,6 @@ subroutine dd_phis_dual_apply(sub, vec1,lvec1, vec2,lvec2)
 ! vec2 = phis * vec1 + vec2
 ! phis are coarse space basis functions on subdomain
 
-      use module_densela
       use module_utils
       implicit none
 
@@ -6122,6 +6149,11 @@ subroutine dd_phis_dual_apply(sub, vec1,lvec1, vec2,lvec2)
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_PHIS_DUAL_APPLY'
+
+      ! BLAS vars
+      character(1) :: TRANS
+      integer :: M, N, LDA, INCX, INCY
+      real(kr) :: alpha, beta
 
       ! check the prerequisities
       if (sub%is_degenerated) then
@@ -6147,24 +6179,33 @@ subroutine dd_phis_dual_apply(sub, vec1,lvec1, vec2,lvec2)
       end if
 
       ! checking done, perform multiply by BLAS
-      !TRANS = 'T'
-      !ALPHA = 1._kr
-      !INCX = 1
-      !BETA = 1._kr ! sum second vector
-      !INCY = 1
+      TRANS = 'T'
+      ALPHA = 1._kr
+      INCX = 1
+      BETA = 1._kr ! sum second vector
+      INCY = 1
       if ((sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) ) then
-         !M = sub%lphis1
-         !N = sub%lphis2
-         !LDA = max(1,M)
-         call densela_gemv(DENSELA_LAPACK, 'T', sub%lphis1, sub%lphis2, 1._kr, &
-                           sub%phis, max(1,sub%lphis1), vec1, 1, 1._kr, vec2, 1)
+         M = sub%lphis1
+         N = sub%lphis2
+         LDA = max(1,M)
+         if (kr.eq.8) then
+            ! double precision
+            call DGEMV(TRANS,M,N,ALPHA,sub%phis,LDA,vec1,INCX,BETA,vec2,INCY)
+         else if (kr.eq.4) then
+            ! single precision
+            call SGEMV(TRANS,M,N,ALPHA,sub%phis,LDA,vec1,INCX,BETA,vec2,INCY)
+         end if
       else
-         !M = sub%lphis_dual1
-         !N = sub%lphis_dual2
-         !LDA = max(1,M)
-         !call densela_gemv(DENSELA_LAPACK, TRANS,M,N,ALPHA,sub%phis_dual,LDA,vec1,INCX,BETA,vec2,INCY)
-         call densela_gemv(DENSELA_LAPACK, 'T', sub%lphis_dual1, sub%lphis_dual2, 1._kr, &
-                           sub%phis_dual, max(1,sub%lphis_dual1), vec1, 1, 1._kr, vec2, 1)
+         M = sub%lphis_dual1
+         N = sub%lphis_dual2
+         LDA = max(1,M)
+         if (kr.eq.8) then
+            ! double precision
+            call DGEMV(TRANS,M,N,ALPHA,sub%phis_dual,LDA,vec1,INCX,BETA,vec2,INCY)
+         else if (kr.eq.4) then
+            ! single precision
+            call SGEMV(TRANS,M,N,ALPHA,sub%phis_dual,LDA,vec1,INCX,BETA,vec2,INCY)
+         end if
       end if
 
 end subroutine
@@ -6446,7 +6487,6 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly,ncol)
 !**************************************************
 ! Subroutine for multiplication of interface vector by Schur complement
       use module_utils
-      use module_densela
       use module_mumps
       use module_sm
       implicit none
@@ -6490,13 +6530,9 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly,ncol)
          ! copy x to y
          y = x
          if      (sub%istorage == 2) then
-              call densela_symv_matrix_on_gpu(DENSELA_MAGMA, 'U', sub%lschur1, 1._kr, sub%dschur, sub%lschur1, x, 1, 0._kr, y, 1)
-              !call densela_symv(DENSELA_LAPACK, 'U', sub%lschur1, 1._kr, sub%schur, sub%lschur1, x, 1, 0._kr, y, 1)
+              call dsymv('U', sub%lschur1, 1._kr, sub%schur, sub%lschur1, x, 1, 0._kr, y, 1)
          else if (sub%istorage == 1) then
-              call densela_gemv_matrix_on_gpu(DENSELA_MAGMA, 'N', sub%lschur1, sub%lschur2, 1.0_kr, sub%dschur, sub%lschur1, &
-                                              x, 1, 0._kr, y, 1)
-              !call densela_gemv(DENSELA_LAPACK, 'N', sub%lschur1, sub%lschur2, 1.0_kr, sub%schur, sub%lschur1, &
-              !                  x, 1, 0._kr, y, 1)
+              call dgemv('N', sub%lschur1, sub%lschur2, 1.0_kr, sub%schur, sub%lschur1, x, 1, 0._kr, y, 1)
          else
             call error( routine_name, 'Illegal storage type.', sub%isub)
          end if
@@ -14530,7 +14566,6 @@ subroutine dd_finalize(sub)
 !**************************
 ! Subroutine for deallocation of data of subdomain
       use module_mumps
-      use module_densela
       implicit none
 ! Subdomain structure
       type(subdomain_type),intent(inout) :: sub
@@ -14743,11 +14778,9 @@ subroutine dd_finalize(sub)
       if (allocated(sub%schur)) then
          deallocate(sub%schur)
       end if
-      call densela_clear_matrix_on_gpu(DENSELA_MAGMA, sub%dschur)
       if (allocated(sub%aaug_dense)) then
          deallocate(sub%aaug_dense)
       end if
-      call densela_clear_matrix_on_gpu(DENSELA_MAGMA, sub%daaug_dense)
       if (allocated(sub%aaug_ipiv)) then
          deallocate(sub%aaug_ipiv)
       end if
