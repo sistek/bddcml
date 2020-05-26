@@ -3269,6 +3269,10 @@ subroutine levels_jds_prepare(matrixtype)
       a_sparse = sub%a_sparse(1:la)
 
       isvgvn => sub%isvgvn
+      if (any(isvgvn > ndof) .and. nproc > 1) then
+         call error(routine_name, &
+                    "It is forbidden to use just a direct solver in parallel for problems with holes in global IDs.")
+      end if
 
       ndofs = sub%ndof
       lbc = ndofs 
@@ -3287,14 +3291,20 @@ subroutine levels_jds_prepare(matrixtype)
       lbc_aux = ndof
       allocate(bc_aux(lbc_aux))
       bc_aux = 0._kr
-      bc_aux(isvgvn) = bc
+      if (nproc > 1) then
+         bc_aux(isvgvn) = bc
 !*****************************************************************MPI
-      call MPI_REDUCE(bc_aux,levels_jds_bc,ndof, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+         call MPI_REDUCE(bc_aux,levels_jds_bc,ndof, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr)
 !*****************************************************************MPI
+      else
+         levels_jds_bc = bc
+      end if
 
       ! make the renumbering
-      i_sparse = isvgvn(i_sparse)
-      j_sparse = isvgvn(j_sparse)
+      if (nproc > 1) then
+         i_sparse = isvgvn(i_sparse)
+         j_sparse = isvgvn(j_sparse)
+      end if
 
 !      isub_loc = 1
 !
@@ -3489,10 +3499,15 @@ subroutine levels_jds_solve
              where(sub%ifix /= 0) rhss = 0._kr
           end if
           rhs_aux = 0._kr
-          rhs_aux(isvgvn) = rhss
+          if (nproc > 1) then
+             rhs_aux(isvgvn) = rhss
 !*****************************************************************MPI
-          call MPI_REDUCE(rhs_aux,levels_jds_rhs,ndof, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+             call MPI_REDUCE(rhs_aux,levels_jds_rhs,ndof, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr)
 !*****************************************************************MPI
+          else
+             levels_jds_rhs = rhss
+          end if
+
           deallocate(rhss)
           deallocate(rhs_aux)
       end if
@@ -3514,7 +3529,7 @@ subroutine levels_jds_solve
       allocate(sol(lsol))
       if (myid == 0 ) then
          sol = levels_jds_rhs
-       end if
+      end if
 !*****************************************************************MPI
       call MPI_BCAST(sol,  lsol, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
 !*****************************************************************MPI
@@ -3526,7 +3541,11 @@ subroutine levels_jds_solve
       ! load subdomain SOLS
       lsols = ndofs
       allocate(sols(lsols))
-      call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), sol,lsol, sols,lsols)
+      if (nproc > 1) then
+         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), sol,lsol, sols,lsols)
+      else
+         sols = sol
+      end if
       call dd_upload_solution(levels(ilevel)%subdomains(isub_loc), sols,lsols)
       deallocate(sols)
 
@@ -3974,8 +3993,8 @@ subroutine levels_corsub_standard_level(ilevel)
 !*****************************************************************MPI
       if (nproc > 1) then
          ! some MPI libs do not like to reduce on a single process
-         call MPI_REDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
-         call MPI_REDUCE(resaux, res, lres , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+         call MPI_REDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr)
+         call MPI_REDUCE(resaux, res, lres , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr)
       else 
          ! perform a simple copy if it is just on the root process 
          resc = rescaux
@@ -4203,7 +4222,7 @@ subroutine levels_add_standard_level(ilevel)
          deallocate(sols)
       end do
 !*****************************************************************MPI
-      call MPI_REDUCE(solaux, sol, lsol , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+      call MPI_REDUCE(solaux, sol, lsol , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr)
 !*****************************************************************MPI
       deallocate(solaux)
 
