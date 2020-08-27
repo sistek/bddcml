@@ -83,11 +83,6 @@ subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_leve
           just_direct_solve = .true.
       end if
 
-      if (nsublev(1) < nproc) then
-         call error(routine_name, 'It is not possible to assign more processors than subdomains in this version of the code.')
-      end if
-      call levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_direct_solve)
-
       select case ( verbose_level )
       case (0)
          call suppress_output_on
@@ -98,6 +93,10 @@ subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_leve
          call levels_set_profile_on
       end select
 
+      if (nsublev(1) < nproc) then
+         call error(routine_name, 'It is not possible to assign more processors than subdomains in this version of the code.')
+      end if
+      call levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_direct_solve)
 
 end subroutine
 
