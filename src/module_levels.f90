@@ -35,7 +35,7 @@ module module_levels
 ! plot input data in ParaView - useful for debugging
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
-      logical,private ::           profile = .true.
+      logical,private ::           profile = .false.
 ! damping division
       logical,parameter,private :: damp_division = .false.
 ! export matrix of subdomains on the second level for further analysis
@@ -5163,7 +5163,7 @@ subroutine levels_finalize
       iactive_level = 0
 
       ! Finalize the dense LA library.
-      call densela_init(DENSELA_MAGMA)
+      call densela_finalize(DENSELA_MAGMA)
 
 end subroutine
 
