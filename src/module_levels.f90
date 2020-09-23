@@ -1446,7 +1446,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer ::            lsub2proc_aux
       integer,allocatable :: sub2proc_aux(:)
 
-      logical,parameter :: use_explicit_schurs = .true.
+      logical,parameter :: use_explicit_schurs = .false.
       logical,parameter :: use_contiguous_subdomains = .false.
 
       integer :: contiguous_subdomains_int
@@ -1515,7 +1515,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
       ! for debugging purposes
       !if (ilevel.gt.1) then
-      !   levels(ilevel)%load_division = levels(ilevel-1)%load_division
+         !levels(ilevel)%load_division = levels(ilevel-1)%load_division
+         !levels(ilevel)%load_division = .true.
       !end if
 
       levels(ilevel)%linet = levels(ilevel-1)%linetc  
