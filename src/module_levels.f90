@@ -37,7 +37,7 @@ module module_levels
 ! profiling 
       logical,private ::           profile = .false.
 ! damping division
-      logical,parameter,private :: damp_division = .true.
+      logical,parameter,private :: damp_division = .false.
 ! export matrix of subdomains on the second level for further analysis
       logical,parameter,private :: export_matrix = .false.
 ! if the matrix of the coarse problem should be exported, what will be the name of files
