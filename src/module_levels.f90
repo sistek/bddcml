@@ -36,8 +36,8 @@ module module_levels
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
       logical,private ::           profile = .false.
-! damping division
-      logical,parameter,private :: damp_division = .true.
+! dumping division
+      logical,parameter,private :: dump_division = .false.
 ! export matrix of subdomains on the second level for further analysis
       logical,parameter,private :: export_matrix = .false.
 ! if the matrix of the coarse problem should be exported, what will be the name of files
@@ -1183,9 +1183,9 @@ subroutine levels_read_level_from_file(problemname,comm,ilevel)
 end subroutine
 
 !*************************************************
-subroutine levels_damp_division(ilevel,iets,liets)
+subroutine levels_dump_division(ilevel,iets,liets)
 !*************************************************
-! Subroutine for damping division into subdomains at level to file
+! Subroutine for dumping division into subdomains at level to file
 
       use module_utils
       implicit none
@@ -1197,7 +1197,7 @@ subroutine levels_damp_division(ilevel,iets,liets)
       integer,intent(in) ::  iets(liets)
 
 ! local variables
-      character(*),parameter:: routine_name = 'LEVELS_DAMP_DIVISION'
+      character(*),parameter:: routine_name = 'LEVELS_DUMP_DIVISION'
       character(lfnamex) :: filename
       character(1) :: levelstring
       integer :: idlevel
@@ -1209,7 +1209,7 @@ subroutine levels_damp_division(ilevel,iets,liets)
       end if
       filename = 'partition_l'//levelstring//'.ES'
       if (debug) then
-         call info(routine_name,' Damping division to file '//trim(filename))
+         call info(routine_name,' Dumping division to file '//trim(filename))
       end if
       call allocate_unit(idlevel)
       open (unit=idlevel,file=filename,status='replace',form='formatted')
@@ -1806,9 +1806,9 @@ subroutine levels_prepare_standard_level(parallel_division,&
                call info(routine_name, 'Mesh division created.')
             end if 
          end if 
-         if (damp_division) then
+         if (dump_division) then
             if (myid.eq.0) then
-               call levels_damp_division(ilevel,levels(ilevel)%iets,levels(ilevel)%liets)
+               call levels_dump_division(ilevel,levels(ilevel)%iets,levels(ilevel)%liets)
             end if
          end if
 !-----profile
@@ -2390,6 +2390,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       ! print *,'myid =',myid,'inetc',inetc
       ! check the inetc array
       if (any(inetc.eq.0)) then
+         print *, 'nnetc: ',nnetc
+         print *, 'inetc: ',inetc
          call error(routine_name,'Zeros in inetc array.')
       end if
 
