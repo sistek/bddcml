@@ -37,20 +37,27 @@ module module_densela
       integer,parameter :: DENSELA_LAPACK = 1
       integer,parameter :: DENSELA_MAGMA  = 2
 
+#if defined(BDDCML_WITH_MAGMA)
+      integer,private :: number_of_gpus = 0
+      integer,private :: my_device = 0
+#endif
+
       !integer,parameter,private :: library = DENSELA_MAGMA
       !integer,parameter,private :: library = DENSELA_LAPACK
 
 contains
 
-!*******************************
-subroutine densela_init(library)
-!*******************************
+!************************************
+subroutine densela_init(library,rank)
+!************************************
 ! Initialization of a library for dense LA.
 ! Some libraries do not need this.
       use module_utils
       implicit none
 ! Numerical library to use
       integer,intent(in) :: library
+! Rank of the process - to determine which GPU to use
+      integer,intent(in) :: rank
 
 ! local vars
       character(*),parameter:: routine_name = 'densela_init'
@@ -63,6 +70,11 @@ subroutine densela_init(library)
          case (DENSELA_MAGMA)
             ! MAGMA
             call magmaf_init()
+            number_of_gpus = magmaf_num_gpus()
+            write (*,*) "Number of GPUs: ", number_of_gpus
+            my_device = mod(rank,number_of_gpus)
+            write (*,*) "My device: ", my_device
+            call magmaf_setdevice(my_device)
 #endif
          case default
             call error(routine_name, "Illegal library:", library)

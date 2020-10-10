@@ -409,7 +409,9 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
       levels(iactive_level)%i_am_active_in_this_level = levels(iactive_level-1)%i_am_active_in_this_level
       levels(iactive_level)%is_new_comm_created       = .false.
 
-      call densela_init(DENSELA_MAGMA)
+      ! find rank on the first level
+      call MPI_COMM_RANK(levels(1)%comm_all, myid, ierr)
+      call densela_init(DENSELA_MAGMA, myid)
 
       !do iactive_level = 1,nlevels
       !   print *, 'myid ',myid,':level ',iactive_level,': Active cores:', &
@@ -1446,7 +1448,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer ::            lsub2proc_aux
       integer,allocatable :: sub2proc_aux(:)
 
-      logical,parameter :: use_explicit_schurs = .false.
+      logical,parameter :: use_explicit_schurs = .true.
       logical,parameter :: use_contiguous_subdomains = .false.
 
       integer :: contiguous_subdomains_int
