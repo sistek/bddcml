@@ -36,8 +36,8 @@ module module_levels
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
       logical,private ::           profile = .false.
-! damping division
-      logical,parameter,private :: damp_division = .false.
+! dumping division
+      logical,parameter,private :: dump_division = .false.
 ! export matrix of subdomains on the second level for further analysis
       logical,parameter,private :: export_matrix = .false.
 ! if the matrix of the coarse problem should be exported, what will be the name of files
@@ -191,7 +191,6 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
       ! L(1)   :   0 1 2 3 4 5 6 7 8 9 10
       ! L(0)   :   0 1 2 3 4 5 6 7 8 9 10
       use module_utils
-      use module_densela
       use module_pp
       implicit none
       include "mpif.h"
@@ -1188,9 +1187,9 @@ subroutine levels_read_level_from_file(problemname,comm,ilevel)
 end subroutine
 
 !*************************************************
-subroutine levels_damp_division(ilevel,iets,liets)
+subroutine levels_dump_division(ilevel,iets,liets)
 !*************************************************
-! Subroutine for damping division into subdomains at level to file
+! Subroutine for dumping division into subdomains at level to file
 
       use module_utils
       implicit none
@@ -1202,7 +1201,7 @@ subroutine levels_damp_division(ilevel,iets,liets)
       integer,intent(in) ::  iets(liets)
 
 ! local variables
-      character(*),parameter:: routine_name = 'LEVELS_DAMP_DIVISION'
+      character(*),parameter:: routine_name = 'LEVELS_DUMP_DIVISION'
       character(lfnamex) :: filename
       character(1) :: levelstring
       integer :: idlevel
@@ -1214,7 +1213,7 @@ subroutine levels_damp_division(ilevel,iets,liets)
       end if
       filename = 'partition_l'//levelstring//'.ES'
       if (debug) then
-         call info(routine_name,' Damping division to file '//trim(filename))
+         call info(routine_name,' Dumping division to file '//trim(filename))
       end if
       call allocate_unit(idlevel)
       open (unit=idlevel,file=filename,status='replace',form='formatted')
@@ -1448,7 +1447,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer ::            lsub2proc_aux
       integer,allocatable :: sub2proc_aux(:)
 
-      logical,parameter :: use_explicit_schurs = .true.
+      logical,parameter :: use_explicit_schurs = .false.
       logical,parameter :: use_contiguous_subdomains = .false.
 
       integer :: contiguous_subdomains_int
@@ -1812,9 +1811,9 @@ subroutine levels_prepare_standard_level(parallel_division,&
                call info(routine_name, 'Mesh division created.')
             end if 
          end if 
-         if (damp_division) then
+         if (dump_division) then
             if (myid.eq.0) then
-               call levels_damp_division(ilevel,levels(ilevel)%iets,levels(ilevel)%liets)
+               call levels_dump_division(ilevel,levels(ilevel)%iets,levels(ilevel)%liets)
             end if
          end if
 !-----profile
@@ -2396,6 +2395,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       ! print *,'myid =',myid,'inetc',inetc
       ! check the inetc array
       if (any(inetc.eq.0)) then
+         print *, 'nnetc: ',nnetc
+         print *, 'inetc: ',inetc
          call error(routine_name,'Zeros in inetc array.')
       end if
 
@@ -3275,6 +3276,10 @@ subroutine levels_jds_prepare(matrixtype)
       a_sparse = sub%a_sparse(1:la)
 
       isvgvn => sub%isvgvn
+      if (any(isvgvn > ndof) .and. nproc > 1) then
+         call error(routine_name, &
+                    "It is forbidden to use just a direct solver in parallel for problems with holes in global IDs.")
+      end if
 
       ndofs = sub%ndof
       lbc = ndofs 
@@ -3293,14 +3298,20 @@ subroutine levels_jds_prepare(matrixtype)
       lbc_aux = ndof
       allocate(bc_aux(lbc_aux))
       bc_aux = 0._kr
-      bc_aux(isvgvn) = bc
+      if (nproc > 1) then
+         bc_aux(isvgvn) = bc
 !*****************************************************************MPI
-      call MPI_REDUCE(bc_aux,levels_jds_bc,ndof, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+         call MPI_REDUCE(bc_aux,levels_jds_bc,ndof, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr)
 !*****************************************************************MPI
+      else
+         levels_jds_bc = bc
+      end if
 
       ! make the renumbering
-      i_sparse = isvgvn(i_sparse)
-      j_sparse = isvgvn(j_sparse)
+      if (nproc > 1) then
+         i_sparse = isvgvn(i_sparse)
+         j_sparse = isvgvn(j_sparse)
+      end if
 
 !      isub_loc = 1
 !
@@ -3495,10 +3506,15 @@ subroutine levels_jds_solve
              where(sub%ifix /= 0) rhss = 0._kr
           end if
           rhs_aux = 0._kr
-          rhs_aux(isvgvn) = rhss
+          if (nproc > 1) then
+             rhs_aux(isvgvn) = rhss
 !*****************************************************************MPI
-          call MPI_REDUCE(rhs_aux,levels_jds_rhs,ndof, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+             call MPI_REDUCE(rhs_aux,levels_jds_rhs,ndof, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr)
 !*****************************************************************MPI
+          else
+             levels_jds_rhs = rhss
+          end if
+
           deallocate(rhss)
           deallocate(rhs_aux)
       end if
@@ -3520,7 +3536,7 @@ subroutine levels_jds_solve
       allocate(sol(lsol))
       if (myid == 0 ) then
          sol = levels_jds_rhs
-       end if
+      end if
 !*****************************************************************MPI
       call MPI_BCAST(sol,  lsol, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
 !*****************************************************************MPI
@@ -3532,7 +3548,11 @@ subroutine levels_jds_solve
       ! load subdomain SOLS
       lsols = ndofs
       allocate(sols(lsols))
-      call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), sol,lsol, sols,lsols)
+      if (nproc > 1) then
+         call dd_map_glob_to_sub(levels(ilevel)%subdomains(isub_loc), sol,lsol, sols,lsols)
+      else
+         sols = sol
+      end if
       call dd_upload_solution(levels(ilevel)%subdomains(isub_loc), sols,lsols)
       deallocate(sols)
 
@@ -3980,8 +4000,8 @@ subroutine levels_corsub_standard_level(ilevel)
 !*****************************************************************MPI
       if (nproc > 1) then
          ! some MPI libs do not like to reduce on a single process
-         call MPI_REDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
-         call MPI_REDUCE(resaux, res, lres , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+         call MPI_REDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr)
+         call MPI_REDUCE(resaux, res, lres , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr)
       else 
          ! perform a simple copy if it is just on the root process 
          resc = rescaux
@@ -4209,7 +4229,7 @@ subroutine levels_add_standard_level(ilevel)
          deallocate(sols)
       end do
 !*****************************************************************MPI
-      call MPI_REDUCE(solaux, sol, lsol , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
+      call MPI_REDUCE(solaux, sol, lsol , MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr)
 !*****************************************************************MPI
       deallocate(solaux)
 
@@ -5118,7 +5138,6 @@ subroutine levels_finalize
 !*************************
 ! Subroutine for initialization of levels data
       use module_mumps
-      use module_densela
       implicit none
       include "mpif.h"
 

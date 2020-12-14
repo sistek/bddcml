@@ -63,6 +63,9 @@ void graph_divide_c(int *numflag, int *graphtype, int *nvertex, int *xadj,
   options[METIS_OPTION_DBGLVL] = 0;
   //options[METIS_OPTION_DBGLVL] = METIS_DBG_INFO;
 
+  // Allow load imbalance in division 50%
+  options[METIS_OPTION_UFACTOR] = 500;
+
   // Initialize parts.
   for (int i = 0; i < *lpart; i++ ) {
      part[i] = *numflag;
