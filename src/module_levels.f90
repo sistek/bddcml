@@ -192,6 +192,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
       ! L(0)   :   0 1 2 3 4 5 6 7 8 9 10
       use module_utils
       use module_pp
+      use module_densela
       implicit none
       include "mpif.h"
 
@@ -5138,6 +5139,7 @@ subroutine levels_finalize
 !*************************
 ! Subroutine for initialization of levels data
       use module_mumps
+      use module_densela
       implicit none
       include "mpif.h"
 

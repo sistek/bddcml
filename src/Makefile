@@ -2,7 +2,12 @@
 include ../make.inc
 
 # include files needed
-INC = $(BDDCML_INCMUMPS) $(BDDCML_INCPARMETIS) $(BDDCML_INCMETIS) $(BDDCML_INCBLOPEX) $(BDDCML_INCMPI)
+INC = $(BDDCML_INCMUMPS) \
+      $(BDDCML_INCPARMETIS) \
+      $(BDDCML_INCMETIS) \
+      $(BDDCML_INCBLOPEX) \
+      $(BDDCML_INCMAGMA) \
+      $(BDDCML_INCMPI)
 ##############################################################
 # GNU Make automatic variables:
 # $@ - target
@@ -18,7 +23,6 @@ OBJ = \
    module_krylov_types_def.o \
    module_adaptivity.o \
    module_dd.o \
-   module_densela.o \
    module_levels.o \
    module_mumps.o \
    module_graph.o \
@@ -28,6 +32,7 @@ OBJ = \
    graph_divide.o \
    module_parsing.o \
    module_sm.o \
+   module_densela.o \
    module_paraview.o \
    module_utils.o \
    lobpcg_driver.o 
@@ -44,8 +49,11 @@ bddclib: $(LIBBDDCML)
 %.o : %.f90
 	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) $(INC) -c $<
 
+%.o : %.F90
+	$(BDDCML_MPFC) $(BDDCML_MPFFLAGS) $(BDDCML_DEFS) $(INC) -c $<
+
 %.o : %.c
-	$(BDDCML_MPCC) $(BDDCML_MPCFLAGS) $(BDDCML_CDEFS) $(INC) -c $<
+	$(BDDCML_MPCC) $(BDDCML_MPCFLAGS) $(BDDCML_DEFS) $(INC) -c $<
 
 # module dependencies
 module_bddcml_c_wrapper.o: \
@@ -69,6 +77,7 @@ module_levels.o: \
    module_parsing.o \
    module_krylov_types_def.o \
    module_paraview.o \
+   module_densela.o \
    module_utils.o 
 
 module_krylov.o: \
@@ -83,6 +92,7 @@ module_dd.o: \
    module_pp.o \
    module_mumps.o \
    module_sm.o \
+   module_densela.o \
    module_paraview.o \
    module_utils.o 
 
