@@ -3214,7 +3214,8 @@ subroutine adaptivity_get_pair_data(idpair,pair_data,lpair_data)
          write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - processor not assigned.'
          call error_exit
       end if
-      if (any(pair_subdomains(idpair,1:lpair_subdomains2).eq.0)) then
+      if (any(pair_subdomains(idpair,2:3).eq.0)) then
+         write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: subdomain data:', pair_subdomains(idpair,1:lpair_subdomains2)
          write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - zeros in subdomain data.'
          call error_exit
       end if
