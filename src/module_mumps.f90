@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -36,8 +36,8 @@ contains
 ! Initializes run of MUMPS
       use module_utils
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in):: comm, matrixtype
       ! local vars
       character(*),parameter:: routine_name = 'MUMPS_INIT'
@@ -61,7 +61,7 @@ contains
       mumps%JOB = -1
       mumps%KEEP = 0
 
-      call DMUMPS(mumps)
+      call ZMUMPS(mumps)
 
 ! Check output
       if (mumps%INFOG(1) .ne. 0) then
@@ -76,8 +76,8 @@ contains
 ! Defines level of information from MUMPS printed to screen (unit 6)
       use module_utils
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in):: mumpsinfo
       ! local vars
       character(*),parameter:: routine_name = 'MUMPS_SET_INFO'
@@ -126,12 +126,12 @@ contains
 ! nnz =< la
 
       implicit none
-      include "dmumps_struc.h"
+      include "zmumps_struc.h"
       include "mpif.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in):: n, nnz, la
       integer,intent(in),target:: i_sparse(la), j_sparse(la)
-      real(kr),intent(in),target:: a_sparse(la)
+      complex(kr),intent(in),target:: a_sparse(la)
 
 ! Specify assembled matrix
       mumps%ICNTL(5) = 0
@@ -161,12 +161,12 @@ contains
 ! nnz =< la
 
       implicit none
-      include "dmumps_struc.h"
+      include "zmumps_struc.h"
       include "mpif.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in):: n, nnz, la
       integer,intent(in),target:: i_sparse(la), j_sparse(la)
-      real(kr),intent(in),target:: a_sparse(la)
+      complex(kr),intent(in),target:: a_sparse(la)
 
 ! Specify assembled matrix
       mumps%ICNTL(5) = 0
@@ -194,12 +194,12 @@ contains
 ! Subroutine for setting Schur complement dimension and variables
 
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in)::       llistvar_schur
       integer,intent(in),target:: listvar_schur(llistvar_schur)
 
-! Specify using Schur 
+! Specify using Schur
 !  1 - complement centralized at host
 !  2 - complement distributed - only lower triangle for symmetric case, whole matrix otherwise
 !  3 - complement distributed - whole matrix for both sym and unsym case
@@ -207,7 +207,7 @@ contains
 
 ! Fill in the MUMPS structure
       ! Schur dimension
-      mumps%SIZE_SCHUR = llistvar_schur 
+      mumps%SIZE_SCHUR = llistvar_schur
       ! indices of Schur elements
       mumps%LISTVAR_SCHUR => listvar_schur
 
@@ -219,13 +219,13 @@ contains
 ! Performs the analysis of matrix by MUMPS.
       use module_utils
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
       ! should analysis be parallel?
       ! 0 - let MUMPS decide
       ! 1 - force serial analysis
       ! 2 - force parallel analysis
-      integer, intent(in) :: iparallel 
+      integer, intent(in) :: iparallel
       ! local vars
       character(*),parameter:: routine_name = 'MUMPS_ANALYZE'
 
@@ -250,7 +250,7 @@ contains
 ! Job type = 1 for matrix analysis
       if (mumps%N > 0) then
          mumps%JOB = 1
-         call DMUMPS(mumps)
+         call ZMUMPS(mumps)
       end if
 
 ! Check output
@@ -266,8 +266,8 @@ contains
 ! Return size of local block of Schur complement
 
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
       integer, intent(out) :: mloc, nloc
 
 ! Get the dimensions
@@ -284,11 +284,11 @@ contains
 
       use module_utils
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
 ! Local block of Schur complement
-      integer,intent(in)::        lschur
-      real(kr),intent(in),target:: schur(lschur)
+      integer,intent(in)::           lschur
+      complex(kr),intent(in),target:: schur(lschur)
 ! Local number of rows in Schur complement
       integer,intent(in):: mloc
 
@@ -302,17 +302,17 @@ contains
 !************************************************************************
       subroutine mumps_get_reduced_rhs(mumps, nrhs, rhs,lrhs, rrhs,lrrhs)
 !************************************************************************
-! Subroutine for getting the reduced right-hand side corresponding to 
+! Subroutine for getting the reduced right-hand side corresponding to
 ! the Schur complement.
       use module_utils
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
-      integer,intent(in)::        nrhs
-      integer,intent(in)::        lrhs
-      real(kr),intent(inout)::     rhs(lrhs)   ! whole right-hand side
-      integer,intent(in)::        lrrhs
-      real(kr),intent(in),target:: rrhs(lrrhs) ! reduced right-hand side
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
+      integer,intent(in)::           nrhs
+      integer,intent(in)::           lrhs
+      complex(kr),intent(inout)::     rhs(lrhs)   ! whole right-hand side
+      integer,intent(in)::           lrrhs
+      complex(kr),intent(in),target:: rrhs(lrrhs) ! reduced right-hand side
 
       ! local vars
       character(*),parameter:: routine_name = 'MUMPS_GET_REDUCED_RHS'
@@ -355,13 +355,13 @@ contains
 ! Subroutine for expanding solution from interior to the whole subdomain.
       use module_utils
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
-      integer,intent(in)::        nrhs
-      integer,intent(in)::        lrsolution
-      real(kr),intent(in),target:: rsolution(lrsolution) ! reduced solution
-      integer,intent(in)::        lsolution
-      real(kr),intent(out),target:: solution(lsolution)   ! full solution
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
+      integer,intent(in)::            nrhs
+      integer,intent(in)::            lrsolution
+      complex(kr),intent(in),target::  rsolution(lrsolution) ! reduced solution
+      integer,intent(in)::            lsolution
+      complex(kr),intent(out),target:: solution(lsolution)   ! full solution
 
       ! local vars
       character(*),parameter:: routine_name = 'MUMPS_GET_EXPANDED_SOLUTION'
@@ -407,11 +407,11 @@ contains
 ! Subroutine for expanding solution from interior to the whole subdomain.
       use module_utils
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
-      integer,intent(in)::        nrhs
-      integer,intent(in)::        lsolution
-      real(kr),intent(inout),target:: solution(lsolution)   ! full solution
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
+      integer,intent(in)::              nrhs
+      integer,intent(in)::              lsolution
+      complex(kr),intent(inout),target:: solution(lsolution)   ! full solution
 
       ! local vars
       character(*),parameter:: routine_name = 'MUMPS_GET_INTERIOR_SOLUTION'
@@ -445,8 +445,8 @@ contains
 ! Performs factorization of matrix by MUMPS
       use module_utils
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
       include "mpif.h"
 
       ! local vars
@@ -460,7 +460,7 @@ contains
       mumps%INFOG(1) = 0
       ! skip the factorization if the problem is empty
       if (mumps%N > 0) then
-         call DMUMPS(mumps)
+         call ZMUMPS(mumps)
       end if
 
 ! Check output
@@ -488,7 +488,7 @@ contains
             call MPI_BCAST(errcode, 1, MPI_INTEGER, errproc, comm, ierr)
             ! if the error is with local memory, try to rerun the factorization
             if (errcode.eq.-8 .or. errcode.eq.-9) then
-               if (myid.eq.errproc) then 
+               if (myid.eq.errproc) then
                   if (mumps%ICNTL(14) .lt. mem_relax_lim) then
                      ! add 50% to relaxation parameter up to limit
                      mumps%ICNTL(14) = mumps%ICNTL(14) + 50
@@ -515,8 +515,8 @@ contains
 !********************************************************
       use module_utils
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
       integer, intent(out) :: factor_size
 
       factor_size = mumps%info(9)
@@ -532,10 +532,10 @@ contains
 
       use module_utils
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
       integer,intent(in):: lrhs
-      real(kr),intent(inout),target:: rhs(lrhs)
+      complex(kr),intent(inout),target:: rhs(lrhs)
       integer,intent(in),optional:: nrhs
       logical,intent(in),optional:: solve_transposed
 
@@ -564,7 +564,7 @@ contains
       mumps%JOB = 3
       ! skip the factorization if the problem is empty
       if (mumps%N > 0) then
-         call DMUMPS(mumps)
+         call ZMUMPS(mumps)
       end if
 
 ! Check output
@@ -578,21 +578,21 @@ contains
       end if
 
       end subroutine
-         
+
 !*************************************
       subroutine mumps_finalize(mumps)
 !*************************************
 ! Destroy the instance (deallocate internal data structures)
       use module_utils
       implicit none
-      include "dmumps_struc.h"
-      type(DMUMPS_STRUC),intent(inout) :: mumps
+      include "zmumps_struc.h"
+      type(ZMUMPS_STRUC),intent(inout) :: mumps
 
       ! local vars
       character(*),parameter:: routine_name = 'MUMPS_FINALIZE'
 
       mumps%JOB = -2
-      call DMUMPS(mumps)
+      call ZMUMPS(mumps)
 
 ! Check output
       if (mumps%INFOG(1) .ne. 0) then

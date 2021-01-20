@@ -3,7 +3,7 @@ DIRS = src examples
 # Targets
 ##################################################################
 
-all: 
+all:
 	@ \
         for i in ${DIRS}; \
         do \
@@ -12,7 +12,7 @@ all:
           echo ""; \
         done
 
-clean: 
+clean:
 	@ \
         for i in ${DIRS}; \
         do \

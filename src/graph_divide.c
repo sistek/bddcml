@@ -1,12 +1,12 @@
 /* BDDCML - Multilevel BDDC
  *
  * This program is a free software.
- * You can redistribute it and/or modify it under the terms of 
- * the GNU Lesser General Public License 
- * as published by the Free Software Foundation, 
- * either version 3 of the license, 
+ * You can redistribute it and/or modify it under the terms of
+ * the GNU Lesser General Public License
+ * as published by the Free Software Foundation,
+ * either version 3 of the license,
  * or (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -54,7 +54,7 @@ void graph_divide_c(int *numflag, int *graphtype, int *nvertex, int *xadj,
   METIS_SetDefaultOptions(options);
 
   // Set contiguous subdomains.
-  options[METIS_OPTION_CONTIG] = *contiguous_clusters; 
+  options[METIS_OPTION_CONTIG] = *contiguous_clusters;
 
   // Use the given numbering (0 from C, 1 from Fortran).
   options[METIS_OPTION_NUMBERING] = *numflag;

@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -24,7 +24,7 @@ module module_paraview
       integer,parameter,private :: kr = REAL64
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
-! debugging 
+! debugging
       logical,parameter,private :: debug = .false.
 ! adjustable parameters ############################
 
@@ -45,11 +45,11 @@ subroutine paraview_open_subdomain_file(prefix,isub,idvtu)
       use module_utils
 
       implicit none
-      
+
       ! basename of vtu files
-      character(*), intent(in) :: prefix           
+      character(*), intent(in) :: prefix
       ! global subdomain index
-      integer, intent(in) :: isub                  
+      integer, intent(in) :: isub
       ! unit with opened file
       integer, intent(out) :: idvtu
 
@@ -74,9 +74,9 @@ subroutine paraview_open_file(fname,idvtu)
       use module_utils
 
       implicit none
-      
+
       ! basename of vtu files
-      character(*), intent(in) :: fname           
+      character(*), intent(in) :: fname
       ! unit with opened file
       integer, intent(out) :: idvtu
 
@@ -98,7 +98,7 @@ subroutine paraview_close_subdomain_file(idvtu)
 ! Subroutine for opening a VTU file for subdomain data
 !**********************************************
       implicit none
-      
+
       ! unit with opened file
       integer, intent(in) :: idvtu
 
@@ -131,7 +131,7 @@ subroutine paraview_export_pvd_file(prefix, nsub)
       open (unit=idpvd,file=trim(filename),status='replace',form='formatted')
 
       ! write header of PVD file
-      write(idpvd,'(a)')             '<?xml version="1.0"?>' 
+      write(idpvd,'(a)')             '<?xml version="1.0"?>'
       write(idpvd,'(a)')             '<VTKFile type="Collection" version="0.1" byte_order="LittleEndian">'
       write(idpvd,'(a)')             '  <Collection>'
       ! write entries with individual VTU files
@@ -153,7 +153,7 @@ subroutine paraview_write_mesh(idvtu, nelem,nnod, meshdim, inet,linet, nnet,lnne
 !**************************************************************************************************
       use module_utils
       implicit none
-      
+
       ! disk unit
       integer, intent(in) :: idvtu
       ! number of elements
@@ -166,9 +166,9 @@ subroutine paraview_write_mesh(idvtu, nelem,nnod, meshdim, inet,linet, nnet,lnne
       integer, intent(in) :: linet,       lnnet
       integer, intent(in) ::  inet(linet), nnet(lnnet)
       ! array with coordinates
-      integer, intent(in) :: lxyz1, lxyz2 
+      integer, intent(in) :: lxyz1, lxyz2
       real(kr), intent(in) :: xyz(lxyz1,lxyz2)
-      
+
       ! local vars
       character(*),parameter:: routine_name = 'PARAVIEW_WRITE_MESH'
       integer :: i, ie, indinet, nne
@@ -178,11 +178,11 @@ subroutine paraview_write_mesh(idvtu, nelem,nnod, meshdim, inet,linet, nnet,lnne
 
 
 ! write header of VTU file
-      write(idvtu,'(a)')             '<?xml version="1.0"?>' 
+      write(idvtu,'(a)')             '<?xml version="1.0"?>'
       write(idvtu,'(a)')             '<VTKFile type="UnstructuredGrid" byte_order="LittleEndian">'
       write(idvtu,'(a)')             '  <UnstructuredGrid>'
       write(idvtu,'(a,i10,a,i10,a)') '  <Piece NumberOfPoints="', nnod,'" NumberOfCells="', nelem,'">'
-      
+
       ! write nodal coordinates
       write(idvtu,'(a)')             '    <Points>'
       write(idvtu,'(a,i1,a)')        '      <DataArray type="Float64" NumberOfComponents="',lxyz2,&
@@ -196,13 +196,13 @@ subroutine paraview_write_mesh(idvtu, nelem,nnod, meshdim, inet,linet, nnet,lnne
 
       ! write cells
       write(idvtu,'(a)')             '    <Cells>'
-    
+
       ! connectivity
       write(idvtu,'(a)')             '      <DataArray type="Int32" NumberOfComponents="1" Name="connectivity" format="ascii">'
 
       indinet = 0
       do ie = 1,nelem
-         nne = nnet(ie) 
+         nne = nnet(ie)
          write(idvtu,'(10i15)')         inet(indinet+1:indinet+nne) - 1 ! remove one to start from 0
          indinet = indinet + nne
       end do
@@ -212,7 +212,7 @@ subroutine paraview_write_mesh(idvtu, nelem,nnod, meshdim, inet,linet, nnet,lnne
       write(idvtu,'(a)')             '      <DataArray type="Int32" NumberOfComponents="1" Name="offsets" format="ascii">'
       offset = 0
       do ie = 1,nelem
-         nne = nnet(ie) 
+         nne = nnet(ie)
          offset = offset + nne
          write(idvtu,'(10i15)')         offset
       end do
@@ -222,7 +222,7 @@ subroutine paraview_write_mesh(idvtu, nelem,nnod, meshdim, inet,linet, nnet,lnne
       write(idvtu,'(a)')             '      <DataArray type="Int32" NumberOfComponents="1" Name="types" format="ascii">'
       do ie = 1,nelem
          nne = nnet(ie)
-         select case (nne) 
+         select case (nne)
             case (8)
                ! hexahedron
                VTKtype = 12
@@ -245,7 +245,7 @@ subroutine paraview_write_mesh(idvtu, nelem,nnod, meshdim, inet,linet, nnet,lnne
       end do
       write(idvtu,'(a)')             '      </DataArray>'
       write(idvtu,'(a)')             '    </Cells>'
-                   
+
 end subroutine paraview_write_mesh
 
 !***************************************
@@ -254,7 +254,7 @@ subroutine paraview_open_celldata(idvtu)
 ! Subroutine for opening celldata in VTU file
 !***************************************
       implicit none
-      
+
       ! unit with opened file
       integer, intent(in) :: idvtu
 
@@ -268,7 +268,7 @@ subroutine paraview_close_celldata(idvtu)
 ! Subroutine for closing celldata in VTU file
 !***************************************
       implicit none
-      
+
       ! unit with opened file
       integer, intent(in) :: idvtu
 
@@ -282,7 +282,7 @@ subroutine paraview_open_pointdata(idvtu)
 ! Subroutine for opening pointdata in VTU file
 !****************************************
       implicit none
-      
+
       ! unit with opened file
       integer, intent(in) :: idvtu
 
@@ -296,7 +296,7 @@ subroutine paraview_close_pointdata(idvtu)
 ! Subroutine for closing pointdata in VTU file
 !*****************************************
       implicit none
-      
+
       ! unit with opened file
       integer, intent(in) :: idvtu
 
@@ -311,13 +311,13 @@ subroutine paraview_write_dataarray_int(idvtu,number_of_components,array_name,ar
 !******************************************************************************************
       use module_utils
       implicit none
-      
+
       ! unit with opened file
       integer, intent(in) :: idvtu
       ! how many components are in the array (e.g. 1 for scalar, 3 for vectors in 3D)
       integer, intent(in) :: number_of_components
       ! name of the array
-      character(*), intent(in) :: array_name           
+      character(*), intent(in) :: array_name
       ! the array
       integer, intent(in) :: larray
       integer, intent(in) :: array(larray)
@@ -336,13 +336,13 @@ subroutine paraview_write_dataarray_dp(idvtu,number_of_components,array_name,arr
 !*****************************************************************************************
       use module_utils
       implicit none
-      
+
       ! unit with opened file
       integer, intent(in) :: idvtu
       ! how many components are in the array (e.g. 1 for scalar, 3 for vectors in 3D)
       integer, intent(in) :: number_of_components
       ! name of the array
-      character(*), intent(in) :: array_name           
+      character(*), intent(in) :: array_name
       ! the array
       integer, intent(in) :: larray
       real(kr), intent(in) :: array(larray)
@@ -361,13 +361,13 @@ subroutine paraview_write_dataarray2d_int(idvtu,number_of_components,array_name,
 !*****************************************************************************************************
       use module_utils
       implicit none
-      
+
       ! unit with opened file
       integer, intent(in) :: idvtu
       ! how many components are in the array (e.g. 1 for scalar, 3 for vectors in 3D)
       integer, intent(in) :: number_of_components
       ! name of the array
-      character(*), intent(in) :: array_name           
+      character(*), intent(in) :: array_name
       ! the array
       integer, intent(in) :: larray1, larray2
       integer, intent(in) :: array(larray1,larray2)
@@ -393,13 +393,13 @@ subroutine paraview_write_dataarray2d_dp(idvtu,number_of_components,array_name,a
 !****************************************************************************************************
       use module_utils
       implicit none
-      
+
       ! unit with opened file
       integer, intent(in) :: idvtu
       ! how many components are in the array (e.g. 1 for scalar, 3 for vectors in 3D)
       integer, intent(in) :: number_of_components
       ! name of the array
-      character(*), intent(in) :: array_name           
+      character(*), intent(in) :: array_name
       ! the array
       integer, intent(in) :: larray1, larray2
       real(kr), intent(in) :: array(larray1,larray2)
@@ -425,13 +425,13 @@ subroutine paraview_write_dataarray_generic(idvtu,number_of_components,array_nam
 !**********************************************************************************************************************
       use module_utils
       implicit none
-      
+
       ! unit with opened file
       integer, intent(in) :: idvtu
       ! how many components are in the array (e.g. 1 for scalar, 3 for vectors in 3D)
       integer, intent(in) :: number_of_components
       ! name of the array
-      character(*), intent(in) :: array_name           
+      character(*), intent(in) :: array_name
       ! the array
       integer, intent(in) :: larray
       integer, intent(in) :: arrayint(larray)
@@ -476,14 +476,14 @@ subroutine paraview_finalize_file(idvtu)
 ! Subroutine for finalizing a VTU file
 !***************************************
       implicit none
-      
+
       ! unit with opened file
       integer, intent(in) :: idvtu
 
       write(idvtu,'(a)')             '  </Piece>'
       write(idvtu,'(a)')             ' </UnstructuredGrid>'
       write(idvtu,'(a)')             '</VTKFile>'
-    
+
 end subroutine paraview_finalize_file
 
 end module module_paraview

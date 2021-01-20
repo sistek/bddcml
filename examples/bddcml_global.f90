@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -29,7 +29,7 @@ program bddcml_global
       use, intrinsic :: iso_fortran_env
 
       implicit none
-      
+
       include "mpif.h"
 
 !######### PARAMETERS TO SET
@@ -40,14 +40,14 @@ program bddcml_global
 !     0 - general (full storage)
 !     1 - symmetric positive definite (only triangle stored)
 !     2 - symmetric general (only triangle stored)
-      integer :: matrixtype = 1 
+      integer :: matrixtype = 1
 ! Krylov subspace iterative method to be used
 !     -1 - use solver defaults
 !     0 - PCG
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
 !     2 - steepest descent method
 !     5 - direct solve by MUMPS
-      integer :: krylov_method = 0  
+      integer :: krylov_method = 0
 
 ! use default values in preconditioner? In such case, all other parameters are ignored
       integer,parameter :: use_preconditioner_defaults = 0
@@ -125,23 +125,23 @@ program bddcml_global
       ! number of local subdomains on level 1
       integer :: nsub_loc_1
 
-      integer ::                    lnnet,   lnndf
-      integer,allocatable:: inet(:), nnet(:), nndf(:)
-      integer ::           lxyz1,   lxyz2
-      real(kr),allocatable:: xyz(:,:)
-      integer ::            lifix
+      integer ::                       lnnet,   lnndf
+      integer,allocatable::    inet(:), nnet(:), nndf(:)
+      integer ::               lxyz1,  lxyz2
+      real(kr),allocatable::    xyz(:,:)
+      integer ::               lifix
       integer,allocatable::  ifix(:)
-      integer ::            lfixv
-      real(kr),allocatable:: fixv(:)
-      integer ::            lrhs
-      real(kr),allocatable:: rhs(:)
-      integer ::            linisol
-      real(kr),allocatable:: inisol(:)
-      integer ::            lsol
-      real(kr),allocatable:: sol(:)
-      integer ::            lrea
-      real(kr),allocatable:: rea(:)
-      real(kr) :: sum_rea(3)
+      integer ::               lfixv
+      complex(kr),allocatable:: fixv(:)
+      integer ::               lrhs
+      complex(kr),allocatable:: rhs(:)
+      integer ::               linisol
+      complex(kr),allocatable:: inisol(:)
+      integer ::               lsol
+      complex(kr),allocatable:: sol(:)
+      integer ::               lrea
+      complex(kr),allocatable:: rea(:)
+      complex(kr) :: sum_rea(3)
 
       integer :: idofn, ndofn, inddof, inod
 
@@ -151,11 +151,11 @@ program bddcml_global
       character(2) :: aux
       integer :: neighbouring
 
-      character(lproblemnamex) :: problemname 
+      character(lproblemnamex) :: problemname
       character(lfilenamex)    :: filename
 
       ! data about resulting convergence
-      integer :: num_iter, converged_reason 
+      integer :: num_iter, converged_reason
       real(kr) :: condition_number
 
       ! time variables
@@ -185,7 +185,7 @@ program bddcml_global
          write(*,'(a)') '==================GLOBAL===================='
       end if
 
-! Name of the problem as the first argument, 
+! Name of the problem as the first argument,
 ! number of nodes shared by two elements to call them adjacent as the second argument
       problemname = ' '
       if ( myid .eq. 0 ) then
@@ -201,14 +201,14 @@ program bddcml_global
          ! get length
          lproblemname = index(problemname,' ') - 1
          if (lproblemname.eq.-1) then
-            lproblemname = lproblemnamex 
+            lproblemname = lproblemnamex
          end if
          ! pad the name with spaces
          do i = lproblemname+1,lproblemnamex
             problemname(i:i) = ' '
          end do
       end if
-! Broadcast of name of the problem      
+! Broadcast of name of the problem
 !***************************************************************PARALLEL
       call MPI_BCAST(lproblemname, 1,           MPI_INTEGER,   0, comm_all, ierr)
       call MPI_BCAST(problemname, lproblemname, MPI_CHARACTER, 0, comm_all, ierr)
@@ -229,7 +229,7 @@ program bddcml_global
          close (idpar)
       end if
 
-! Reading basic properties 
+! Reading basic properties
       if (myid.eq.0) then
          write(*,*)'Characteristics of the problem ',problemname(1:lproblemname), ':'
          write(*,*)'  number of processors            nproc =',nproc
@@ -297,14 +297,14 @@ program bddcml_global
       if (myid.eq.0) then
          write (*,'(a,$)') 'Reading data files ...'
          call flush(6)
-      ! read PMD mesh 
+      ! read PMD mesh
          filename = problemname(1:lproblemname)//'.GMIS'
          call allocate_unit(idgmi)
          open (unit=idgmi,file=filename,status='old',form='formatted')
          call pp_read_pmd_mesh(idgmi,inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2)
          close(idgmi)
 
-      ! read PMD boundary conditions 
+      ! read PMD boundary conditions
          filename = problemname(1:lproblemname)//'.FVS'
          call allocate_unit(idfvs)
          open (unit=idfvs,file=filename,status='old',form='formatted')
@@ -334,8 +334,8 @@ program bddcml_global
       call MPI_BCAST(nndf, lnndf, MPI_INTEGER, 0, comm_all, ierr)
       call MPI_BCAST(xyz, lxyz1*lxyz2, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
       call MPI_BCAST(ifix, lifix, MPI_INTEGER, 0, comm_all, ierr)
-      call MPI_BCAST(fixv, lfixv, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
-      call MPI_BCAST(rhs, lrhs, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
+      call MPI_BCAST(fixv, lfixv, MPI_DOUBLE_COMPLEX, 0, comm_all, ierr)
+      call MPI_BCAST(rhs, lrhs, MPI_DOUBLE_COMPLEX, 0, comm_all, ierr)
 !***************************************************************PARALLEL
 
       if (myid.eq.0) then
@@ -425,7 +425,7 @@ program bddcml_global
       if (myid.eq.0) then
           write(*,*) 'Number of iterations: ', num_iter
           write(*,*) 'Convergence reason: ', converged_reason
-          if ( condition_number .ge. 0._kr ) then 
+          if ( condition_number .ge. 0._kr ) then
              write(*,*) 'Condition number: ', condition_number
           end if
       end if
@@ -437,7 +437,7 @@ program bddcml_global
       if (myid.eq.0) then
          lsol = ndof
          lrea = ndof
-      else 
+      else
          lsol = 0
          lrea = 0
       end if
@@ -453,7 +453,7 @@ program bddcml_global
       if (myid.eq.0) then
          ! compute sums of reactions into coordinate axes
          inddof = 0
-         sum_rea = 0._kr
+         sum_rea = (0._kr,0._kr)
          do inod = 1,nnod
             ndofn = nndf(inod)
             do idofn = 1,ndofn
@@ -466,7 +466,7 @@ program bddcml_global
          call allocate_unit(idsol)
          open (unit=idsol,file=trim(problemname)//'.SOL',status='replace',form='unformatted')
          rewind idsol
-      
+
          ! solution
          write(idsol) (sol(i), i = 1,lsol)
          ! reactions
@@ -476,7 +476,7 @@ program bddcml_global
 
          if (print_solution) then
             write(*,*) ' solution | reactions'
-            write(*,'(2e15.7)') (sol(i), rea(i), i = 1,lsol)
+            write(*,'(2(s,e15.7,sp,e15.7,"i"))') (sol(i), rea(i), i = 1,lsol)
             write(*,*) ' sums of reactions into coordinate axes: ',sum_rea
          end if
 
@@ -498,7 +498,7 @@ program bddcml_global
       if (myid.eq.0) then
           write(*,*) 'Number of iterations: ', num_iter
           write(*,*) 'Convergence reason: ', converged_reason
-          if ( condition_number .ge. 0._kr ) then 
+          if ( condition_number .ge. 0._kr ) then
              write(*,*) 'Condition number: ', condition_number
           end if
       end if

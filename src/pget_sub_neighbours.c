@@ -1,12 +1,12 @@
 /* BDDCML - Multilevel BDDC
  *
  * This program is a free software.
- * You can redistribute it and/or modify it under the terms of 
- * the GNU Lesser General Public License 
- * as published by the Free Software Foundation, 
- * either version 3 of the license, 
+ * You can redistribute it and/or modify it under the terms of
+ * the GNU Lesser General Public License
+ * as published by the Free Software Foundation,
+ * either version 3 of the license,
  * or (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -27,8 +27,8 @@
 * Jakub Sistek 2010
 ******************************************/
 
-void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind, 
-                           int *numflag, int *ncommonnodes, 
+void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind,
+                           int *numflag, int *ncommonnodes,
 			   int *iets, int *liets,
 			   int *nsub, int *nsub_loc, int *sub_start,
 			   int *kadjsub, int *lkadjsub, int *debug,
@@ -42,7 +42,7 @@ void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind,
   /***********************************/
   /* Try and take care of bad inputs */
   /***********************************/
-  if (elmdist == NULL || eptr == NULL || eind == NULL || 
+  if (elmdist == NULL || eptr == NULL || eind == NULL ||
       numflag == NULL || ncommonnodes == NULL ||
       iets == NULL || liets == NULL ||
       nsub == NULL || nsub_loc == NULL || sub_start == NULL ||
@@ -87,11 +87,11 @@ void pget_sub_neighbours_c(int *elmdist, int *eptr, int *eind,
 	fflush(stdout);
         abort();
      }
-     
+
      nneig = xadj[ivl+1] - xadj[ivl];
      for (ineig = 0; ineig < nneig; ineig++) {
 	indneig = adjncy[xadj[ivl] - *numflag + ineig];
-        
+
 	isubneig = iets[indneig-1];
         /*printf("myid = %d , indneig = %d, isubneig = %d \n",myid,indneig,isubneig);*/
 	if (isub != isubneig) {

@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -16,7 +16,7 @@
 
 
 ! The main module supposed to be used from Fortran applications
-! to exploit multilevel adaptive BDDC solver 
+! to exploit multilevel adaptive BDDC solver
 ! Jakub Sistek, Praha 12/2010
 
 module module_bddcml
@@ -33,12 +33,12 @@ integer,parameter,private :: kr = REAL64
 contains
 
 !*****************************************************************************************************************
-subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_level, numbase, just_direct_solve_int) 
+subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_level, numbase, just_direct_solve_int)
 !*****************************************************************************************************************
 ! initialization of LEVELS module
       use module_levels, only : levels_init, levels_set_profile_on
-      use module_utils , only : suppress_output_on, integer2logical, warning, error
-      use module_krylov , only : krylov_set_profile_on
+      use module_utils, only : suppress_output_on, integer2logical, warning, error
+      use module_krylov, only : krylov_set_profile_on
       implicit none
       include "mpif.h"
 
@@ -52,23 +52,23 @@ subroutine bddcml_init(nl, nsublev,lnsublev, nsub_loc_1, comm_init, verbose_leve
 ! LOCAL number of subdomains assigned to the process
 !     >= 0 - number of local subdomains - sum up across processes to nsublev(1)
 !     -1   - let solver decide, then the value is returned ( determining linear partition )
-      integer, intent(inout):: nsub_loc_1 
+      integer, intent(inout):: nsub_loc_1
 
 ! initial global communicator (possibly MPI_COMM_WORLD)
-      integer, intent(in):: comm_init 
+      integer, intent(in):: comm_init
 
 ! level of verbosity
 !     0 - only errors printed
 !     1 - some output
 !     2 - detailed output
-      integer, intent(in):: verbose_level 
+      integer, intent(in):: verbose_level
 
 ! first index of arrays ( 0 for C, 1 for Fortran )
       integer, intent(in) :: numbase
 
 ! if >0, only perform parallel solve by a direct solver, e.g. parallel MUMPS
 ! if ==0 perform regular solve by BDDC
-      integer, intent(in)::     just_direct_solve_int 
+      integer, intent(in)::     just_direct_solve_int
 
       ! local vars
       character(*),parameter:: routine_name = 'BDDCML_INIT'
@@ -119,7 +119,7 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
       integer, intent(in):: ndof
 
       ! space dimensions
-      integer,intent(in) :: ndim 
+      integer,intent(in) :: ndim
 
       ! mesh dimension
       ! for 3D problems, = ndim
@@ -149,29 +149,29 @@ subroutine bddcml_upload_global_data(nelem,nnod,ndof,ndim,meshdim,&
       integer, intent(in)::  ifix(lifix)
 
       ! GLOBAL FIXed Variables - where IFIX is nonzero, value of Dirichlet BC
-      integer, intent(in):: lfixv
-      real(kr), intent(in):: fixv(lfixv)
+      integer, intent(in)::    lfixv
+      complex(kr), intent(in):: fixv(lfixv)
 
       ! GLOBAL Right-Hand Side
-      integer, intent(in):: lrhs
-      real(kr), intent(in):: rhs(lrhs)
+      integer, intent(in)::    lrhs
+      complex(kr), intent(in):: rhs(lrhs)
 
       ! GLOBAL initial SOLution - initial approximation for iterative method
-      integer, intent(in):: lsol
-      real(kr), intent(in):: sol(lsol)
+      integer, intent(in)::    lsol
+      complex(kr), intent(in):: sol(lsol)
 
       ! opened unit with unformatted file with element matrices
-      integer,intent(in) :: idelm  
+      integer,intent(in) :: idelm
 
       ! how many nodes should be shared for calling element adjacent in graph?
-      integer,intent(in) :: neighbouring 
+      integer,intent(in) :: neighbouring
 
       ! use division from 'partition_l1.ES' file?
       integer,intent(in) :: load_division_int
 
 
       ! local variables
-      logical :: load_division          
+      logical :: load_division
 
       call integer2logical(load_division_int,load_division)
 
@@ -249,7 +249,7 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       integer, intent(in):: lisegn
       integer, intent(in)::  isegn(lisegn)
 
-      ! LOCAL Coordinates of nodes (X | Y | Z (if present) ) or as one array (all X, all Y, all Z) 
+      ! LOCAL Coordinates of nodes (X | Y | Z (if present) ) or as one array (all X, all Y, all Z)
       ! lxyz1 = NNODS, lxyz2 = NDIM
       integer, intent(in):: lxyz1, lxyz2
       real(kr), intent(in):: xyz(lxyz1,lxyz2)
@@ -259,72 +259,72 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       integer, intent(in)::  ifix(lifix)
 
       ! LOCAL FIXed Variables - where IFIX is nonzero, value of Dirichlet BC
-      integer, intent(in):: lfixv
-      real(kr), intent(in):: fixv(lfixv)
+      integer, intent(in)::    lfixv
+      complex(kr), intent(in):: fixv(lfixv)
 
       ! LOCAL Right-Hand Side (where nodes of subdomains coincide, values are repeated)
-      integer, intent(in):: lrhs
-      real(kr), intent(in):: rhs(lrhs)
+      integer, intent(in)::    lrhs
+      complex(kr), intent(in):: rhs(lrhs)
 
       ! LOCAL initial SOLution - initial approximation for iterative method
-      integer, intent(in):: lsol
-      real(kr), intent(in):: sol(lsol)
-      integer, intent(in)::  is_rhs_complete_int  ! is the right-hand side complete?  
-                                                  !  0 = no, e.g. if it is assembled subdomain-by-subdomain 
+      integer, intent(in)::    lsol
+      complex(kr), intent(in):: sol(lsol)
+      integer, intent(in)::  is_rhs_complete_int  ! is the right-hand side complete?
+                                                  !  0 = no, e.g. if it is assembled subdomain-by-subdomain
                                                   !      and the interface entries are not interchanged
                                                   !  1 = yes, e.g. if it was created as a restriction of
                                                   !      the global RHS array and so entries on interface are
                                                   !      contained in several subdomains - weights will be applied
 
-      ! LOCAL matrix triplet i, j, a(i,j) 
+      ! LOCAL matrix triplet i, j, a(i,j)
       ! Type of the matrix
       ! 0 - unsymmetric
       ! 1 - symmetric positive definite
       ! 2 - general symmetric
-      integer, intent(in)::  matrixtype 
-      integer, intent(in)::  la            ! length of previous arrays (= number of nonzeros for assembled matrix)
-      integer, intent(in)::  i_sparse(la)  ! array of row indices
-      integer, intent(in)::  j_sparse(la)  ! array of column indices
-      real(kr), intent(in):: a_sparse(la)  ! array of values
-      integer, intent(in)::  is_assembled_int  ! is the array assembled? 
-                                               !  0 = no, it can contain repeated entries
-                                               !  1 = yes, it is sorted and doesn't contain repeated index pairs
+      integer, intent(in)::     matrixtype
+      integer, intent(in)::     la            ! length of previous arrays (= number of nonzeros for assembled matrix)
+      integer, intent(in)::     i_sparse(la)  ! array of row indices
+      integer, intent(in)::     j_sparse(la)  ! array of column indices
+      complex(kr), intent(in):: a_sparse(la)  ! array of values
+      integer, intent(in)::     is_assembled_int  ! is the array assembled?
+                                                  !  0 = no, it can contain repeated entries
+                                                  !  1 = yes, it is sorted and doesn't contain repeated index pairs
       ! LOCAL array of constraints defined by user
-      integer, intent(in)::  luser_constraints1 ! number of rows in matrix of constraints, i.e. number of user constraints
-      integer, intent(in)::  luser_constraints2 ! number of columns in matrix of constraints, ( = NNODS)
-      real(kr), intent(in):: user_constraints(luser_constraints1*luser_constraints2) ! array for additional constraints
+      integer, intent(in)::     luser_constraints1 ! number of rows in matrix of constraints, i.e. number of user constraints
+      integer, intent(in)::     luser_constraints2 ! number of columns in matrix of constraints, ( = NNODS)
+      complex(kr), intent(in):: user_constraints(luser_constraints1*luser_constraints2) ! array for additional constraints
 
       ! LOCAL array of additional element data - can be used e.g. for construction of averaging operator E
-      integer, intent(in)::  lelement_data1 ! number of rows in matrix of element data, i.e. number of data per element
-      integer, intent(in)::  lelement_data2 ! number of columns in matrix of constraints, ( = NELEMS)
-      real(kr), intent(in):: element_data(lelement_data1*lelement_data2) ! array for data on elements
+      integer, intent(in)::     lelement_data1 ! number of rows in matrix of element data, i.e. number of data per element
+      integer, intent(in)::     lelement_data2 ! number of columns in matrix of constraints, ( = NELEMS)
+      complex(kr), intent(in):: element_data(lelement_data1*lelement_data2) ! array for data on elements
 
-      ! LOCAL array of additional data at degrees of freedom 
-      integer, intent(in)::  ldof_data  ! number of entries in dof_data ( = NDOFS)
-      real(kr), intent(in):: dof_data(ldof_data) ! array for data on degrees of freedom
+      ! LOCAL array of additional data at degrees of freedom
+      integer, intent(in)::     ldof_data  ! number of entries in dof_data ( = NDOFS)
+      complex(kr), intent(in):: dof_data(ldof_data) ! array for data on degrees of freedom
 
-      ! should the mesh components be detected ? 
+      ! should the mesh components be detected ?
       ! Should be the same for all subdomains.
       integer, intent(in)::  find_components_int  ! 0 = mesh components will not be detected and the subdomain is considered to be connected
-                                                  ! 1 = components will be detected based on the dual graph of the mesh 
-                                                  ! This is recommended for unstructured meshes where a subdomains might be of disconnected parts. 
+                                                  ! 1 = components will be detected based on the dual graph of the mesh
+                                                  ! This is recommended for unstructured meshes where a subdomains might be of disconnected parts.
                                                   ! However it may become expensive for high order elements.
 
-      ! if find_components_int = 1, should the dual graph of mesh be used for detecting components? 
+      ! if find_components_int = 1, should the dual graph of mesh be used for detecting components?
       ! Not accessed if detection of subdomain components is switched off by find_components_int = 0.
       ! Should be the same for all subdomains.
-      integer, intent(in)::  use_dual_mesh_graph_int  ! 0 = mesh components will be detected from primal graph of the mesh, 
-                                                      !     where element nodes are graph vertices and a graph edge is introduced 
+      integer, intent(in)::  use_dual_mesh_graph_int  ! 0 = mesh components will be detected from primal graph of the mesh,
+                                                      !     where element nodes are graph vertices and a graph edge is introduced
                                                       !     if they are connected by the same element
                                                       ! 1 = dual graph of mesh will be used for detecting components.
                                                       !     Dual graph of mesh contains elements as graph vertices and a graph edge is
                                                       !     introduced if two elements share at least the number of nodes prescribed by
                                                       !     the neighbouring parameter.
 
-      ! How many nodes need to be shared by two elements to declare a graph edge between them? 
+      ! How many nodes need to be shared by two elements to declare a graph edge between them?
       ! Accessed only if find_components_int = 1 and use_dual_mesh_graph_int = 1. A graph edge is introduced between two elements if
       ! they share number of nodes >= neighbouring. Should be the same for all subdomains.
-      integer, intent(in)::  neighbouring         
+      integer, intent(in)::  neighbouring
 
 
       ! local vars
@@ -336,8 +336,8 @@ subroutine bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
       ! translate integer to logical
       call integer2logical(is_assembled_int,         is_assembled)
       call integer2logical(is_rhs_complete_int,      is_rhs_complete)
-      call integer2logical(find_components_int,      find_components) 
-      call integer2logical(use_dual_mesh_graph_int,  use_dual_mesh_graph) 
+      call integer2logical(find_components_int,      find_components)
+      call integer2logical(use_dual_mesh_graph_int,  use_dual_mesh_graph)
 
       call levels_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
                                         isub, nelems, nnods, ndofs, &
@@ -374,7 +374,7 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
       !  0 - general
       !  1 - symmetric positive definite
       !  2 - symmetric general
-      integer,intent(in) :: matrixtype 
+      integer,intent(in) :: matrixtype
 
       ! use default values for all other settings?
       integer,intent(in) :: use_defaults_int
@@ -435,11 +435,11 @@ subroutine bddcml_setup_preconditioner(matrixtype, use_defaults_int, &
          call integer2logical(use_arithmetic_constraints_int,use_arithmetic_constraints)
          call integer2logical(use_adaptive_constraints_int,use_adaptive_constraints)
          call integer2logical(use_user_constraints_int,use_user_constraints)
-         levels_parallel_division      =  parallel_division    
+         levels_parallel_division      =  parallel_division
          levels_use_corner_constraints     = use_corner_constraints
          levels_use_arithmetic_constraints = use_arithmetic_constraints
          levels_use_adaptive_constraints   = use_adaptive_constraints
-         levels_use_user_constraints       = use_user_constraints         
+         levels_use_user_constraints       = use_user_constraints
          levels_weights_type               = weights_type
       end if
 
@@ -467,7 +467,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       implicit none
 
       ! parallel variables
-      integer,intent(in) :: comm_all 
+      integer,intent(in) :: comm_all
 
       ! optional paramaters - use either none or all of them
       ! preferable Krylov method
@@ -488,7 +488,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       integer, intent(in) :: ndecrmax
 
       ! Should the Krylov subspace be recycled? If yes, basis will be stored and
-      ! used for subsequent right hand sides. It also launches re-orthogonalization 
+      ! used for subsequent right hand sides. It also launches re-orthogonalization
       ! of the Krylov basis.
       integer, intent(in) :: recycling_int
 
@@ -541,22 +541,22 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
          krylov_method = 5
       end if
 
-      if (krylov_method.eq.0) then 
-         ! use PCG 
+      if (krylov_method.eq.0) then
+         ! use PCG
          call krylov_bddcpcg(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
                              krylov_recycling, krylov_max_number_of_stored_vectors, &
                              num_iter, converged_reason, condition_number)
-      else if (krylov_method.eq.1) then 
-         ! use BICGSTAB 
+      else if (krylov_method.eq.1) then
+         ! use BICGSTAB
          call krylov_bddcbicgstab(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
                                   num_iter, converged_reason)
          condition_number = -1._kr ! condition number is not computed for BICGSTAB
-      else if (krylov_method.eq.2) then 
+      else if (krylov_method.eq.2) then
          ! use steepest descent iteration
          call krylov_bddcsteepestdescent(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
                                          num_iter, converged_reason)
          condition_number = -1._kr ! condition number is not computed for steepest descent
-      else if (krylov_method.eq.5) then 
+      else if (krylov_method.eq.5) then
          ! use direct solve from the levels module
          call levels_jds_solve
          num_iter = 0
@@ -580,9 +580,9 @@ subroutine bddcml_download_local_solution(isub, sols,lsols)
       ! GLOBAL index of subdomain
       integer, intent(in)::  isub
 
-      ! LOCAL solution 
-      integer, intent(in)::  lsols
-      real(kr), intent(out):: sols(lsols)
+      ! LOCAL solution
+      integer, intent(in)::     lsols
+      complex(kr), intent(out):: sols(lsols)
 
       call levels_dd_download_solution(isub, sols,lsols)
 
@@ -597,8 +597,8 @@ subroutine bddcml_download_global_solution(sol, lsol)
       implicit none
 
       ! GLOBAL solution - required to be allocated only at root
-      integer, intent(in)::  lsol
-      real(kr), intent(out):: sol(lsol)
+      integer, intent(in)::     lsol
+      complex(kr), intent(out):: sol(lsol)
 
       call levels_get_global_solution(sol,lsol)
 
@@ -616,9 +616,9 @@ subroutine bddcml_download_local_reactions(isub, reas,lreas)
       ! GLOBAL index of subdomain
       integer, intent(in)::  isub
 
-      ! LOCAL reactions 
-      integer, intent(in)::  lreas
-      real(kr), intent(out):: reas(lreas)
+      ! LOCAL reactions
+      integer, intent(in)::     lreas
+      complex(kr), intent(out):: reas(lreas)
 
       call levels_dd_download_reactions(isub, reas,lreas)
 
@@ -633,8 +633,8 @@ subroutine bddcml_download_global_reactions(rea, lrea)
       implicit none
 
       ! GLOBAL  - required to be allocated only at root
-      integer, intent(in)::  lrea
-      real(kr), intent(out):: rea(lrea)
+      integer, intent(in)::     lrea
+      complex(kr), intent(out):: rea(lrea)
 
       call levels_get_global_reactions(rea,lrea)
 
@@ -653,16 +653,16 @@ subroutine bddcml_change_global_data(ifix,lifix, fixv,lfixv, rhs,lrhs, sol,lsol)
       integer, intent(in)::  ifix(lifix)
 
       ! GLOBAL FIXed Variables - where IFIX is nonzero, value of Dirichlet BC
-      integer, intent(in):: lfixv
-      real(kr), intent(in):: fixv(lfixv)
+      integer, intent(in)::    lfixv
+      complex(kr), intent(in):: fixv(lfixv)
 
       ! GLOBAL Right-Hand Side
-      integer, intent(in):: lrhs
-      real(kr), intent(in):: rhs(lrhs)
+      integer, intent(in)::    lrhs
+      complex(kr), intent(in):: rhs(lrhs)
 
       ! GLOBAL initial SOLution - initial approximation for iterative method
-      integer, intent(in):: lsol
-      real(kr), intent(in):: sol(lsol)
+      integer, intent(in)::    lsol
+      complex(kr), intent(in):: sol(lsol)
 
       call levels_change_global_data(ifix,lifix,fixv,lfixv,rhs,lrhs, sol,lsol)
 
@@ -688,22 +688,22 @@ subroutine bddcml_change_subdomain_data(isub, &
       integer, intent(in)::  ifix(lifix)
 
       ! LOCAL FIXed Variables - where IFIX is nonzero, value of Dirichlet BC
-      integer, intent(in):: lfixv
-      real(kr), intent(in):: fixv(lfixv)
+      integer, intent(in)::    lfixv
+      complex(kr), intent(in):: fixv(lfixv)
 
       ! LOCAL Right-Hand Side (where nodes of subdomains coincide, values are repeated)
-      integer, intent(in):: lrhs
-      real(kr), intent(in):: rhs(lrhs)
+      integer, intent(in)::    lrhs
+      complex(kr), intent(in):: rhs(lrhs)
 
       ! LOCAL initial SOLution - initial approximation for iterative method
-      integer, intent(in):: lsol
-      real(kr), intent(in):: sol(lsol)
-      integer, intent(in)::  is_rhs_complete_int  ! is the right-hand side complete?  
-                                                  !  0 = no, e.g. if it is assembled subdomain-by-subdomain 
-                                                  !      and the interface entries are not interchanged
-                                                  !  1 = yes, e.g. if it was created as a restriction of
-                                                  !      the global RHS array and so entries on interface are
-                                                  !      contained in several subdomains - weights will be applied
+      integer, intent(in)::    lsol
+      complex(kr), intent(in):: sol(lsol)
+      integer, intent(in)::     is_rhs_complete_int  ! is the right-hand side complete?
+                                                     !  0 = no, e.g. if it is assembled subdomain-by-subdomain
+                                                     !      and the interface entries are not interchanged
+                                                     !  1 = yes, e.g. if it was created as a restriction of
+                                                     !      the global RHS array and so entries on interface are
+                                                     !      contained in several subdomains - weights will be applied
 
       ! local vars
       logical :: is_rhs_complete
@@ -731,8 +731,8 @@ end subroutine
 subroutine bddcml_dotprod_subdomain( isub, vec1,lvec1, vec2,lvec2, dotprod )
 !*******************************************************************************
 ! Auxiliary subroutine to compute scalar product of two vectors of lenght of
-! subdomain exploiting interface weights from the solver. This routine is useful 
-! if we want to compute global norm or dot product based on vectors restricted to 
+! subdomain exploiting interface weights from the solver. This routine is useful
+! if we want to compute global norm or dot product based on vectors restricted to
 ! subdomains. Since interface values are contained in several vectors for
 ! several subdomains, this dot product or norm cannot be determined without
 ! weights.
@@ -740,15 +740,15 @@ subroutine bddcml_dotprod_subdomain( isub, vec1,lvec1, vec2,lvec2, dotprod )
       implicit none
 
       ! GLOBAL index of subdomain
-      integer,intent(in) ::   isub 
+      integer,intent(in) ::   isub
       ! vectors to multiply
-      integer,intent(in) ::  lvec1        ! length of the first vector
-      real(kr), intent(in) :: vec1(lvec1) ! first vector
-      integer,intent(in) ::  lvec2        ! length of the second vector
-      real(kr), intent(in) :: vec2(lvec2) ! second vector - may be same as first
-      
-      ! result = vec1' * weights * vec2
-      real(kr), intent(out) :: dotprod
+      integer,intent(in) ::     lvec1        ! length of the first vector
+      complex(kr), intent(in) :: vec1(lvec1) ! first vector
+      integer,intent(in) ::     lvec2        ! length of the second vector
+      complex(kr), intent(in) :: vec2(lvec2) ! second vector - may be same as first
+
+      ! result = vec2^H * weights * vec1
+      complex(kr), intent(out) :: dotprod
 
       ! local vars
       integer,parameter :: ilevel = 1

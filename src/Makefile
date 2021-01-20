@@ -29,7 +29,7 @@ OBJ = \
    module_sm.o \
    module_paraview.o \
    module_utils.o \
-   lobpcg_driver.o 
+   lobpcg_driver.o
 
 # rules
 all: \
@@ -53,12 +53,12 @@ module_bddcml_c_wrapper.o: \
 module_bddcml.o: \
    module_levels.o \
    module_krylov.o \
-   module_utils.o 
+   module_utils.o
 
 module_adaptivity.o: \
    module_dd.o \
    module_graph.o \
-   module_utils.o 
+   module_utils.o
 
 module_levels.o: \
    module_adaptivity.o \
@@ -68,7 +68,7 @@ module_levels.o: \
    module_parsing.o \
    module_krylov_types_def.o \
    module_paraview.o \
-   module_utils.o 
+   module_utils.o
 
 module_krylov.o: \
    module_krylov_types_def.o \
@@ -83,25 +83,25 @@ module_dd.o: \
    module_mumps.o \
    module_sm.o \
    module_paraview.o \
-   module_utils.o 
+   module_utils.o
 
 module_sm.o: \
-   module_utils.o 
+   module_utils.o
 
 module_graph.o: \
    module_parsing.o \
    graph_divide.o \
-   module_utils.o 
+   module_utils.o
 
 module_pp.o: \
    pget_sub_neighbours.o \
    pdivide_mesh.o \
    module_graph.o \
    module_parsing.o \
-   module_utils.o 
+   module_utils.o
 
 module_paraview.o: \
-   module_utils.o 
+   module_utils.o
 
 lobpcg_mvecmult_f.o: \
    module_levels.o

@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -23,7 +23,7 @@ program poisson_on_cube
 ! '            u = 0 on dD,                    '
 ! ' using FEM and the BDDCML solver.           '
 ! '============================================'
- 
+
 ! basic bddcml module
       use module_bddcml
 ! utilities for error prints, etc.
@@ -34,7 +34,7 @@ program poisson_on_cube
       use, intrinsic :: iso_fortran_env
 
       implicit none
-      
+
       include "mpif.h"
 
 ! precision of floats - depends on precision chosen for compiling the BDDCML library, do not change
@@ -69,7 +69,7 @@ program poisson_on_cube
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
 !     2 - steepest descent method
 !     5 - direct solve by MUMPS
-      integer,parameter :: krylov_method = 0  
+      integer,parameter :: krylov_method = 0
 
 ! use recycling of Krylov subspace
 !     0 - no recycling used
@@ -121,7 +121,7 @@ program poisson_on_cube
 ! should parallel division be used (ParMETIS instead of METIS) on the first level?
       integer,parameter :: parallel_division = 1
 
-! find components of the mesh and handle them as independent subdomains when selecting coarse dofs 
+! find components of the mesh and handle them as independent subdomains when selecting coarse dofs
 ! recommended for unstructured meshes, but could be switched off for these simple cubes
       integer,parameter :: find_components_int = 1
 
@@ -139,24 +139,24 @@ program poisson_on_cube
 !     0 - general (full storage)
 !     1 - symmetric positive definite (only triangle stored)
 !     2 - symmetric general (only triangle stored)
-      integer,parameter :: matrixtype = 1  
+      integer,parameter :: matrixtype = 1
 
 ! assuming tri-linear hexahedral finite elements
 !     z
 !   ^
-!   |                                                                        
-!   |                                                                        
-!   5----------8            
-!   |\         |\           
-!   | \        | \          
-!   |  \       |  \         
-!   |   6----------7        
-!   |   |      |   |        
-!   1---|------4---|--> y   
-!    \  |       \  |        
-!     \ |        \ |        
-!      \|         \|        
-!       2----------3        
+!   |
+!   |
+!   5----------8
+!   |\         |\
+!   | \        | \
+!   |  \       |  \
+!   |   6----------7
+!   |   |      |   |
+!   1---|------4---|--> y
+!    \  |       \  |
+!     \ |        \ |
+!      \|         \|
+!       2----------3
 !        \
 !         \
 !         `'
@@ -177,25 +177,25 @@ program poisson_on_cube
         -1._kr/12._kr,-1._kr/12._kr,-1._kr/12._kr, 0._kr       , 0._kr       ,-1._kr/12._kr, 0._kr       , 1._kr/3._kr /)
 
 ! spacial dimension
-      integer,parameter :: ndim    = 3 
+      integer,parameter :: ndim    = 3
 
 ! topological dimension of elements elements, would be lower for shells or beams
-      integer,parameter :: meshdim = 3 
+      integer,parameter :: meshdim = 3
 
       character(*),parameter:: routine_name = 'POISSON_ON_CUBE'
 
       ! input read from command line
       integer  :: num_el_per_sub_edge, num_sub_per_cube_edge ! basic properties of the cubes-in-cubes problem
 
-      integer  :: num_el_per_cube_edge                        
+      integer  :: num_el_per_cube_edge
       real(kr) :: hsize, el_vol                              ! elements size and volume
 
       !  parallel variables
       integer :: myid, comm_all, nproc, ierr
 
-      integer :: nsub  ! number of subdomains on the first level 
-      integer :: nelem ! number of elements 
-      integer :: ndof  ! number of degrees of freedom 
+      integer :: nsub  ! number of subdomains on the first level
+      integer :: nelem ! number of elements
+      integer :: ndof  ! number of degrees of freedom
       integer :: nnod  ! number of nodes
 
       integer :: nlevels ! number of levels
@@ -214,47 +214,49 @@ program poisson_on_cube
       integer :: nelems  ! subdomain number of elements
       integer :: ndofs   ! subdomain number on degrees of freedom
       integer :: nnods   ! subdomain number of nodes
-      integer ::           linets,   lnnets,   lnndfs
-      integer,allocatable:: inets(:), nnets(:), nndfs(:)
-      integer ::           lxyzs1,   lxyzs2
-      real(kr),allocatable:: xyzs(:,:)
-      integer ::            lifixs
-      integer,allocatable::  ifixs(:)
-      integer ::            lfixvs
-      real(kr),allocatable:: fixvs(:)
-      integer ::            lrhss
-      real(kr),allocatable:: rhss(:)
-      integer ::            lsols
-      real(kr),allocatable:: sols(:)
-      integer ::           lisegns,   lisngns,   lisvgvns
-      integer,allocatable:: isegns(:), isngns(:), isvgvns(:)
+      integer ::              linets,   lnnets,   lnndfs
+      integer,allocatable::    inets(:), nnets(:), nndfs(:)
+      integer ::              lxyzs1,   lxyzs2
+      real(kr),allocatable::    xyzs(:,:)
+      integer ::               lifixs
+      integer,allocatable::    ifixs(:)
+      integer ::               lfixvs
+      complex(kr),allocatable:: fixvs(:)
+      integer ::               lrhss
+      complex(kr),allocatable:: rhss(:)
+      integer ::               lsols
+      complex(kr),allocatable:: sols(:)
+      integer ::              lisegns,   lisngns,   lisvgvns
+      integer,allocatable::    isegns(:), isngns(:), isvgvns(:)
 
       ! matrix in coordinate format - triplets (i,j,a_ij)
-      integer ::            la
-      integer,allocatable::  i_sparse(:)
-      integer,allocatable::  j_sparse(:)
-      real(kr),allocatable:: a_sparse(:)
+      integer ::               la
+      integer,allocatable::     i_sparse(:)
+      integer,allocatable::     j_sparse(:)
+      complex(kr),allocatable:: a_sparse(:)
 
       ! user constraints - not really used here
-      integer ::              luser_constraints1
-      integer ::              luser_constraints2
-      real(kr),allocatable ::  user_constraints(:)
+      integer ::                 luser_constraints1
+      integer ::                 luser_constraints2
+      complex(kr),allocatable ::  user_constraints(:)
 
       ! data for elements - not really used here
-      integer ::              lelement_data1
-      integer ::              lelement_data2
-      real(kr),allocatable ::  element_data(:)
+      integer ::                 lelement_data1
+      integer ::                 lelement_data2
+      complex(kr),allocatable ::  element_data(:)
 
       ! data for dofs - not really used here
-      integer ::              ldof_data
-      real(kr),allocatable ::  dof_data(:)
+      integer ::                 ldof_data
+      complex(kr),allocatable ::  dof_data(:)
 
       ! data about resulting convergence
-      integer ::  num_iter, converged_reason 
-      real(kr) :: condition_number
-      real(kr) :: normRn_sol, normRn2, normRn2_loc, normRn2_sub 
-      real(kr) :: normL2_sol, normL2_loc, normL2_sub 
-      real(kr) :: normLinf_sol, normLinf_loc
+      integer ::     num_iter, converged_reason
+      real(kr) ::    condition_number
+      real(kr) ::    normRn_sol, normRn2, normRn2_loc
+      complex(kr) :: normRn2_sub
+      real(kr) ::    normL2_sol, normL2_loc
+      complex(kr) :: normL2_sub
+      real(kr) ::    normLinf_sol, normLinf_loc
 
       ! time variables
       real(kr) :: t_total, t_load, t_pc_setup, t_krylov
@@ -344,7 +346,7 @@ program poisson_on_cube
          call error(routine_name,'Unsupported number of levels:',nlevels)
       end if
 
-! Basic properties 
+! Basic properties
       if (myid.eq.0) then
          write(*,*)'Characteristics of the problem :'
          write(*,*)'  number of processors            nproc =',nproc
@@ -386,7 +388,7 @@ program poisson_on_cube
          sub2proc(i) = sub2proc(i-1) + sub2proc(i)
       end do
 
-      ! shift it one back and add one 
+      ! shift it one back and add one
       do ir = 0, nproc - 1 ! reverse index
          i = nproc + 1 - ir
 
@@ -432,19 +434,19 @@ program poisson_on_cube
          ! create local right hand side
          lrhss = ndofs
          allocate(rhss(lrhss))
-         rhss = 1._kr * el_vol
+         rhss = cmplx(el_vol, 0._kr)
          ! erase right-hand side at the boundary
-         where (ifixs.gt.0) rhss = 0._kr
+         where (ifixs.gt.0) rhss = (0._kr, 0._kr)
          is_rhs_complete_int = 1
 
          ! create local initial solution
          lsols = ndofs
          allocate(sols(lsols))
-         sols = 0._kr
+         sols = (0._kr, 0._kr)
 
          ! create local subdomain matrix for each subdomain
          ! full element matrix scaled based on element size
-         element_matrix = hsize * element_matrix_ref 
+         element_matrix = hsize * element_matrix_ref
 
          ! how much space the upper triangle of the element matrix occupies
          lelm = ndof_per_element * (ndof_per_element + 1) / 2
@@ -471,7 +473,7 @@ program poisson_on_cube
                      i_sparse(ia) = jdof
                      j_sparse(ia) = idof
                   end if
-                  a_sparse(ia) = element_matrix((j-1)*ndof_per_element + i)
+                  a_sparse(ia) = cmplx(element_matrix((j-1)*ndof_per_element + i), 0._kr)
 
                end do
             end do
@@ -490,7 +492,7 @@ program poisson_on_cube
          allocate(element_data(lelement_data1*lelement_data2))
 
          ! prepare dof data - not really used
-         ldof_data = 0 
+         ldof_data = 0
          allocate(dof_data(ldof_data))
 
          call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
@@ -567,7 +569,7 @@ program poisson_on_cube
          write(*,'(a)')          ' Output of PCG: =============='
          write(*,'(a,i7)')       ' Number of iterations: ', num_iter
          write(*,'(a,i1)')       ' Convergence reason:   ', converged_reason
-         if ( condition_number .ge. 0._kr ) then 
+         if ( condition_number .ge. 0._kr ) then
             write(*,'(a,f11.3)') ' Condition number: ', condition_number
          end if
          write(*,'(a)')          ' ============================='
@@ -600,13 +602,13 @@ program poisson_on_cube
                call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, normRn2_sub )
             else
                ! cannot determine norm for solution by a direct solver
-               normRn2_sub = 0._kr
+               normRn2_sub = (0._kr, 0._kr)
             end if
          else
             normRn2_sub = dot_product(sols,sols)
          end if
-            
-         normRn2_loc = normRn2_loc + normRn2_sub
+
+         normRn2_loc = normRn2_loc + abs(normRn2_sub)
 
          ! re-create mesh for subdomain
          nelems   = num_el_per_sub_edge**ndim
@@ -633,7 +635,7 @@ program poisson_on_cube
                                      ifixs,lifixs, fixvs,lfixvs)
 
          ! compute L_2 norm of the solution
-         normL2_sub = 0._kr
+         normL2_sub = (0._kr, 0._kr)
          indinets = 0
          do ie = 1,nelems
             ! number of nodes on element
@@ -641,10 +643,10 @@ program poisson_on_cube
             normL2_sub = normL2_sub + el_vol * sum(sols(inets(indinets+1:indinets+nne))) / nne
             indinets = indinets + nne
          end do
-         normL2_loc = normL2_loc + normL2_sub
+         normL2_loc = normL2_loc + abs(normL2_sub)
 
          ! find maximum of the solution
-         normLinf_loc = max(normLinf_loc,maxval(sols))
+         normLinf_loc = max(normLinf_loc,maxval(abs(sols)))
 
          if (export_solution) then
             call export_vtu_file_with_solution(output_file_prefix, &
@@ -741,28 +743,28 @@ program poisson_on_cube
       integer,parameter :: kr = REAL64
 
       integer, intent(in) :: isub                  ! global subdomain index
-      integer, intent(in) :: num_sub_per_cube_edge ! number of subdomains in one edge of a cube 
-      integer, intent(in) :: num_el_per_sub_edge   ! number of elements in one edge of a subdomain 
+      integer, intent(in) :: num_sub_per_cube_edge ! number of subdomains in one edge of a cube
+      integer, intent(in) :: num_el_per_sub_edge   ! number of elements in one edge of a subdomain
       real(kr), intent(in) :: hsize                ! element size
 
-      integer, intent(in) :: linets 
-      integer, intent(out) :: inets(linets)
-      integer, intent(in) :: lnnets 
-      integer, intent(out) :: nnets(lnnets)
-      integer, intent(in) :: lnndfs 
-      integer, intent(out) :: nndfs(lnndfs)
-      integer, intent(in) :: lisegns
-      integer, intent(out) :: isegns(lisegns)
-      integer, intent(in) :: lisngns
-      integer, intent(out) :: isngns(lisngns)
-      integer, intent(in) :: lisvgvns
-      integer, intent(out) :: isvgvns(lisvgvns)
-      integer, intent(in) ::  lxyzs1,lxyzs2
-      real(kr), intent(out) :: xyzs(lxyzs1,lxyzs2)
-      integer, intent(in) :: lifixs
-      integer, intent(out) :: ifixs(lifixs)
-      integer, intent(in) ::  lfixvs
-      real(kr), intent(out) :: fixvs(lfixvs)
+      integer, intent(in) ::    linets
+      integer, intent(out) ::    inets(linets)
+      integer, intent(in) ::    lnnets
+      integer, intent(out) ::    nnets(lnnets)
+      integer, intent(in) ::    lnndfs
+      integer, intent(out) ::    nndfs(lnndfs)
+      integer, intent(in) ::    lisegns
+      integer, intent(out) ::    isegns(lisegns)
+      integer, intent(in) ::    lisngns
+      integer, intent(out) ::    isngns(lisngns)
+      integer, intent(in) ::    lisvgvns
+      integer, intent(out) ::    isvgvns(lisvgvns)
+      integer, intent(in) ::     lxyzs1,lxyzs2
+      real(kr), intent(out) ::    xyzs(lxyzs1,lxyzs2)
+      integer, intent(in) ::    lifixs
+      integer, intent(out) ::    ifixs(lifixs)
+      integer, intent(in) ::     lfixvs
+      complex(kr), intent(out) :: fixvs(lfixvs)
 
       ! local vars
       character(*),parameter:: routine_name = 'PREPARE_SUBDOMAIN_DATA'
@@ -787,14 +789,14 @@ program poisson_on_cube
 
       ind_sub_z = (isub-1)/num_sub_xy + 1
       ind_sub_y = (isub - ((ind_sub_z-1) * num_sub_xy) - 1)/num_sub_per_cube_edge + 1
-      ind_sub_x =  isub - ((ind_sub_z-1) * num_sub_xy) - ((ind_sub_y-1) * num_sub_per_cube_edge) 
+      ind_sub_x =  isub - ((ind_sub_z-1) * num_sub_xy) - ((ind_sub_y-1) * num_sub_per_cube_edge)
 
       ! debug
       !write(*,*) 'subdomain index and coord indices:',isub, ind_sub_x, ind_sub_y, ind_sub_z
 
       ! initialize boundary conditions
       ifixs = 0
-      fixvs = 0._kr
+      fixvs = (0._kr, 0._kr)
 
       ! number nodes and degrees of freedom
       num_nodes_per_sub_edge  = num_el_per_sub_edge + 1
@@ -815,12 +817,12 @@ program poisson_on_cube
 
                isngns(indns) = indng
 
-               ! compute coordinates 
+               ! compute coordinates
                xyzs(indns,1) = (ig-1)*hsize
                xyzs(indns,2) = (jg-1)*hsize
                xyzs(indns,3) = (kg-1)*hsize
 
-               ! for Poisson problem, there is only one dof per node, 
+               ! for Poisson problem, there is only one dof per node,
                nndfs(indns) = 1
                !and thus the numbering of nodes and dofs is the same,
                isvgvns(indns) = indng
@@ -831,7 +833,7 @@ program poisson_on_cube
                     kg.eq.1 .or. kg.eq.num_nodes_per_cube_edge ) then
 
                     ifixs(indns) = 1
-                    fixvs(indns) = 0._kr
+                    fixvs(indns) = (0._kr, 0._kr)
                end if
             end do
          end do
@@ -916,19 +918,19 @@ program poisson_on_cube
 ! precision of floats
       integer,parameter :: kr = REAL64
 
-      character(*), intent(in) :: prefix           ! basename of vtu files
-      integer, intent(in) :: isub                  ! global subdomain index
-      integer, intent(in) :: nelems                ! subdomain number of elements
-      integer, intent(in) :: nnods                 ! subdomain number of nodes
+      character(*), intent(in) :: prefix              ! basename of vtu files
+      integer, intent(in) ::    isub                  ! global subdomain index
+      integer, intent(in) ::    nelems                ! subdomain number of elements
+      integer, intent(in) ::    nnods                 ! subdomain number of nodes
 
-      integer, intent(in) :: linets 
-      integer, intent(in) :: inets(linets)
-      integer, intent(in) :: lnnets 
-      integer, intent(in) :: nnets(lnnets)
-      integer, intent(in) :: lxyzs1,lxyzs2
-      real(kr), intent(in) :: xyzs(lxyzs1,lxyzs2)
-      integer, intent(in) :: lsols
-      real(kr), intent(in) :: sols(lsols)
+      integer, intent(in) ::    linets
+      integer, intent(in) ::    inets(linets)
+      integer, intent(in) ::    lnnets
+      integer, intent(in) ::    nnets(lnnets)
+      integer, intent(in) ::    lxyzs1,lxyzs2
+      real(kr), intent(in) ::    xyzs(lxyzs1,lxyzs2)
+      integer, intent(in) ::    lsols
+      complex(kr), intent(in) :: sols(lsols)
 
       ! local vars
       character(*),parameter:: routine_name = 'EXPORT_VTU_FILE_WITH_SOLUTION'
@@ -956,12 +958,13 @@ program poisson_on_cube
       ! write point data
       call paraview_open_pointdata(idvtu)
       ! export solution
-      call paraview_write_dataarray(idvtu,1,'Solution',sols,lsols)
+      call paraview_write_dataarray(idvtu,1,'Re{Solution}',real(sols),lsols)
+      call paraview_write_dataarray(idvtu,1,'Im{Solution}',aimag(sols),lsols)
       call paraview_close_pointdata(idvtu)
 
       ! finalize the file
       call paraview_finalize_file(idvtu)
-    
+
       ! close file
       call paraview_close_subdomain_file(idvtu)
 

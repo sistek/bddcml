@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -31,7 +31,7 @@ program bddcml_local
       use, intrinsic :: iso_fortran_env
 
       implicit none
-      
+
       include "mpif.h"
 
 !######### PARAMETERS TO SET
@@ -42,16 +42,16 @@ program bddcml_local
 !     0 - general (full storage)
 !     1 - symmetric positive definite (only triangle stored)
 !     2 - symmetric general (only triangle stored)
-      integer :: matrixtype = 1  
+      integer :: matrixtype = 1
 ! Krylov subspace iterative method to be used
 !     -1 - use solver defaults
 !     0 - PCG
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
 !     2 - steepest descent method
 !     5 - direct solve by MUMPS
-      integer :: krylov_method = 0  
+      integer :: krylov_method = 0
 
-! find components of the mesh and handle them as independent subdomains when selecting coarse dofs 
+! find components of the mesh and handle them as independent subdomains when selecting coarse dofs
       integer,parameter :: find_components_int = 1
 
       ! if yes, should dual graph of the mesh be used for detecting components?
@@ -135,67 +135,67 @@ program bddcml_local
       integer ::            lndofsa
       integer,allocatable::  ndofsa(:)
 
-      integer ::                    lnnet,   lnndf
-      integer,allocatable:: inet(:), nnet(:), nndf(:)
-      integer ::           lxyz1,   lxyz2
-      real(kr),allocatable:: xyz(:,:)
-      integer ::            lifix
-      integer,allocatable::  ifix(:)
-      integer ::            lfixv
-      real(kr),allocatable:: fixv(:)
-      integer ::            lrhs
-      real(kr),allocatable:: rhs(:)
-      integer ::            lsol
-      real(kr),allocatable:: sol(:)
-      integer ::           liets
-      integer,allocatable:: iets(:)
-      integer ::            lkdof
-      integer,allocatable::  kdof(:)
+      integer ::              lnnet,   lnndf
+      integer,allocatable::    inet(:), nnet(:), nndf(:)
+      integer ::              lxyz1,   lxyz2
+      real(kr),allocatable::    xyz(:,:)
+      integer ::               lifix
+      integer,allocatable::     ifix(:)
+      integer ::               lfixv
+      complex(kr),allocatable:: fixv(:)
+      integer ::               lrhs
+      complex(kr),allocatable:: rhs(:)
+      integer ::               lsol
+      complex(kr),allocatable:: sol(:)
+      integer ::              liets
+      integer,allocatable::    iets(:)
+      integer ::               lkdof
+      integer,allocatable::     kdof(:)
 
       ! local data
       integer :: nelems, ndofs, nnods
-      integer ::           linets,   lnnets,   lnndfs
-      integer,allocatable:: inets(:), nnets(:), nndfs(:)
-      integer ::           lxyzs1,   lxyzs2
-      real(kr),allocatable:: xyzs(:,:)
-      integer ::            lifixs
-      integer,allocatable::  ifixs(:)
-      integer ::            lfixvs
-      real(kr),allocatable:: fixvs(:)
-      integer ::            lrhss
-      real(kr),allocatable:: rhss(:)
-      integer ::            lsols
-      real(kr),allocatable:: sols(:)
-      integer ::           lisegns,   lisngns,   lisvgvns
-      integer,allocatable:: isegns(:), isngns(:), isvgvns(:)
-      integer ::            lkdofs
-      integer,allocatable::  kdofs(:)
+      integer ::              linets,   lnnets,   lnndfs
+      integer,allocatable::    inets(:), nnets(:), nndfs(:)
+      integer ::              lxyzs1,   lxyzs2
+      real(kr),allocatable::    xyzs(:,:)
+      integer ::               lifixs
+      integer,allocatable::     ifixs(:)
+      integer ::               lfixvs
+      complex(kr),allocatable:: fixvs(:)
+      integer ::               lrhss
+      complex(kr),allocatable:: rhss(:)
+      integer ::               lsols
+      complex(kr),allocatable:: sols(:)
+      integer ::              lisegns,   lisngns,   lisvgvns
+      integer,allocatable::    isegns(:), isngns(:), isvgvns(:)
+      integer ::               lkdofs
+      integer,allocatable::     kdofs(:)
 
 
       ! matrix triplet
-      integer ::            la
-      integer,allocatable::  i_sparse(:)
-      integer,allocatable::  j_sparse(:)
-      real(kr),allocatable:: a_sparse(:)
+      integer ::               la
+      integer,allocatable::     i_sparse(:)
+      integer,allocatable::     j_sparse(:)
+      complex(kr),allocatable:: a_sparse(:)
 
       ! data not used here
-      integer ::              luser_constraints1
-      integer ::              luser_constraints2
-      real(kr),allocatable ::  user_constraints(:)
+      integer ::                 luser_constraints1
+      integer ::                 luser_constraints2
+      complex(kr),allocatable ::  user_constraints(:)
 
       ! data for elements
-      integer ::              lelement_data1
-      integer ::              lelement_data2
-      real(kr),allocatable ::  element_data(:)
+      integer ::                 lelement_data1
+      integer ::                 lelement_data2
+      complex(kr),allocatable ::  element_data(:)
 
       ! data for dofs
-      integer ::              ldof_data
-      real(kr),allocatable ::  dof_data(:)
+      integer ::                 ldof_data
+      complex(kr),allocatable ::  dof_data(:)
 
       integer :: lproblemname
       integer :: meshdim
 
-      character(lproblemnamex) :: problemname 
+      character(lproblemnamex) :: problemname
       character(lfilenamex)    :: filename
 
       ! small variables - indices, etc.
@@ -205,9 +205,10 @@ program bddcml_local
 
 
       ! data about resulting convergence
-      integer :: num_iter, converged_reason 
+      integer :: num_iter, converged_reason
       real(kr) :: condition_number
-      real(kr) :: norm_sol, norm2, norm2_loc, norm2_sub 
+      real(kr) :: norm_sol, norm2, norm2_loc
+      complex(kr) :: norm2_sub
 
       ! time variables
       real(kr) :: t_total, t_import, t_distribute, t_init, t_load, t_pc_setup, t_pcg
@@ -248,14 +249,14 @@ program bddcml_local
          ! get length
          lproblemname = index(problemname,' ') - 1
          if (lproblemname.eq.-1) then
-            lproblemname = lproblemnamex 
+            lproblemname = lproblemnamex
          end if
          ! pad the name with spaces
          do i = lproblemname+1,lproblemnamex
             problemname(i:i) = ' '
          end do
       end if
-! Broadcast of name of the problem      
+! Broadcast of name of the problem
 !***************************************************************PARALLEL
       call MPI_BCAST(lproblemname, 1,           MPI_INTEGER,   0, comm_all, ierr)
       call MPI_BCAST(problemname, lproblemname, MPI_CHARACTER, 0, comm_all, ierr)
@@ -275,7 +276,7 @@ program bddcml_local
          close (idpar)
       end if
 
-! Reading basic properties 
+! Reading basic properties
       if (myid.eq.0) then
          write(*,*)'Characteristics of the problem ',problemname(1:lproblemname), ':'
          write(*,*)'  number of processors            nproc =',nproc
@@ -343,14 +344,14 @@ program bddcml_local
       if (myid.eq.0) then
          write (*,'(a,$)') 'Reading data files ...'
          call flush(6)
-      ! read PMD mesh 
+      ! read PMD mesh
          filename = problemname(1:lproblemname)//'.GMIS'
          call allocate_unit(idgmi)
          open (unit=idgmi,file=filename,status='old',form='formatted')
          call pp_read_pmd_mesh(idgmi,inet,linet,nnet,lnnet,nndf,lnndf,xyz,lxyz1,lxyz2)
          close(idgmi)
 
-      ! read PMD boundary conditions 
+      ! read PMD boundary conditions
          filename = problemname(1:lproblemname)//'.FVS'
          call allocate_unit(idfvs)
          open (unit=idfvs,file=filename,status='old',form='formatted')
@@ -380,8 +381,8 @@ program bddcml_local
       call MPI_BCAST(nndf, lnndf, MPI_INTEGER, 0, comm_all, ierr)
       call MPI_BCAST(xyz, lxyz1*lxyz2, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
       call MPI_BCAST(ifix, lifix, MPI_INTEGER, 0, comm_all, ierr)
-      call MPI_BCAST(fixv, lfixv, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
-      call MPI_BCAST(rhs, lrhs, MPI_DOUBLE_PRECISION, 0, comm_all, ierr)
+      call MPI_BCAST(fixv, lfixv, MPI_DOUBLE_COMPLEX, 0, comm_all, ierr)
+      call MPI_BCAST(rhs, lrhs, MPI_DOUBLE_COMPLEX, 0, comm_all, ierr)
 !***************************************************************PARALLEL
 
       if (myid.eq.0) then
@@ -446,7 +447,7 @@ program bddcml_local
       do i = 2,nproc
          sub2proc(i) = sub2proc(i-1) + sub2proc(i)
       end do
-      ! shift it one back and add one 
+      ! shift it one back and add one
       do ir = 0, nproc - 1 ! reverse index
          i = nproc + 1 - ir
 
@@ -582,12 +583,12 @@ program bddcml_local
          lelement_data1 = 1
          lelement_data2 = nelems
          allocate(element_data(lelement_data1*lelement_data2))
-         element_data = 2._kr
+         element_data = (2._kr,0._kr)
 
          ! prepare dof data
-         ldof_data = ndofs 
+         ldof_data = ndofs
          allocate(dof_data(ldof_data))
-         dof_data = 3._kr
+         dof_data = (3._kr,0._kr)
 
          ! experiment a bit
          call bddcml_upload_subdomain_data(nelem, nnod, ndof, ndim, meshdim, &
@@ -661,7 +662,7 @@ program bddcml_local
       if (myid.eq.0) then
           write(*,*) 'Number of iterations: ', num_iter
           write(*,*) 'Convergence reason: ', converged_reason
-          if ( condition_number .ge. 0._kr ) then 
+          if ( condition_number .ge. 0._kr ) then
              write(*,*) 'Condition number: ', condition_number
           end if
       end if
@@ -685,10 +686,10 @@ program bddcml_local
 
          rewind idsols
          write(idsols) (sols(i),i=1,lsols)
-         
+
          if (print_solution) then
             write(*,*) 'isub =',isub,' solution: '
-            write(*,'(e15.7)') sols
+            write(*,'(s,e15.7,sp,e15.7,"i")') sols
          end if
          close(idsols)
 
@@ -696,7 +697,7 @@ program bddcml_local
             call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, norm2_sub )
          end if
 
-         norm2_loc = norm2_loc + norm2_sub
+         norm2_loc = norm2_loc + abs(norm2_sub)
 
          deallocate(sols)
       end do
@@ -819,7 +820,7 @@ program bddcml_local
       if (myid.eq.0) then
           write(*,*) 'Number of iterations: ', num_iter
           write(*,*) 'Convergence reason: ', converged_reason
-          if ( condition_number .ge. 0._kr ) then 
+          if ( condition_number .ge. 0._kr ) then
              write(*,*) 'Condition number: ', condition_number
           end if
       end if
@@ -843,10 +844,10 @@ program bddcml_local
 
          rewind idsols
          write(idsols) (sols(i),i=1,lsols)
-         
+
          if (print_solution) then
             write(*,*) 'isub =',isub,' solution: '
-            write(*,'(e15.7)') sols
+            write(*,'(s,e15.7,sp,e15.7,"i")') sols
          end if
          close(idsols)
 
@@ -854,7 +855,7 @@ program bddcml_local
             call bddcml_dotprod_subdomain( isub, sols,lsols, sols,lsols, norm2_sub )
          end if
 
-         norm2_loc = norm2_loc + norm2_sub
+         norm2_loc = norm2_loc + abs(norm2_sub)
 
          deallocate(sols)
       end do

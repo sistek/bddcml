@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -54,7 +54,7 @@ end interface time_print
 ! Time measurements
 integer,parameter,private :: level_time_max = 30
 real(kr),private ::          times(level_time_max) = 0._kr
-logical,private ::           is_wall_time(level_time_max) 
+logical,private ::           is_wall_time(level_time_max)
 integer,private  ::          level_time = 0
 
 ! data for pseudo-random numbers
@@ -67,19 +67,19 @@ subroutine integer2string(i,stringi)
 !***********************************
 !     converts integer i to string
       implicit none
-      
+
 ! subdomain number
       integer,intent(in) :: i
 
 ! name of the problem
-      character(*),intent(out) :: stringi 
+      character(*),intent(out) :: stringi
 
 ! local vars
       character(*),parameter:: routine_name = 'INTEGER2STRING'
       integer :: l, j
       character(2) :: fmtstr
       logical :: assigned
-      
+
       ! generate name for
       l = len(stringi)
       do j = 1,l
@@ -128,12 +128,12 @@ subroutine getfname(problemname,isub,suffix,fname)
 !     name of problem / number of subdomain + . + suffix
 
       implicit none
-      
+
 ! subdomain number
       integer,intent(in) :: isub
 
 ! name of the problem
-      character(*),intent(in) :: problemname 
+      character(*),intent(in) :: problemname
 
 ! suffix of the generated file
       character(*),intent(in) :: suffix
@@ -159,7 +159,7 @@ subroutine allocate_unit(iunit)
 !******************************
 ! find an empty IO unit (originally written by Jaroslav Hajek)
 integer,parameter:: iunit_start = 7
-! 
+!
 ! purpose:      find an unused i/o unit
 ! arguments:
 ! iunit         the unit allocate
@@ -303,12 +303,12 @@ subroutine build_operator(op_routine,mat,lmat1,lmat2)
 ! Subroutine for building explicit matrix corresponding to an implicit operator
       implicit none
       external :: op_routine
-      integer,intent(in) :: lmat1, lmat2
-      real(kr),intent(out) ::  mat(lmat1,lmat2)
+      integer,intent(in) ::      lmat1, lmat2
+      complex(kr),intent(out) ::  mat(lmat1,lmat2)
 
 ! local vars
-      integer  ::             lvec
-      real(kr),allocatable ::  vec(:)
+      integer  ::                lvec
+      complex(kr),allocatable ::  vec(:)
 
       integer  :: i,j
 
@@ -317,9 +317,9 @@ subroutine build_operator(op_routine,mat,lmat1,lmat2)
 
       ! allocate columns of identity to apply the operator
       do j = 1,lmat1
-         vec(:) = 0._kr
+         vec(:) = (0._kr,0._kr)
 
-         vec(j) = 1._kr
+         vec(j) = (1._kr,0._kr)
 
          call op_routine(vec,lvec)
          ! copy result to matrix
@@ -343,7 +343,7 @@ subroutine write_matrix(idunit,mat,format_string,info,trans)
 ! trans         (optional) write transposed matrix
 implicit none
 integer,intent(in):: idunit
-real(kr),intent(in):: mat(:,:)
+complex(kr),intent(in):: mat(:,:)
 character(*),intent(in),optional:: format_string
 integer,intent(out),optional:: info
 logical,intent(in),optional:: trans
@@ -356,7 +356,7 @@ integer:: i
 if (present(format_string)) then
   tfmt = '(    (' // format_string //',1x))'
 else
-  tfmt = '(    (' // 'E23.16' //',1x))'
+  tfmt = '(    (' // 'S,E23.16,SP,E23.16,"i"' //',1x))'
 end if
 ttrans = .false.
 if (present(trans)) ttrans = trans
@@ -505,7 +505,7 @@ if (right_end < left_end + max_simple_sort_size) then
 else
   ! use partition ("quick") sort
   reference = list1((left_end + right_end)/2)
-  i = left_end  - 1 
+  i = left_end  - 1
   j = right_end + 1
 
   do
@@ -605,7 +605,7 @@ if (right_end < left_end + max_simple_sort_size) then
 else
   ! Use partition ("quick") sort
   reference = array1((left_end + right_end)/2,:)
-  i = left_end  - 1 
+  i = left_end  - 1
   j = right_end + 1
 
   do
@@ -675,7 +675,7 @@ do i = 1,length
    else if (array2(i) < array1(i)) then
       ilt = .false.
       exit
-   else 
+   else
       ! element is equal at this point
       cycle
    end if
@@ -721,10 +721,10 @@ do while (iend.le.llist1)
       indend = list1(iend)
    end do
    iend = iend - 1
-      
+
    nvals = iend-ibegin + 1
    call iquick_sort(list2(ibegin:iend),nvals)
-      
+
    ibegin = iend + 1
    iend   = ibegin
 end do
@@ -766,7 +766,7 @@ if (right_end < left_end + max_simple_sort_size) then
 else
   ! use partition ("quick") sort
   reference = list((left_end + right_end)/2,indsort)
-  i = left_end  - 1 
+  i = left_end  - 1
   j = right_end + 1
 
   do
@@ -785,8 +785,8 @@ else
     if (i < j) then
       ! swap two out-of-order elements
       do k = 1,llist2
-         temp = list(i,k) 
-         list(i,k) = list(j,k) 
+         temp = list(i,k)
+         list(i,k) = list(j,k)
          list(j,k) = temp
       end do
     else if (i == j) then
@@ -816,8 +816,8 @@ do i = left_end, right_end - 1
     if (list(i,indsort) > list(j,indsort)) then
       ! swap two out-of-order rows
       do k = 1,llist2
-         temp = list(i,k) 
-         list(i,k) = list(j,k) 
+         temp = list(i,k)
+         list(i,k) = list(j,k)
          list(j,k) = temp
       end do
     end if
@@ -835,7 +835,7 @@ subroutine get_array_union(array1,larray1,array2,larray2,union,lunion,nunion)
 ! input arrays
       integer,intent(in) :: larray1,         larray2
       integer,intent(in) ::  array1(larray1), array2(larray2)
-! output union of arrays 
+! output union of arrays
       integer,intent(in)  :: lunion
       integer,intent(out) ::  union(lunion)
 ! number of entries in union
@@ -882,7 +882,7 @@ subroutine get_array_intersection(array1,larray1,array2,larray2,intersection,lin
 ! input arrays
       integer,intent(in) :: larray1,         larray2
       integer,intent(in) ::  array1(larray1), array2(larray2)
-! output intersection of arrays 
+! output intersection of arrays
       integer,intent(in)  :: lintersection
       integer,intent(out) ::  intersection(lintersection)
 ! number of entries in intersection
@@ -906,7 +906,7 @@ subroutine get_array_intersection(array1,larray1,array2,larray2,intersection,lin
       do i = 1,larray2
          workarray2(i) = array2(i)
       end do
-         
+
       ! sort input arrays
       call iquick_sort(workarray1,larray1)
       call iquick_sort(workarray2,larray2)
@@ -917,7 +917,7 @@ subroutine get_array_intersection(array1,larray1,array2,larray2,intersection,lin
       iinter = 0
       ind1 = workarray1(i)
       ind2 = workarray2(j)
-      do 
+      do
          if      (ind1.eq.ind2) then
             ! they match - add to intersection
             iinter = iinter + 1
@@ -926,7 +926,7 @@ subroutine get_array_intersection(array1,larray1,array2,larray2,intersection,lin
             j = j + 1
          else if (ind1.gt.ind2) then
             j = j + 1
-         else 
+         else
             i = i + 1
          end if
          ! set stopping criterion
@@ -980,7 +980,7 @@ subroutine get_array_norepeat(array,larray,nentries)
             i   = i + 1
             ind = array(j)
             array(i) = ind
-         else 
+         else
             if (debug .and. array(j).lt.ind) then
                write(*,*) 'GET_ARRAY_NOREPEAT: Error - array supposed sorted!'
                call error_exit
@@ -1039,7 +1039,7 @@ subroutine get_array_norepeat_simultaneous(array1,larray1,array2,larray2,nentrie
             ind = array1(j)
             array1(i) = ind
             array2(i) = array2(j)
-         else 
+         else
             if (debug .and. array1(j).lt.ind) then
                call error(routine_name, 'array1 supposed to be sorted')
             end if
@@ -1061,8 +1061,8 @@ subroutine get_array_norepeat_2(array1,larray1,array2,larray2,nentries)
 ! Example
 ! input1:  1 1 1 3 3 5 9 9
 ! input2:  1 2 2 1 2 1 1 1
-! output1: 1 1 3 3 5 9 0 0 
-! output2: 1 2 1 2 1 1 0 0 
+! output1: 1 1 3 3 5 9 0 0
+! output2: 1 2 1 2 1 1 0 0
 ! nentries  = 6
       implicit none
 ! input arrays
@@ -1106,7 +1106,7 @@ subroutine get_array_norepeat_2(array1,larray1,array2,larray2,nentries)
             ind2 = array2(j)
             array1(i) = ind1
             array2(i) = ind2
-         else 
+         else
             if (debug .and. array1(j).lt.ind1) then
                call error(routine_name, 'array1 supposed to be sorted')
             end if
@@ -1144,8 +1144,8 @@ end subroutine
 subroutine counts2starts(array,larray)
 !*************************************
 ! routine that converts counts to starts
-! e.g. 
-! input:  | 3 4 2  2  2  X | 
+! e.g.
+! input:  | 3 4 2  2  2  X |
 ! output: | 1 4 8 10 12 14 |
 implicit none
 integer, intent(in) ::   larray
@@ -1156,8 +1156,8 @@ integer :: i
 do i = 2,larray
    array(i) = array(i-1) + array(i)
 end do
-! shift it one back and add one 
-do i = larray, 2, - 1 
+! shift it one back and add one
+do i = larray, 2, - 1
    array(i) = array(i-1) + 1
 end do
 ! put one in the beginning
@@ -1189,13 +1189,13 @@ subroutine get_index_sorted(ivalue,iarray,liarray,iindex)
 
       recursive subroutine get_index_sorted_1
       implicit none
-    
+
       !     Local variables
       character(*),parameter:: routine_name = 'GET_INDEX_SORTED_1'
       integer             :: indnew, valref
-      integer, parameter  :: max_simple_search_size = 10 
+      integer, parameter  :: max_simple_search_size = 10
       integer :: iindex_loc
-    
+
       if (right_end < left_end + max_simple_search_size) then
         ! Use interchange sort for small lists
         call get_index(ivalue,iarray(left_end:right_end),right_end - left_end + 1,iindex_loc)
@@ -1215,10 +1215,10 @@ subroutine get_index_sorted(ivalue,iarray,liarray,iindex)
            left_end = indnew
         else if (ivalue.le.valref) then
            right_end = indnew
-        else 
+        else
            call error(routine_name,'unable to split interval')
         end if
-      
+
         call get_index_sorted_1
       end if
       end subroutine
@@ -1259,7 +1259,7 @@ real(kr),intent(in) :: x,y
 ! local vars
 real(kr),parameter :: overlap = 1.e-8
 
-fuzzyLessThan = x+overlap .lt. y 
+fuzzyLessThan = x+overlap .lt. y
 
 end function
 
@@ -1318,15 +1318,15 @@ subroutine time_start(use_cpu_time)
 ! Routine that starts new time measurement
 ! Levels of timing work like opening and closing brackets,
 ! measuring time elapsed between a pair of them.
-! This routine is like opening a bracket, 
+! This routine is like opening a bracket,
 ! see routine TIME_END for the opposite.
       implicit none
       logical, intent(in), optional :: use_cpu_time
-      
+
 ! Local variables
       character(*),parameter:: routine_name = 'TIME_START'
       logical :: uct = .false.
-      
+
       uct = .false.
       if (present(use_cpu_time)) then
          if (use_cpu_time) then
@@ -1365,14 +1365,14 @@ subroutine time_end(time)
 ! Routine that finish time measurement of a level
 ! Levels of timing work like opening and closing brackets,
 ! measuring time elapsed between a pair of them.
-! This routine is like closing a bracket, 
+! This routine is like closing a bracket,
 ! see routine TIME_START for the opposite.
 
       implicit none
 
 ! Time of run
       real(kr),intent(out) :: time
-      
+
 ! Local variables
       character(*),parameter:: routine_name = 'TIME_END'
       real(kr) :: current_time
@@ -1446,7 +1446,7 @@ integer(8) :: timems
 !integer count,rate,cmax
 !call system_clock(count,rate,cmax)
 !t=dble(count)/dble(rate)
-call date_and_time(values=v) 
+call date_and_time(values=v)
 timems=(v(8)+1000*(v(7)+60*(v(6)+60*(v(5)+24*(v(3))))))
 t= timems / 1000._kr
 end subroutine wall_time
@@ -1457,7 +1457,7 @@ subroutine processor_time(t)
 ! return CPU time in s
 implicit none
 real(kr) :: t
-call cpu_time(t) 
+call cpu_time(t)
 end subroutine processor_time
 
 

@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -34,11 +34,11 @@ program test_module_utils
       integer           :: array2(larray2) = [8,16,6]
 
       integer,parameter :: lintersection = 3
-      integer           ::  intersection(lintersection) 
+      integer           ::  intersection(lintersection)
       integer           ::  intersection_check(2) = [6,8]
 
       integer,parameter :: lunion = 8
-      integer           ::  union(lunion) 
+      integer           ::  union(lunion)
       integer           ::  union_check(6) = [3,5,6,8,9,16]
 
       integer           ::  nintersection, nunion
@@ -94,14 +94,14 @@ program test_module_utils
       integer           :: array14_check(5)  = [1,1,3,5,9]
       integer           :: array15_check(5)  = [1,2,3,2,15]
 
-      integer,allocatable :: array16(:) 
+      integer,allocatable :: array16(:)
       integer             :: array16_check(6) = [5,4,3,2,1,0]
 
       integer,parameter :: larray17 = 7
       integer           :: array17(larray17)       = [4,2,1,2,3,4,-1]
       integer           :: array17_check(larray17) = [1,5,7,8,10,13,17]
 
-      integer,parameter :: larray18 = 10 
+      integer,parameter :: larray18 = 10
       real(kr)          :: array18(larray18)       = &
                            [2._kr,3._kr,         4._kr,        5._kr,6._kr,             5.999999999_kr,8._kr,9._kr,10._kr,11._kr]
       real(kr)          :: array19(larray18)       = &
@@ -109,7 +109,7 @@ program test_module_utils
       logical           :: array1819_check(larray18) = &
                            [.false.,.false.,.true.,.false.,.false.,.false.,.false.,.false.,.false.,.false.]
 
-      integer,parameter :: larray20 = 30 
+      integer,parameter :: larray20 = 30
       real(kr)          :: array20(larray20)
       real(kr)          :: array21(larray20)
 
@@ -210,7 +210,7 @@ program test_module_utils
       ! searching index in general array
       ivalue = 5
       call get_index(ivalue,array1,larray1,iindex)
-      call print_test_result(iindex == iindex5, 'index search') 
+      call print_test_result(iindex == iindex5, 'index search')
 
       !====================
       ! test random numbers

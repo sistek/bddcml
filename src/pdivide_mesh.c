@@ -1,12 +1,12 @@
 /* BDDCML - Multilevel BDDC
  *
  * This program is a free software.
- * You can redistribute it and/or modify it under the terms of 
- * the GNU Lesser General Public License 
- * as published by the Free Software Foundation, 
- * either version 3 of the license, 
+ * You can redistribute it and/or modify it under the terms of
+ * the GNU Lesser General Public License
+ * as published by the Free Software Foundation,
+ * either version 3 of the license,
  * or (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -26,9 +26,9 @@
 * Jakub Sistek 2011
 ******************************************/
 
-void pdivide_mesh_c( int *elmdist, int *eptr, int *eind, int *elmwgt, 
-	             int *wgtflag, int *numflag, int *ncon, int *ncommonnodes, int *nparts, 
-	             float *tpwgts, float *ubvec, int *options, int *edgecut, int *part, 
+void pdivide_mesh_c( int *elmdist, int *eptr, int *eind, int *elmwgt,
+	             int *wgtflag, int *numflag, int *ncon, int *ncommonnodes, int *nparts,
+	             float *tpwgts, float *ubvec, int *options, int *edgecut, int *part,
 	             MPI_Fint *commInt )
 {
   MPI_Comm comm;
@@ -36,7 +36,7 @@ void pdivide_mesh_c( int *elmdist, int *eptr, int *eind, int *elmwgt,
   /***********************************/
   /* Try and take care of bad inputs */
   /***********************************/
-  if (elmdist == NULL || eptr == NULL || eind == NULL || 
+  if (elmdist == NULL || eptr == NULL || eind == NULL ||
       numflag == NULL || ncommonnodes == NULL ||
       nparts == NULL || options == NULL || edgecut == NULL ||
       part == NULL || commInt == NULL ) {

@@ -1,12 +1,12 @@
     ! BDDCML - Multilevel BDDC
-    ! 
+    !
     ! This program is a free software.
-    ! You can redistribute it and/or modify it under the terms of 
-    ! the GNU Lesser General Public License 
-    ! as published by the Free Software Foundation, 
-    ! either version 3 of the license, 
+    ! You can redistribute it and/or modify it under the terms of
+    ! the GNU Lesser General Public License
+    ! as published by the Free Software Foundation,
+    ! either version 3 of the license,
     ! or (at your option) any later version.
-    ! 
+    !
     ! This program is distributed in the hope that it will be useful,
     ! but WITHOUT ANY WARRANTY; without even the implied warranty of
     ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -24,9 +24,9 @@
     ! adjustable parameters ############################
     ! type of real variables
           integer,parameter,private :: kr = REAL64
-    ! debugging 
+    ! debugging
           logical,parameter,private :: debug = .false.
-    ! profiling 
+    ! profiling
           logical,private ::           profile = .false.
     ! adjustable parameters ############################
 
@@ -35,11 +35,11 @@
           integer,private                                        :: nactive_cols_recycling_basis = 0
           integer,private                                        :: lrecycling_basis = 0
           type(krylov_recycling_data_type), allocatable, private ::  recycling_basis(:) ! one per each local subdomain
-          !real(kr),allocatable :: recycling_vtw(:,:) ! matrix of all p'*A*p at interface or its LU factors
+          !complex(kr),allocatable :: recycling_vtw(:,:) ! matrix of all (p,A*p) at interface or its LU factors
           !integer,allocatable :: recycling_ipiv(:)   ! permutation from LAPACK LU
           ! the above matrix should be diagonal, so for a well-conditioned basis, only its diagonal is needed
-          integer ::             lrecycling_idvtw
-          real(kr),allocatable :: recycling_idvtw(:) ! array of the inverse of the diagonal of p'*A*p at interface 
+          integer ::                lrecycling_idvtw
+          complex(kr),allocatable :: recycling_idvtw(:) ! array of the inverse of the diagonal of p'*A*p at interface
           !logical,private :: recycling_is_inverse_prepared = .false.
 
           contains
@@ -48,7 +48,7 @@
           subroutine krylov_bddcpcg(comm_all,tol,maxit,ndecrmax, recycling, max_number_of_stored_vectors, &
                                     num_iter, converged_reason, cond)
     !******************************************************************************************************
-    ! subroutine realizing PCG algorithm with vectors distributed by subdomains
+    ! subroutine realizing complex-Hermitian PCG algorithm with vectors distributed by subdomains
 
     ! module for preconditioner
           use module_levels
@@ -56,11 +56,11 @@
           use module_utils
 
           implicit none
-          
+
           include "mpif.h"
 
           ! parallel variables
-          integer,intent(in) :: comm_all 
+          integer,intent(in) :: comm_all
 
           ! limit on iterations
           integer,intent(in) :: maxit
@@ -72,7 +72,7 @@
           real(kr),intent(in) :: tol
 
           ! should recycling of Krylov space be used?
-          logical,intent(in) :: recycling 
+          logical,intent(in) :: recycling
 
           ! if recycling should be used, how many vectors of the Krylov basis do you want to store?
           integer,intent(in) :: max_number_of_stored_vectors
@@ -97,7 +97,7 @@
           integer ::                                  lpcg_data
           type (pcg_data_type), allocatable, target :: pcg_data(:)
 
-          ! data for auxiliary manipulation with preconditioner and system matrix 
+          ! data for auxiliary manipulation with preconditioner and system matrix
           integer ::                                     lcommon_krylov_data
           type (common_krylov_data_type), allocatable ::  common_krylov_data(:)
 
@@ -109,33 +109,34 @@
           integer :: ndofis, nnodis
 
           ! PCG vars
-          real(kr) :: normrhs, normres2, normres, normres2_loc, normres2_sub
-          real(kr) :: rmp, rmp_loc, rmp_sub
-          real(kr) :: pap, pap_loc, pap_sub
-          real(kr) :: rmpold
-          real(kr) :: alpha, beta
-          real(kr) :: relres, lastres
+          real(kr)    :: normrhs, normres2, normres, normres2_loc
+          complex(kr) :: normres2_sub
+          complex(kr) :: rmp, rmp_loc, rmp_sub
+          complex(kr) :: pap, pap_loc, pap_sub
+          complex(kr) :: rmpold
+          complex(kr) :: alpha, beta
+          real(kr)    :: relres, lastres
 
           ! MPI vars
           integer :: ierr
 
           ! Condition number estimation
-          real(kr),allocatable :: diag(:)
-          real(kr),allocatable :: subdiag(:)
+          complex(kr),allocatable :: diag(:)
+          complex(kr),allocatable :: subdiag(:)
           integer :: nw, ldiag, lsubdiag
 
           ! Recycling of Krylov spaces
           integer :: jcol, ibasis, jbasis
-          integer ::              lvtb
-          real(kr), allocatable :: vtb(:)
-          real(kr), allocatable :: vtb_loc(:)
-          real(kr) :: vtb_sub
-          integer ::              lvtw
-          real(kr), allocatable :: vtw(:,:)
-          real(kr), allocatable :: vtw_loc(:,:)
-          real(kr) :: vtw_sub
-          real(kr) :: check_orthogonality
-          real(kr) :: scaling_of_basis
+          integer ::                 lvtb
+          complex(kr), allocatable :: vtb(:)
+          complex(kr), allocatable :: vtb_loc(:)
+          complex(kr) :: vtb_sub
+          integer ::                 lvtw
+          complex(kr), allocatable :: vtw(:,:)
+          complex(kr), allocatable :: vtw_loc(:,:)
+          complex(kr) :: vtw_sub
+          real(kr)    :: check_orthogonality
+          complex(kr) :: scaling_of_basis
           !integer :: recycling_info
 
           ! time variables
@@ -156,11 +157,11 @@
 
           ! Prepare data for Lanczos estimation
           ldiag    = maxit + 1
-          lsubdiag = maxit 
+          lsubdiag = maxit
           allocate(diag(ldiag))
           allocate(subdiag(lsubdiag))
-          diag(:) = 0._kr
-          subdiag(:) = 0._kr
+          diag(:) = (0._kr, 0._kr)
+          subdiag(:) = (0._kr, 0._kr)
 
           ! prepare data and memory for PCG
           call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
@@ -262,11 +263,11 @@
              call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
                                           pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
                                           normres2_sub)
-             normres2_loc = normres2_loc + normres2_sub
+             normres2_loc = normres2_loc + abs(normres2_sub)
           end do
     !***************************************************************PARALLEL
           call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
-                             MPI_SUM, comm_all, ierr) 
+                             MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
           normrhs = sqrt(normres2)
           if (debug) then
@@ -276,21 +277,21 @@
           end if
 
           ! Check of zero right-hand side => all zero solution
-          if (normrhs.eq.0.0D0) then
+          if (normrhs.eq.0._kr) then
              if (myid.eq.0) then
                 call warning(routine_name,'initial residual zero => initial solution exact')
              end if
-             return 
+             return
           end if
 
-          if (recycling .and. nactive_cols_recycling_basis .gt. 0) then 
+          if (recycling .and. nactive_cols_recycling_basis .gt. 0) then
 
              if (debug) then
                 ! check orthogonality of basis
-                ! V'*W
+                ! (V,W)
                 lvtw     = nactive_cols_recycling_basis
                 allocate(vtw_loc(lvtw,lvtw))
-                vtw_loc = 0._kr
+                vtw_loc = (0._kr,0._kr)
                 allocate(vtw(lvtw,lvtw))
                 do ibasis = 1,nactive_cols_recycling_basis
                    do jbasis = 1,nactive_cols_recycling_basis
@@ -304,41 +305,41 @@
                    end do
                 end do
     !***************************************************************PARALLEL
-                call MPI_ALLREDUCE(vtw_loc,vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
-                                   MPI_SUM, comm_all, ierr) 
+                call MPI_ALLREDUCE(vtw_loc,vtw, lvtw*lvtw, MPI_DOUBLE_COMPLEX,&
+                                   MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
                 deallocate(vtw_loc)
 
                 !if (myid.eq.0) then
-                !   write(*,*) 'V^T*W'
+                !   write(*,*) '(V,W)=W^H*V'
                 !   do i = 1,lvtw
-                !      write(*,'(1000f12.5)') (vtw(i,j), j = 1,lvtw)
+                !      write(*,'(1000(s,f12.5,sp,f12.5,"i"))') (vtw(i,j), j = 1,lvtw)
                 !   end do
                 !end if
 
-                ! inv(D)*V'*W
+                ! inv(D)*(V,W)
                 do ibasis = 1,nactive_cols_recycling_basis
-                   !vtw(:,ibasis) = recycling_idvtw(1:nactive_cols_recycling_basis) * vtw(:,ibasis) 
+                   !vtw(:,ibasis) = recycling_idvtw(1:nactive_cols_recycling_basis) * vtw(:,ibasis)
                    call recycling_apply_diagonal_inverse(vtw(1,ibasis),lvtw)
                 end do
 
                 ! subtract identity matrix
-                ! inv(D)*V'*W - I
+                ! inv(D)*(V,W) - I
                 do ibasis = 1,nactive_cols_recycling_basis
-                   vtw(ibasis,ibasis) = vtw(ibasis,ibasis) - 1._kr
+                   vtw(ibasis,ibasis) = vtw(ibasis,ibasis) - (1._kr,0._kr)
                 end do
-                check_orthogonality = sqrt(sum(vtw**2))
+                check_orthogonality = sqrt(abs(sum(vtw*conjg(vtw))))
                 if (myid.eq.0) then
-                   write(*,*) 'D^{-1}*V^T*W - I'
+                   write(*,*) 'D^{-1}*(V,W) - I'
                    do i = 1,lvtw
-                      write(*,'(1000e12.5)') (vtw(i,j), j = 1,lvtw)
+                      write(*,'(1000(s,e12.5,sp,e12.5,"i"))') (vtw(i,j), j = 1,lvtw)
                    end do
                    if (check_orthogonality .gt. 1.e-4_kr) then
                       call warning( routine_name, 'Krylov basis has problems with orthogonality:', check_orthogonality )
                    end if
                 end if
                 deallocate(vtw)
-             end if 
+             end if
 
              ! Initial projection of the right-hand side onto the Krylov basis
              call MPI_BARRIER(comm_all,ierr)
@@ -347,10 +348,10 @@
              ! project the right-hand side onto the stored Krylov space
              lvtb     = nactive_cols_recycling_basis
              allocate(vtb_loc(lvtb))
-             vtb_loc = 0._kr
+             vtb_loc = (0._kr,0._kr)
              allocate(vtb(lvtb))
 
-             ! V'*b
+             ! (V,b)
              do ibasis = 1,nactive_cols_recycling_basis
                 do isub_loc = 1,nsub_loc
                    call levels_dd_dotprod_local(ilevel,isub_loc,&
@@ -361,18 +362,18 @@
                 end do
              end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(vtb_loc,vtb, lvtb, MPI_DOUBLE_PRECISION,&
-                                MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(vtb_loc,vtb, lvtb, MPI_DOUBLE_COMPLEX,&
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
              deallocate(vtb_loc)
 
-             ! inv(D)*V'*b
+             ! inv(D)*(V,b)
              !vtb(1:nactive_cols_recycling_basis) = vtb(1:nactive_cols_recycling_basis) &
              !                                    * recycling_idvtw(1:nactive_cols_recycling_basis)
              call recycling_apply_diagonal_inverse(vtb,lvtb)
 
              ! update solution by projection
-             ! u <- u + Pb = u + V*inv(D)*V'*b = u + V*IDIAG*V'
+             ! u <- u + Pb = u + V*inv(D)*(V,b) = u + V*IDIAG*(V,b)
              do isub_loc = 1,nsub_loc
                 ! u_P - projected part of solution
                 pcg_data(isub_loc)%z = matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
@@ -420,11 +421,11 @@
                 call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
                                              pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
                                              normres2_sub)
-                normres2_loc = normres2_loc + normres2_sub
+                normres2_loc = normres2_loc + abs(normres2_sub)
              end do
     !***************************************************************PARALLEL
              call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
-                                MPI_SUM, comm_all, ierr) 
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
              normres = sqrt(normres2)
              if (debug) then
@@ -477,9 +478,9 @@
           end if
           ! produced new p
 
-          ! compute rmp = res'*M*res
+          ! compute rmp = (res,M*res)
           ! ||f||
-          rmp_loc = 0._kr
+          rmp_loc = (0._kr,0._kr)
           do isub_loc = 1,nsub_loc
              call levels_dd_dotprod_local(ilevel,isub_loc, &
                                           pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
@@ -488,12 +489,12 @@
              rmp_loc = rmp_loc + rmp_sub
           end do
     !***************************************************************PARALLEL
-          call MPI_ALLREDUCE(rmp_loc,rmp, 1, MPI_DOUBLE_PRECISION,          &
-                             MPI_SUM, comm_all, ierr) 
+          call MPI_ALLREDUCE(rmp_loc,rmp, 1, MPI_DOUBLE_COMPLEX,               &
+                             MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
 
     ! Control of positive definiteness of preconditioner matrix
-          !if (rmp.le.0._kr) then
+          !if (real(rmp).le.0._kr.or.abs(aimag(rmp)).ge.1.e-4_kr) then
           !   if (myid.eq.0) then
           !      call warning(routine_name,'Preconditioner not positive definite!')
           !   end if
@@ -501,13 +502,14 @@
 
           if (debug) then
              if (myid.eq.0) then
-                call info(routine_name,'rmp initial =',rmp)
+                call info(routine_name,'re(rmp) initial =',real(rmp))
+                call info(routine_name,'im(rmp) initial =',aimag(rmp))
              end if
           end if
 
     ! Setting up the properties for decreasing residual
           ndecr   = 0
-          lastres = 1.0D0
+          lastres = 1.0_kr
 
     !***********************************************************************
     !*************************MAIN LOOP OVER ITERATIONS*********************
@@ -527,10 +529,10 @@
 
                 if (debug) then
                    ! check orthogonality of basis
-                   ! V'*W
+                   ! (V,W)
                    lvtw     = nactive_cols_recycling_basis
                    allocate(vtw_loc(lvtw,lvtw))
-                   vtw_loc = 0._kr
+                   vtw_loc = (0._kr,0._kr)
                    allocate(vtw(lvtw,lvtw))
                    do ibasis = 1,nactive_cols_recycling_basis
                       do jbasis = 1,nactive_cols_recycling_basis
@@ -544,41 +546,41 @@
                       end do
                    end do
     !***************************************************************PARALLEL
-                   call MPI_ALLREDUCE(vtw_loc,vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
-                                      MPI_SUM, comm_all, ierr) 
+                   call MPI_ALLREDUCE(vtw_loc,vtw, lvtw*lvtw, MPI_DOUBLE_COMPLEX,&
+                                      MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
                    deallocate(vtw_loc)
 
                    if (myid.eq.0) then
-                      write(*,*) 'V^T*W'
+                      write(*,*) '(V,W)=W^H*V'
                       do i = 1,lvtw
-                         write(*,'(1000f20.13)') (vtw(i,j), j = 1,lvtw)
+                         write(*,'(1000(s,f20.13,sp,f20.13,"i"))') (vtw(i,j), j = 1,lvtw)
                       end do
                    end if
 
-                   ! inv(D)*V'*W
+                   ! inv(D)*(V,W)
                    do ibasis = 1,nactive_cols_recycling_basis
-                      !vtw(:,ibasis) = recycling_idvtw(1:nactive_cols_recycling_basis) * vtw(:,ibasis) 
+                      !vtw(:,ibasis) = recycling_idvtw(1:nactive_cols_recycling_basis) * vtw(:,ibasis)
                       call recycling_apply_diagonal_inverse(vtw(1,ibasis),lvtw)
                    end do
 
                    ! subtract identity matrix
-                   ! inv(D)*V'*W - I
+                   ! inv(D)*(V,W) - I
                    do ibasis = 1,nactive_cols_recycling_basis
-                      vtw(ibasis,ibasis) = vtw(ibasis,ibasis) - 1._kr
+                      vtw(ibasis,ibasis) = vtw(ibasis,ibasis) - (1._kr,0._kr)
                    end do
-                   check_orthogonality = sqrt(sum(vtw**2))
+                   check_orthogonality = sqrt(abs(sum(vtw*conjg(vtw))))
                    if (myid.eq.0) then
-                      write(*,*) 'D^{-1}*V^T*W - I'
+                      write(*,*) 'D^{-1}*(V,W) - I'
                       do i = 1,lvtw
-                         write(*,'(1000e12.5)') (vtw(i,j), j = 1,lvtw)
+                         write(*,'(1000(s,e12.5,sp,e12.5,"i"))') (vtw(i,j), j = 1,lvtw)
                       end do
                       if (check_orthogonality .gt. 1.e-4_kr) then
                          call warning( routine_name, 'Krylov basis has problems with orthogonality:', check_orthogonality )
                       end if
                    end if
                    deallocate(vtw)
-                end if 
+                end if
 
              end if
 
@@ -589,7 +591,7 @@
                    call info(routine_name,' Action of system matrix')
                 end if
              end if
-             ! first set pointers to soli 
+             ! first set pointers to soli
              do isub_loc = 1,nsub_loc
                 common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lp
                 common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%p
@@ -600,11 +602,11 @@
 
              ! write ap
              !do isub_loc = 1,nsub_loc
-             !   write(*,*) 'myid',myid,'ap', pcg_data(isub_loc)%ap(1:pcg_data(isub_loc)%lap) 
+             !   write(*,'s,e12.5,sp,e12.5,"i"') 'myid',myid,'ap', pcg_data(isub_loc)%ap(1:pcg_data(isub_loc)%lap)
              !end do
 
              ! Scalar product of vectors of old search direction and ap - p*ap => pap
-             pap_loc = 0._kr
+             pap_loc = (0._kr,0._kr)
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc, &
                                              pcg_data(isub_loc)%p,pcg_data(isub_loc)%lp, &
@@ -613,12 +615,12 @@
                 pap_loc = pap_loc + pap_sub
              end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(pap_loc,pap, 1, MPI_DOUBLE_PRECISION,          &
-                                MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(pap_loc,pap, 1, MPI_DOUBLE_COMPLEX,            &
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
 
     ! Control of positive definiteness of system matrix
-             if (pap.le.0._kr) then
+             if (real(pap).le.0._kr.or.abs(aimag(pap)).ge.1.e-4_kr) then
                 if (myid.eq.0) then
                    call warning(routine_name,'System matrix not positive definite!')
                 end if
@@ -626,7 +628,8 @@
 
              if (debug) then
                 if (myid.eq.0) then
-                   call info(routine_name,'pap =',pap)
+                   call info(routine_name,'re(pap) =',real(pap))
+                   call info(routine_name,'im(pap) =',aimag(pap))
                 end if
              end if
 
@@ -636,7 +639,7 @@
                    ! there is still room for storing a new vector
 
                    ! scaling factor - make the basis vectors normalized
-                   scaling_of_basis = 1._kr / sqrt(pap)
+                   scaling_of_basis = (1._kr,0._kr) / sqrt(pap)
 
                    jcol = nactive_cols_recycling_basis + 1
                    do isub_loc = 1,nsub_loc
@@ -645,17 +648,17 @@
                       ! W <- [ W ap ]
                       recycling_basis(isub_loc)%w(:,jcol) = scaling_of_basis * pcg_data(isub_loc)%ap(:)
                    end do
-                   ! IDIAG <- [ IDIAG 1./p'Ap ]
-                   !recycling_idvtw(jcol) = 1._kr / pap
-                   recycling_idvtw(jcol) = 1._kr 
+                   ! IDIAG <- [ IDIAG 1./(p,Ap) ]
+                   !recycling_idvtw(jcol) = (1._kr,0._kr) / pap
+                   recycling_idvtw(jcol) = (1._kr,0._kr)
 
                    nactive_cols_recycling_basis = nactive_cols_recycling_basis + 1
 
 
-                   ! update the V'*W matrix and its factors
+                   ! update the (V,W) matrix and its factors
                    !lvtw     = nactive_cols_recycling_basis
                    !allocate(vtw_loc(lvtw,lvtw))
-                   !vtw_loc = 0._kr
+                   !vtw_loc = (0._kr,0._kr)
                    !do ibasis = 1,nactive_cols_recycling_basis
                    !   do jbasis = 1,nactive_cols_recycling_basis
                    !      do isub_loc = 1,nsub_loc
@@ -672,15 +675,15 @@
                    !end if
                    !allocate(recycling_vtw(lvtw,lvtw))
     !***************************************************************PARALLEL
-                   !call MPI_ALLREDUCE(vtw_loc,recycling_vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
-                   !                   MPI_SUM, comm_all, ierr) 
+                   !call MPI_ALLREDUCE(vtw_loc,recycling_vtw, lvtw*lvtw, MPI_DOUBLE_COMPLEX,&
+                   !                   MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
                    !deallocate(vtw_loc)
 
                    !if (myid.eq.0) then
-                   !   write(*,*) 'V^T*W'
+                   !   write(*,*) '(V,W)=W^H*V'
                    !   do i = 1,lvtw
-                   !      write(*,'(1000f20.13)') (recycling_vtw(i,j), j = 1,lvtw)
+                   !      write(*,'(1000(s,f20.13,sp,f20.13,"i"))') (recycling_vtw(i,j), j = 1,lvtw)
                    !   end do
                    !end if
 
@@ -689,7 +692,7 @@
                    !   deallocate(recycling_ipiv)
                    !end if
                    !allocate(recycling_ipiv(lvtw))
-                   !call DGETRF( lvtw, lvtw, recycling_vtw, lvtw, recycling_ipiv, recycling_info )
+                   !call ZGETRF( lvtw, lvtw, recycling_vtw, lvtw, recycling_ipiv, recycling_info )
                    !recycling_is_inverse_prepared = .true.
 
                 end if
@@ -709,7 +712,7 @@
                 end do
              end do
 
-             ! determine norm of residual 
+             ! determine norm of residual
              ! normres = ||resi||
              normres2_loc = 0._kr
              do isub_loc = 1,nsub_loc
@@ -717,11 +720,11 @@
                                              pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
                                              pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
                                              normres2_sub)
-                normres2_loc = normres2_loc + normres2_sub
+                normres2_loc = normres2_loc + abs(normres2_sub)
              end do
     !***************************************************************PARALLEL
              call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION, &
-                                MPI_SUM, comm_all, ierr) 
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
              normres = sqrt(normres2)
              if (debug) then
@@ -732,7 +735,7 @@
 
              ! Evaluation of stopping criterion
              relres = normres/normrhs
-                
+
              if (myid.eq.0) then
                 call info (routine_name, 'iteration: ',iter)
                 call info (routine_name, '          relative residual: ',relres)
@@ -776,7 +779,7 @@
              end if
              lastres = relres
 
-    ! Action of the preconditioner M on residual vector RES 
+    ! Action of the preconditioner M on residual vector RES
     ! M*resi => z
              if (debug) then
                 if (myid.eq.0) then
@@ -796,7 +799,7 @@
              ! write z
              !do isub = 1,nsub
              !   if (pcg_data(isub)%is_mine) then
-             !      write(*,*) 'myid',myid,'z', pcg_data(isub)%z(1:pcg_data(isub)%lz) 
+             !      write(*,'s,e12.5,sp,e12.5,"i"') 'myid',myid,'z', pcg_data(isub)%z(1:pcg_data(isub)%lz)
              !   end if
              !end do
 
@@ -805,7 +808,7 @@
 
              ! compute rmp = res'*M*res
              ! ||f||
-             rmp_loc = 0._kr
+             rmp_loc = (0._kr,0._kr)
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc, &
                                              pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
@@ -814,12 +817,12 @@
                 rmp_loc = rmp_loc + rmp_sub
              end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(rmp_loc,rmp, 1, MPI_DOUBLE_PRECISION,          &
-                                MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(rmp_loc,rmp, 1, MPI_DOUBLE_COMPLEX,            &
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
 
              ! Check of positive definiteness of preconditioner matrix
-             if (rmp.le.0._kr) then
+             if (real(rmp).le.0._kr.or.abs(aimag(rmp)).ge.1.e-4_kr) then
                 if (myid.eq.0) then
                    call warning(routine_name,'Preconditioner not positive definite!')
                 end if
@@ -827,7 +830,8 @@
 
              if (debug) then
                 if (myid.eq.0) then
-                   call info(routine_name,'rmp =',rmp)
+                   call info(routine_name,'re(rmp) =',real(rmp))
+                   call info(routine_name,'im(rmp) =',aimag(rmp))
                 end if
              end if
 
@@ -844,9 +848,9 @@
              end do
 
              ! Filling matrix for the Lanczos method
-             diag(iter) = diag(iter) + 1._kr/alpha
+             diag(iter) = diag(iter) + (1._kr,0._kr)/alpha
              diag(iter+1) = beta/alpha
-             if (beta.ge.0._kr) then
+             if (abs(beta).ge.0._kr) then
                 subdiag(iter) = -sqrt(beta)/alpha
              else
                 subdiag(iter) = 0._kr
@@ -922,11 +926,11 @@
           use module_utils
 
           implicit none
-          
+
           include "mpif.h"
 
           ! parallel variables
-          integer,intent(in) :: comm_all 
+          integer,intent(in) :: comm_all
 
           ! limit on iterations
           integer,intent(in) :: maxit
@@ -954,7 +958,7 @@
           integer ::                                       lbicgstab_data
           type (bicgstab_data_type), allocatable, target :: bicgstab_data(:)
 
-          ! data for auxiliary manipulation with preconditioner and system matrix 
+          ! data for auxiliary manipulation with preconditioner and system matrix
           integer ::                                     lcommon_krylov_data
           type (common_krylov_data_type), allocatable ::  common_krylov_data(:)
 
@@ -966,14 +970,15 @@
           integer :: lsoli, lp
 
           ! BICGSTAB vars
-          real(kr) :: normrhs, normres2, normres, normres2_loc, normres2_sub
-          real(kr) :: tt, tt_loc, tt_sub
-          real(kr) :: ts, ts_loc, ts_sub
-          real(kr) :: vrstab, vrstab_loc, vrstab_sub
-          real(kr) :: rho, rhoold, rho_loc, rho_sub
-          real(kr) :: alpha, beta
-          real(kr) :: omega
-          real(kr) :: relres, lastres
+          real(kr)    :: normrhs, normres2, normres, normres2_loc
+          complex(kr) :: normres2_sub
+          complex(kr) :: tt, tt_loc, tt_sub
+          complex(kr) :: ts, ts_loc, ts_sub
+          complex(kr) :: vrstab, vrstab_loc, vrstab_sub
+          complex(kr) :: rho, rhoold, rho_loc, rho_sub
+          complex(kr) :: alpha, beta
+          complex(kr) :: omega
+          real(kr)    :: relres, lastres
 
           ! MPI vars
           integer :: ierr
@@ -1059,11 +1064,11 @@
              call levels_dd_dotprod_local(ilevel,isub_loc,bicgstab_data(isub_loc)%resi,bicgstab_data(isub_loc)%lresi, &
                                           bicgstab_data(isub_loc)%resi,bicgstab_data(isub_loc)%lresi, &
                                           normres2_sub)
-             normres2_loc = normres2_loc + normres2_sub
+             normres2_loc = normres2_loc + abs(normres2_sub)
           end do
     !***************************************************************PARALLEL
           call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
-                             MPI_SUM, comm_all, ierr) 
+                             MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
           normrhs = sqrt(normres2)
           if (debug) then
@@ -1073,24 +1078,24 @@
           end if
 
           ! Check of zero right-hand side => all zero solution
-          if (normrhs.eq.0.0D0) then
+          if (normrhs.eq.0.0_kr) then
              if (myid.eq.0) then
                 call warning(routine_name,'initial residual zero => initial solution exact')
              end if
-             return 
+             return
           end if
 
           ! BICGSTAB initialization
-          rhoold = 1._kr
-          alpha  = 1._kr
-          omega  = 1._kr
+          rhoold = (1._kr,0._kr)
+          alpha  = (1._kr,0._kr)
+          omega  = (1._kr,0._kr)
           ! v = 0
           do isub_loc = 1,nsub_loc
-             bicgstab_data(isub_loc)%v(:) = 0._kr
+             bicgstab_data(isub_loc)%v(:) = (0._kr,0._kr)
           end do
           ! p = 0
           do isub_loc = 1,nsub_loc
-             bicgstab_data(isub_loc)%p(:) = 0._kr
+             bicgstab_data(isub_loc)%p(:) = (0._kr,0._kr)
           end do
           ! shadow residual
           do isub_loc = 1,nsub_loc
@@ -1101,8 +1106,8 @@
 
     ! Setting up the properties for decreasing residual
           ndecr   = 0
-          lastres = 1.0D0
-     
+          lastres = 1.0_kr
+
     !***********************************************************************
     !*************************MAIN LOOP OVER ITERATIONS*********************
     !***********************************************************************
@@ -1110,7 +1115,7 @@
 
              ! Scalar product of vectors of res and resstab
              ! rho = res*resstab
-             rho_loc = 0._kr
+             rho_loc = (0._kr,0._kr)
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc,bicgstab_data(isub_loc)%resi,bicgstab_data(isub_loc)%lresi, &
                                              bicgstab_data(isub_loc)%resistab,bicgstab_data(isub_loc)%lresistab, &
@@ -1118,19 +1123,21 @@
                 rho_loc = rho_loc + rho_sub
              end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(rho_loc,rho, 1, MPI_DOUBLE_PRECISION,&
-                                MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(rho_loc,rho, 1, MPI_DOUBLE_COMPLEX,&
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
              if (debug) then
                 if (myid.eq.0) then
-                   call info(routine_name,'rho =',rho)
+                   call info(routine_name,'re(rho) =',real(rho))
+                   call info(routine_name,'im(rho) =',aimag(rho))
                 end if
              end if
 
              beta = rho*alpha/(rhoold*omega)
              if (debug) then
                 if (myid.eq.0) then
-                   call info(routine_name,'beta =',beta)
+                   call info(routine_name,'re(beta) =',real(beta))
+                   call info(routine_name,'im(beta) =',aimag(beta))
                 end if
              end if
 
@@ -1143,7 +1150,7 @@
                 end do
              end do
 
-             ! Action of preconditioner M on vector P 
+             ! Action of preconditioner M on vector P
              ! y = M*p
              if (debug) then
                 if (myid.eq.0) then
@@ -1159,7 +1166,7 @@
              end do
              call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
 
-             ! Multiplication of Y by local system matrix 
+             ! Multiplication of Y by local system matrix
              ! v = A*y
              if (debug) then
                 if (myid.eq.0) then
@@ -1177,7 +1184,7 @@
 
              ! Scalar product of vectors of v and resstab
              ! vrstab = v*resstab
-             vrstab_loc = 0._kr
+             vrstab_loc = (0._kr,0._kr)
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc,bicgstab_data(isub_loc)%v,bicgstab_data(isub_loc)%lv, &
                                              bicgstab_data(isub_loc)%resistab,bicgstab_data(isub_loc)%lresistab, &
@@ -1185,19 +1192,21 @@
                 vrstab_loc = vrstab_loc + vrstab_sub
              end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(vrstab_loc,vrstab, 1, MPI_DOUBLE_PRECISION,&
-                                MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(vrstab_loc,vrstab, 1, MPI_DOUBLE_COMPLEX,&
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
              if (debug) then
                 if (myid.eq.0) then
-                   call info(routine_name,'vrstab =',vrstab)
+                   call info(routine_name,'re(vrstab) =',real(vrstab))
+                   call info(routine_name,'im(vrstab) =',aimag(vrstab))
                 end if
              end if
 
              alpha = rho/vrstab
              if (debug) then
                 if (myid.eq.0) then
-                   call info(routine_name,'alpha =',alpha)
+                   call info(routine_name,'re(alpha) =',real(alpha))
+                   call info(routine_name,'im(alpha) =',aimag(alpha))
                 end if
              end if
 
@@ -1208,12 +1217,12 @@
                 lsoli = bicgstab_data(isub_loc)%lsoli
                 do i = 1,lsoli
                    bicgstab_data(isub_loc)%soli(i) = bicgstab_data(isub_loc)%soli(i) &
-                                                   + alpha * bicgstab_data(isub_loc)%y(i) 
+                                                   + alpha * bicgstab_data(isub_loc)%y(i)
                    bicgstab_data(isub_loc)%s(i) = bicgstab_data(isub_loc)%resi(i) &
                                                 - alpha * bicgstab_data(isub_loc)%v(i)
                 end do
              end do
-             ! determine norm of residual 
+             ! determine norm of residual
              ! normres = ||resi||
              normres2_loc = 0._kr
              do isub_loc = 1,nsub_loc
@@ -1221,11 +1230,11 @@
                                              bicgstab_data(isub_loc)%s,bicgstab_data(isub_loc)%ls, &
                                              bicgstab_data(isub_loc)%s,bicgstab_data(isub_loc)%ls, &
                                              normres2_sub)
-                normres2_loc = normres2_loc + normres2_sub
+                normres2_loc = normres2_loc + abs(normres2_sub)
              end do
     !***************************************************************PARALLEL
              call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION, &
-                                MPI_SUM, comm_all, ierr) 
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
              normres = sqrt(normres2)
              if (debug) then
@@ -1270,7 +1279,7 @@
              end if
              lastres = relres
 
-             ! Action of preconditioner M on vector S 
+             ! Action of preconditioner M on vector S
              ! z = M*s
              if (debug) then
                 if (myid.eq.0) then
@@ -1286,7 +1295,7 @@
              end do
              call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
 
-             ! Multiplication of Z by local system matrix 
+             ! Multiplication of Z by local system matrix
              ! t = A*z
              if (debug) then
                 if (myid.eq.0) then
@@ -1304,7 +1313,7 @@
 
              ! Scalar product of vectors s and t
              ! ts = s * t
-             ts_loc = 0._kr
+             ts_loc = (0._kr,0._kr)
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc,bicgstab_data(isub_loc)%s,bicgstab_data(isub_loc)%ls, &
                                              bicgstab_data(isub_loc)%t,bicgstab_data(isub_loc)%lt, &
@@ -1312,13 +1321,13 @@
                 ts_loc = ts_loc + ts_sub
              end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(ts_loc,ts, 1, MPI_DOUBLE_PRECISION,&
-                                MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(ts_loc,ts, 1, MPI_DOUBLE_COMPLEX,&
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
 
              ! Scalar product of vectors t and t
              ! tt = t * t
-             tt_loc = 0._kr
+             tt_loc = (0._kr,0._kr)
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc,bicgstab_data(isub_loc)%t,bicgstab_data(isub_loc)%lt, &
                                              bicgstab_data(isub_loc)%t,bicgstab_data(isub_loc)%lt, &
@@ -1326,19 +1335,21 @@
                 tt_loc = tt_loc + tt_sub
              end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(tt_loc,tt, 1, MPI_DOUBLE_PRECISION,&
-                                MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(tt_loc,tt, 1, MPI_DOUBLE_COMPLEX,&
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
              if (debug) then
                 if (myid.eq.0) then
-                   call info(routine_name,'tt =',tt)
+                   call info(routine_name,'re(tt) =',real(tt))
+                   call info(routine_name,'im(tt) =',aimag(tt))
                 end if
              end if
 
              omega = ts/tt
              if (debug) then
                 if (myid.eq.0) then
-                   call info(routine_name,'omega =',omega)
+                   call info(routine_name,'re(omega) =',real(omega))
+                   call info(routine_name,'im(omega) =',aimag(omega))
                 end if
              end if
 
@@ -1349,12 +1360,12 @@
                 lsoli = bicgstab_data(isub_loc)%lsoli
                 do i = 1,lsoli
                    bicgstab_data(isub_loc)%soli(i) = bicgstab_data(isub_loc)%soli(i) &
-                                                   + omega * bicgstab_data(isub_loc)%z(i) 
+                                                   + omega * bicgstab_data(isub_loc)%z(i)
                    bicgstab_data(isub_loc)%resi(i) = bicgstab_data(isub_loc)%s(i) - omega * bicgstab_data(isub_loc)%t(i)
                 end do
              end do
 
-             ! determine norm of residual 
+             ! determine norm of residual
              ! normres = ||resi||
              normres2_loc = 0._kr
              do isub_loc = 1,nsub_loc
@@ -1362,11 +1373,11 @@
                                              bicgstab_data(isub_loc)%resi,bicgstab_data(isub_loc)%lresi, &
                                              bicgstab_data(isub_loc)%resi,bicgstab_data(isub_loc)%lresi, &
                                              normres2_sub)
-                normres2_loc = normres2_loc + normres2_sub
+                normres2_loc = normres2_loc + abs(normres2_sub)
              end do
     !***************************************************************PARALLEL
              call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION, &
-                                MPI_SUM, comm_all, ierr) 
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
              normres = sqrt(normres2)
              if (debug) then
@@ -1377,7 +1388,7 @@
 
              ! Evaluation of stopping criterion
              relres = normres/normrhs
-                
+
     ! Print residual to screen
              if (myid.eq.0) then
                 call info (routine_name, 'iteration: ',dble(iter))
@@ -1482,11 +1493,11 @@
           use module_utils
 
           implicit none
-          
+
           include "mpif.h"
 
           ! parallel variables
-          integer,intent(in) :: comm_all 
+          integer,intent(in) :: comm_all
 
           ! limit on iterations
           integer,intent(in) :: maxit
@@ -1514,7 +1525,7 @@
           integer ::                                              lsteepestdescent_data
           type (steepestdescent_data_type), allocatable, target :: steepestdescent_data(:)
 
-          ! data for auxiliary manipulation with preconditioner and system matrix 
+          ! data for auxiliary manipulation with preconditioner and system matrix
           integer ::                                     lcommon_krylov_data
           type (common_krylov_data_type), allocatable ::  common_krylov_data(:)
 
@@ -1525,11 +1536,12 @@
           integer :: ndofis, nnodis
 
           ! steepest descent vars
-          real(kr) :: normrhs, normres2, normres, normres2_loc, normres2_sub
-          real(kr) :: rz, rz_loc, rz_sub
-          real(kr) :: zaz, zaz_loc, zaz_sub
-          real(kr) :: alpha 
-          real(kr) :: relres, lastres
+          real(kr)    :: normrhs, normres2, normres, normres2_loc
+          complex(kr) :: normres2_sub
+          complex(kr) :: rz, rz_loc, rz_sub
+          complex(kr) :: zaz, zaz_loc, zaz_sub
+          complex(kr) :: alpha
+          real(kr)    :: relres, lastres
 
           ! MPI vars
           integer :: ierr
@@ -1608,11 +1620,11 @@
                                           steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi, &
                                           steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi, &
                                           normres2_sub)
-             normres2_loc = normres2_loc + normres2_sub
+             normres2_loc = normres2_loc + abs(normres2_sub)
           end do
     !***************************************************************PARALLEL
           call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
-                             MPI_SUM, comm_all, ierr) 
+                             MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
           normrhs = sqrt(normres2)
           if (debug) then
@@ -1622,24 +1634,24 @@
           end if
 
           ! Check of zero right-hand side => all zero solution
-          if (normrhs.eq.0.0D0) then
+          if (normrhs.eq.0.0_kr) then
              if (myid.eq.0) then
                 call warning(routine_name,'initial residual zero => initial solution exact')
              end if
-             return 
+             return
           end if
 
     ! Setting up the properties for decreasing residual
           ndecr   = 0
           lastres = 1.0_kr
 
-     
+
     !***********************************************************************
     !*************************MAIN LOOP OVER ITERATIONS*********************
     !***********************************************************************
           do iter = 1,maxit
 
-             ! Action of preconditioner M on vector resi 
+             ! Action of preconditioner M on vector resi
              ! z = M*resi
              if (debug) then
                 if (myid.eq.0) then
@@ -1666,9 +1678,9 @@
              end do
              call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
 
-             ! determine ( r' * z ) 
+             ! determine ( r' * z )
              ! normsoli = ||soli||
-             rz_loc = 0._kr
+             rz_loc = (0._kr,0._kr)
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc, &
                                              steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi, &
@@ -1677,12 +1689,12 @@
                 rz_loc = rz_loc + rz_sub
              end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(rz_loc,rz, 1, MPI_DOUBLE_PRECISION, &
-                                MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(rz_loc,rz, 1, MPI_DOUBLE_COMPLEX, &
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
 
-             ! determine ( z' * A * z ) 
-             zaz_loc = 0._kr
+             ! determine ( z' * A * z )
+             zaz_loc = (0._kr,0._kr)
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc, &
                                              steepestdescent_data(isub_loc)%z,steepestdescent_data(isub_loc)%lz, &
@@ -1691,31 +1703,31 @@
                 zaz_loc = zaz_loc + zaz_sub
              end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(zaz_loc,zaz, 1, MPI_DOUBLE_PRECISION, &
-                                MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(zaz_loc,zaz, 1, MPI_DOUBLE_COMPLEX, &
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
 
              ! determine alpha
-             ! alpha = ( r' * z ) / ( z' * A * z )
+             ! alpha = ( r,z ) / ( z, A * z )
              alpha = rz / zaz
 
              ! update solution
-             ! soli = soli + alpha * z 
+             ! soli = soli + alpha * z
              do isub_loc = 1,nsub_loc
                 steepestdescent_data(isub_loc)%soli = steepestdescent_data(isub_loc)%soli &
-                                                    + alpha * steepestdescent_data(isub_loc)%z 
+                                                    + alpha * steepestdescent_data(isub_loc)%z
              end do
 
              ! update residual
-             ! resi = resi - alpha * Az 
+             ! resi = resi - alpha * Az
              do isub_loc = 1,nsub_loc
                 steepestdescent_data(isub_loc)%resi = steepestdescent_data(isub_loc)%resi &
-                                                    - alpha * steepestdescent_data(isub_loc)%az 
+                                                    - alpha * steepestdescent_data(isub_loc)%az
                 call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,&
                                            steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi)
              end do
 
-             ! determine norm of residual 
+             ! determine norm of residual
              ! normres = ||resi||
              normres2_loc = 0._kr
              do isub_loc = 1,nsub_loc
@@ -1723,11 +1735,11 @@
                                              steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi, &
                                              steepestdescent_data(isub_loc)%resi,steepestdescent_data(isub_loc)%lresi, &
                                              normres2_sub)
-                normres2_loc = normres2_loc + normres2_sub
+                normres2_loc = normres2_loc + abs(normres2_sub)
              end do
     !***************************************************************PARALLEL
              call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION, &
-                                MPI_SUM, comm_all, ierr) 
+                                MPI_SUM, comm_all, ierr)
     !***************************************************************PARALLEL
              normres = sqrt(normres2)
              if (debug) then
@@ -1831,37 +1843,37 @@
       use module_utils
 
       implicit none
-      
+
       include "mpif.h"
 
       ! parallel variables
-      integer,intent(in) :: comm_all 
+      integer,intent(in) :: comm_all
 
       ! data for PCG
       integer,intent(in) ::                         lkrylov_data
-      type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data) 
+      type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data)
 
       ! local vars
       character(*),parameter:: routine_name = 'KRYLOV_ORTHOGONALIZE_CGS'
       integer,parameter :: ilevel = 1
 
-      integer ::              lwtp
-      real(kr), allocatable :: wtp(:)
-      real(kr), allocatable :: wtp_loc(:)
-      real(kr) :: wtp_sub
+      integer ::                 lwtp
+      complex(kr), allocatable :: wtp(:)
+      complex(kr), allocatable :: wtp_loc(:)
+      complex(kr) :: wtp_sub
 
-      integer :: isub_loc, ibasis, nsub, nsub_loc 
+      integer :: isub_loc, ibasis, nsub, nsub_loc
       integer :: ierr
 
       ! find number of subdomains
       call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
 
-      lwtp     = nactive_cols_recycling_basis 
+      lwtp     = nactive_cols_recycling_basis
       allocate(wtp_loc(lwtp))
-      wtp_loc = 0._kr
+      wtp_loc = (0._kr,0._kr)
       allocate(wtp(lwtp))
 
-      ! W'*p
+      ! (W,p)
       do ibasis = 1,nactive_cols_recycling_basis
          do isub_loc = 1,nsub_loc
             call levels_dd_dotprod_local(ilevel,isub_loc,&
@@ -1872,17 +1884,17 @@
          end do
       end do
 !***************************************************************PARALLEL
-      call MPI_ALLREDUCE(wtp_loc,wtp, lwtp, MPI_DOUBLE_PRECISION,&
-                         MPI_SUM, comm_all, ierr) 
+      call MPI_ALLREDUCE(wtp_loc,wtp, lwtp, MPI_DOUBLE_COMPLEX,&
+                         MPI_SUM, comm_all, ierr)
 !***************************************************************PARALLEL
       deallocate(wtp_loc)
 
-      ! inv(D) * W' * p
+      ! inv(D) * (W,p)
       call recycling_apply_diagonal_inverse(wtp,lwtp)
       !wtp = wtp * recycling_idvtw(1:nactive_cols_recycling_basis)
 
       ! correct search direction vector
-      ! p <- p - V*inv(D)*W'p = p - V*IDIAG*W'p
+      ! p <- p - V*inv(D)*(W,p) = p - V*IDIAG*(W,p)
       do isub_loc = 1,nsub_loc
          krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
                                       - matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
@@ -1898,7 +1910,7 @@
   !**************************************************************************
       ! project vector P onto the stored Krylov space A*p
       ! using iterated classical Gram-Schmidt orthogonalization
-      ! based on Algorithm A3 from 
+      ! based on Algorithm A3 from
       ! Tebbens, Hnetynkova, Plesinger, Strakos, Tichy
       ! Analyza metod pro maticove vypocty
       ! Matfyzpress, Praha, 2012
@@ -1907,15 +1919,15 @@
       use module_utils
 
       implicit none
-      
+
       include "mpif.h"
 
       ! parallel variables
-      integer,intent(in) :: comm_all 
+      integer,intent(in) :: comm_all
 
       ! data for PCG
       integer,intent(in) ::                         lkrylov_data
-      type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data) 
+      type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data)
 
       ! local vars
       integer :: i
@@ -1937,33 +1949,33 @@
       use module_utils
 
       implicit none
-      
+
       include "mpif.h"
 
       ! parallel variables
-      integer,intent(in) :: comm_all 
+      integer,intent(in) :: comm_all
 
       ! data for PCG
       integer,intent(in) ::                         lkrylov_data
-      type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data) 
+      type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data)
 
       ! local vars
       character(*),parameter:: routine_name = 'KRYLOV_ORTHOGONALIZE_MGS'
       integer,parameter :: ilevel = 1
 
-      real(kr) :: wtp
-      real(kr) :: wtp_loc
-      real(kr) :: wtp_sub
+      complex(kr) :: wtp
+      complex(kr) :: wtp_loc
+      complex(kr) :: wtp_sub
 
-      integer :: isub_loc, ibasis, nsub, nsub_loc 
+      integer :: isub_loc, ibasis, nsub, nsub_loc
       integer :: ierr
 
       ! find number of subdomains
       call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
 
-      ! W'*p
+      ! (W,p)
       do ibasis = 1,nactive_cols_recycling_basis
-         wtp_loc = 0._kr
+         wtp_loc = (0._kr,0._kr)
          do isub_loc = 1,nsub_loc
             call levels_dd_dotprod_local(ilevel,isub_loc,&
                                          recycling_basis(isub_loc)%w(:,ibasis),recycling_basis(isub_loc)%lw1, &
@@ -1972,18 +1984,18 @@
             wtp_loc = wtp_loc + wtp_sub
          end do
 !***************************************************************PARALLEL
-         call MPI_ALLREDUCE(wtp_loc,wtp, 1, MPI_DOUBLE_PRECISION,&
-                            MPI_SUM, comm_all, ierr) 
+         call MPI_ALLREDUCE(wtp_loc,wtp, 1, MPI_DOUBLE_COMPLEX,&
+                            MPI_SUM, comm_all, ierr)
 !***************************************************************PARALLEL
 
-         ! inv(D) * W' * p
+         ! inv(D) * (W,p)
          wtp = wtp * recycling_idvtw(ibasis)
 
          ! correct search direction vector
-         ! p <- p - V*inv(D)+W'p = p - V*IDIAG*W'p
+         ! p <- p - V*inv(D)+(W,p) = p - V*IDIAG*(W,p)
          do isub_loc = 1,nsub_loc
             krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
-                                         - wtp * recycling_basis(isub_loc)%v(:,ibasis) 
+                                         - wtp * recycling_basis(isub_loc)%v(:,ibasis)
          end do
       end do
 
@@ -1997,13 +2009,13 @@
 
       implicit none
 
-      integer,intent(in)     :: lvec
-      real(kr),intent(inout) ::  vec(lvec) 
+      integer,intent(in)        :: lvec
+      complex(kr),intent(inout) ::  vec(lvec)
 
       ! local vars
       character(*),parameter:: routine_name = 'RECYCLING_APPLY_DIAGONAL_INVERSE'
-      !integer :: nrhs 
-      !integer :: lapack_info 
+      !integer :: nrhs
+      !integer :: lapack_info
 
       if (lvec /= nactive_cols_recycling_basis) then
          call error( routine_name, 'size mismatch', lvec )
@@ -2017,7 +2029,7 @@
       !end if
 
       !nrhs = 1
-      !call DGETRS('N', lvec, nrhs, recycling_vtw, lvec, recycling_ipiv, vec, lvec, lapack_info)
+      !call ZGETRS('N', lvec, nrhs, recycling_vtw, lvec, recycling_ipiv, vec, lvec, lapack_info)
       !if (lapack_info /= 0) then
       !   call error( routine_name, 'error in LAPACK, info ', lapack_info )
       !end if
@@ -2027,61 +2039,78 @@
       !***********************************************
       subroutine krylov_condsparse(nw,d,ld,e,le, cond)
       !***********************************************
-      ! Routine that estimates condition number of a real symmetric tridiagonal matrix 
+      ! Routine that estimates condition number of a real symmetric tridiagonal matrix
       ! using LAPACK
-            use module_utils
-            implicit none
-      
+      use module_utils
+      implicit none
+
       ! used dimension of matrix
-            integer,intent(in) :: nw
-      
+      integer,intent(in) :: nw
+
       ! diagonal of matrix
-            integer,intent(in) :: ld
-            real(kr),intent(in) :: d(ld)
+      integer,intent(in) :: ld
+      complex(kr),intent(in) :: d(ld)
       ! subdiagonal of matrix
-            integer,intent(in) :: le
-            real(kr),intent(in) :: e(le)
-      
+      integer,intent(in) :: le
+      complex(kr),intent(in) :: e(le)
+
       ! estimate of the condition number
-            real(kr),intent(out) :: cond
-      
-            ! auxiliary variables
-            character(*),parameter:: routine_name = 'KRYLOV_CONDSPARSE'
-            integer ::  iaux
-            real(kr) :: raux(1)
-      
-            real(kr) :: eigmax
-      
-            ! LAPACK
-            integer :: lapack_info
-      
-            ! checks
-            if (ld.ne.nw .or. le .ne. ld-1) then
-               call error(routine_name,'Dimensions mismatch.')
-            end if
-      
-            ! return silently if only 1 or less iterations were performed
-            if (nw.le.1) then
-               cond = 1._kr
-               return
-            end if
-      
-            ! LAPACK routine for searching eigenvalues (returned in ascending order)
-            iaux = 1
-            call DSTEV( 'N', nw, d, e, raux, iaux, raux, lapack_info)
-            if (debug) then
-               write(*,*) 'eigenvalues = '
-               write(*,*) d(1:nw)
-            end if
-      
-            ! compute condition number
-            eigmax = d(nw)
-            ! do not get the lowest eigenvalue from the Lanczos sequence - the Ritz value may not converge (cf Treffethen, Bau)
-            if (debug) then
-               write(*,*) 'eigmax = ',eigmax
-            end if
-            cond = eigmax
-      
+      real(kr),intent(out) :: cond
+
+      ! similarity scaling for complex Hermitian tridiagonal -> real tridiagonal
+      real(kr),allocatable :: dr(:)
+      real(kr),allocatable :: er(:)
+      integer :: i
+
+      ! auxiliary variables
+      character(*),parameter:: routine_name = 'KRYLOV_CONDSPARSE'
+      integer ::  iaux
+      real(kr) :: raux(1)
+
+      real(kr) :: eigmax
+
+      ! LAPACK
+      integer :: lapack_info
+
+      ! checks
+      if (ld.ne.nw .or. le .ne. ld-1) then
+         call error(routine_name,'Dimensions mismatch.')
+      end if
+
+      ! return silently if only 1 or less iterations were performed
+      if (nw.le.1) then
+         cond = 1._kr
+         return
+      end if
+
+      ! scale input matrix (d has already zero complex part on input)
+      allocate(dr(ld))
+      allocate(er(le))
+      dr(1) = real(d(1));
+      do i = 2, ld
+         dr(i)   = real(d(i));
+         er(i-1) = abs(e(i-1));
+      end do
+
+      ! LAPACK routine for searching eigenvalues (returned in ascending order)
+      iaux = 1
+      call DSTEV( 'N', nw, dr, er, raux, iaux, raux, lapack_info)
+      if (debug) then
+         write(*,*) 'eigenvalues = '
+         write(*,*) d(1:nw)
+      end if
+
+      ! compute condition number
+      eigmax = d(nw)
+      ! do not get the lowest eigenvalue from the Lanczos sequence - the Ritz value may not converge (cf Treffethen, Bau)
+      if (debug) then
+         write(*,*) 'eigmax = ',eigmax
+      end if
+      cond = eigmax
+
+      deallocate(dr)
+      deallocate(er)
+
       end subroutine
 
 
@@ -2092,7 +2121,7 @@
       ! auxiliary routine to switch profiling flag on
       profile = .true.
       end subroutine
-      
+
       !********************************
       subroutine krylov_set_profile_off
       !********************************

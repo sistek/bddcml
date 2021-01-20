@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -18,18 +18,18 @@ module module_pp
 ! module for parallel preprocessing
 ! Jakub Sistek, Bologna, 2010
 use, intrinsic :: iso_fortran_env
-implicit none 
+implicit none
 
 ! adjustable parameters ############################
 ! type of real variables
       integer,parameter,private :: kr = REAL64
-! debugging 
+! debugging
       logical,parameter,private :: debug = .false.
-! profiling 
+! profiling
       logical,parameter,private :: profile = .false.
 ! adjustable parameters ############################
 
-contains 
+contains
 
 
 
@@ -49,7 +49,7 @@ include "mpif.h"
 integer, intent(in) :: myid, nproc, comm
 ! type of output graph
 integer, intent(in) :: graphtype
-! number of nodes to consider elements adjacent 
+! number of nodes to consider elements adjacent
 integer, intent(in) :: neighbouring
 ! number of all elements
 integer, intent(in) :: nelem
@@ -76,21 +76,21 @@ integer,allocatable ::  nelempa(:)
 ! ParMETIS vars
 integer*4,parameter:: numflag = 1 ! (1 - Fortran-like arrays, 0 - C-like arrays)
 integer*4::           wgtflag
-integer::              lelmdist   
+integer::              lelmdist
 integer*4,allocatable:: elmdist(:)
 integer ::             loptions
 integer*4,allocatable::  options(:)
 integer::            lwgt
 integer*4,allocatable :: wgt(:)
-integer::              leptr   
+integer::              leptr
 integer*4,allocatable:: eptr(:)
 integer*4:: ncon, ncommonnodes, nparts, ec
-integer::            ltpwgts   
+integer::            ltpwgts
 real*4,allocatable :: tpwgts(:)
-integer::            lubvec   
+integer::            lubvec
 real*4,allocatable :: ubvec(:)
 
-! MPI vars 
+! MPI vars
 integer :: ierr
 integer :: just_one
 
@@ -103,17 +103,17 @@ interface
       implicit none
       integer(c_int) :: elmdist(*)
       integer(c_int) :: eptr(*)
-      integer(c_int) :: eind(*) 
+      integer(c_int) :: eind(*)
       integer(c_int) :: elmwgt(*)
-      integer(c_int) :: wgtflag 
-      integer(c_int) :: numflag 
-      integer(c_int) :: ncon 
-      integer(c_int) :: ncommonnodes 
-      integer(c_int) :: nparts 
-      real(c_float) :: tpwgts(ncon*nparts) 
-      real(c_float) :: ubvec(ncon) 
-      integer(c_int) :: options(*) 
-      integer(c_int) :: edgecut 
+      integer(c_int) :: wgtflag
+      integer(c_int) :: numflag
+      integer(c_int) :: ncon
+      integer(c_int) :: ncommonnodes
+      integer(c_int) :: nparts
+      real(c_float) :: tpwgts(ncon*nparts)
+      real(c_float) :: ubvec(ncon)
+      integer(c_int) :: options(*)
+      integer(c_int) :: edgecut
       integer(c_int) :: part(*)
       integer(c_int) :: commInt
    end subroutine pdivide_mesh_c
@@ -165,7 +165,7 @@ end interface
          end do
          ! EIND is the same as INET_LOC
          ! use weights (0 - no, 1 - yes)
-         if (graphtype.eq.1) then 
+         if (graphtype.eq.1) then
             ! use weights
             wgtflag = 1
          else
@@ -207,7 +207,7 @@ end interface
          nparts = nsub
          ! portable call
          call pdivide_mesh_c(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, &
-                             tpwgts, ubvec, options, ec, part_loc, comm) 
+                             tpwgts, ubvec, options, ec, part_loc, comm)
          ! less portable call - works for MPI implementations using MPI_Comm int ( like mpich ), does not work with general types
          ! ( like in OpenMPI )
          !call ParMETIS_V3_PartMeshKway(elmdist,eptr,inet_loc,wgt,wgtflag,numflag,ncon,ncommonnodes, nparts, tpwgts, ubvec, options,&
@@ -242,7 +242,7 @@ include "mpif.h"
 ! INPUT:
 ! parallel variables
 integer, intent(in) :: myid, nproc, comm
-! number of nodes to consider elements adjacent 
+! number of nodes to consider elements adjacent
 integer, intent(in) :: neighbouring
 ! number of all elements
 integer, intent(in) :: nelem
@@ -277,14 +277,14 @@ integer,allocatable ::  nelempa(:)
 
 ! ParMETIS vars
 integer*4,parameter:: numflag = 1 ! (1 - Fortran-like arrays, 0 - C-like arrays)
-integer::              lelmdist   
+integer::              lelmdist
 integer*4,allocatable:: elmdist(:)
-integer::              leptr   
+integer::              leptr
 integer*4,allocatable:: eptr(:)
 integer*4::     ncommonnodes
 integer*4::     numdebug
 
-! MPI vars 
+! MPI vars
 integer :: ierr
 
 interface
@@ -297,12 +297,12 @@ interface
       implicit none
       integer(c_int) :: elmdist(*)
       integer(c_int) :: eptr(*)
-      integer(c_int) :: eind(*) 
-      integer(c_int) :: numflag 
-      integer(c_int) :: ncommonnodes 
-      integer(c_int) :: liets 
-      integer(c_int) :: iets(liets) 
-      integer(c_int) :: nsub 
+      integer(c_int) :: eind(*)
+      integer(c_int) :: numflag
+      integer(c_int) :: ncommonnodes
+      integer(c_int) :: liets
+      integer(c_int) :: iets(liets)
+      integer(c_int) :: nsub
       integer(c_int) :: nsub_loc
       integer(c_int) :: sub_start
       integer(c_int) :: lkadjsub
@@ -367,7 +367,7 @@ end interface
 
          ! EIND is the same as INET_LOC
          ! set debugging
-         if (debug) then 
+         if (debug) then
             numdebug = 1
          else
             numdebug = 0
@@ -383,7 +383,7 @@ end interface
          !print *,'elmdist',elmdist
          !print *,'eptr',eptr
          !print *,'inet_loc',inet_loc
-         
+
          !print *,'numflag',numflag
          !print *,'ncommonnodes',ncommonnodes
          !print *,'nelempa',nelempa
@@ -409,7 +409,7 @@ end subroutine pp_pget_sub_neighbours
 subroutine pp_get_sub_neighbours(neighbouring,nelem,nnod,nsub,inet,linet,nnet,lnnet,iets,liets,&
                                  kadjsub,lkadjsub)
 !************************************************************************************************
-!     Subroutine for getting the number and indices of neighbours of 
+!     Subroutine for getting the number and indices of neighbours of
 !     subdomain isub based on element graph.
 !************************************************************************************************
 use module_graph
@@ -417,7 +417,7 @@ use module_utils
 implicit none
 
 ! INPUT:
-! number of nodes to consider elements adjacent 
+! number of nodes to consider elements adjacent
 integer, intent(in) :: neighbouring
 ! number of all elements
 integer, intent(in) :: nelem
@@ -442,7 +442,7 @@ integer, intent(out) ::  kadjsub(lkadjsub) ! marked subdomains that share nodes
 
 ! local vars
 character(*),parameter:: routine_name = 'PP_GET_SUB_NEIGHBOURS'
-! index of subdomain under 
+! index of subdomain under
 integer :: isub
 
 ! number of elements in subdomain
@@ -521,9 +521,9 @@ integer :: graphtype = 0
          pkadjsub = (isub-1)*nsub
          do ie_loc = 1,nelems
             indel = isegns(ie_loc)
-         
+
             do iadje = xadj(indel),xadj(indel+1) - 1
-               
+
                indneibe = adjncy(iadje)
                isubneib = iets(indneibe)
                if (isubneib.ne.isub) then
@@ -605,7 +605,7 @@ integer :: i
       ! get length
       lproblemname = index(problemname,' ') - 1
       if (lproblemname.eq.-1) then
-         lproblemname = lproblemnamex 
+         lproblemname = lproblemnamex
       end if
       ! pad the name with spaces
       do i = lproblemname+1,lproblemnamex
@@ -643,7 +643,7 @@ if (myid.eq.0) then
    ! Name of the problem
    call pp_get_problem_name(problemname,lproblemnamex,lproblemname)
 end if
-! Broadcast of name of the problem      
+! Broadcast of name of the problem
 !***************************************************************PARALLEL
 call MPI_BCAST(lproblemname, 1,           MPI_INTEGER,   0, comm, ierr)
 call MPI_BCAST(problemname, lproblemname, MPI_CHARACTER, 0, comm, ierr)
@@ -807,13 +807,17 @@ integer, intent(in) :: idfvs
 integer, intent(in)  :: lifix
 integer, intent(out) ::  ifix(lifix)
 ! FIXV array
-integer,  intent(in)  :: lfixv
-real(kr), intent(out) ::  fixv(lfixv)
+integer,  intent(in)     :: lfixv
+complex(kr), intent(out) ::  fixv(lfixv)
+real(kr), allocatable    :: rfixv(:)
 
 ! read IFIX
 call pp_read_pmd_bc_basic(idfvs,ifix,lifix)
 ! read FIXV
-read(idfvs,*) fixv
+allocate(rfixv(lfixv))
+read(idfvs,*) rfixv
+fixv = cmplx(rfixv,0._kr)
+deallocate(rfixv)
 
 end subroutine pp_read_pmd_bc
 
@@ -867,8 +871,9 @@ integer, intent(in) :: idfvs
 integer, intent(in)  :: lifix
 integer, intent(out) ::  ifix(lifix)
 ! FIXV array
-integer, intent(in)   :: lfixv
-real(kr), intent(out) ::  fixv(lfixv)
+integer,  intent(in)     :: lfixv
+complex(kr), intent(out) ::  fixv(lfixv)
+real(kr), allocatable    :: rfixv(:)
 
 ! local vars
 integer :: myid, ierr
@@ -880,11 +885,14 @@ if (myid.eq.0) then
    ! read IFIX
    call pp_read_pmd_bc_basic(idfvs,ifix,lifix)
    ! read FIXV
-   read(idfvs,*) fixv
+   allocate(rfixv(lfixv))
+   read(idfvs,*) rfixv
+   fixv = cmplx(rfixv,0._kr)
+   deallocate(rfixv)
 end if
 !***************************************************************PARALLEL
 call MPI_BCAST(ifix, lifix, MPI_INTEGER, 0, comm, ierr)
-call MPI_BCAST(fixv, lfixv, MPI_DOUBLE_PRECISION, 0, comm, ierr)
+call MPI_BCAST(fixv, lfixv, MPI_DOUBLE_COMPLEX, 0, comm, ierr)
 !***************************************************************PARALLEL
 end subroutine pp_pread_pmd_bc
 
@@ -900,8 +908,9 @@ implicit none
 integer, intent(in) :: idrhs
 ! OUTPUT:
 ! RHS array
-integer,  intent(in)  :: lrhs
-real(kr), intent(out) ::  rhs(lrhs)
+integer,  intent(in)     :: lrhs
+complex(kr), intent(out) ::  rhs(lrhs)
+real(kr), allocatable    :: rrhs(:)
 
 ! local vars
 logical :: is_file_opened
@@ -912,7 +921,10 @@ if (.not.is_file_opened) then
    call error('PP_READ_PMD_RHS','File idrhs not opened.')
 end if
 ! read RHS
-read(idrhs) rhs
+allocate(rrhs(lrhs))
+read(idrhs) rrhs
+rhs = cmplx(rrhs,0._kr)
+deallocate(rrhs)
 
 end subroutine pp_read_pmd_rhs
 
@@ -931,8 +943,8 @@ integer, intent(in) :: comm
 integer, intent(in) :: idrhs
 ! OUTPUT:
 ! RHS array
-integer, intent(in)   :: lrhs
-real(kr), intent(out) ::  rhs(lrhs)
+integer, intent(in)      :: lrhs
+complex(kr), intent(out) ::  rhs(lrhs)
 
 ! local vars
 integer :: myid, ierr
@@ -945,7 +957,7 @@ if (myid.eq.0) then
    call pp_read_pmd_rhs(idrhs,rhs,lrhs)
 end if
 !***************************************************************PARALLEL
-call MPI_BCAST(rhs, lrhs, MPI_DOUBLE_PRECISION, 0, comm, ierr)
+call MPI_BCAST(rhs, lrhs, MPI_DOUBLE_COMPLEX, 0, comm, ierr)
 !***************************************************************PARALLEL
 end subroutine pp_pread_pmd_rhs
 
@@ -1077,7 +1089,7 @@ implicit none
 integer, intent(in) :: graphtype
 ! correct division to make subdomain continuous?
 logical, intent(in) :: correct_division
-! number of nodes to consider elements adjacent 
+! number of nodes to consider elements adjacent
 integer, intent(in) :: neighbouring
 ! number of elements
 integer, intent(in) :: nelem
@@ -1159,7 +1171,7 @@ integer,allocatable :: el2sub(:)
       end do
 
       deallocate(el2sub)
-      
+
 end subroutine pp_divide_mesh_chunks
 
 !**********************************************************************************
@@ -1177,7 +1189,7 @@ implicit none
 integer, intent(in) :: graphtype
 ! correct division to make subdomain continuous?
 logical, intent(in) :: correct_division
-! number of nodes to consider elements adjacent 
+! number of nodes to consider elements adjacent
 integer, intent(in) :: neighbouring
 ! number of elements
 integer, intent(in) :: nelem
@@ -1376,7 +1388,7 @@ real(kr) :: imbalance
                         if (subcomponents(ies).eq.icomp) then
                            ! look into the graph to find neigbouring subdomains
                            indel = isegns(ies)
-                           nneib = xadj(indel+1) - xadj(indel) 
+                           nneib = xadj(indel+1) - xadj(indel)
                            ! mark subdomains
                            do iadje = xadj(indel),xadj(indel+1) - 1
                               indneibe = adjncy(iadje)
@@ -1532,7 +1544,7 @@ integer,intent(in) :: lxyz1, lxyz2
 real(kr),intent(in) :: xyz(lxyz1,lxyz2)
 ! should nodes on Dirichlet BC be removed?
 logical,intent(in) :: remove_bc_nodes
-! indices of Dirichlet BC 
+! indices of Dirichlet BC
 integer,intent(in) :: lifix
 integer,intent(in) ::  ifix(lifix)
 ! division into subdomains
@@ -1593,7 +1605,7 @@ integer::            lplayground
 integer,allocatable:: playground(:)
 integer::             ldist,   larea
 real(kr),allocatable:: dist(:), area(:)
-integer::             lxyzsh1, lxyzsh2 
+integer::             lxyzsh1, lxyzsh2
 real(kr),allocatable:: xyzsh(:,:)
 integer::             lxyzbase
 real(kr),allocatable:: xyzbase(:)
@@ -1727,8 +1739,8 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       if (count(nodeglob.eq.-1).gt.0) then
          call error('GETGLOBS','in nodeglob - unassociated node of interface with glob')
       end if
-      
-! glob type - 1 face, 2 edge, 3 vertex 
+
+! glob type - 1 face, 2 edge, 3 vertex
       lglobs = nglobs
       allocate(globs(lglobs))
       globs(:)%itype = 0
@@ -1737,7 +1749,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 !        count nodes in each glob and allocate memory for nodes
          globs(iglob)%nnod = count(nodeglob.eq.iglob)
          allocate(globs(iglob)%nodes(globs(iglob)%nnod))
-!        find nodes in the glob         
+!        find nodes in the glob
          iglobnode = 0
          do inodi = 1,nnodi
             if (nodeglob(inodi).eq.iglob) then
@@ -1748,7 +1760,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
 !        count subdomains in each glob and allocate memory for their list
          globs(iglob)%nsub = count(sublist(globs(iglob)%nodes(1),:).gt.0)
          allocate(globs(iglob)%subdomains(globs(iglob)%nsub))
-!        find subdomains in the glob         
+!        find subdomains in the glob
          ! CORE PART OF CLASSIFICATION FOLLOWS
          globs(iglob)%subdomains(:) = sublist(globs(iglob)%nodes(1),1:globs(iglob)%nsub)
          if (globs(iglob)%nsub.eq.2) then
@@ -1820,7 +1832,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                if ((globs(iglob)%itype .eq. 1 .or. globs(iglob)%itype .eq. 2) .and. any(globs(iglob)%subdomains .eq. isub)) then
                   subneib(globs(iglob)%subdomains) = 1
                end if
-            else 
+            else
                ! only faces are interesting in other cases
                if (globs(iglob)%itype .eq. 1 .and. any(globs(iglob)%subdomains .eq. isub)) then
                   subneib(globs(iglob)%subdomains) = 1
@@ -1912,7 +1924,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                inodsh = 1
 
                xyzbase = xyzsh(inodsh,:)
-               
+
                ! Find second corner by maximizing the distance of the first interface node
                ldist = nshared
                allocate(dist(ldist))
@@ -1941,7 +1953,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                   call error('PP_GETGLOBS','Problem finding already known corners in playground.')
                end if
                xyzbase = xyzsh(inodcs,:)
-               
+
                ! Find second corner by maximizing the distance from the first one
                ldist = nshared
                allocate(dist(ldist))
@@ -1996,7 +2008,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                x2 = xyzsh(inodcs2,1)
                y2 = xyzsh(inodcs2,2)
                z2 = xyzsh(inodcs2,3)
-               
+
                ! Find third corner as the most orthogonal
                larea = nshared
                allocate(area(larea))
@@ -2007,7 +2019,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
                   zish = xyzsh(ish,3)
                   area(ish) = ((y2-y1)*(zish-z1) - (yish-y1)*(z2-z1))**2 &
                             + ((x2-x1)*(zish-z1) - (xish-x1)*(z2-z1))**2 &
-                            + ((x2-x1)*(yish-y1) - (xish-x1)*(y2-y1))**2 
+                            + ((x2-x1)*(yish-y1) - (xish-x1)*(y2-y1))**2
                end do
                indaux  = maxloc(abs(area))
                inodcs3 = indaux(1)
@@ -2181,7 +2193,7 @@ type(neighbouring_type), allocatable :: neighbourings(:)
       write(*,'(a)')    '    --------------------'
       write(*,'(a,i8)') '    corners = ',count(newvertex.eq.1)
 
-! Perform check of interface coverage - union of faces, edges, corners and Dirichlet BC should form the whole interface 
+! Perform check of interface coverage - union of faces, edges, corners and Dirichlet BC should form the whole interface
 ! moreover, faces, edges and corners should be disjoint
       licheck = nnodi
       allocate(icheck(licheck))
@@ -2298,32 +2310,32 @@ subroutine pp_mark_sub_nodes(isub,nelem,iets,liets,inet,linet,nnet,lnnet,&
 !     Marks nodes of subdomain ISUB in array KNODES
 !***********************************************************************
 implicit none
-      
+
 ! subdomain index
-integer,intent(in):: isub 
+integer,intent(in):: isub
 
 ! global number of elements
-integer,intent(in):: nelem 
+integer,intent(in):: nelem
 
 ! indices of elements in subdomains
-integer,intent(in):: liets 
-integer,intent(in)::  iets(liets) 
+integer,intent(in):: liets
+integer,intent(in)::  iets(liets)
 
 ! indices of nodes on elements
-integer,intent(in):: linet 
-integer,intent(in)::  inet(linet) 
+integer,intent(in):: linet
+integer,intent(in)::  inet(linet)
 
 ! number of nodes on elements
-integer,intent(in):: lnnet 
-integer,intent(in)::  nnet(lnnet) 
+integer,intent(in):: lnnet
+integer,intent(in)::  nnet(lnnet)
 
 ! key to INET - pointers before element nodes
-integer,intent(in):: lkinet 
-integer,intent(in)::  kinet(lkinet) 
+integer,intent(in):: lkinet
+integer,intent(in)::  kinet(lkinet)
 
 ! key nodes - marked nodes for subdomain ISUB
-integer,intent(in)::  lknodes 
-integer,intent(out)::  knodes(lknodes) 
+integer,intent(in)::  lknodes
+integer,intent(out)::  knodes(lknodes)
 
 ! local variables
 integer:: ie, indsub, ine, nne, ipoint, indng
@@ -2349,16 +2361,16 @@ subroutine pp_distribute_linearly(nsub,nproc, sub2proc,lsub2proc)
 !     Distribute linearly NSUB elements to NPROC parts
 !****************************************************************
 implicit none
-      
+
 ! INPUT:
 ! subdomain number
-integer,intent(in):: nsub 
+integer,intent(in):: nsub
 ! number of processors
-integer,intent(in):: nproc 
+integer,intent(in):: nproc
 ! OUTPUT:
 ! sub2proc(nproc + 1) SUB2PROC array (ParMETIS-like)
-integer,intent(in)::  lsub2proc 
-integer,intent(out)::  sub2proc(lsub2proc) 
+integer,intent(in)::  lsub2proc
+integer,intent(out)::  sub2proc(lsub2proc)
 
 ! local vars
 integer :: nsub_locx, nsub_loc, iproc
@@ -2380,18 +2392,18 @@ subroutine pp_get_proc_for_sub(isub,comm,sub2proc,lsub2proc,iproc)
 use module_utils
 implicit none
 include "mpif.h"
-      
+
 ! INPUT:
 ! subdomain index
-integer,intent(in):: isub 
+integer,intent(in):: isub
 ! MPI communicator
-integer,intent(in):: comm 
+integer,intent(in):: comm
 ! sub2proc(nproc + 1) SUB2PROC array (ParMETIS-like)
-integer,intent(in):: lsub2proc 
-integer,intent(in)::  sub2proc(lsub2proc) 
+integer,intent(in):: lsub2proc
+integer,intent(in)::  sub2proc(lsub2proc)
 ! OUTPUT:
 ! index of processor who has the subdomain
-integer,intent(out):: iproc 
+integer,intent(out):: iproc
 
 ! local vars
 integer :: nproc, ierr, ip
@@ -2432,10 +2444,10 @@ implicit none
 integer, intent(in) :: isub
 integer, intent(in) :: jsub
 ! MPI communicator
-integer,intent(in):: comm 
+integer,intent(in):: comm
 ! sub2proc(nproc + 1) SUB2PROC array (ParMETIS-like)
-integer,intent(in):: lsub2proc 
-integer,intent(in)::  sub2proc(lsub2proc) 
+integer,intent(in):: lsub2proc
+integer,intent(in)::  sub2proc(lsub2proc)
 
 ! unique tag
 integer, intent(out):: tag
@@ -2445,12 +2457,12 @@ integer:: iproc, jproc, nsub_loc_j, isub_loc, jsub_loc
 
       call pp_get_proc_for_sub(isub,comm,sub2proc,lsub2proc,iproc)
       call pp_get_proc_for_sub(jsub,comm,sub2proc,lsub2proc,jproc)
-      
+
       isub_loc = isub - sub2proc(iproc+1) + 1
       jsub_loc = jsub - sub2proc(jproc+1) + 1
-      
+
       nsub_loc_j = sub2proc(jproc+2) - sub2proc(jproc+1)
-      
+
       ! compute tag based on local numbers
       tag = isub_loc*nsub_loc_j + jsub_loc
 

@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -17,15 +17,15 @@
 module module_graph
 ! module for operations on graphs
 ! Jakub Sistek, Manchester, 2018
-implicit none 
+implicit none
 
-contains 
+contains
 
 !*******************************************************************************
 subroutine graph_get_dual_mesh(nelem,nnod,inet,linet,nnet,lnnet,&
                                netn,lnetn,ietn,lietn,kietn,lkietn)
 !*******************************************************************************
-! Get dual mesh from primal one - transpose of the sparse connectivity table. 
+! Get dual mesh from primal one - transpose of the sparse connectivity table.
 ! From Indices of Nodes on ElemenTs (INET) to Indices of ElemenTs at nodes
 ! (IETN).
 !*******************************************************************************
@@ -42,7 +42,7 @@ integer, intent(in) ::  inet(linet)
 integer, intent(in) :: lnnet
 integer, intent(in) ::  nnet(lnnet)
 
-! dual mesh desctription 
+! dual mesh desctription
 integer, intent(in) :: lnetn
 integer, intent(out) :: netn(lnetn)
 integer, intent(in) :: lietn
@@ -97,9 +97,9 @@ subroutine graph_from_mesh(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,&
                            ietn,lietn,netn,lnetn,kietn,lkietn,&
                            nedge, xadj, adjncy, adjwgt)
 !*******************************************************************************
-! Construct a dual graph from the mesh and its dual mesh, corresponding to 
+! Construct a dual graph from the mesh and its dual mesh, corresponding to
 ! adjacency of elements. Corresponds to computing
-! G = C C^T, where C is the connectivity matrix with rows representing elements 
+! G = C C^T, where C is the connectivity matrix with rows representing elements
 ! and columns representing nodes.
 !*******************************************************************************
 use module_utils
@@ -145,7 +145,7 @@ integer :: ladjwgt
       lonerow = nnetx * netnx
       lonerowweig = lonerow
       allocate(onerow(lonerow),onerowweig(lonerowweig))
-      
+
 
 ! construct the array of pointers XADJ
       lxadj = nelem + 1
@@ -274,7 +274,7 @@ integer :: valid, ivalid, nvalid, i, i2
                else if (onerow(i).lt.valid) then
                   onerowweig(ivalid) = nvalid
                   exit
-               else               
+               else
                   nvalid = nvalid + 1 ! add count
                end if
             end do
@@ -331,7 +331,7 @@ logical :: match
          nadjelm = xadj(ivertex+1) - xadj(ivertex)
          do iadjelm = 1,nadjelm
             indadjelm = adjncy(xadj(ivertex)-1 + iadjelm)
-            match = .false. 
+            match = .false.
             indadjelmadj = 0
             nadjelmadj = xadj(indadjelm+1) - xadj(indadjelm)
             do iadjelmadj = 1,nadjelmadj
@@ -410,16 +410,16 @@ interface
       integer(c_int) :: nvertex
       integer(c_int) :: lxadj
       integer(c_int) :: xadj(lxadj)
-      integer(c_int) :: ladjncy 
+      integer(c_int) :: ladjncy
       integer(c_int) :: adjncy(ladjncy)
-      integer(c_int) :: lvwgt 
+      integer(c_int) :: lvwgt
       integer(c_int) :: vwgt(lvwgt)
       integer(c_int) :: ladjwgt
       integer(c_int) :: adjwgt(ladjwgt)
-      integer(c_int) :: nsub 
-      integer(c_int) :: contiguous_clusters 
-      integer(c_int) :: edgecut 
-      integer(c_int) :: lpart 
+      integer(c_int) :: nsub
+      integer(c_int) :: contiguous_clusters
+      integer(c_int) :: edgecut
+      integer(c_int) :: lpart
       integer(c_int) :: part(lpart)
    end subroutine graph_divide_c
 end interface
@@ -428,7 +428,7 @@ end interface
                           xadj, lxadj, adjncy, ladjncy,&
                           vwgt, lvwgt, adjwgt, ladjwgt, &
                           nsub, contiguous_clusters, &
-                          edgecut, part,lpart) 
+                          edgecut, part,lpart)
 
 end subroutine graph_divide
 
@@ -474,7 +474,7 @@ integer,parameter :: sizelimit = 1000000
             call graph_components_1(i)
          end if
       end do
-      ncomponents = icompo 
+      ncomponents = icompo
 
 ! check the components
       if (any(components.eq.-1)) then
@@ -495,10 +495,10 @@ integer             :: ineib, indneib
 
 ! mark this node into the component
       components(ivertex) = icompo
-      
+
       do ineib = xadj(ivertex),xadj(ivertex+1)-1
          indneib = adjncy(ineib)
-      
+
          if (components(indneib).le.0) then
             call graph_components_1(indneib)
          end if
@@ -541,10 +541,10 @@ integer :: ie, nadje, j
       do ie = 1,nvertex
          nadje = xadj(ie+1) - xadj(ie)
          if      (graphtype.eq.0) then
-            ! no weights 
+            ! no weights
             write(idfile,'(600i9)') nadje, (adjncy(xadj(ie)-1+j), j = 1,nadje)
          else if (graphtype.eq.1) then
-            ! weighted graph 
+            ! weighted graph
             write(idfile,'(600i9)') nadje, &
                 (adjncy(xadj(ie)-1+j), adjwgt(xadj(ie)-1+j), j = 1,nadje)
          else
@@ -659,9 +659,9 @@ integer :: indadjncy, indvertex, ivertex, nneib
          ladjwgt = 0
       end if
       lxadj   = nvertex + 1
-      
+
       allocate(xadj(lxadj), adjncy(ladjncy), adjwgt(ladjwgt))
-      
+
       indadjncy = 0
       xadj(1)   = 1
       do ivertex = 1,nvertex

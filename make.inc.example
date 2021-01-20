@@ -2,7 +2,7 @@
 # the whole link sequence for BDDC
 #*********************************
 BDDCML_LINK_SEQUENCE = $(LIBBDDCML) $(BDDCML_LIBMUMPS) $(BDDCML_LIBPARMETIS) $(BDDCML_LIBMETIS) $(BDDCML_LIBSCALAPACK) $(BDDCML_LIBBLACS) \
-                       $(BDDCML_LIBPORD) $(BDDCML_LIBLAPACK) $(BDDCML_LIBBLAS) $(BDDCML_BLOPEXLINK) $(BDDCML_LIBOTHERS) 
+                       $(BDDCML_LIBPORD) $(BDDCML_LIBLAPACK) $(BDDCML_LIBBLAS) $(BDDCML_BLOPEXLINK) $(BDDCML_LIBOTHERS)
 BDDCML_INC           = -I$(BDDCML_ROOT)/src
 
 #*********** Compilers
@@ -49,19 +49,19 @@ BDDCML_LIBPARMETIS  = -L$(HOME)/software/PARMETIS/lib -lparmetis
 # Metis
 BDDCML_LIBMETIS     = -L$(HOME)/software/METIS/lib -lmetis
 # other needed libs ( e.g. -lmpi, -lpthread )
-BDDCML_LIBOTHERS    = 
+BDDCML_LIBOTHERS    =
 
 # BLOPEX objects
 BDDCML_BLOPEXDIR = $(HOME)/software/lobpcg/blopex-read-only
 BDDCML_INCBLOPEX = \
-   -I$(BDDCML_BLOPEXDIR)/blopex_serial_double/multivector \
-   -I$(BDDCML_BLOPEXDIR)/blopex_serial_double/pcg_multi \
-   -I$(BDDCML_BLOPEXDIR)/blopex_serial_double/matmultivec \
+   -I$(BDDCML_BLOPEXDIR)/blopex_serial_complex/multivector \
+   -I$(BDDCML_BLOPEXDIR)/blopex_serial_complex/pcg_multi \
+   -I$(BDDCML_BLOPEXDIR)/blopex_serial_complex/matmultivec \
    -I$(BDDCML_BLOPEXDIR)/blopex_abstract/include
 BDDCML_OBJBLOPEX = \
-   $(BDDCML_BLOPEXDIR)/blopex_serial_double/multivector/multi_vector.o \
-   $(BDDCML_BLOPEXDIR)/blopex_serial_double/pcg_multi/pcg_multi.o \
-   $(BDDCML_BLOPEXDIR)/blopex_serial_double/matmultivec/matmultivec.o
+   $(BDDCML_BLOPEXDIR)/blopex_serial_complex/multivector/multi_vector.o \
+   $(BDDCML_BLOPEXDIR)/blopex_serial_complex/pcg_multi/pcg_multi.o \
+   $(BDDCML_BLOPEXDIR)/blopex_serial_complex/matmultivec/matmultivec.o
 BDDCML_LIBBLOPEX = -L$(BDDCML_BLOPEXDIR)/blopex_abstract/lib -lBLOPEX
 BDDCML_BLOPEXLINK = $(BDDCML_OBJBLOPEX) $(BDDCML_LIBBLOPEX)
 

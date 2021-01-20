@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -19,7 +19,7 @@ module module_sm
 ! Module for operations with sparse matrices in triplets I,J,A
 ! Jakub Sistek, Denver, 12/2007
       use, intrinsic :: iso_fortran_env
-      implicit none 
+      implicit none
 
 ! type of real variables
       integer,parameter,private :: kr = REAL64
@@ -55,8 +55,8 @@ subroutine sm_pmd_get_length(matrixtype,nelem,inet,linet,nnet,lnnet,nndf,lnndf,l
 
 ! Local variables
       integer :: ie, nevab, ndofn, iinet, nne, inod, inodg, lelm
-                
-! Find the lenght of sparse matrix to be allocated LA 
+
+! Find the lenght of sparse matrix to be allocated LA
       iinet = 0
       la = 0
       do ie = 1,nelem
@@ -117,9 +117,9 @@ subroutine sm_pmd_get_length_quart(matrixtype,nelem,inet,linet,nnet,lnnet,nndf,l
       integer,intent(out)  :: la11, la12, la21, la22
 
 ! Local variables
-      integer :: ie, nevab1, nevab2, ndofn, iinet, nne, inod, inodg, lelm11, lelm12, lelm21, lelm22 
-                
-! Find the lenght of sparse matrix to be allocated LA 
+      integer :: ie, nevab1, nevab2, ndofn, iinet, nne, inod, inodg, lelm11, lelm12, lelm21, lelm22
+
+! Find the lenght of sparse matrix to be allocated LA
       iinet = 0
       la11  = 0
       la12  = 0
@@ -191,9 +191,9 @@ subroutine sm_pmd_load(matrixtype, idelm,nelem,inet,linet,nnet,lnnet,nndf,lnndf,
       integer,intent(in) :: inet(linet), nnet(lnnet), nndf(lnndf), kdof(lkdof)
 
 ! Matrix in IJA sparse format
-      integer,intent(in)  :: la
-      integer,intent(out)  :: i_sparse(la), j_sparse(la)
-      real(kr),intent(out) :: a_sparse(la)
+      integer,intent(in)     :: la
+      integer,intent(out)     :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(out) :: a_sparse(la)
 
 ! Local variables
       integer:: ie, i, inda, lelm
@@ -238,9 +238,9 @@ subroutine sm_pmd_load_masked(matrixtype, idelm,nelem,inet,linet,nnet,lnnet,nndf
       integer,intent(in) ::  isegn(lisegn)
 
 ! Matrix in IJA sparse format
-      integer,intent(in)  :: la
-      integer,intent(out)  :: i_sparse(la), j_sparse(la)
-      real(kr),intent(out) :: a_sparse(la)
+      integer,intent(in)     :: la
+      integer,intent(out)     :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(out) :: a_sparse(la)
 
 ! Local variables
       integer:: ie, i, inda, lelm, indposition, inde
@@ -252,7 +252,7 @@ subroutine sm_pmd_load_masked(matrixtype, idelm,nelem,inet,linet,nnet,lnnet,nndf
          inde = isegn(ie)
          ! move in file to the proper element position
          do i = 1,inde-indposition
-            read(idelm) 
+            read(idelm)
          end do
          indposition = inde
          read(idelm) lelm,(a_sparse(inda + i), i = 1,lelm)
@@ -355,7 +355,7 @@ subroutine sm_pmd_make_element_numbering(matrixtype,nelem,inet,linet,nnet,lnnet,
             else
                call error(routine_name, 'Unknown type of matrix: ',matrixtype)
             end if
-            do ive = 1,uppbound 
+            do ive = 1,uppbound
 
                ! Move in the main matrix array
                inda = inda + 1
@@ -384,7 +384,7 @@ end subroutine
 subroutine sm_count_fixed_rows_matrix_size(matrixtype,ifix,lifix,nnz,i_sparse,j_sparse,la,&
                                            la_fixed)
 !************************************************************************************************
-! Subroutine for calculating the size of the sparse matrix for storing fixed rows of the original matrix 
+! Subroutine for calculating the size of the sparse matrix for storing fixed rows of the original matrix
 ! using PMD arrays
       implicit none
 
@@ -409,7 +409,7 @@ subroutine sm_count_fixed_rows_matrix_size(matrixtype,ifix,lifix,nnz,i_sparse,j_
 ! Local variables
       character(*),parameter:: routine_name = 'SM_COUNT_FIXED_ROWS_MATRIX_SIZE'
       integer :: ia, indi, indj
-      integer :: ifixed 
+      integer :: ifixed
 
 ! Eliminate boundary conditions
       ifixed = 0
@@ -434,7 +434,7 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_
 ! Subroutine for application of Dirichlet boudary conditions on a sparse matrix
 ! using PMD arrays
 ! Eliminate boundary conditions from right hand side, put zeros to the row and
-! column and one on the diagonal. 
+! column and one on the diagonal.
 ! The value of fixed variable put in RHS.
 
       use module_utils
@@ -451,43 +451,43 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_
       integer,intent(in) :: ifix(lifix)
 
 ! values of fixed variables
-      integer,intent(in) :: lfixv
-      real(kr),intent(in):: fixv(lfixv)
+      integer,intent(in)    :: lfixv
+      complex(kr),intent(in):: fixv(lfixv)
 
 ! Matrix in IJA sparse format
       integer,intent(in) :: nnz
       integer,intent(in) :: la
-      integer,intent(inout) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(inout):: a_sparse(la)
+      integer,intent(inout)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(inout):: a_sparse(la)
 
 ! Should the fixed rows be stored during elimination?
-      logical,intent(in) ::            store_fixed_rows
+      logical,intent(in) ::               store_fixed_rows
 
 ! Matrix of fixed rows in IJA sparse format
-      integer,intent(in) ::             la_fixed
-      integer,intent(inout),optional :: i_fixed_sparse(la_fixed), j_fixed_sparse(la_fixed)
-      real(kr),intent(inout),optional:: a_fixed_sparse(la_fixed)
+      integer,intent(in) ::                la_fixed
+      integer,intent(inout),optional    :: i_fixed_sparse(la_fixed), j_fixed_sparse(la_fixed)
+      complex(kr),intent(inout),optional:: a_fixed_sparse(la_fixed)
 
 ! values of fixed variables
-      integer,intent(in)   :: lbc
-      real(kr),intent(out) :: bc(lbc)
+      integer,intent(in)      :: lbc
+      complex(kr),intent(out) :: bc(lbc)
 
 ! Local variables
       character(*),parameter:: routine_name = 'SM_APPLY_BC'
-      integer :: ia, indi, indj
-      real(kr):: fixval, aval, value, auxval
-      integer :: i, newplace
-      integer ::            lis_diag_fixed
+      integer    :: ia, indi, indj
+      complex(kr):: fixval, aval, value, auxval
+      integer    :: i, newplace
+      integer    ::         lis_diag_fixed
       logical,allocatable :: is_diag_fixed(:)
-      integer :: ifixed
+      integer    :: ifixed
 
 ! Zero BC
       if (lbc.gt.0) then
-         bc = 0.0_kr
+         bc = (0.0_kr,0.0_kr)
       end if
 
 ! Auxiliary value to put on diagonal after eliminating BC
-      auxval = 1.0_kr
+      auxval = (1.0_kr,0._kr)
 
 ! Auxiliary array checking that no diagonal entry was omitted - even for saddle point systems
       lis_diag_fixed = lifix
@@ -522,7 +522,7 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_
                if (ifix(indi).ne.0) then
                   fixval = fixv(indi)
                   aval   = a_sparse(ia)
-                  if (fixval.ne.0.0_kr.and.aval.ne.0.0_kr) then
+                  if (abs(fixval).ne.0.0_kr.and.abs(aval).ne.0.0_kr) then
                      value = aval*fixval
                      if (ifix(indj).eq.0) then
                         bc(indj) = bc(indj) - value
@@ -535,7 +535,7 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_
             if (ifix(indj).ne.0) then
                fixval = fixv(indj)
                aval   = a_sparse(ia)
-               if (fixval.ne.0.0_kr.and.aval.ne.0.0_kr) then
+               if (abs(fixval).ne.0.0_kr.and.abs(aval).ne.0.0_kr) then
                   value = aval*fixval
                   if (ifix(indi).eq.0) then
                      bc(indi) = bc(indi) - value
@@ -545,10 +545,10 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_
 
             ! zero entry
             if (ifix(indi).ne.0.or.ifix(indj).ne.0) then
-               a_sparse(ia) = 0.0_kr
+               a_sparse(ia) = (0.0_kr,0.0_kr)
             end if
          ! diagonal entries
-         else 
+         else
             ! fixed row
             if (ifix(indi).ne.0) then
                fixval = fixv(indi)
@@ -557,7 +557,7 @@ subroutine sm_apply_bc(matrixtype,ifix,lifix,fixv,lfixv,nnz,i_sparse,j_sparse,a_
                   a_sparse(ia) = auxval
                   aval         = auxval
                end if
-               if (fixval.ne.0.0_kr.and.aval.ne.0.0_kr) then
+               if (abs(fixval).ne.0.0_kr.and.abs(aval).ne.0.0_kr) then
                   value = aval*fixval
                   bc(indi) = bc(indi) + value
                end if
@@ -601,19 +601,19 @@ end subroutine
 !****************************************************
 subroutine sm_prepare_rhs(ifix,lifix,bc,lbc,rhs,lrhs)
 !****************************************************
-! Subroutine for preparation of RHS so that it satisfy Dirichlet BC 
+! Subroutine for preparation of RHS so that it satisfy Dirichlet BC
 ! For nonhomogeneous Dirichlet BC using array BC from subroutine SM_APPLY_BC.
 
       implicit none
 
-      integer,intent(in)     :: lifix, lbc, lrhs
-      integer,intent(in)     :: ifix(lifix)
-      real(kr),intent(in)    :: bc(lbc)
-      real(kr),intent(inout) :: rhs(lrhs)
+      integer,intent(in)        :: lifix, lbc, lrhs
+      integer,intent(in)        :: ifix(lifix)
+      complex(kr),intent(in)    :: bc(lbc)
+      complex(kr),intent(inout) :: rhs(lrhs)
 
 ! Natural RHS is zero in constraints
       if (lifix.gt.0) then
-         where(ifix.ne.0) rhs = 0.0_kr
+         where(ifix.ne.0) rhs = (0.0_kr,0.0_kr)
       end if
 
 ! Add eliminated variables from BC (if it has sense)
@@ -629,18 +629,18 @@ end subroutine
 !************************************************************
 subroutine sm_assembly(i_sparse, j_sparse, a_sparse, la, nnz)
 !************************************************************
-! Subroutine for assemblage of sparse matrix in IJA format 
+! Subroutine for assemblage of sparse matrix in IJA format
 ! Sorts the matrix and adds entries with same indices
       use module_utils
       implicit none
 
 ! Matrix in IJA sparse format
       integer,intent(in) :: la
-      integer,intent(inout) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(inout):: a_sparse(la)
+      integer,intent(inout)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(inout):: a_sparse(la)
 ! Number of nonzeros
       integer,intent(out) :: nnz
-      
+
 ! Local variables
       character(*),parameter:: routine_name = 'SM_ASSEMBLY'
       integer:: inz, indi, indj, indi_old, indj_old, ia
@@ -677,7 +677,7 @@ subroutine sm_assembly(i_sparse, j_sparse, a_sparse, la, nnz)
       nnz = inz
 
 ! Zero the tail
-      a_sparse(nnz+1:la) = 0._kr
+      a_sparse(nnz+1:la) = (0._kr,0._kr)
 
   77  return
 end subroutine
@@ -697,15 +697,15 @@ implicit none
 
 ! Matrix in IJA sparse format
 integer, intent(in) :: la
-integer,intent(inout),target :: i_sparse(la), j_sparse(la)
-real(kr),intent(inout),target:: a_sparse(la)
+integer,intent(inout),target    :: i_sparse(la), j_sparse(la)
+complex(kr),intent(inout),target:: a_sparse(la)
 
-integer, pointer  :: p_i_sparse(:), p_j_sparse(:)
-real(kr), pointer :: p_a_sparse(:)
+integer, pointer     :: p_i_sparse(:), p_j_sparse(:)
+complex(kr), pointer :: p_a_sparse(:)
 
 ! Local variables
-integer :: itemp, jtemp, indend, iend, indbegin, ibegin
-real(kr):: atemp
+integer    :: itemp, jtemp, indend, iend, indbegin, ibegin
+complex(kr):: atemp
 
 ! Associate pointers with arrays
 p_i_sparse => i_sparse
@@ -823,7 +823,7 @@ END SUBROUTINE sm_sort
 subroutine sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                        vec_in,lvec_in, vec_out,lvec_out)
 !**************************************************************************
-! Subroutine for multiplication of sparse matrix in IJA format 
+! Subroutine for multiplication of sparse matrix in IJA format
 ! with a vector vec_in, result in vec_out
 
       implicit none
@@ -835,17 +835,17 @@ subroutine sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
       integer :: matrixtype
 
 ! Matrix in IJA sparse format
-      integer,intent(in) :: nnz, la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: nnz, la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 
 ! Vectors
-      integer,intent(in)  :: lvec_in, lvec_out
-      real(kr),intent(in) :: vec_in(lvec_in)
-      real(kr),intent(out):: vec_out(lvec_out)
+      integer,intent(in)     :: lvec_in, lvec_out
+      complex(kr),intent(in) :: vec_in(lvec_in)
+      complex(kr),intent(out):: vec_out(lvec_out)
 
 ! Zero the output vector
-      vec_out = 0.0_kr
+      vec_out = (0.0_kr,0.0_kr)
 
 ! Decide according to value of matrixtype which multiplication is appropriate
       select case (matrixtype)
@@ -870,7 +870,7 @@ subroutine sm_vec_mult_mask(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                             vec_in,lvec_in, vec_out,lvec_out, &
                             mask,lmask,match)
 !**************************************************************************
-! Subroutine for multiplication of sparse matrix in IJA format 
+! Subroutine for multiplication of sparse matrix in IJA format
 ! with a vector vec_in, result in vec_out
 
       implicit none
@@ -882,14 +882,14 @@ subroutine sm_vec_mult_mask(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
       integer :: matrixtype
 
 ! Matrix in IJA sparse format
-      integer,intent(in) :: nnz, la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: nnz, la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 
 ! Vectors
-      integer,intent(in)  :: lvec_in, lvec_out
-      real(kr),intent(in) :: vec_in(lvec_in)
-      real(kr),intent(out):: vec_out(lvec_out)
+      integer,intent(in)     :: lvec_in, lvec_out
+      complex(kr),intent(in) :: vec_in(lvec_in)
+      complex(kr),intent(out):: vec_out(lvec_out)
 
 ! Blocks of matrix
       ! selects a block of matrix, e.g. corresponding to interface
@@ -903,7 +903,7 @@ subroutine sm_vec_mult_mask(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
       logical,intent(in)  ::  match(2)
 
 ! Zero the output vector
-      vec_out = 0.0_kr
+      vec_out = (0.0_kr,0.0_kr)
 
 ! Decide according to value of matrixtype which multiplication is appropriate
       select case (matrixtype)
@@ -929,20 +929,20 @@ end subroutine
 subroutine sm_vec_mult_full(nnz, i_sparse, j_sparse, a_sparse, la, &
                             vec_in,lvec_in, vec_out,lvec_out)
 !*******************************************************************
-! Subroutine for multiplication of FULL sparse matrix in IJA format 
+! Subroutine for multiplication of FULL sparse matrix in IJA format
 ! with a vector vec_in, result in vec_out
       use module_utils, only: error_exit
 
       implicit none
 ! Matrix in IJA sparse format
-      integer,intent(in) :: nnz, la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: nnz, la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 
 ! Vectors
-      integer,intent(in)  :: lvec_in, lvec_out
-      real(kr),intent(in) :: vec_in(lvec_in)
-      real(kr),intent(out):: vec_out(lvec_out)
+      integer,intent(in)     :: lvec_in, lvec_out
+      complex(kr),intent(in) :: vec_in(lvec_in)
+      complex(kr),intent(out):: vec_out(lvec_out)
 
 ! local variables
       integer:: ia, indi, indj
@@ -963,20 +963,20 @@ subroutine sm_vec_mult_full_mask(nnz, i_sparse, j_sparse, a_sparse, la, &
                                  vec_in,lvec_in, vec_out,lvec_out, &
                                  mask,lmask,match)
 !*******************************************************************
-! Subroutine for multiplication of FULL sparse matrix in IJA format 
+! Subroutine for multiplication of FULL sparse matrix in IJA format
 ! with a vector vec_in, result in vec_out
       use module_utils, only: error_exit
 
       implicit none
 ! Matrix in IJA sparse format
-      integer,intent(in) :: nnz, la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: nnz, la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 
 ! Vectors
-      integer,intent(in)  :: lvec_in, lvec_out
-      real(kr),intent(in) :: vec_in(lvec_in)
-      real(kr),intent(out):: vec_out(lvec_out)
+      integer,intent(in)     :: lvec_in, lvec_out
+      complex(kr),intent(in) :: vec_in(lvec_in)
+      complex(kr),intent(out):: vec_out(lvec_out)
 
 ! Blocks of matrix
       ! selects a block of matrix, e.g. corresponding to interface
@@ -1024,7 +1024,7 @@ subroutine sm_vec_mult_sym(nnz, i_sparse, j_sparse, a_sparse, la, &
                            vec_in,lvec_in, vec_out,lvec_out, &
                            mask,lmask,match)
 !******************************************************************
-! Subroutine for multiplication of SYMMETRIC sparse matrix in IJA format 
+! Subroutine for multiplication of SYMMETRIC sparse matrix in IJA format
 ! with a vector vec_in, result in vec_out
 ! Only upper triangle of the matrix is stored
       use module_utils, only: error_exit
@@ -1032,14 +1032,14 @@ subroutine sm_vec_mult_sym(nnz, i_sparse, j_sparse, a_sparse, la, &
       implicit none
 
 ! Matrix in IJA sparse format
-      integer,intent(in) :: nnz, la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: nnz, la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 
 ! Vectors
-      integer,intent(in)  :: lvec_in, lvec_out
-      real(kr),intent(in) :: vec_in(lvec_in)
-      real(kr),intent(out):: vec_out(lvec_out)
+      integer,intent(in)     :: lvec_in, lvec_out
+      complex(kr),intent(in) :: vec_in(lvec_in)
+      complex(kr),intent(out):: vec_out(lvec_out)
 
 ! Blocks of matrix
       ! selects a block of matrix, e.g. corresponding to interface
@@ -1123,7 +1123,7 @@ subroutine sm_vec_mult_sym_mask(nnz, i_sparse, j_sparse, a_sparse, la, &
                                 vec_in,lvec_in, vec_out,lvec_out, &
                                 mask,lmask,match)
 !******************************************************************
-! Subroutine for multiplication of SYMMETRIC sparse matrix in IJA format 
+! Subroutine for multiplication of SYMMETRIC sparse matrix in IJA format
 ! with a vector vec_in, result in vec_out
 ! Only upper triangle of the matrix is stored
       use module_utils, only: error_exit
@@ -1131,14 +1131,14 @@ subroutine sm_vec_mult_sym_mask(nnz, i_sparse, j_sparse, a_sparse, la, &
       implicit none
 
 ! Matrix in IJA sparse format
-      integer,intent(in) :: nnz, la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: nnz, la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 
 ! Vectors
-      integer,intent(in)  :: lvec_in, lvec_out
-      real(kr),intent(in) :: vec_in(lvec_in)
-      real(kr),intent(out):: vec_out(lvec_out)
+      integer,intent(in)     :: lvec_in, lvec_out
+      complex(kr),intent(in) :: vec_in(lvec_in)
+      complex(kr),intent(out):: vec_out(lvec_out)
 
 ! Blocks of matrix
       ! selects a block of matrix, e.g. corresponding to interface
@@ -1214,7 +1214,7 @@ end subroutine
 subroutine sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                        mat_in,lmat_in1,lmat_in2, mat_out,lmat_out1,lmat_out2)
 !****************************************************************************
-! Subroutine for multiplication of sparse matrix in IJA format 
+! Subroutine for multiplication of sparse matrix in IJA format
 ! with a dense matrix mat_in, result in mat_out
 
       implicit none
@@ -1226,15 +1226,15 @@ subroutine sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
       integer,intent(in) :: matrixtype
 
 ! Matrix in IJA sparse format
-      integer,intent(in) :: nnz, la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: nnz, la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 
 ! Dense matrices
-      integer,intent(in)   :: lmat_in1, lmat_in2
-      real(kr),intent(in)  :: mat_in(lmat_in1, lmat_in2)
-      integer,intent(in)   :: lmat_out1, lmat_out2
-      real(kr),intent(out) :: mat_out(lmat_out1, lmat_out2)
+      integer,intent(in)      :: lmat_in1, lmat_in2
+      complex(kr),intent(in)  :: mat_in(lmat_in1, lmat_in2)
+      integer,intent(in)      :: lmat_out1, lmat_out2
+      complex(kr),intent(out) :: mat_out(lmat_out1, lmat_out2)
 
 ! Local variables
       integer :: icol
@@ -1251,7 +1251,7 @@ subroutine sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
             call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                              mat_in(1,icol),lmat_in1, mat_out(1,icol),lmat_out1)
          else
-            mat_out(:,icol) = 0._kr
+            mat_out(:,icol) = (0._kr,0._kr)
          end if
       end do
 
@@ -1264,7 +1264,7 @@ subroutine sm_from_sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la
                                store_type,mrow,i_mout_sparse,j_mout_sparse,mout_sparse,lmout_sparse,nnz_mout, &
                                scalar)
 !**************************************************************************************************************
-! Subroutine for multiplication of sparse matrix in IJA format 
+! Subroutine for multiplication of sparse matrix in IJA format
 ! with a dense matrix mat_in.
 ! Result is stored directly in SPARSE format.
 
@@ -1277,13 +1277,13 @@ subroutine sm_from_sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la
       integer :: matrixtype
 
 ! Matrix in IJA sparse format
-      integer,intent(in) :: nnz, la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: nnz, la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 
 ! Dense matrix
-      integer,intent(in)   :: lmat_in1, lmat_in2
-      real(kr),intent(in)  :: mat_in(lmat_in1, lmat_in2)
+      integer,intent(in)      :: lmat_in1, lmat_in2
+      complex(kr),intent(in)  :: mat_in(lmat_in1, lmat_in2)
 
 ! Type of storage of result
 ! 0   - store all entries
@@ -1291,18 +1291,18 @@ subroutine sm_from_sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la
       integer :: store_type
 
 ! Resulting matrix in IJA sparse format
-      integer,intent(in)   :: mrow
-      integer,intent(in)   :: lmout_sparse
-      integer,intent(out)  :: i_mout_sparse(lmout_sparse), j_mout_sparse(lmout_sparse)
-      real(kr),intent(out) :: mout_sparse(lmout_sparse)
-      integer,intent(out)  :: nnz_mout
+      integer,intent(in)      :: mrow
+      integer,intent(in)      :: lmout_sparse
+      integer,intent(out)     :: i_mout_sparse(lmout_sparse), j_mout_sparse(lmout_sparse)
+      complex(kr),intent(out) :: mout_sparse(lmout_sparse)
+      integer,intent(out)     :: nnz_mout
 
 ! Scalar coefficient that multiplies all entries of resulting matrix
-      real(kr),optional,intent(in):: scalar
+      complex(kr),optional,intent(in):: scalar
 
 ! Local variables
-      integer ::             lvec
-      real(kr),allocatable :: vec(:)
+      integer ::                lvec
+      complex(kr),allocatable :: vec(:)
       integer :: icol, nnz_add, space_left, length
       logical :: use_scalar
 
@@ -1320,7 +1320,7 @@ subroutine sm_from_sm_mat_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la
 ! Loop over columns of dense matrix
       nnz_mout = 0
       do icol = 1,lmat_in2
-         if (any(mat_in(:,icol).ne.0._kr)) then
+         if (any(abs(mat_in(:,icol)).ne.0._kr)) then
             ! Find the resulting vector for one
             call sm_vec_mult(matrixtype, nnz, i_sparse, j_sparse, a_sparse, la, &
                              mat_in(1,icol),lmat_in1, vec,lvec)
@@ -1359,7 +1359,7 @@ subroutine sm_from_sm_mat_mult_emb(matrixtype, nnz, i_sparse, j_sparse, a_sparse
                                    store_type,i_mout_sparse,j_mout_sparse,mout_sparse,lmout_sparse,nnz_mout, &
                                    scalar)
 !*************************************************************************************************************
-! Subroutine for multiplication of sparse matrix in IJA format 
+! Subroutine for multiplication of sparse matrix in IJA format
 ! with a dense matrix mat_in embedded by mask into some bigger matrix.
 ! Result is stored directly in sparse format.
 
@@ -1372,15 +1372,15 @@ subroutine sm_from_sm_mat_mult_emb(matrixtype, nnz, i_sparse, j_sparse, a_sparse
       integer :: matrixtype
 
 ! Matrix in IJA sparse format
-      integer,intent(in) :: nnz, la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: nnz, la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 ! number of rows and columns in the sparse matrix
-      integer,intent(in) :: narow, nacol
+      integer,intent(in)    :: narow, nacol
 
 ! Dense matrix
-      integer,intent(in)   :: lmat_in1, lmat_in2
-      real(kr),intent(in)  :: mat_in(lmat_in1, lmat_in2)
+      integer,intent(in)      :: lmat_in1, lmat_in2
+      complex(kr),intent(in)  :: mat_in(lmat_in1, lmat_in2)
 
 ! Embedding arrays
       integer,intent(in)  :: lmask_row,           lmask_col
@@ -1392,19 +1392,19 @@ subroutine sm_from_sm_mat_mult_emb(matrixtype, nnz, i_sparse, j_sparse, a_sparse
       integer :: store_type
 
 ! Resulting matrix in IJA sparse format
-      integer,intent(in)   :: lmout_sparse
-      integer,intent(out)  :: i_mout_sparse(lmout_sparse), j_mout_sparse(lmout_sparse)
-      real(kr),intent(out) :: mout_sparse(lmout_sparse)
-      integer,intent(out)  :: nnz_mout
+      integer,intent(in)      :: lmout_sparse
+      integer,intent(out)     :: i_mout_sparse(lmout_sparse), j_mout_sparse(lmout_sparse)
+      complex(kr),intent(out) :: mout_sparse(lmout_sparse)
+      integer,intent(out)     :: nnz_mout
 
 ! Scalar coefficient
-      real(kr),optional,intent(in):: scalar
+      complex(kr),optional,intent(in):: scalar
 
 ! Local variables
-      integer ::             lvecin
-      real(kr),allocatable :: vecin(:)
-      integer ::             lvecout
-      real(kr),allocatable :: vecout(:)
+      integer ::                lvecin
+      complex(kr),allocatable :: vecin(:)
+      integer ::                lvecout
+      complex(kr),allocatable :: vecout(:)
       integer :: icol, nnz_add, space_left, length, i
       logical :: use_scalar
 
@@ -1440,10 +1440,10 @@ subroutine sm_from_sm_mat_mult_emb(matrixtype, nnz, i_sparse, j_sparse, a_sparse
 ! Loop over columns of dense matrices
       nnz_mout = 0
       do icol = 1,lmat_in2
-         if (any(mat_in(:,icol).ne.0._kr)) then
+         if (any(abs(mat_in(:,icol)).ne.0._kr)) then
 ! Find the resulting vector for one column
             ! Prepare the input vector
-            vecin = 0._kr
+            vecin = (0._kr,0._kr)
             do i = 1,lmask_row
                vecin(mask_row(i)) = mat_in(i,icol)
             end do
@@ -1533,7 +1533,7 @@ subroutine sm_check_matrix(matrixtype,ibound,jbound, i_sparse, j_sparse, la, nnz
 
             if      (irow.gt.indrow) then
                ! new line starting
-               indrow = irow 
+               indrow = irow
             else if (irow .eq. indrow) then
                ! keeping at the same line
                continue
@@ -1562,24 +1562,24 @@ end subroutine
 !************************************************************
 subroutine sm_from_vec(vec,lvec, i_sparse, a_sparse, la, nnz)
 !************************************************************
-! Subroutine for conversion of a dense vector 
+! Subroutine for conversion of a dense vector
 ! into a sparse pair of rows and values of nonzeros.
 
       implicit none
 
 ! Input dense vector
-      integer,intent(in) :: lvec
-      real(kr),intent(in)::  vec(lvec)
+      integer,intent(in)    :: lvec
+      complex(kr),intent(in)::  vec(lvec)
 
 ! Output pair of rows and values with nonzeros
-      integer,intent(in)  :: la
-      integer,intent(out) :: i_sparse(la)
-      real(kr),intent(out):: a_sparse(la)
-      integer,intent(out) :: nnz
+      integer,intent(in)     :: la
+      integer,intent(out)    :: i_sparse(la)
+      complex(kr),intent(out):: a_sparse(la)
+      integer,intent(out)    :: nnz
 
 ! Local variables
-      integer :: ia, i
-      real(kr):: val
+      integer    :: ia, i
+      complex(kr):: val
 
       ia = 0
       do i = 1,lvec
@@ -1613,14 +1613,14 @@ subroutine sm_from_dm(matrixtype, m,lm1,lm2, i_sparse, j_sparse, a_sparse, la, n
       integer :: matrixtype
 
 ! Input dense matrix
-      integer,intent(in) :: lm1, lm2
-      real(kr),intent(in):: m(lm1,lm2)
+      integer,intent(in)    :: lm1, lm2
+      complex(kr),intent(in):: m(lm1,lm2)
 
 ! Matrix in AIJ sparse format
-      integer,intent(in)  :: la
-      integer,intent(out) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(out):: a_sparse(la)
-      integer,intent(out) :: nnz
+      integer,intent(in)     :: la
+      integer,intent(out)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(out):: a_sparse(la)
+      integer,intent(out)    :: nnz
 
 ! Local variables
       integer :: jcol, nnz_add, lvec, pointa, space_left
@@ -1658,7 +1658,7 @@ end subroutine
 subroutine sm_from_dm_emb(matrixtype, m,lm1,lm2, mask_row,lmask_row,mask_col,lmask_col,&
                           i_sparse, j_sparse, a_sparse, la, nnz)
 !**************************************************************************************
-! Subroutine for conversion of a dense matrix M 
+! Subroutine for conversion of a dense matrix M
 ! embedded into larger matrix by MASK arrays into a sparse triplet IJA.
 
       implicit none
@@ -1670,18 +1670,18 @@ subroutine sm_from_dm_emb(matrixtype, m,lm1,lm2, mask_row,lmask_row,mask_col,lma
       integer :: matrixtype
 
 ! Input dense matrix
-      integer,intent(in) :: lm1, lm2
-      real(kr),intent(in):: m(lm1,lm2)
+      integer,intent(in)    :: lm1, lm2
+      complex(kr),intent(in):: m(lm1,lm2)
 
 ! Embedding matrices
-      integer,intent(in)  :: lmask_row,           lmask_col
-      integer,intent(in)  ::  mask_row(lmask_row), mask_col(lmask_col)
+      integer,intent(in)     :: lmask_row,           lmask_col
+      integer,intent(in)     ::  mask_row(lmask_row), mask_col(lmask_col)
 
 ! Matrix in IJA sparse format
-      integer,intent(in)  :: la
-      integer,intent(out) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(out):: a_sparse(la)
-      integer,intent(out) :: nnz
+      integer,intent(in)     :: la
+      integer,intent(out)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(out):: a_sparse(la)
+      integer,intent(out)    :: nnz
 
 ! Local variables
       integer :: irow, jcol, nnz_add, lvec, pointa, space_left
@@ -1708,7 +1708,7 @@ subroutine sm_from_dm_emb(matrixtype, m,lm1,lm2, mask_row,lmask_row,mask_col,lma
             j_sparse(pointa+1:pointa+nnz_add) = mask_col(jcol)
 
             ! correct the row indices by embedding
-            ! first negative indices 
+            ! first negative indices
             do irow = 1,lm1
                where (i_sparse(pointa+1:pointa+nnz_add).eq.irow) i_sparse(pointa+1:pointa+nnz_add) = - mask_row(irow)
             end do
@@ -1743,24 +1743,24 @@ subroutine sm_from_dmatmult(matrixtype, m,lm1,lm2, n,ln1,ln2, i_sparse,j_sparse,
       integer :: matrixtype
 
 ! Input dense matrices
-      integer,intent(in) :: lm1, lm2
-      real(kr),intent(in):: m(lm1,lm2)
-      integer,intent(in) :: ln1, ln2
-      real(kr),intent(in):: n(ln1,ln2)
+      integer,intent(in)    :: lm1, lm2
+      complex(kr),intent(in):: m(lm1,lm2)
+      integer,intent(in)    :: ln1, ln2
+      complex(kr),intent(in):: n(ln1,ln2)
 
 ! Resulting matrix in sparse format IJA
-      integer,intent(in)  :: la
-      integer,intent(out) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(out):: a_sparse(la)
-      integer,intent(out) :: nnz
+      integer,intent(in)     :: la
+      integer,intent(out)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(out):: a_sparse(la)
+      integer,intent(out)    :: nnz
 
 ! Scalar coefficient
-      real(kr),optional,intent(in):: scalar
+      complex(kr),optional,intent(in):: scalar
 
 ! Local variables
-      integer :: irow, jcol, ia, start_col
-      real(kr):: aval
-      logical :: use_scalar
+      integer    :: irow, jcol, ia, start_col
+      complex(kr):: aval
+      logical    :: use_scalar
 
 ! Handle optional scalar argument
       if (present(scalar)) then
@@ -1778,7 +1778,7 @@ subroutine sm_from_dmatmult(matrixtype, m,lm1,lm2, n,ln1,ln2, i_sparse,j_sparse,
 ! perform the multiplication
       ia = 0
       do irow = 1,lm1
-         if (any(m(irow,:).ne.0._kr)) then
+         if (any(abs(m(irow,:)).ne.0._kr)) then
             select case (matrixtype)
                case (0)
                   ! matrix is stored whole
@@ -1792,10 +1792,10 @@ subroutine sm_from_dmatmult(matrixtype, m,lm1,lm2, n,ln1,ln2, i_sparse,j_sparse,
             end select
             do jcol = start_col,ln2
                ! determine the entry in resulting matrix
-               if (any(n(:,jcol).ne.0._kr)) then
+               if (any(abs(n(:,jcol)).ne.0._kr)) then
                   aval = dot_product(m(irow,:),n(:,jcol))
 
-                  ! apply scalar 
+                  ! apply scalar
                   if (use_scalar) then
                      aval = scalar * aval
                   end if
@@ -1834,13 +1834,13 @@ subroutine sm_to_dm(matrixtype, i_sparse,j_sparse,a_sparse,la, m,lm1,lm2)
       integer :: matrixtype
 
 ! Input matrix in sparse format IJA
-      integer,intent(in)  :: la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 
 ! Output dense matrix
-      integer,intent(in)  :: lm1, lm2
-      real(kr),intent(out):: m(lm1,lm2)
+      integer,intent(in)     :: lm1, lm2
+      complex(kr),intent(out):: m(lm1,lm2)
 
 ! Local variables
       integer :: irow, jcol, ia
@@ -1856,7 +1856,7 @@ subroutine sm_to_dm(matrixtype, i_sparse,j_sparse,a_sparse,la, m,lm1,lm2)
       end if
 
 ! perform the conversion
-      m = 0.0_kr
+      m = (0.0_kr,0.0_kr)
       do ia = 1,la
          irow = i_sparse(ia)
          jcol = j_sparse(ia)
@@ -1874,18 +1874,18 @@ end subroutine
 !****************************************************************
 subroutine sm_print(iunit, i_sparse, j_sparse, a_sparse, la, nnz)
 !****************************************************************
-! Subroutine for printing of sparse matrix in IJA format 
+! Subroutine for printing of sparse matrix in IJA format
 ! in ASCII into unit IUNIT
 
       implicit none
 
 ! Number of unit to print to
-      integer,intent(in) :: iunit
+      integer,intent(in)    :: iunit
 
 ! Matrix in IJA sparse format
-      integer,intent(in) :: la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 !     number of nonzeros
       integer,intent(in),optional :: nnz
 
@@ -1900,7 +1900,7 @@ subroutine sm_print(iunit, i_sparse, j_sparse, a_sparse, la, nnz)
       end if
 
 ! Write the matrix on the unit
-      write(iunit,'(i8,i8,e28.8)') (i_sparse(ia),j_sparse(ia),a_sparse(ia),ia = 1,nz)
+      write(iunit,'(i8,i8,s,e28.8,sp,e28.8,"i")') (i_sparse(ia),j_sparse(ia),a_sparse(ia),ia = 1,nz)
 
       return
 end subroutine
@@ -1908,18 +1908,18 @@ end subroutine
 !***********************************************************************
 subroutine sm_print_octave(iunit, i_sparse, j_sparse, a_sparse, la, nnz)
 !***********************************************************************
-! Subroutine for printing of a sparse matrix in IJA format 
+! Subroutine for printing of a sparse matrix in IJA format
 ! into a file suitable for loading by Octave
 
       implicit none
 
 ! Number of unit to print to
-      integer,intent(in) :: iunit
+      integer,intent(in)    :: iunit
 
 ! Matrix in IJA sparse format
-      integer,intent(in) :: la
-      integer,intent(in) :: i_sparse(la), j_sparse(la)
-      real(kr),intent(in):: a_sparse(la)
+      integer,intent(in)    :: la
+      integer,intent(in)    :: i_sparse(la), j_sparse(la)
+      complex(kr),intent(in):: a_sparse(la)
 !     number of nonzeros
       integer,intent(in),optional :: nnz
 
@@ -1952,7 +1952,7 @@ function sm_showsize(lenght,nbytes)
       real(kr):: sm_showsize
 
       integer,intent(in) :: lenght, nbytes
-      
+
 ! determine size in megabytes
       sm_showsize = lenght*nbytes/1048576.0d0
 

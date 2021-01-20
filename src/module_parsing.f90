@@ -1,12 +1,12 @@
 ! BDDCML - Multilevel BDDC
-! 
+!
 ! This program is a free software.
-! You can redistribute it and/or modify it under the terms of 
-! the GNU Lesser General Public License 
-! as published by the Free Software Foundation, 
-! either version 3 of the license, 
+! You can redistribute it and/or modify it under the terms of
+! the GNU Lesser General Public License
+! as published by the Free Software Foundation,
+! either version 3 of the license,
 ! or (at your option) any later version.
-! 
+!
 ! This program is distributed in the hope that it will be useful,
 ! but WITHOUT ANY WARRANTY; without even the implied warranty of
 ! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -46,7 +46,7 @@ subroutine rdline(idfile)
 !     If e.o.f. is reached, LINE returns 'EOF'
 !     If read error occurs, LINE returns 'ERR'
       integer:: idfile, kexl, i, endline, lrest
-      
+
       if (linerest.eq.0) then
  20      read (idfile,'(a)',end=80,err=90) lineraw
          fileline = fileline + 1
@@ -60,7 +60,7 @@ subroutine rdline(idfile)
          if (lineraw.eq.' ') goto 20
       end if
       endline = index(lineraw,';') - 1
-      if (endline.lt.1) then 
+      if (endline.lt.1) then
          line = lineraw
          linerest = 0
       else
@@ -131,7 +131,7 @@ subroutine getstring
 !     Returns first string on line separately in STRING and its length LSTRING
 !     moves next string in LINE to the first position in LINE, consequently changes LLINE
 !     sets key KSTRING to 1 if another string left in LINE, sets KSTRING to 0 if LINE remains empty
-      
+
       integer:: nextstring, i, llinenew, lspace, lbracket
 
 !     find first blank space or bracket
@@ -148,7 +148,7 @@ subroutine getstring
       else
          call parse_error('Error in separating strings in',line)
       end if
-      
+
       if (line(1:1).eq.'{') lstring = 1
       if (line(1:1).eq.'}') lstring = 1
 
@@ -156,14 +156,14 @@ subroutine getstring
       string(1:lstring) = line(1:lstring)
 
 !---- pad tail of STRING with blanks
-      do i = lstring + 1,len(string) 
+      do i = lstring + 1,len(string)
         string(i:i) = ' '
       end do
 
 !---- shift LINE so first character is non-blank
       nextstring = 0
       do i = lstring + 1,lline
-         if (line(i:i).ne.' ') then 
+         if (line(i:i).ne.' ') then
             nextstring = i
             exit
          end if
@@ -194,7 +194,7 @@ subroutine lc2uc(input)
       character(26) lcase, ucase
       data lcase / 'abcdefghijklmnopqrstuvwxyz' /
       data ucase / 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' /
- 
+
       n = len(input)
       do i=1, n
         k = index( lcase , input(i:i) )
