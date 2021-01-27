@@ -2080,7 +2080,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   call initialize_random_number
                   do i = 1,neigvec*problemsize
                      call get_random_number(randval)
-                     eigvec(i) = cmplx(randval, 0._kr)
+                     eigvec(i) = cmplx(randval, 0._kr, kr)
                   end do
 
                   ! debug

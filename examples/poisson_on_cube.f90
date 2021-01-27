@@ -434,7 +434,7 @@ program poisson_on_cube
          ! create local right hand side
          lrhss = ndofs
          allocate(rhss(lrhss))
-         rhss = cmplx(el_vol, 0._kr)
+         rhss = cmplx(el_vol, 0._kr, kr)
          ! erase right-hand side at the boundary
          where (ifixs.gt.0) rhss = (0._kr, 0._kr)
          is_rhs_complete_int = 1
@@ -473,7 +473,7 @@ program poisson_on_cube
                      i_sparse(ia) = jdof
                      j_sparse(ia) = idof
                   end if
-                  a_sparse(ia) = cmplx(element_matrix((j-1)*ndof_per_element + i), 0._kr)
+                  a_sparse(ia) = cmplx(element_matrix((j-1)*ndof_per_element + i), 0._kr, kr)
 
                end do
             end do

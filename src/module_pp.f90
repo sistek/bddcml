@@ -816,7 +816,7 @@ call pp_read_pmd_bc_basic(idfvs,ifix,lifix)
 ! read FIXV
 allocate(rfixv(lfixv))
 read(idfvs,*) rfixv
-fixv = cmplx(rfixv,0._kr)
+fixv = cmplx(rfixv,0._kr,kr)
 deallocate(rfixv)
 
 end subroutine pp_read_pmd_bc
@@ -887,7 +887,7 @@ if (myid.eq.0) then
    ! read FIXV
    allocate(rfixv(lfixv))
    read(idfvs,*) rfixv
-   fixv = cmplx(rfixv,0._kr)
+   fixv = cmplx(rfixv,0._kr,kr)
    deallocate(rfixv)
 end if
 !***************************************************************PARALLEL

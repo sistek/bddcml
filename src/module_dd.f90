@@ -13795,7 +13795,7 @@ subroutine dd_generate_interface_unit_load(sub, vi,lvi)
       where (abs(vi).eq.0._kr) vi = (1._kr,0._kr)
 
       ! avoid negative weights
-      vi = cmplx(abs(vi), 0._kr)
+      vi = cmplx(abs(vi), 0._kr, kr)
 
       ! make results compatible with scheme of their construction
       vi = 1._kr / vi
@@ -13852,7 +13852,7 @@ subroutine dd_generate_interface_schur_row_sums(sub, vi,lvi)
       call dd_multiply_by_schur(sub, ri,lri, vi,lvi, ncol)
 
       ! avoid negative and zero weights
-      vi = cmplx(abs(vi), 0._kr)
+      vi = cmplx(abs(vi), 0._kr, kr)
       where (real(vi).lt.numerical_zero) vi = (numerical_zero, 0._kr)
 
       deallocate(ri)
@@ -14026,8 +14026,8 @@ subroutine dd_generate_interface_face_schur_row_sums(sub, vi,lvi)
       !end if
 
       ! avoid negative and zero weights
-      vi = cmplx(abs(vi), 0._kr)
-      where (real(vi).lt.numerical_zero) vi = cmplx(numerical_zero, 0._kr)
+      vi = cmplx(abs(vi), 0._kr, kr)
+      where (real(vi).lt.numerical_zero) vi = cmplx(numerical_zero, 0._kr, kr)
 
       deallocate(ri)
       deallocate(si)
@@ -14220,8 +14220,8 @@ subroutine dd_generate_interface_unit_jump(sub, vi,lvi)
       !end if
 
       ! avoid negative and zero weights
-      vi = cmplx(abs(vi), 0._kr)
-      where (real(vi).lt.numerical_zero) vi = cmplx(numerical_zero, 0._kr)
+      vi = cmplx(abs(vi), 0._kr, kr)
+      where (real(vi).lt.numerical_zero) vi = cmplx(numerical_zero, 0._kr, kr)
 
       deallocate(alphas)
       deallocate(ri)
