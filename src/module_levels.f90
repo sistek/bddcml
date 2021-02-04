@@ -3726,13 +3726,14 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
 
       integer :: ndofs, nnods, nelems, ndofaaugs, ndofcs, nnodcs
       integer :: ndofi, nnodi
-      integer :: nsub_loc, isub_loc, i, nrhs
+      integer :: nsub_loc, isub_loc, nrhs
       integer :: ilevel
       logical :: solve_adjoint
 
       ! MPI vars
       integer :: comm_all, comm_self, myid, ierr
-
+      integer :: request
+      integer :: status(MPI_STATUS_SIZE)
 
       ! on first level, resudial is collected from individual subdomains
       ilevel = 1
@@ -3769,9 +3770,7 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
 
          laux = common_krylov_data(isub_loc)%lvec_in
          allocate(aux(laux))
-         do i = 1,laux
-            aux(i) = common_krylov_data(isub_loc)%vec_in(i)
-         end do
+         aux = common_krylov_data(isub_loc)%vec_in
 
          ! aux = wi * resi
          call dd_weightsi_apply(levels(ilevel)%subdomains(isub_loc), aux,laux)
@@ -3786,6 +3785,15 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
          ! embed local resc to global one
          call dd_map_subc_to_globc(levels(ilevel)%subdomains(isub_loc), rescs,lrescs, rescaux,lresc)
 
+         deallocate(aux)
+         deallocate(rescs)
+      end do
+
+!*****************************************************************MPI
+      call MPI_IREDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, request, ierr) 
+!*****************************************************************MPI
+
+      do isub_loc = 1,nsub_loc
          ! SUBDOMAIN CORRECTION
          ! prepare array of augmented size
          call dd_get_aug_size(levels(ilevel)%subdomains(isub_loc), ndofaaugs)
@@ -3794,6 +3802,13 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
          aux2(:) = 0._kr
          call dd_get_size(levels(ilevel)%subdomains(isub_loc), ndofs,nnods,nelems)
          call dd_get_interface_size(levels(ilevel)%subdomains(isub_loc), ndofi, nnodi)
+
+         laux = common_krylov_data(isub_loc)%lvec_in
+         allocate(aux(laux))
+         aux = common_krylov_data(isub_loc)%vec_in
+
+         ! aux = wi * resi
+         call dd_weightsi_apply(levels(ilevel)%subdomains(isub_loc), aux,laux)
 
          ! truncate the vector for embedding - zeros at the end
          if (levels(ilevel)%subdomains(isub_loc)%is_aug_dense_active) then
@@ -3819,11 +3834,9 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
 
          deallocate(aux2)
          deallocate(aux)
-         deallocate(rescs)
       end do
-!*****************************************************************MPI
-      call MPI_REDUCE(rescaux,resc,lresc, MPI_DOUBLE_PRECISION, MPI_SUM, 0, comm_all, ierr) 
-!*****************************************************************MPI
+
+      call MPI_WAIT(request, status, ierr)
       deallocate(rescaux)
 end subroutine
 
