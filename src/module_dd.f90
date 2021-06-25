@@ -1587,7 +1587,6 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
 !*****************************************************************MPI
       !call MPI_ALLREDUCE(nevax_loc,nevax,1, MPI_INTEGER, MPI_MAX, comm_all, ierr) 
 !*****************************************************************MPI
-      
 
       ! prepare memory for one element matrix
       ! determine length by nevax
@@ -1613,7 +1612,7 @@ subroutine dd_gather_matrix(suba,lsuba, elma,lelma, comm_all,nsub,nelem,matrixty
       lstatarray1 = MPI_STATUS_SIZE
       lstatarray2 = nreqx
       allocate(statarray(lstatarray1,lstatarray2))
-      
+
       ! counter of requests
       ireq = 0
 
