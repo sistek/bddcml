@@ -4412,7 +4412,7 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2)
 
       ! find local (subdomain) index of the glob from its global number
       call get_index(gglob,sub%cnodes%global_cnode_number,sub%ncnodes,ind_loc)
-      print *, 'gcn', sub%cnodes%global_cnode_number, 'ncn', sub%ncnodes
+      !print *, 'gcn', sub%cnodes%global_cnode_number, 'ncn', sub%ncnodes
       if (ind_loc.le.0) then
          call error(routine_name,' Index of local glob not found for global ',gglob)
       end if
