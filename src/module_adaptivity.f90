@@ -38,7 +38,6 @@ logical,parameter,private  :: read_threshold_from_file = .false.
 ! maximal number of LOBPCG iterations
 integer,parameter,private ::  lobpcg_maxit = 15
 ! precision of LOBPCG solver - worst residual
-!real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-9_kr
 real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-9_kr
 ! maximal number of eigenvectors per problem
 ! this number is used for sufficient size of problems
@@ -2816,7 +2815,7 @@ do iinstr = 1,ninstructions
       ! rc = phis_dual' * x
       call dd_phisi_dual_apply(suba(isub_loc), bufrecv(point),length, rescs,lrescs)
 
-      call MPI_SEND(rescs,lrescs,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,ierr)
+      call MPI_SEND(rescs,lrescs,MPI_DOUBLE_COMPLEX,owner,isub,comm_comm,ierr)
       deallocate(rescs)
 
       call dd_map_sub_to_subi(suba(isub_loc), aux2,ndofs, bufsend(point),length)
@@ -2908,7 +2907,7 @@ do iinstr = 1,ninstructions
 
       lrescs = lindrowc
       allocate(rescs(lrescs))
-      call MPI_RECV(rescs,lrescs,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,stat,ierr)
+      call MPI_RECV(rescs,lrescs,MPI_DOUBLE_COMPLEX,owner,isub,comm_comm,stat,ierr)
 
 ! COARSE CORRECTION
       call dd_get_interface_size(suba(isub_loc),ndofi,nnodi)

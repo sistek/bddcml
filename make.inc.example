@@ -7,11 +7,11 @@ BDDCML_INC           = -I$(BDDCML_ROOT)/src
 
 #*********** Compilers
 BDDCML_MPFC = mpif90
-BDDCML_MPFFLAGS = -g -C -Wall -fbounds-check
+BDDCML_MPFFLAGS = -g -C -Wall -fbounds-check -fcheck=all -fallow-argument-mismatch
 #BDDCML_MPFFLAGS = -O3
 
 BDDCML_MPCC = mpicc
-BDDCML_MPCFLAGS = -g -Wall
+BDDCML_MPCFLAGS = -g -Wall -pedantic
 #BDDCML_MPCFLAGS = -O3
 
 #*********** Library tools
@@ -52,7 +52,7 @@ BDDCML_LIBMETIS     = -L$(HOME)/software/METIS/lib -lmetis
 BDDCML_LIBOTHERS    =
 
 # BLOPEX objects
-BDDCML_BLOPEXDIR = $(HOME)/software/lobpcg/blopex-read-only
+BDDCML_BLOPEXDIR = $(HOME)/software/lobpcg/blopex
 BDDCML_INCBLOPEX = \
    -I$(BDDCML_BLOPEXDIR)/blopex_serial_complex/multivector \
    -I$(BDDCML_BLOPEXDIR)/blopex_serial_complex/pcg_multi \

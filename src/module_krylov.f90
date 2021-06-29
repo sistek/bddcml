@@ -2101,7 +2101,7 @@
       end if
 
       ! compute condition number
-      eigmax = d(nw)
+      eigmax = real(d(nw))
       ! do not get the lowest eigenvalue from the Lanczos sequence - the Ritz value may not converge (cf Treffethen, Bau)
       if (debug) then
          write(*,*) 'eigmax = ',eigmax

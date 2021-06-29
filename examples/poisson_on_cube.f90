@@ -51,7 +51,7 @@ program poisson_on_cube
       integer, parameter :: just_direct_solve_int = 0
 
 ! verbosity of BDDCML ( 0 - only fatal errors, 1 - mild output, 2 - detailed output )
-      integer,parameter:: verbose_level = 0
+      integer,parameter:: verbose_level = 1
 
 ! export solution to VTU files?
       logical,parameter :: export_solution = .true.
@@ -101,7 +101,7 @@ program poisson_on_cube
       integer,parameter :: use_arithmetic_constraints = 1
 
 ! use adaptive constraints on faces?
-      integer,parameter :: use_adaptive_constraints = 0
+      integer,parameter :: use_adaptive_constraints = 1
 
 ! use user constraints? - not used in this example
       integer,parameter :: use_user_constraints = 0
