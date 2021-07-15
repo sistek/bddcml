@@ -7,6 +7,7 @@ INC = $(BDDCML_INCMUMPS) \
       $(BDDCML_INCMETIS) \
       $(BDDCML_INCBLOPEX) \
       $(BDDCML_INCMAGMA) \
+      $(BDDCML_INCTNL_BDDCML_INTERFACE) \
       $(BDDCML_INCMPI)
 ##############################################################
 # GNU Make automatic variables:
