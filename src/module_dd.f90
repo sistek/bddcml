@@ -6493,14 +6493,14 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly,ncol)
          ! copy x to y
          y = x
          if      (sub%istorage == 2) then
-              !call densela_symv_matrix_on_gpu(DENSELA_MAGMA, 'U', sub%lschur1, 1._kr, sub%dschur, sub%lschur1, x, 1, 0._kr, y, 1)
-              call densela_symv_matrix_on_gpu(DENSELA_TNL, 'U', sub%lschur1, 1._kr, sub%dschur, sub%lschur1, x, 1, 0._kr, y, 1)
-              !call densela_symv(DENSELA_LAPACK, 'U', sub%lschur1, 1._kr, sub%schur, sub%lschur1, x, 1, 0._kr, y, 1)
+            !call densela_symv_matrix_on_gpu(DENSELA_MAGMA, 'U', sub%lschur1, 1._kr, sub%dschur, sub%lschur1, x, 1, 0._kr, y, 1)
+            call densela_symv_matrix_on_gpu(DENSELA_TNL, 'U', sub%lschur1, 1._kr, sub%dschur, sub%lschur1, x, 1, 0._kr, y, 1)
+            !call densela_symv(DENSELA_LAPACK, 'U', sub%lschur1, 1._kr, sub%schur, sub%lschur1, x, 1, 0._kr, y, 1)
          else if (sub%istorage == 1) then
-              call densela_gemv_matrix_on_gpu(DENSELA_MAGMA, 'N', sub%lschur1, sub%lschur2, 1.0_kr, sub%dschur, sub%lschur1, &
-                                              x, 1, 0._kr, y, 1)
-              !call densela_gemv(DENSELA_LAPACK, 'N', sub%lschur1, sub%lschur2, 1.0_kr, sub%schur, sub%lschur1, &
-              !                  x, 1, 0._kr, y, 1)
+            call densela_gemv_matrix_on_gpu(DENSELA_MAGMA, 'N', sub%lschur1, sub%lschur2, 1.0_kr, sub%dschur, sub%lschur1, &
+                                            x, 1, 0._kr, y, 1)
+            !call densela_gemv(DENSELA_LAPACK, 'N', sub%lschur1, sub%lschur2, 1.0_kr, sub%schur, sub%lschur1, &
+            !                  x, 1, 0._kr, y, 1)
          else
             call error( routine_name, 'Illegal storage type.', sub%isub)
          end if
