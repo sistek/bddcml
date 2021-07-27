@@ -25,7 +25,7 @@
     ! type of real variables
           integer,parameter,private :: kr = REAL64
     ! debugging 
-          logical,parameter,private :: debug = .false.
+          logical,parameter,private :: debug = .true.
     ! profiling 
           logical,private ::           profile = .false.
     ! adjustable parameters ############################
@@ -109,7 +109,8 @@
           integer :: ndofis, nnodis
 
           ! PCG vars
-          real(kr) :: normrhs, normres2, normres, normres2_loc, normres2_sub
+          real(kr) :: normrhs, normrhs2, normrhs2_loc, normrhs2_sub
+          real(kr) :: normres0, normres2, normres, normres2_loc, normres2_sub
           real(kr) :: rmp, rmp_loc, rmp_sub
           real(kr) :: pap, pap_loc, pap_sub
           real(kr) :: rmpold
@@ -222,6 +223,24 @@
              call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi)
           end do
 
+          ! compute norm of right-hand side
+          normrhs2_loc = 0._kr
+          do isub_loc = 1,nsub_loc
+             call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                          pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                          normrhs2_sub)
+             normrhs2_loc = normrhs2_loc + normrhs2_sub
+          end do
+    !***************************************************************PARALLEL
+          call MPI_ALLREDUCE(normrhs2_loc,normrhs2, 1, MPI_DOUBLE_PRECISION,&
+                             MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+          normrhs = sqrt(normrhs2)
+          if (debug) then
+             if (myid.eq.0) then
+                call info(routine_name,'Norm of the right-hand side =',normrhs)
+             end if
+          end if
 
           ! get initial residual
           ! r_0 = g - A*u_0
@@ -268,15 +287,15 @@
           call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
                              MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
-          normrhs = sqrt(normres2)
+          normres0 = sqrt(normres2)
           if (debug) then
              if (myid.eq.0) then
-                call info(routine_name,'Norm of the right-hand side =',normrhs)
+                call info(routine_name,'Norm of the initial residual =',normres0)
              end if
           end if
 
           ! Check of zero right-hand side => all zero solution
-          if (normrhs.eq.0.0D0) then
+          if (normres0.eq.0.0D0) then
              if (myid.eq.0) then
                 call warning(routine_name,'initial residual zero => initial solution exact')
              end if
@@ -440,7 +459,11 @@
              end if
 
              ! Evaluation of stopping criterion
+             ! Distinguish between normalizing the residual by the norm of initial r.h.s.
+             ! and initial residual.
+             ! The latter is not suitable for sequences of linear systems.
              relres = normres/normrhs
+             !relres = normres/normres0
              if (relres.lt.tol) then
                 iter = 0
                 if (myid.eq.0) then
@@ -731,7 +754,11 @@
              end if
 
              ! Evaluation of stopping criterion
+             ! Distinguish between normalizing the residual by the norm of initial r.h.s.
+             ! and initial residual.
+             ! The latter is not suitable for sequences of linear systems.
              relres = normres/normrhs
+             !relres = normres/normres0
                 
              if (myid.eq.0) then
                 call info (routine_name, 'iteration: ',iter)

@@ -51,7 +51,7 @@ program poisson_on_cube
       integer, parameter :: just_direct_solve_int = 0
 
 ! verbosity of BDDCML ( 0 - only fatal errors, 1 - mild output, 2 - detailed output )
-      integer,parameter:: verbose_level = 0
+      integer,parameter:: verbose_level = 1
 
 ! export solution to VTU files?
       logical,parameter :: export_solution = .true.
