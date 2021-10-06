@@ -214,7 +214,6 @@ subroutine densela_getrs(library, trans, n, nrhs, A, lda, ipiv, B, ldb)
       real(kr),intent(inout) :: B(ldb,*)
 ! Leading dimension of B
       integer,intent(in) :: ldb
-	 		
 ! local vars
       character(*),parameter:: routine_name = 'densela_getrs'
       integer :: lapack_info

@@ -5230,6 +5230,7 @@ subroutine dd_prepare_aug(sub,comm_self)
 
          ! copy Schur complement as the (1,1) block of the matrix
          sub%aaug_dense(1:ndofi,1:ndofi) = sub%schur
+         !call dd_destroy_explicit_schur(sub)
 
          ! copy entries of right block of C^T with proper shift in columns
          do i = 1,nnzc
@@ -5261,6 +5262,7 @@ subroutine dd_prepare_aug(sub,comm_self)
 
          call densela_copy_matrix_to_gpu(DENSELA_MAGMA, sub%laaug_dense1, sub%laaug_dense2, sub%aaug_dense, &
                                          sub%daaug_dense, sub%laaug_dense1)
+         deallocate(sub%aaug_dense)
 
          ! factorize matrix Aaug by LAPACK
          ! Set type of matrix
