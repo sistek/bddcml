@@ -2692,15 +2692,16 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
             !element_neighbouring = 1
             !!!!!!!!!!!!!!!!!!
             call graph_from_mesh(ngraph_vertex,graphtype,neighbouring,&
-                                 sub%inet,sub%linet,&
-                                 sub%nnet,sub%lnnet,&
-                                 ietn,lietn, netn,lnetn,&
-                                 kietn,lkietn,&
-                                 ngraph_edge, xadj, adjncy, adjwgt)
+                                  sub%inet,sub%linet,&
+                                  sub%nnet,sub%lnnet,&
+                                  ietn,lietn, netn,lnetn,&
+                                  kietn,lkietn,&
+                                  ngraph_edge, xadj, adjncy, adjwgt)
+
             lxadj   = size(xadj)
             ladjncy = size(adjncy)
             ladjwgt = size(adjwgt)
-            call graph_check(ngraph_vertex,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
+            !call graph_check(ngraph_vertex,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
    
             ! determine continuity of ELEMENT components
             lelcomponents = nelem
@@ -2724,7 +2725,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
             end do
 
             deallocate(elcomponents)
-   
+
          else
             ! prepare graph of subdomain nodes - i.e. primal graph
             graphtype    = 0 ! unweighted
@@ -2739,8 +2740,8 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
             ladjncy = size(adjncy)
             ladjwgt = size(adjwgt)
             call graph_check(ngraph_vertex,graphtype, xadj,lxadj, adjncy,ladjncy, adjwgt,ladjwgt)
-   
-   
+
+
             ! determine continuity of components
             call graph_components(ngraph_vertex,xadj,lxadj,adjncy,ladjncy,&
                                   sub%nodal_components,sub%lnodal_components,sub%nnodal_components)
@@ -3086,7 +3087,7 @@ subroutine dd_upload_rhs(sub, rhs,lrhs, is_rhs_complete)
       sub%is_rhs_complete = is_rhs_complete
 
       sub%is_reduced_rhs_loaded = .false.
-   
+
 end subroutine
 
 !******************************************************
@@ -3133,7 +3134,7 @@ subroutine dd_upload_interior_solution(sub, solo,lsolo)
       end do
 
       sub%is_interior_solution_loaded = .true.
-   
+
 end subroutine
 
 !*******************************************
@@ -3180,7 +3181,7 @@ subroutine dd_upload_solution(sub, sol,lsol)
       end do
 
       sub%is_solution_loaded = .true.
-   
+
 end subroutine
 
 !*****************************************************************************************************
@@ -3230,7 +3231,7 @@ subroutine dd_upload_sub_user_constraints(sub, user_constraints,luser_constraint
       end do
 
       sub%is_user_constraints_loaded = .true.
-   
+
 end subroutine
 
 !*****************************************************************************************************
@@ -3280,7 +3281,7 @@ subroutine dd_upload_sub_element_data(sub, element_data,lelement_data1,lelement_
       end do
 
       sub%is_element_data_loaded = .true.
-   
+
 end subroutine
 
 !*****************************************************************************************************
@@ -3321,7 +3322,7 @@ subroutine dd_upload_sub_dof_data(sub, dof_data,ldof_data)
       end do
 
       sub%is_dof_data_loaded = .true.
-   
+
 end subroutine
 
 !*********************************************
@@ -4324,7 +4325,7 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
       ! generate arithmetic averages on coarse nodes of prescribed type (e.g. edges)
       do icnode = 1,ncnodes
          if (sub%cnodes(icnode)%itype .eq. itype) then
-         
+
             ! get number of constraints on an arithmetic constraint
             nvar = sub%cnodes(icnode)%nvar
 
@@ -4427,7 +4428,7 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2)
       lmatrix2 = nvarglb
       allocate(matrix(lmatrix1,lmatrix2))
       matrix(:,:) = 0._kr
-      
+
       ! copy transposed constraints
       do i = 1,nvarglb
          indiv = sub%cnodes(ind_loc)%ivsivn(i)
@@ -4489,7 +4490,7 @@ subroutine dd_load_user_constraints(sub,itype)
       ! generate user constraints on coarse nodes of prescribed type (e.g. edges)
       do icnode = 1,ncnodes
          if (sub%cnodes(icnode)%itype .eq. itype) then
-         
+
             ! get number of constraints on an arithmetic constraint
             nvar = sub%cnodes(icnode)%nvar
 
@@ -4678,7 +4679,7 @@ subroutine dd_orthogonalize_constraints(sub,itype)
       ! generate arithmetic averages on coarse nodes of prescribed type (e.g. edges)
       do icnode = 1,ncnodes
          if (sub%cnodes(icnode)%itype .eq. itype) then
-         
+
             nvar         = sub%cnodes(icnode)%nvar
             ncdof_old    = sub%cnodes(icnode)%ncdof
             nnz_old      = sub%cnodes(icnode)%nnz
@@ -4778,7 +4779,7 @@ subroutine dd_orthogonalize_constraints(sub,itype)
             deallocate(sub%cnodes(icnode)%matrix)
             allocate(sub%cnodes(icnode)%matrix(sub%cnodes(icnode)%lmatrix1,sub%cnodes(icnode)%lmatrix2))
             sub%cnodes(icnode)%matrix(:,:) = 0._kr
-      
+
             nnz = 0
             do i = 1,nvalid
                do j = 1,nvar
@@ -4912,7 +4913,7 @@ subroutine dd_construct_cnodes(sub)
          do i = 2,nnodi
             indn = sub%iin(i-1)
             ndofn = sub%nndf(indn)
-            
+
             kdofi(i) = kdofi(i-1) + ndofn
          end do
       end if
@@ -5132,7 +5133,7 @@ subroutine dd_prepare_c(sub)
       if (inzc .ne. lc) then
          call error(routine_name, 'Dimension of matrix C mismatch for subdomain', sub%isub)
       end if
-      
+
       ! load the new matrix directly to the structure
       call dd_load_c(sub,nconstr,i_c_sparse, j_c_sparse, c_sparse, lc, nnzc, indrowc,lindrowc)
 
@@ -5201,7 +5202,7 @@ subroutine dd_load_c(sub, nconstr,i_c_sparse, j_c_sparse, c_sparse, lc, nnzc, in
       do i = 1,lindrowc
          sub%indrowc(i)   = indrowc(i)
       end do
-         
+
       sub%is_c_loaded = .true.
 
 end subroutine
@@ -5274,10 +5275,10 @@ subroutine dd_prepare_aug(sub,comm_self)
          ! join the new matrix directly to the structure as
          ! in the unsymmetric case:
          ! S C^T
-         ! C  0   
+         ! C  0
          ! in the symmetric case :
          ! \S C^T
-         !     0   
+         !     0
          ndof      = sub%ndof
          ndofi     = sub%ndofi
          nconstr   = sub%nconstr
@@ -5362,10 +5363,10 @@ subroutine dd_prepare_aug(sub,comm_self)
          ! join the new matrix directly to the structure as
          ! in the unsymmetric case:
          ! A C^T
-         ! C  0   
+         ! C  0
          ! in the symmetric case :
          ! \A C^T
-         !     0   
+         !     0
 
          ndof     = sub%ndof
          nconstr  = sub%nconstr
@@ -5390,7 +5391,7 @@ subroutine dd_prepare_aug(sub,comm_self)
             iaaug = iaaug + 1
             sub%i_aaug_sparse(iaaug) = sub%i_a_sparse(i) 
             sub%j_aaug_sparse(iaaug) = sub%j_a_sparse(i) 
-            sub%aaug_sparse(iaaug)   = sub%a_sparse(i)   
+            sub%aaug_sparse(iaaug)   = sub%a_sparse(i)
          end do
          ! copy entries of right block of C^T with proper shift in columns
          do i = 1,nnzc

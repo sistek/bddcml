@@ -94,8 +94,140 @@ end subroutine graph_get_dual_mesh
 
 !*******************************************************************************
 subroutine graph_from_mesh(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,&
-                           ietn,lietn,netn,lnetn,kietn,lkietn,&
-                           nedge, xadj, adjncy, adjwgt)
+                            ietn,lietn,netn,lnetn,kietn,lkietn,&
+                            nedge, xadj, adjncy, adjwgt)
+!*******************************************************************************
+! Construct a dual graph from the mesh and its dual mesh, corresponding to 
+! adjacency of elements. Corresponds to computing
+! G = C C^T, where C is the connectivity matrix with rows representing elements 
+! and columns representing nodes.
+!*******************************************************************************
+use module_utils
+implicit none
+! number of elements in mesh
+integer, intent(in) :: nelem
+! type of output graph
+integer, intent(in) :: graphtype
+! prescribed value of number of shared nodes between two neighbours
+integer, intent(in) :: neighbouring
+
+! PMD mesh description
+integer, intent(in) :: linet
+integer, intent(in) ::  inet(linet)
+integer, intent(in) :: lnnet
+integer, intent(in) ::  nnet(lnnet)
+! PMD dual mesh description
+integer, intent(in) :: lietn
+integer, intent(in) ::  ietn(lietn)
+integer, intent(in) :: lnetn
+integer, intent(in) ::  netn(lnetn)
+integer, intent(in) :: lkietn
+integer, intent(in) ::  kietn(lkietn)
+
+! METIS graph description
+integer, intent(out) ::  nedge
+integer, allocatable, intent(out) :: xadj(:)
+integer, allocatable, intent(out) :: adjncy(:)
+integer, allocatable, intent(out) :: adjwgt(:)
+
+! local variables
+character(*),parameter:: routine_name = 'GRAPH_FROM_MESH'
+integer,allocatable :: onerow(:)
+integer :: lonerow, ie, indinet, indnode, ine, je
+integer :: nelmn, nne, pointietn
+integer :: lxadj
+integer :: ladjncy
+integer :: ladjwgt
+
+integer :: neledge
+
+! prepare arrays for storing a row
+      !nnetx = maxval(nnet)
+      !netnx = maxval(netn)
+      lonerow = nelem
+      allocate(onerow(lonerow))
+  
+! construct the array of pointers XADJ
+      lxadj = nelem + 1
+      allocate(xadj(lxadj))
+
+      ! zero whole array
+      xadj(1) = 1
+      indinet = 0
+      do ie = 1,nelem
+         nne = nnet(ie)
+         ! zero local row
+         onerow     = 0
+         do ine = 1,nne
+            indinet = indinet + 1
+            indnode = inet(indinet)
+            nelmn   = netn(indnode)
+            pointietn = kietn(indnode)
+            onerow(ietn(pointietn+1:pointietn+nelmn)) = onerow(ietn(pointietn+1:pointietn+nelmn)) + 1
+         end do
+         ! parse onerow
+         !call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lonerow,lorout)
+         ! zero myself
+         onerow(ie) = 0
+         neledge = count(onerow.ge.neighbouring)
+
+         xadj(ie+1) = xadj(ie) + neledge
+      end do
+
+! construct the array of edges ADJNCY and ADJWGT
+      ladjncy = xadj(nelem+1)-1
+      ! check the graph
+      if (mod(ladjncy,2).ne.0) then
+         call error(routine_name, 'Number of nodes has to be even number!')
+      end if
+      nedge = ladjncy / 2
+      !if (graphtype.eq.1) then
+      ladjwgt = ladjncy
+      !else
+      !   ladjwgt = 0
+      !end if
+
+      allocate(adjncy(ladjncy),adjwgt(ladjwgt))
+
+      indinet = 0
+      do ie = 1,nelem
+         onerow     = 0
+         nne = nnet(ie)
+         do ine = 1,nne
+            indinet = indinet + 1
+            indnode = inet(indinet)
+            nelmn = netn(indnode)
+            pointietn = kietn(indnode)
+            onerow(ietn(pointietn+1:pointietn+nelmn)) =  onerow(ietn(pointietn+1:pointietn+nelmn)) + 1
+         end do
+
+         ! parse onerow
+         onerow(ie) = 0
+
+         neledge = 0
+         do je = 1,nelem
+            if (onerow(je) .ge. neighbouring) then
+               neledge = neledge + 1
+               adjncy(xadj(ie)+neledge-1) = je
+               if (graphtype.eq.1) then
+                  adjwgt(xadj(ie)+neledge-1) = onerow(je)
+               end if
+            end if
+         end do
+         !call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lonerow,lorout)
+         ! now only adjacencies above the level considered
+      end do
+      if (graphtype.eq.0) then
+         adjwgt = 1
+      end if
+
+      deallocate(onerow)
+end subroutine graph_from_mesh
+
+!*******************************************************************************
+subroutine graph_from_mesh2(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,&
+                            ietn,lietn,netn,lnetn,kietn,lkietn,&
+                            nedge, xadj, adjncy, adjwgt)
 !*******************************************************************************
 ! Construct a dual graph from the mesh and its dual mesh, corresponding to 
 ! adjacency of elements. Corresponds to computing
@@ -133,6 +265,185 @@ integer, allocatable, intent(out) :: adjwgt(:)
 ! local variables
 character(*),parameter:: routine_name = 'GRAPH_FROM_MESH'
 integer,allocatable :: onerow(:), onerowweig(:)
+integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, je, indje
+integer :: posarray(1), pos
+integer :: ionerow, nelmn, nne, pointietn, lorin, lorout
+integer :: lxadj
+integer :: ladjncy
+integer :: ladjwgt
+
+! prepare arrays for storing a row
+      !nnetx = maxval(nnet)
+      !netnx = maxval(netn)
+      !lonerow = nelem
+      !allocate(onerow(lonerow))
+      nnetx = maxval(nnet)
+      netnx = maxval(netn)
+      lonerow = nnetx * netnx
+      lonerowweig = lonerow
+      allocate(onerow(lonerow),onerowweig(lonerowweig))
+  
+! construct the array of pointers XADJ
+      lxadj = nelem + 1
+      allocate(xadj(lxadj))
+
+      ! zero whole array
+      xadj(1) = 1
+      indinet = 0
+      do ie = 1,nelem
+         nne = nnet(ie)
+         ! zero local row
+         onerow     = 0
+         onerowweig = 0
+         ionerow = 0
+         do ine = 1,nne
+            indinet = indinet + 1
+            indnode = inet(indinet)
+            nelmn   = netn(indnode)
+            pointietn = kietn(indnode)
+            do je = 1, nelmn
+               indje = ietn(pointietn+je)
+               if (indje == ie) then
+                  cycle
+               end if
+
+               posarray = findloc(onerow(1:ionerow),indje)
+               pos = posarray(1)
+               if (pos == 0) then
+                  ! element not found, append it
+                  ionerow = ionerow + 1
+                  onerow(ionerow)     = indje
+                  onerowweig(ionerow) = 1
+               else
+                  ! add the weight
+                  onerowweig(pos) = onerowweig(pos) + 1
+               end if
+            end do
+         end do
+         lorin = ionerow
+         where (onerowweig(1:lorin) .lt. neighbouring) onerow(1:lorin)    = 0
+         where (onerow(1:lorin) .eq. 0)  onerowweig(1:lorin) = 0
+
+         lorout = lorin
+         lorin = count(onerow(1:lorout) .gt. 0)
+         onerow(1:lorin)     = pack(onerow(1:lorout),onerow(1:lorout).gt.0)
+         onerowweig(1:lorin) = pack(onerowweig(1:lorout),onerowweig(1:lorout).gt.0)
+
+         ! sort the arrays
+         call iquick_sort_simultaneous(onerow,lorin,onerowweig,lorin)
+         xadj(ie + 1) = xadj(ie) + lorin
+      end do
+
+
+! construct the array of edges ADJNCY and ADJWGT
+      ladjncy = xadj(nelem+1)-1
+      ! check the graph
+      if (mod(ladjncy,2).ne.0) then
+         call error(routine_name, 'Number of nodes has to be even number!')
+      end if
+      nedge = ladjncy / 2
+      !if (graphtype.eq.1) then
+      ladjwgt = ladjncy
+      !else
+      !   ladjwgt = 0
+      !end if
+
+      allocate(adjncy(ladjncy),adjwgt(ladjwgt))
+
+      indinet = 0
+      do ie = 1,nelem
+         nne = nnet(ie)
+         ! zero local row
+         onerow     = 0
+         onerowweig = 0
+         ionerow = 0
+         do ine = 1,nne
+            indinet = indinet + 1
+            indnode = inet(indinet)
+            nelmn   = netn(indnode)
+            pointietn = kietn(indnode)
+            do je = 1, nelmn
+               indje = ietn(pointietn+je)
+               if (indje == ie) then
+                  cycle
+               end if
+
+               posarray = findloc(onerow(1:ionerow),indje)
+               pos = posarray(1)
+               if (pos == 0) then
+                  ! element not found, append it
+                  ionerow = ionerow + 1
+                  onerow(ionerow)     = indje
+                  onerowweig(ionerow) = 1
+               else
+                  ! add the weight
+                  onerowweig(pos) = onerowweig(pos) + 1
+               end if
+            end do
+         end do
+         lorin = ionerow
+         where (onerowweig(1:lorin) .lt. neighbouring) onerow(1:lorin)    = 0
+         where (onerow(1:lorin) .eq. 0)  onerowweig(1:lorin) = 0
+
+         lorin = count(onerow .gt. 0)
+         onerow(1:lorin)     = pack(onerow,onerow.ne.0)
+         onerowweig(1:lorin) = pack(onerowweig,onerowweig.ne.0)
+
+         ! sort the arrays
+         call iquick_sort_simultaneous(onerow,lorin,onerowweig,lorin)
+         adjncy(xadj(ie):xadj(ie+1)-1) = onerow(1:lorin)
+         if (graphtype.eq.1) then
+            adjwgt(xadj(ie):xadj(ie+1)-1) = onerowweig(1:lorin)
+         end if
+      end do
+      if (graphtype.eq.0) then
+         adjwgt = 1
+      end if
+
+      deallocate(onerow)
+end subroutine graph_from_mesh2
+
+!*******************************************************************************
+subroutine graph_from_mesh3(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,&
+                            ietn,lietn,netn,lnetn,kietn,lkietn,&
+                            nedge, xadj, adjncy, adjwgt)
+!*******************************************************************************
+! Construct a dual graph from the mesh and its dual mesh, corresponding to 
+! adjacency of elements. Corresponds to computing
+! G = C C^T, where C is the connectivity matrix with rows representing elements 
+! and columns representing nodes.
+!*******************************************************************************
+use module_utils
+implicit none
+! number of elements in mesh
+integer, intent(in) :: nelem
+! type of output graph
+integer, intent(in) :: graphtype
+! prescribed value of number of shared nodes between two neighbours
+integer, intent(in) :: neighbouring
+
+! PMD mesh description
+integer, intent(in) :: linet
+integer, intent(in) ::  inet(linet)
+integer, intent(in) :: lnnet
+integer, intent(in) ::  nnet(lnnet)
+! PMD dual mesh description
+integer, intent(in) :: lietn
+integer, intent(in) ::  ietn(lietn)
+integer, intent(in) :: lnetn
+integer, intent(in) ::  netn(lnetn)
+integer, intent(in) :: lkietn
+integer, intent(in) ::  kietn(lkietn)
+
+! METIS graph description
+integer, intent(out) ::  nedge
+integer, allocatable, intent(out) :: xadj(:)
+integer, allocatable, intent(out) :: adjncy(:)
+integer, allocatable, intent(out) :: adjwgt(:)
+
+! local variables
+character(*),parameter:: routine_name = 'GRAPH_FROM_MESH2'
+integer,allocatable :: onerow(:), onerowweig(:)
 integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine
 integer :: ionerow, nelmn, nne, pointietn, lorin, lorout
 integer :: lxadj
@@ -145,7 +456,7 @@ integer :: ladjwgt
       lonerow = nnetx * netnx
       lonerowweig = lonerow
       allocate(onerow(lonerow),onerowweig(lonerowweig))
-      
+  
 
 ! construct the array of pointers XADJ
       lxadj = nelem + 1
@@ -218,7 +529,7 @@ integer :: ladjwgt
       end if
 
       deallocate(onerow,onerowweig)
-end subroutine graph_from_mesh
+end subroutine graph_from_mesh3
 
 !*******************************************************************************
 subroutine graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lorin,lorout)
@@ -274,7 +585,7 @@ integer :: valid, ivalid, nvalid, i, i2
                else if (onerow(i).lt.valid) then
                   onerowweig(ivalid) = nvalid
                   exit
-               else               
+               else
                   nvalid = nvalid + 1 ! add count
                end if
             end do
@@ -343,6 +654,7 @@ logical :: match
                   end if
                   match = .true.
                   indadjelmadj = iadjelmadj
+                  exit
                end if
             end do
             if (.not.match) then
@@ -495,10 +807,10 @@ integer             :: ineib, indneib
 
 ! mark this node into the component
       components(ivertex) = icompo
-      
+
       do ineib = xadj(ivertex),xadj(ivertex+1)-1
          indneib = adjncy(ineib)
-      
+  
          if (components(indneib).le.0) then
             call graph_components_1(indneib)
          end if
@@ -659,9 +971,9 @@ integer :: indadjncy, indvertex, ivertex, nneib
          ladjwgt = 0
       end if
       lxadj   = nvertex + 1
-      
+  
       allocate(xadj(lxadj), adjncy(ladjncy), adjwgt(ladjwgt))
-      
+  
       indadjncy = 0
       xadj(1)   = 1
       do ivertex = 1,nvertex
