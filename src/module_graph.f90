@@ -133,7 +133,12 @@ integer, allocatable, intent(out) :: adjwgt(:)
 ! local variables
 character(*),parameter:: routine_name = 'GRAPH_FROM_MESH'
 integer,allocatable :: onerow(:)
-integer :: lonerow, ie, indinet, indnode, ine, je
+integer,allocatable :: indices(:)
+integer :: lindices
+integer :: lonerow, ie, indinet, indnode, ine, je, ind
+integer :: nnetx, netnx
+integer :: inelm, indnelm
+integer :: nindices
 integer :: nelmn, nne, pointietn
 integer :: lxadj
 integer :: ladjncy
@@ -142,10 +147,17 @@ integer :: ladjwgt
 integer :: neledge
 
 ! prepare arrays for storing a row
-      !nnetx = maxval(nnet)
-      !netnx = maxval(netn)
+      nnetx = maxval(nnet)
+      netnx = maxval(netn)
+
       lonerow = nelem
       allocate(onerow(lonerow))
+      onerow = 0
+
+      lindices = nnetx * netnx
+      allocate(indices(lindices))
+      indices = 0
+      nindices = 0
   
 ! construct the array of pointers XADJ
       lxadj = nelem + 1
@@ -157,19 +169,30 @@ integer :: neledge
       do ie = 1,nelem
          nne = nnet(ie)
          ! zero local row
-         onerow     = 0
+         !onerow = 0
+         onerow(indices(1:nindices)) = 0
+         indices(1:nindices) = 0
+         nindices = 0
          do ine = 1,nne
             indinet = indinet + 1
             indnode = inet(indinet)
             nelmn   = netn(indnode)
             pointietn = kietn(indnode)
-            onerow(ietn(pointietn+1:pointietn+nelmn)) = onerow(ietn(pointietn+1:pointietn+nelmn)) + 1
+            do inelm = 1,nelmn
+               indnelm = ietn(pointietn+inelm)
+               onerow(indnelm) = onerow(indnelm) + 1
+               if (onerow(indnelm) == 1) then
+                  nindices = nindices + 1
+                  indices(nindices) = indnelm
+               end if
+            end do
          end do
          ! parse onerow
          !call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lonerow,lorout)
          ! zero myself
          onerow(ie) = 0
-         neledge = count(onerow.ge.neighbouring)
+         !neledge = count(onerow.ge.neighbouring)
+         neledge = count(onerow(indices(1:nindices)).ge.neighbouring)
 
          xadj(ie+1) = xadj(ie) + neledge
       end do
@@ -191,21 +214,34 @@ integer :: neledge
 
       indinet = 0
       do ie = 1,nelem
-         onerow     = 0
+         !onerow     = 0
+         onerow(indices(1:nindices)) = 0
+         indices(1:nindices) = 0
+         nindices = 0
+
          nne = nnet(ie)
          do ine = 1,nne
             indinet = indinet + 1
             indnode = inet(indinet)
             nelmn = netn(indnode)
             pointietn = kietn(indnode)
-            onerow(ietn(pointietn+1:pointietn+nelmn)) =  onerow(ietn(pointietn+1:pointietn+nelmn)) + 1
+            do inelm = 1,nelmn
+               indnelm = ietn(pointietn+inelm)
+               onerow(indnelm) = onerow(indnelm) + 1
+               if (onerow(indnelm) == 1) then
+                  nindices = nindices + 1
+                  indices(nindices) = indnelm
+               end if
+            end do
          end do
 
-         ! parse onerow
+         ! do not consider myself as a neighbour
          onerow(ie) = 0
 
          neledge = 0
-         do je = 1,nelem
+         !do je = 1,nelem
+         do ind = 1,nindices
+            je = indices(ind)
             if (onerow(je) .ge. neighbouring) then
                neledge = neledge + 1
                adjncy(xadj(ie)+neledge-1) = je
@@ -214,6 +250,10 @@ integer :: neledge
                end if
             end if
          end do
+         call iquick_sort_simultaneous(adjncy(xadj(ie)), neledge, adjwgt(xadj(ie)), neledge)
+         if (neledge /= xadj(ie+1) - xadj(ie)) then
+            call error(routine_name, "mismatch in number of vertices")
+         end if
          !call graph_parse_onerow(ie,neighbouring,onerow,onerowweig,lonerow,lorout)
          ! now only adjacencies above the level considered
       end do
@@ -222,6 +262,8 @@ integer :: neledge
       end if
 
       deallocate(onerow)
+      deallocate(indices)
+
 end subroutine graph_from_mesh
 
 !*******************************************************************************
