@@ -2691,7 +2691,7 @@ subroutine dd_upload_sub_mesh(sub, nelem, nnod, ndof, ndim, meshdim, &
             !element_neighbouring = meshdim
             !element_neighbouring = 1
             !!!!!!!!!!!!!!!!!!
-            call graph_from_mesh(ngraph_vertex,graphtype,neighbouring,&
+            call graph_from_mesh2(ngraph_vertex,graphtype,neighbouring,&
                                   sub%inet,sub%linet,&
                                   sub%nnet,sub%lnnet,&
                                   ietn,lietn, netn,lnetn,&
