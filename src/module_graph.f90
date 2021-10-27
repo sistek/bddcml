@@ -101,6 +101,8 @@ subroutine graph_from_mesh(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,&
 ! adjacency of elements. Corresponds to computing
 ! G = C C^T, where C is the connectivity matrix with rows representing elements 
 ! and columns representing nodes.
+! This version does not produce edges sorted based on neighbour ID and tries to 
+! touch as little memory as possible. 
 !*******************************************************************************
 use module_utils
 implicit none
@@ -250,7 +252,7 @@ integer :: neledge
                end if
             end if
          end do
-         call iquick_sort_simultaneous(adjncy(xadj(ie)), neledge, adjwgt(xadj(ie)), neledge)
+         !call iquick_sort_simultaneous(adjncy(xadj(ie)), neledge, adjwgt(xadj(ie)), neledge)
          if (neledge /= xadj(ie+1) - xadj(ie)) then
             call error(routine_name, "mismatch in number of vertices")
          end if
@@ -266,6 +268,127 @@ integer :: neledge
 
 end subroutine graph_from_mesh
 
+!*******************************************************************************
+subroutine graph_from_mesh_metis(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,&
+                                 ietn,lietn,netn,lnetn,kietn,lkietn,&
+                                 nedge, xadj, adjncy, adjwgt)
+!*******************************************************************************
+! Construct a dual graph from the mesh and its dual mesh, corresponding to 
+! adjacency of elements. Corresponds to computing
+! G = C C^T, where C is the connectivity matrix with rows representing elements 
+! and columns representing nodes.
+! This function is just a wrapper for a similar function from METIS.
+!*******************************************************************************
+use module_utils
+use iso_c_binding
+implicit none
+! number of elements in mesh
+integer, intent(in) :: nelem
+! type of output graph
+integer, intent(in) :: graphtype
+! prescribed value of number of shared nodes between two neighbours
+integer, intent(in) :: neighbouring
+
+! PMD mesh description
+integer, intent(in) :: linet
+integer, intent(in), target ::  inet(linet)
+integer, intent(in) :: lnnet
+integer, intent(in) ::  nnet(lnnet)
+! PMD dual mesh description
+integer, intent(in) :: lietn
+integer, intent(in) ::  ietn(lietn)
+integer, intent(in) :: lnetn
+integer, intent(in) ::  netn(lnetn)
+integer, intent(in) :: lkietn
+integer, intent(in) ::  kietn(lkietn)
+
+! METIS graph description
+integer, intent(out) ::  nedge
+integer, allocatable, intent(out) :: xadj(:)
+integer, allocatable, intent(out) :: adjncy(:)
+integer, allocatable, intent(out) :: adjwgt(:)
+
+! local variables
+character(*),parameter:: routine_name = 'GRAPH_FROM_MESH_METIS'
+integer,allocatable :: onerow(:), onerowweig(:)
+integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine
+integer :: ionerow, nelmn, nne, pointietn, lorin, lorout
+integer :: lxadj
+integer :: ladjncy
+integer :: ladjwgt
+integer :: ierr
+integer, pointer :: eptr(:)
+integer :: leptr
+integer :: nnod
+integer :: numflag
+
+integer, pointer, dimension(:) :: xadj_aux
+integer, pointer, dimension(:) :: adjncy_aux
+integer, pointer, dimension(:) :: adjwgt_aux
+
+type(c_ptr) :: r_xadj
+type(c_ptr) :: r_adjncy
+
+
+interface
+    function METIS_MeshToDual(ne, nn, eptr, eind, ncommon, numflag, r_xadj, r_adjncy) &
+      bind(c, name='METIS_MeshToDual')
+        use iso_c_binding
+        integer(kind=c_int) :: METIS_MeshToDual
+        integer(kind=c_int) :: ne
+        integer(kind=c_int) :: nn
+        type(c_ptr), value  :: eptr
+        type(c_ptr), value  :: eind
+        integer(kind=c_int) :: ncommon
+        integer(kind=c_int) :: numflag
+        type(c_ptr) :: r_xadj
+        type(c_ptr) :: r_adjncy
+    end function
+end interface
+
+interface
+    function METIS_Free(ptr) &
+      bind(c, name='METIS_Free')
+        use iso_c_binding
+        integer(kind=c_int) :: METIS_Free
+        type(c_ptr), value :: ptr
+    end function
+end interface
+
+nnod = maxval(inet)
+leptr = nelem + 1
+allocate(eptr(leptr))
+eptr(1:nelem) = nnet
+eptr(nelem+1) = 0
+call counts2starts(eptr,leptr)
+numflag = 1
+
+ierr = METIS_MeshToDual(nelem,nnod, c_loc(eptr), c_loc(inet), neighbouring, numflag, r_xadj, r_adjncy)
+
+lxadj = nelem + 1
+call c_f_pointer(r_xadj, xadj_aux, [lxadj])
+xadj = xadj_aux
+ierr = METIS_Free(r_xadj)
+
+ladjncy = xadj(nelem+1) - 1
+call c_f_pointer(r_adjncy, adjncy_aux, [ladjncy])
+adjncy = adjncy_aux
+ierr = METIS_Free(r_adjncy)
+
+! check the graph
+if (mod(ladjncy,2).ne.0) then
+   call error(routine_name, 'Number of nodes has to be even number!', ladjncy)
+end if
+nedge = ladjncy / 2
+
+ladjwgt = ladjncy
+allocate(adjwgt(ladjwgt))
+adjwgt = 1
+
+deallocate(eptr)
+
+end subroutine graph_from_mesh_metis
+
 
 !*******************************************************************************
 subroutine graph_from_mesh2(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,&
@@ -276,6 +399,8 @@ subroutine graph_from_mesh2(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,&
 ! adjacency of elements. Corresponds to computing
 ! G = C C^T, where C is the connectivity matrix with rows representing elements 
 ! and columns representing nodes.
+! This version produces edges sorted based on neighbour ID.
+! It searches through a long integer array for each element.
 !*******************************************************************************
 use module_utils
 implicit none
@@ -408,6 +533,8 @@ subroutine graph_from_mesh3(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,&
 ! adjacency of elements. Corresponds to computing
 ! G = C C^T, where C is the connectivity matrix with rows representing elements 
 ! and columns representing nodes.
+! This version produces edges sorted based on neighbour ID.
+! It searches already present nodes with every edge addition.
 !*******************************************************************************
 use module_utils
 implicit none
@@ -587,6 +714,8 @@ subroutine graph_from_mesh4(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,&
 ! adjacency of elements. Corresponds to computing
 ! G = C C^T, where C is the connectivity matrix with rows representing elements 
 ! and columns representing nodes.
+! This is the original version. It produces edges sorted based on neighbour ID.
+! It gathers an array of all neighbours, then sorts it and removes duplicities.
 !*******************************************************************************
 use module_utils
 implicit none
