@@ -3288,8 +3288,10 @@ subroutine levels_jds_prepare(matrixtype)
 
       if ( myid == 0 ) then
          llevels_jds_bc = ndof
-         allocate(levels_jds_bc(llevels_jds_bc))
+      else
+         llevels_jds_bc = 1
       end if
+      allocate(levels_jds_bc(llevels_jds_bc))
       lbc_aux = ndof
       allocate(bc_aux(lbc_aux))
       bc_aux = 0._kr
@@ -3468,14 +3470,17 @@ subroutine levels_jds_solve
 
       ! a DIRTY HACK to obtain the global rhs vector through the get_global_solution routine
       if (myid == 0) then
-         if (.not.allocated(levels_jds_rhs)) then
-            llevels_jds_rhs = ndof
-            allocate(levels_jds_rhs(llevels_jds_rhs))
-         else
-            ! check the size
-            if (size(levels_jds_rhs).ne.ndof) then
-               call error(routine_name, 'Wrong size of the array.')
-            end if
+         llevels_jds_rhs = ndof
+      else
+         llevels_jds_rhs = 1
+      end if
+         
+      if (.not.allocated(levels_jds_rhs)) then
+         allocate(levels_jds_rhs(llevels_jds_rhs))
+      else
+         ! check the size
+         if (size(levels_jds_rhs).ne.llevels_jds_rhs) then
+            call error(routine_name, 'Wrong size of the array.')
          end if
       end if
 
