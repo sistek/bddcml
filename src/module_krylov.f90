@@ -761,7 +761,10 @@
              end if
 
              ! Evaluation of stopping criterion
-             relres = normres/normrhs
+             ! compute it as relative residual with respect to initial residual
+             relres = normres/normres0
+             ! compute it as relative residual with respect to right-hand side
+             !relres = normres/normrhs
                 
              if (myid.eq.0) then
                 call info (routine_name, 'iteration: ',iter)
