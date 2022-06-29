@@ -127,6 +127,7 @@
 
           ! Recycling of Krylov spaces
           integer :: jcol, ibasis, jbasis
+          integer :: lstored
           integer ::              lvtb
           real(kr), allocatable :: vtb(:)
           real(kr), allocatable :: vtb_loc(:)
@@ -661,68 +662,76 @@
              end if
 
              if (recycling) then
-                ! add a vector to the basis if there is still space
-                if (nactive_cols_recycling_basis .lt.  max_number_of_stored_vectors ) then
-                   ! there is still room for storing a new vector
+                !if (nactive_cols_recycling_basis .le.  max_number_of_stored_vectors ) then
 
-                   ! scaling factor - make the basis vectors normalized
-                   scaling_of_basis = 1._kr / sqrt(pap)
-
-                   jcol = nactive_cols_recycling_basis + 1
+                ! if there is no room for storing a new vector, move the basis forward to fit the latest vector
+                if (nactive_cols_recycling_basis .eq. max_number_of_stored_vectors ) then
+                   lstored = max_number_of_stored_vectors - 1
                    do isub_loc = 1,nsub_loc
-                      ! V <- [ V p ]
-                      recycling_basis(isub_loc)%v(:,jcol) = scaling_of_basis * pcg_data(isub_loc)%p(:)
-                      ! W <- [ W ap ]
-                      recycling_basis(isub_loc)%w(:,jcol) = scaling_of_basis * pcg_data(isub_loc)%ap(:)
+                      recycling_basis(isub_loc)%v(:,1:lstored) = recycling_basis(isub_loc)%v(:,2:lstored+1)
+                      recycling_basis(isub_loc)%w(:,1:lstored) = recycling_basis(isub_loc)%w(:,2:lstored+1)
                    end do
-                   ! IDIAG <- [ IDIAG 1./p'Ap ]
-                   !recycling_idvtw(jcol) = 1._kr / pap
-                   recycling_idvtw(jcol) = 1._kr 
-
-                   nactive_cols_recycling_basis = nactive_cols_recycling_basis + 1
-
-
-                   ! update the V'*W matrix and its factors
-                   !lvtw     = nactive_cols_recycling_basis
-                   !allocate(vtw_loc(lvtw,lvtw))
-                   !vtw_loc = 0._kr
-                   !do ibasis = 1,nactive_cols_recycling_basis
-                   !   do jbasis = 1,nactive_cols_recycling_basis
-                   !      do isub_loc = 1,nsub_loc
-                   !         call levels_dd_dotprod_local(ilevel,isub_loc,&
-                   !                                      recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
-                   !                                      recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
-                   !                                      vtw_sub)
-                   !         vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
-                   !      end do
-                   !   end do
-                   !end do
-                   !if (allocated(recycling_vtw)) then
-                   !   deallocate(recycling_vtw)
-                   !end if
-                   !allocate(recycling_vtw(lvtw,lvtw))
-    !***************************************************************PARALLEL
-                   !call MPI_ALLREDUCE(vtw_loc,recycling_vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
-                   !                   MPI_SUM, comm_all, ierr) 
-    !***************************************************************PARALLEL
-                   !deallocate(vtw_loc)
-
-                   !if (myid.eq.0) then
-                   !   write(*,*) 'V^T*W'
-                   !   do i = 1,lvtw
-                   !      write(*,'(1000f20.13)') (recycling_vtw(i,j), j = 1,lvtw)
-                   !   end do
-                   !end if
-
-                   ! prepare factors
-                   !if (allocated(recycling_ipiv)) then
-                   !   deallocate(recycling_ipiv)
-                   !end if
-                   !allocate(recycling_ipiv(lvtw))
-                   !call DGETRF( lvtw, lvtw, recycling_vtw, lvtw, recycling_ipiv, recycling_info )
-                   !recycling_is_inverse_prepared = .true.
-
+                   recycling_idvtw(1:lstored) = recycling_idvtw(2:lstored+1)
+                   
+                   nactive_cols_recycling_basis = nactive_cols_recycling_basis - 1
                 end if
+
+                ! scaling factor - make the basis vectors normalized
+                scaling_of_basis = 1._kr / sqrt(pap)
+
+                jcol = nactive_cols_recycling_basis + 1
+                do isub_loc = 1,nsub_loc
+                   ! V <- [ V p ]
+                   recycling_basis(isub_loc)%v(:,jcol) = scaling_of_basis * pcg_data(isub_loc)%p(:)
+                   ! W <- [ W ap ]
+                   recycling_basis(isub_loc)%w(:,jcol) = scaling_of_basis * pcg_data(isub_loc)%ap(:)
+                end do
+                ! IDIAG <- [ IDIAG 1./p'Ap ]
+                !recycling_idvtw(jcol) = 1._kr / pap
+                recycling_idvtw(jcol) = 1._kr 
+
+                nactive_cols_recycling_basis = nactive_cols_recycling_basis + 1
+
+                ! update the V'*W matrix and its factors
+                !lvtw     = nactive_cols_recycling_basis
+                !allocate(vtw_loc(lvtw,lvtw))
+                !vtw_loc = 0._kr
+                !do ibasis = 1,nactive_cols_recycling_basis
+                !   do jbasis = 1,nactive_cols_recycling_basis
+                !      do isub_loc = 1,nsub_loc
+                !         call levels_dd_dotprod_local(ilevel,isub_loc,&
+                !                                      recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                !                                      recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
+                !                                      vtw_sub)
+                !         vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
+                !      end do
+                !   end do
+                !end do
+                !if (allocated(recycling_vtw)) then
+                !   deallocate(recycling_vtw)
+                !end if
+                !allocate(recycling_vtw(lvtw,lvtw))
+    !************************************************************PARALLEL
+                !call MPI_ALLREDUCE(vtw_loc,recycling_vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
+                !                   MPI_SUM, comm_all, ierr) 
+    !************************************************************PARALLEL
+                !deallocate(vtw_loc)
+
+                !if (myid.eq.0) then
+                !   write(*,*) 'V^T*W'
+                !   do i = 1,lvtw
+                !      write(*,'(1000f20.13)') (recycling_vtw(i,j), j = 1,lvtw)
+                !   end do
+                !end if
+
+                ! prepare factors
+                !if (allocated(recycling_ipiv)) then
+                !   deallocate(recycling_ipiv)
+                !end if
+                !allocate(recycling_ipiv(lvtw))
+                !call DGETRF( lvtw, lvtw, recycling_vtw, lvtw, recycling_ipiv, recycling_info )
+                !recycling_is_inverse_prepared = .true.
+
              end if
 
              ! Determination of step lenght ALPHA
