@@ -815,7 +815,9 @@ subroutine densela_symv_matrix_on_gpu(library, uplo, n, alpha, dA, lddA, x, incx
 
             ! copy vectors from CPU to GPU
             call magmaf_dsetvector(n, x, incx, dx, 1, queue)
-            call magmaf_dsetvector(n, y, incx, dy, 1, queue)
+            if (beta /= 0.) then
+               call magmaf_dsetvector(n, y, incx, dy, 1, queue)
+            end if
 
             !if      (kr == REAL64) then
             !   ! double precision
