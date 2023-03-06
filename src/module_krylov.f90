@@ -126,8 +126,8 @@
           integer :: nw, ldiag, lsubdiag
 
           ! Recycling of Krylov spaces
-          integer :: jcol, ibasis, jbasis
-          integer :: lstored
+          integer :: ibasis, jbasis
+          integer :: jbuffer, lstored
           integer ::              lvtb
           real(kr), allocatable :: vtb(:)
           real(kr), allocatable :: vtb_loc(:)
@@ -199,12 +199,25 @@
                 do isub_loc = 1,nsub_loc
                    call levels_dd_get_interface_size(ilevel,isub_loc, ndofis, nnodis)
 
+                   ! matrix of deflation basis V
                    recycling_basis(isub_loc)%lv1 = ndofis
                    recycling_basis(isub_loc)%lv2 = max_number_of_stored_vectors
                    allocate(recycling_basis(isub_loc)%v(recycling_basis(isub_loc)%lv1,recycling_basis(isub_loc)%lv2))
+                   ! matrix of deflation basis W = A*V
                    recycling_basis(isub_loc)%lw1 = ndofis
                    recycling_basis(isub_loc)%lw2 = max_number_of_stored_vectors
                    allocate(recycling_basis(isub_loc)%w(recycling_basis(isub_loc)%lw1,recycling_basis(isub_loc)%lw2))
+
+                   ! buffer matrix of search directions p
+                   recycling_basis(isub_loc)%lp_buffer1 = ndofis
+                   recycling_basis(isub_loc)%lp_buffer2 = max_number_of_stored_vectors
+                   allocate(recycling_basis(isub_loc)%p_buffer(recycling_basis(isub_loc)%lp_buffer1,&
+                                                               recycling_basis(isub_loc)%lp_buffer2))
+                   ! buffer matrix of vectors A*p
+                   recycling_basis(isub_loc)%lap_buffer1 = ndofis
+                   recycling_basis(isub_loc)%lap_buffer2 = max_number_of_stored_vectors
+                   allocate(recycling_basis(isub_loc)%ap_buffer(recycling_basis(isub_loc)%lap_buffer1,&
+                                                                recycling_basis(isub_loc)%lap_buffer2))
                 end do
 
                 is_recycling_prepared = .true.
@@ -379,6 +392,7 @@
              allocate(vtb(lvtb))
 
              ! V'*b
+             ! TODO: weight V, reorder loops and use matrix times vector
              do ibasis = 1,nactive_cols_recycling_basis
                 do isub_loc = 1,nsub_loc
                    call levels_dd_dotprod_local(ilevel,isub_loc,&
@@ -662,35 +676,48 @@
              end if
 
              if (recycling) then
+                if (max_number_of_stored_vectors == 0) then
+                   call error(routine_name,'Having zero stored vectors with recycling is not allowed.')
+                end if
+
                 !if (nactive_cols_recycling_basis .le.  max_number_of_stored_vectors ) then
 
                 ! if there is no room for storing a new vector, move the basis forward to fit the latest vector
-                if (nactive_cols_recycling_basis .eq. max_number_of_stored_vectors ) then
-                   lstored = max_number_of_stored_vectors - 1
-                   do isub_loc = 1,nsub_loc
-                      recycling_basis(isub_loc)%v(:,1:lstored) = recycling_basis(isub_loc)%v(:,2:lstored+1)
-                      recycling_basis(isub_loc)%w(:,1:lstored) = recycling_basis(isub_loc)%w(:,2:lstored+1)
-                   end do
-                   recycling_idvtw(1:lstored) = recycling_idvtw(2:lstored+1)
-                   
-                   nactive_cols_recycling_basis = nactive_cols_recycling_basis - 1
-                end if
+                !if (nactive_cols_recycling_basis .eq. max_number_of_stored_vectors ) then
+                !   lstored = max_number_of_stored_vectors - 1
+                !   do isub_loc = 1,nsub_loc
+                !      recycling_basis(isub_loc)%v(:,1:lstored) = recycling_basis(isub_loc)%v(:,2:lstored+1)
+                !      recycling_basis(isub_loc)%w(:,1:lstored) = recycling_basis(isub_loc)%w(:,2:lstored+1)
+                !   end do
+                !   recycling_idvtw(1:lstored) = recycling_idvtw(2:lstored+1)
+                !   
+                !   nactive_cols_recycling_basis = nactive_cols_recycling_basis - 1
+                !end if
 
                 ! scaling factor - make the basis vectors normalized
                 scaling_of_basis = 1._kr / sqrt(pap)
 
-                jcol = nactive_cols_recycling_basis + 1
+                ! start from 1 for the current iterations
+                jbuffer = min(iter,max_number_of_stored_vectors)
+
+                ! if there is no room for storing a new vector, move the basis forward to fit the latest vector
+                if (jbuffer .eq. max_number_of_stored_vectors ) then
+                   lstored = max_number_of_stored_vectors - 1
+                   do isub_loc = 1,nsub_loc
+                      recycling_basis(isub_loc)%p_buffer(:,1:lstored)  = recycling_basis(isub_loc)%p_buffer(:,2:lstored+1)
+                      recycling_basis(isub_loc)%ap_buffer(:,1:lstored) = recycling_basis(isub_loc)%ap_buffer(:,2:lstored+1)
+                   end do
+                   !recycling_idvtw(1:lstored) = recycling_idvtw(2:lstored+1)
+                end if
                 do isub_loc = 1,nsub_loc
-                   ! V <- [ V p ]
-                   recycling_basis(isub_loc)%v(:,jcol) = scaling_of_basis * pcg_data(isub_loc)%p(:)
-                   ! W <- [ W ap ]
-                   recycling_basis(isub_loc)%w(:,jcol) = scaling_of_basis * pcg_data(isub_loc)%ap(:)
+                   recycling_basis(isub_loc)%p_buffer(:,jbuffer)  = scaling_of_basis * pcg_data(isub_loc)%p(:)
+                   recycling_basis(isub_loc)%ap_buffer(:,jbuffer) = scaling_of_basis * pcg_data(isub_loc)%ap(:)
                 end do
                 ! IDIAG <- [ IDIAG 1./p'Ap ]
                 !recycling_idvtw(jcol) = 1._kr / pap
-                recycling_idvtw(jcol) = 1._kr 
+                !recycling_idvtw(jcol) = 1._kr 
 
-                nactive_cols_recycling_basis = nactive_cols_recycling_basis + 1
+                !nactive_cols_recycling_basis = nactive_cols_recycling_basis + 1
 
                 ! update the V'*W matrix and its factors
                 !lvtw     = nactive_cols_recycling_basis
@@ -787,6 +814,10 @@
                 end if
                 num_iter = iter
                 converged_reason = 0
+                if (recycling) then
+                   call recycling_process_basis(comm_all, jbuffer)
+                end if
+
                 exit
              end if
 
@@ -798,6 +829,7 @@
                 end if
                 num_iter = iter
                 converged_reason = -1
+
                 exit
              end if
 
@@ -813,6 +845,7 @@
                    end if
                    num_iter = iter
                    converged_reason = -2
+
                    exit
                 end if
              end if
@@ -1904,6 +1937,7 @@
       allocate(wtp(lwtp))
 
       ! W'*p
+      ! TODO: accelerate by using matrix * vector BLAS L2
       do ibasis = 1,nactive_cols_recycling_basis
          do isub_loc = 1,nsub_loc
             call levels_dd_dotprod_local(ilevel,isub_loc,&
@@ -2019,7 +2053,7 @@
 !***************************************************************PARALLEL
 
          ! inv(D) * W' * p
-         wtp = wtp * recycling_idvtw(ibasis)
+         !wtp = wtp * recycling_idvtw(ibasis)
 
          ! correct search direction vector
          ! p <- p - V*inv(D)+W'p = p - V*IDIAG*W'p
@@ -2051,8 +2085,11 @@
          call error( routine_name, 'size mismatch', lvec )
       end if
       ! only diagonal
-      vec(1:lvec) = vec(1:lvec) * recycling_idvtw(1:nactive_cols_recycling_basis)
+      ! do nothing because there are ones on the diagonal
+      !vec(1:lvec) = vec(1:lvec) * recycling_idvtw(1:nactive_cols_recycling_basis)
 
+      !print *, 'diagonal:', recycling_idvtw(1:nactive_cols_recycling_basis)
+      
       ! actually apply the inverse of the Grammian
       !if ( .not. recycling_is_inverse_prepared ) then
       !   call error( routine_name, 'Gramian of the basis is not factorized', lvec )
@@ -2063,6 +2100,92 @@
       !if (lapack_info /= 0) then
       !   call error( routine_name, 'error in LAPACK, info ', lapack_info )
       !end if
+
+      end subroutine
+
+      !***************************************************
+      subroutine recycling_process_basis(comm_all,nbuffer)
+      !***************************************************
+      ! convert the stored search directions to a basis for deflation
+      use module_levels
+      use module_utils
+
+      implicit none
+
+      ! parallel variables
+      integer,intent(in) :: comm_all 
+
+      ! number of vectors from the buffer
+      integer,intent(in) :: nbuffer
+
+      ! local vars
+      character(*),parameter:: routine_name = 'RECYCLING_PROCESS_BASIS'
+
+      integer,parameter :: ilevel = 1
+
+      ! recycling strategy
+      ! 0 - appending until full
+      ! 1 - appending with replacement
+      ! 2 - harmonic Ritz vectors
+      integer,parameter :: recycling_strategy = 1
+
+      integer :: isub_loc, ibasis, nsub, nsub_loc 
+      integer :: room, nvectors_to_copy, lstored, nreplace, shift
+
+      ! find number of subdomains
+      call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
+
+      select case (recycling_strategy)
+      case(0)
+         ! append buffered vectors to the stored basis until it is full
+
+         do isub_loc = 1,nsub_loc
+         
+            room = recycling_basis(isub_loc)%lv2 - nactive_cols_recycling_basis
+            nvectors_to_copy = min(nbuffer,room)
+
+            recycling_basis(isub_loc)%v(:,nactive_cols_recycling_basis+1:nactive_cols_recycling_basis+nvectors_to_copy) = &
+            recycling_basis(isub_loc)%p_buffer(:,1:nvectors_to_copy) 
+
+            recycling_basis(isub_loc)%w(:,nactive_cols_recycling_basis+1:nactive_cols_recycling_basis+nvectors_to_copy) = &
+            recycling_basis(isub_loc)%ap_buffer(:,1:nvectors_to_copy) 
+
+         !   recycling_idvtw(nactive_cols_recycling_basis+1:nactive_cols_recycling_basis+nvectors_to_copy) = 1._kr
+         end do
+         ! increase the active basis
+         nactive_cols_recycling_basis = nactive_cols_recycling_basis + nvectors_to_copy 
+
+      case(1)
+         ! append buffered vectors to the stored basis and shift it if it is full
+         do isub_loc = 1,nsub_loc
+         
+            nreplace = (nactive_cols_recycling_basis + nbuffer) - recycling_basis(isub_loc)%lv2
+            shift = max(0,nreplace)
+
+            if (shift > 0) then
+               lstored = nactive_cols_recycling_basis - shift
+               recycling_basis(isub_loc)%v(:,1:lstored) = recycling_basis(isub_loc)%v(:,shift+1:nactive_cols_recycling_basis)
+               recycling_basis(isub_loc)%w(:,1:lstored) = recycling_basis(isub_loc)%w(:,shift+1:nactive_cols_recycling_basis)
+
+               !recycling_idvtw(nactive_cols_recycling_basis+1:nactive_cols_recycling_basis+nbuffer) = 1._kr
+            end if
+
+            recycling_basis(isub_loc)%v(:,nactive_cols_recycling_basis-shift+1:nactive_cols_recycling_basis-shift+nbuffer) = &
+            recycling_basis(isub_loc)%p_buffer(:,1:nbuffer) 
+
+            recycling_basis(isub_loc)%w(:,nactive_cols_recycling_basis-shift+1:nactive_cols_recycling_basis-shift+nbuffer) = &
+            recycling_basis(isub_loc)%ap_buffer(:,1:nbuffer) 
+
+            !recycling_idvtw(nactive_cols_recycling_basis+1:nactive_cols_recycling_basis+nbuffer) = 1._kr
+         end do
+         ! increase the active basis
+         nactive_cols_recycling_basis = nactive_cols_recycling_basis - shift + nbuffer 
+
+      case(2)
+         ! compress the basis with harmonic Ritz vectors
+         call error(routine_name, 'harmonic Ritz vectors not implemented yet')
+
+      end select
 
       end subroutine
 

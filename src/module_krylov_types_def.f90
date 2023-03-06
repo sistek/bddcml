@@ -90,6 +90,12 @@ module module_krylov_types_def
          integer ::             lw1
          integer ::             lw2
          real(kr),allocatable :: w(:,:)   ! array of all A*p at interface
+         integer ::             lp_buffer1
+         integer ::             lp_buffer2
+         real(kr),allocatable :: p_buffer(:,:)   ! array of search directions p on interface at one solve 
+         integer ::             lap_buffer1
+         integer ::             lap_buffer2
+         real(kr),allocatable :: ap_buffer(:,:)   ! array of all A*p on interface at one solve 
       end type krylov_recycling_data_type
 
 end module
