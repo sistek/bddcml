@@ -96,6 +96,16 @@ module module_krylov_types_def
          integer ::             lap_buffer1
          integer ::             lap_buffer2
          real(kr),allocatable :: ap_buffer(:,:)   ! array of all A*p on interface at one solve 
+
+         integer ::             lcv1
+         integer ::             lcv2
+         real(kr),allocatable :: cv(:,:)   ! array of combined basis V and p_buffer
+         integer ::             lcw1
+         integer ::             lcw2
+         real(kr),allocatable :: cw(:,:)   ! array of combined basis W and ap_buffer
+         integer ::             lcmw1
+         integer ::             lcmw2
+         real(kr),allocatable :: cmw(:,:)  ! array of combined M^(-1)*cw
       end type krylov_recycling_data_type
 
 end module
