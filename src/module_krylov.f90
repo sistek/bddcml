@@ -2350,9 +2350,15 @@
 
          ! get the new basis from the smallest eigenvalues
          ! find the maximal capacity
-         capacity = recycling_basis(1)%lv2
+         if (nsub_loc > 0) then
+            capacity = recycling_basis(1)%lv2
+         else
+            capacity = 0
+         end if
 
-         nstore = min(max(1, capacity/2),nallvec)
+         nstore = min(nallvec/2, capacity)
+         !print *,routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
+         
          ! store the first eigenvectors to V and W
          do isub_loc = 1,nsub_loc
             recycling_basis(isub_loc)%v(:,1:nstore) = matmul(recycling_basis(isub_loc)%cv, wtmw(:,1:nstore))
