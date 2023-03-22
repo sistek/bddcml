@@ -2155,7 +2155,9 @@
       real(kr),allocatable :: eiglap(:)
 
       integer :: nallvec, nstore, capacity
-      integer :: ierr
+      integer :: myid, ierr
+
+      call MPI_COMM_RANK(comm_all,myid,ierr)
 
       ! find number of subdomains
       call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
@@ -2356,8 +2358,12 @@
             capacity = 0
          end if
 
-         nstore = min(nallvec/2, capacity)
-         !print *,routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
+         ! selection of size of the new recycling basis
+         nstore = min(nallvec, capacity)
+         if (myid.eq.0) then
+            write(*,*) routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
+            write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values ', eiglap(1:nstore)
+         end if
          
          ! store the first eigenvectors to V and W
          do isub_loc = 1,nsub_loc
