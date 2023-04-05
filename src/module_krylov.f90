@@ -317,12 +317,12 @@
           end if
 
           ! multiply the initial solution by the optimal step size
-          if (abs(utau) > 0.) then
-             do isub_loc = 1,nsub_loc
-                pcg_data(isub_loc)%ap   = utg / utau * pcg_data(isub_loc)%ap
-                pcg_data(isub_loc)%soli = utg / utau * pcg_data(isub_loc)%soli
-             end do
-          end if
+          !if (abs(utau) > 0.) then
+          !   do isub_loc = 1,nsub_loc
+          !      pcg_data(isub_loc)%ap   = utg / utau * pcg_data(isub_loc)%ap
+          !      pcg_data(isub_loc)%soli = utg / utau * pcg_data(isub_loc)%soli
+          !   end do
+          !end if
 
           do isub_loc = 1,nsub_loc
              ! fix boundary conditions in residual to zero
