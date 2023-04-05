@@ -117,6 +117,9 @@
           real(kr) :: alpha, beta
           real(kr) :: relres, lastres
 
+          real(kr) :: utg, utg_loc, utg_sub
+          real(kr) :: utau, utau_loc, utau_sub
+
           ! MPI vars
           integer :: ierr
 
@@ -281,6 +284,44 @@
           call time_end(t_sm_apply)
           if (myid.eq.0 .and. profile) then
              call time_print('application of system matrix',t_sm_apply)
+          end if
+
+          ! step_optimal = u_0'*g / u_0' A u_0
+          ! u_0'*g
+          utg_loc = 0._kr
+          do isub_loc = 1,nsub_loc
+             call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%soli,pcg_data(isub_loc)%lsoli, &
+                                          pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                          utg_sub)
+             utg_loc = utg_loc + utg_sub
+          end do
+    !***************************************************************PARALLEL
+          call MPI_ALLREDUCE(utg_loc,utg, 1, MPI_DOUBLE_PRECISION,&
+                             MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+
+          ! u_0' A u_0
+          utau_loc = 0._kr
+          do isub_loc = 1,nsub_loc
+             call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%soli,pcg_data(isub_loc)%lsoli, &
+                                          pcg_data(isub_loc)%ap,pcg_data(isub_loc)%lap, &
+                                          utau_sub)
+             utau_loc = utau_loc + utau_sub
+          end do
+    !***************************************************************PARALLEL
+          call MPI_ALLREDUCE(utau_loc,utau, 1, MPI_DOUBLE_PRECISION,&
+                             MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+          if (myid.eq.0) then
+             call info(routine_name,'Optimal size of initial solution: ',utg/utau)
+          end if
+
+          ! multiply the initial solution by the optimal step size
+          if (abs(utau) > 0.) then
+             do isub_loc = 1,nsub_loc
+                pcg_data(isub_loc)%ap   = utg / utau * pcg_data(isub_loc)%ap
+                pcg_data(isub_loc)%soli = utg / utau * pcg_data(isub_loc)%soli
+             end do
           end if
 
           do isub_loc = 1,nsub_loc
@@ -2154,8 +2195,11 @@
       integer::              leiglap
       real(kr),allocatable :: eiglap(:)
 
-      integer :: nallvec, nstore, capacity
+      integer :: nallvec, nstore, capacity, start, end
       integer :: myid, ierr
+
+      ! which part of the Ritz vectors consider in the deflation
+      logical :: take_largest = .true.
 
       call MPI_COMM_RANK(comm_all,myid,ierr)
 
@@ -2360,15 +2404,24 @@
 
          ! selection of size of the new recycling basis
          nstore = min(nallvec, capacity)
+         if (take_largest) then
+            start = nallvec - nstore + 1
+            end   = nallvec
+         else
+            start = 1
+            end   = nstore
+         end if
+
          if (myid.eq.0) then
             write(*,*) routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
-            write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values ', eiglap(1:nstore)
+            !write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values ', eiglap(1:nstore)
+            write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values ', eiglap(start:end)
          end if
          
          ! store the first eigenvectors to V and W
          do isub_loc = 1,nsub_loc
-            recycling_basis(isub_loc)%v(:,1:nstore) = matmul(recycling_basis(isub_loc)%cv, wtmw(:,1:nstore))
-            recycling_basis(isub_loc)%w(:,1:nstore) = matmul(recycling_basis(isub_loc)%cw, wtmw(:,1:nstore))
+            recycling_basis(isub_loc)%v(:,1:nstore) = matmul(recycling_basis(isub_loc)%cv, wtmw(:,start:end))
+            recycling_basis(isub_loc)%w(:,1:nstore) = matmul(recycling_basis(isub_loc)%cw, wtmw(:,start:end))
          end do
          nactive_cols_recycling_basis = nstore
 
