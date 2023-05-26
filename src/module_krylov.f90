@@ -2263,6 +2263,9 @@
          ! W' M^(-1) W u = lambda V' W
 
          nallvec = nactive_cols_recycling_basis + nbuffer
+         ! number of recomputed Ritz vectors
+         !recycling_basis(isub_loc)%recompute_ritz_start
+         !recycling_basis(isub_loc)%recompute_ritz_end
          do isub_loc = 1,nsub_loc
 
             ! get combined matrix of basis [ W ap_buffer ]
