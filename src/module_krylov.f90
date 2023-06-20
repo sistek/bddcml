@@ -47,9 +47,9 @@
           integer ::             lrecycling_L2
           real(kr),allocatable :: recycling_L(:,:)
 
-          integer ::             lrecycling_U1
-          integer ::             lrecycling_U2
-          real(kr),allocatable :: recycling_U(:,:)
+          !integer ::             lrecycling_U1
+          !integer ::             lrecycling_U2
+          !real(kr),allocatable :: recycling_U(:,:)
 
           integer ::             lrecycling_Gtilde1
           integer ::             lrecycling_Gtilde2
@@ -228,9 +228,9 @@
                 lrecycling_L2 = maxit
                 allocate(recycling_L(lrecycling_L1,lrecycling_L2))
 
-                lrecycling_U1 = maxit + 1
-                lrecycling_U2 = maxit + 1
-                allocate(recycling_U(lrecycling_U1,lrecycling_U2))
+                !lrecycling_U1 = maxit + 1
+                !lrecycling_U2 = maxit + 1
+                !allocate(recycling_U(lrecycling_U1,lrecycling_U2))
 
                 lrecycling_Gtilde1 = maxit + 1
                 lrecycling_Gtilde2 = maxit + 1
@@ -276,7 +276,7 @@
                    call error( routine_name, 'Size mismatch of array RECYCLING_BASIS' )
                 end if
                 recycling_L = 0.
-                recycling_U = 0.
+                !recycling_U = 0.
                 recycling_Gtilde = 0.
                 recycling_delta = 0.
                 recycling_scaling_of_basis = 0.
@@ -1029,8 +1029,8 @@
 
              ! Filling matrix for the recycling
              if (recycling) then
-                recycling_U(iter,iter)   =  1._kr
-                recycling_U(iter,iter+1) =  -beta
+                !recycling_U(iter,iter)   =  1._kr
+                !recycling_U(iter,iter+1) =  -beta
                 
                 recycling_L(iter,iter)   =  1._kr/alpha
                 recycling_L(iter+1,iter) = -1._kr/alpha
@@ -2614,7 +2614,6 @@
             call error(routine_name,'in LAPACK during solving eigenproblems:',lapack_info)
          end if
 
-
          !if (myid.eq.0) then
          !   write(*,'(a)') "Matrix WTMW with eigenvectors:"
          !   call write_matrix(6,wtmw)
@@ -2649,7 +2648,6 @@
             write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values in the old way', eiglap(start:end)
          end if
          deallocate(eiglap)
-
 
          ! generate the matrices for the next step
          if (allocated(recycling_YTGY)) then
@@ -2788,9 +2786,9 @@
       if (allocated(recycling_L)) then
          deallocate(recycling_L)
       end if
-      if (allocated(recycling_U)) then
-         deallocate(recycling_U)
-      end if
+      !if (allocated(recycling_U)) then
+      !   deallocate(recycling_U)
+      !end if
       if (allocated(recycling_Gtilde)) then
          deallocate(recycling_Gtilde)
       end if
