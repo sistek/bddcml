@@ -35,12 +35,14 @@
           integer,private                                        :: nactive_cols_recycling_basis = 0
           integer,private                                        :: lrecycling_basis = 0
           type(krylov_recycling_data_type), allocatable, private ::  recycling_basis(:) ! one per each local subdomain
-          !real(kr),allocatable :: recycling_vtw(:,:) ! matrix of all p'*A*p at interface or its LU factors
-          !integer,allocatable :: recycling_ipiv(:)   ! permutation from LAPACK LU
           ! the above matrix should be diagonal, so for a well-conditioned basis, only its diagonal is needed
           integer ::             lrecycling_idvtw
           real(kr),allocatable :: recycling_idvtw(:) ! array of the inverse of the diagonal of p'*A*p at interface 
           !logical,private :: recycling_is_inverse_prepared = .false.
+
+          ! controls whether Ritz vectors and values still require recomputing
+          real(kr),parameter,private ::   tol_ritz_values = 1.e-5_kr
+          logical,private :: is_recycling_ritz_converged = .false.
 
           integer ::             lrecycling_L
           real(kr),allocatable :: recycling_L(:)
@@ -61,6 +63,8 @@
           integer ::             lrecycling_scaling_of_basis
           real(kr),allocatable :: recycling_scaling_of_basis(:)
 
+          integer ::             lrecycling_previous_eigvals
+          real(kr),allocatable :: recycling_previous_eigvals(:)
           contains
 
     !******************************************************************************************************
@@ -135,9 +139,6 @@
           real(kr) :: rmpold
           real(kr) :: alpha, beta
           real(kr) :: relres, lastres
-
-          real(kr) :: utg, utg_loc, utg_sub
-          real(kr) :: utau, utau_loc, utau_sub
 
           ! MPI vars
           integer :: ierr
@@ -729,7 +730,16 @@
                 end if
                 converged_reason = 0
                 if (recycling) then
-                   call recycling_process_basis(comm_all, jbuffer)
+                   if (is_recycling_ritz_converged) then
+                      if (myid.eq.0) then
+                         call info(routine_name,'Harmonic Ritz values already converged, not recomputing the deflation basis.')
+                      end if
+                   else
+                      if (myid.eq.0) then
+                         call info(routine_name,'Harmonic Ritz values not converged, recomputing the deflation basis.')
+                      end if
+                      call recycling_process_basis(comm_all, jbuffer)
+                   end if
                 end if
 
                 exit
@@ -2268,26 +2278,13 @@
       ! 2 - harmonic Ritz vectors
       integer,parameter :: recycling_strategy = 2
 
-      ! data for auxiliary manipulation with preconditioner and system matrix 
-      integer ::                                     lcommon_krylov_data
-      type (common_krylov_data_type), allocatable ::  common_krylov_data(:)
-
-      integer :: isub_loc, ibasis, jbasis, nsub, nsub_loc, i
+      integer :: isub_loc, nsub, nsub_loc, i
       integer :: room, nvectors_to_copy, lstored, nreplace, shift
-
-      integer :: lwtmw, lvtw
-      real(kr), allocatable :: wtmw_loc(:,:)
-      real(kr), allocatable :: vtw_loc(:,:)
-      real(kr), allocatable :: wtmw(:,:)
-      real(kr), allocatable :: vtw(:,:)
-      real(kr) :: wtmw_sub
-      real(kr) :: vtw_sub
 
       integer ::              lG
       real(kr), allocatable :: G(:,:)
       integer ::              lF
       real(kr), allocatable :: F(:,:)
-      real(kr), allocatable :: UL(:,:)
       real(kr), allocatable :: eigvecs(:,:)
 
       ! LAPACK QR related variables
@@ -2297,6 +2294,8 @@
       real(kr),allocatable :: work2(:)
       integer::              leigvals
       real(kr),allocatable :: eigvals(:)
+
+      real(kr) :: diff_ritz, norm_ritz, diff_ritz_rel
 
       integer :: nallvec, nstore, capacity, startv, endv, startw, endw, j
       integer :: myid, ierr
@@ -2428,7 +2427,7 @@
          !end if
 
          ! Matrices G and F are ready, call LAPACK generalized eigensolver.
-         leiglap = nallvec
+         leigvals = nallvec
          allocate(eigvals(leigvals))
          ! determine size of work array
          lwork2 = 1
@@ -2475,8 +2474,27 @@
 
          if (myid.eq.0) then
             write(*,*) routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
-            write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values in the old way', eigvals(startv:endw)
+            write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values: ', eigvals(startv:endw)
          end if
+         ! quit recomputing the Ritz vectors if they are converged
+         if (.not.allocated(recycling_previous_eigvals)) then
+            lrecycling_previous_eigvals = capacity
+            allocate(recycling_previous_eigvals(lrecycling_previous_eigvals))
+            recycling_previous_eigvals = 0._kr
+         end if
+         if (nstore == capacity) then ! it is no longer expanding
+            diff_ritz = norm2(eigvals(startv:endw) - recycling_previous_eigvals) 
+            norm_ritz = norm2(eigvals(startv:endw))
+            diff_ritz_rel = diff_ritz / norm_ritz
+            if (myid == 0) then
+               write(*,'(a,a,50f9.6)') routine_name,': Difference in Ritz values ', diff_ritz
+            end if
+            if (diff_ritz_rel < tol_ritz_values) then
+               is_recycling_ritz_converged = .true.
+            end if
+         end if
+         ! store eigvals
+         recycling_previous_eigvals(1:nstore) = eigvals(startv:endw)
          deallocate(eigvals)
 
          ! Generate the matrices for the next step.
@@ -2498,16 +2516,17 @@
          do isub_loc = 1,nsub_loc
             recycling_basis(isub_loc)%v(:,1:nstore) &
                = matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
-                        eigvecs(startv:endv,1:nstore)) &
+                        eigvecs(1:nactive_cols_recycling_basis,startv:endw)) &
                + matmul(recycling_basis(isub_loc)%p_buffer(:,1:nbuffer), &
-                        eigvecs(startw:endw,1:nstore))
+                        eigvecs(nactive_cols_recycling_basis+1:nallvec,startv:endw))
             recycling_basis(isub_loc)%w(:,1:nstore) &
                = matmul(recycling_basis(isub_loc)%w(:,1:nactive_cols_recycling_basis), &
-                        eigvecs(startv:endv,1:nstore)) &
+                        eigvecs(1:nactive_cols_recycling_basis,startv:endw)) &
                + matmul(recycling_basis(isub_loc)%ap_buffer(:,1:nbuffer), &
-                        eigvecs(startw:endw,1:nstore))
+                        eigvecs(nactive_cols_recycling_basis+1:nallvec,startv:endw))
          end do
          nactive_cols_recycling_basis = nstore
+
          deallocate(eigvecs)
          deallocate(G)
          deallocate(F)
@@ -2575,8 +2594,6 @@
       
       end subroutine
 
-
-
       !*******************************
       subroutine krylov_set_profile_on
       !*******************************
@@ -2622,9 +2639,6 @@
       if (allocated(recycling_L)) then
          deallocate(recycling_L)
       end if
-      !if (allocated(recycling_U)) then
-      !   deallocate(recycling_U)
-      !end if
       if (allocated(recycling_Gtilde)) then
          deallocate(recycling_Gtilde)
       end if
@@ -2636,6 +2650,9 @@
       end if
       if (allocated(recycling_YTGY)) then
          deallocate(recycling_YTGY)
+      end if
+      if (allocated(recycling_previous_eigvals)) then
+         deallocate(recycling_previous_eigvals)
       end if
       is_recycling_prepared = .false.
 
