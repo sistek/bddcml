@@ -42,14 +42,8 @@
           real(kr),allocatable :: recycling_idvtw(:) ! array of the inverse of the diagonal of p'*A*p at interface 
           !logical,private :: recycling_is_inverse_prepared = .false.
 
-
-          integer ::             lrecycling_L1
-          integer ::             lrecycling_L2
-          real(kr),allocatable :: recycling_L(:,:)
-
-          !integer ::             lrecycling_U1
-          !integer ::             lrecycling_U2
-          !real(kr),allocatable :: recycling_U(:,:)
+          integer ::             lrecycling_L
+          real(kr),allocatable :: recycling_L(:)
 
           integer ::             lrecycling_Gtilde1
           integer ::             lrecycling_Gtilde2
@@ -224,9 +218,8 @@
                 lrecycling_basis = nsub_loc
                 allocate(recycling_basis(lrecycling_basis))
 
-                lrecycling_L1 = maxit + 1
-                lrecycling_L2 = maxit
-                allocate(recycling_L(lrecycling_L1,lrecycling_L2))
+                lrecycling_L = maxit
+                allocate(recycling_L(lrecycling_L))
 
                 !lrecycling_U1 = maxit + 1
                 !lrecycling_U2 = maxit + 1
@@ -1032,8 +1025,9 @@
                 !recycling_U(iter,iter)   =  1._kr
                 !recycling_U(iter,iter+1) =  -beta
                 
-                recycling_L(iter,iter)   =  1._kr/alpha
-                recycling_L(iter+1,iter) = -1._kr/alpha
+                ! Store just the diagonal of the L matrix (see Saad 2000). It has also a subdiagonal, which is 
+                ! the main diagonal with minus sign
+                recycling_L(iter)   =  1._kr/alpha 
 
                 recycling_Gtilde(iter,iter)   =  pap*(1._kr + beta)/alpha
                 recycling_Gtilde(iter+1,iter) = -1._kr/alpha
@@ -2301,10 +2295,10 @@
       ! LAPACK eigenproblems
       integer::              lwork2
       real(kr),allocatable :: work2(:)
-      integer::              leiglap
-      real(kr),allocatable :: eiglap(:)
+      integer::              leigvals
+      real(kr),allocatable :: eigvals(:)
 
-      integer :: nallvec, nstore, capacity, start, end, j
+      integer :: nallvec, nstore, capacity, startv, endv, startw, endw, j
       integer :: myid, ierr
 
       ! which part of the Ritz vectors consider in the deflation
@@ -2362,174 +2356,40 @@
          nactive_cols_recycling_basis = nactive_cols_recycling_basis - shift + nbuffer 
 
       case(2)
-         ! compress the basis with harmonic Ritz vectors
-         !call error(routine_name, 'harmonic Ritz vectors not implemented yet')
-
-         lcommon_krylov_data = nsub_loc
-         allocate(common_krylov_data(lcommon_krylov_data))
-
-         ! solve the eigenvalue problem
+         ! compress the basis with harmonic Ritz vectors according to Saad 2000
+         ! i.e., solve the eigenvalue problem
          ! W' M^(-1) W u = lambda V' W
 
+         ! Number of recomputed Ritz vectors.
          nallvec = nactive_cols_recycling_basis + nbuffer
-         ! number of recomputed Ritz vectors
-         !recycling_basis(isub_loc)%recompute_ritz_start
-         !recycling_basis(isub_loc)%recompute_ritz_end
-         do isub_loc = 1,nsub_loc
 
-            ! get combined matrix of basis [ W ap_buffer ]
-            recycling_basis(isub_loc)%lcw1 = recycling_basis(isub_loc)%lw1
-            recycling_basis(isub_loc)%lcw2 = nallvec
-            if (allocated(recycling_basis(isub_loc)%cw)) then
-               deallocate(recycling_basis(isub_loc)%cw)
-            end if
-            allocate(recycling_basis(isub_loc)%cw(recycling_basis(isub_loc)%lcw1,recycling_basis(isub_loc)%lcw2))
-            recycling_basis(isub_loc)%cw(:,1:nactive_cols_recycling_basis)  = &
-               recycling_basis(isub_loc)%w(:,1:nactive_cols_recycling_basis)
-            recycling_basis(isub_loc)%cw(:,nactive_cols_recycling_basis+1:) = &
-               recycling_basis(isub_loc)%ap_buffer(:,1:nbuffer)
-
-            ! get combined matrix of basis [ V p_buffer ]
-            recycling_basis(isub_loc)%lcv1 = recycling_basis(isub_loc)%lv1
-            recycling_basis(isub_loc)%lcv2 = nallvec
-            if (allocated(recycling_basis(isub_loc)%cv)) then
-               deallocate(recycling_basis(isub_loc)%cv)
-            end if
-            allocate(recycling_basis(isub_loc)%cv(recycling_basis(isub_loc)%lcv1,recycling_basis(isub_loc)%lcv2))
-            recycling_basis(isub_loc)%cv(:,1:nactive_cols_recycling_basis)  = &
-               recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis)
-            recycling_basis(isub_loc)%cv(:,nactive_cols_recycling_basis+1:) = &
-               recycling_basis(isub_loc)%p_buffer(:,1:nbuffer)
-!
-!            ! prepare space for M^(-1) W
-!            recycling_basis(isub_loc)%lcmw1 = recycling_basis(isub_loc)%lcw1
-!            recycling_basis(isub_loc)%lcmw2 = recycling_basis(isub_loc)%lcw2
-!            if (allocated(recycling_basis(isub_loc)%cmw)) then
-!               deallocate(recycling_basis(isub_loc)%cmw)
-!            end if
-!            allocate(recycling_basis(isub_loc)%cmw(recycling_basis(isub_loc)%lcmw1,recycling_basis(isub_loc)%lcmw2))
-         end do
-
-!         ! compute M^(-1) W
-!         do isub_loc = 1,nsub_loc
-!            common_krylov_data(isub_loc)%lvec_in  = recycling_basis(isub_loc)%lcw1
-!            allocate(common_krylov_data(isub_loc)%vec_in(common_krylov_data(isub_loc)%lvec_in))
-!            common_krylov_data(isub_loc)%lvec_out  = recycling_basis(isub_loc)%lcmw1
-!            allocate(common_krylov_data(isub_loc)%vec_out(common_krylov_data(isub_loc)%lvec_out))
-!         end do
-!         do jbasis = 1,nallvec
-!            do isub_loc = 1,nsub_loc
-!               do i = 1,common_krylov_data(isub_loc)%lvec_in
-!                  common_krylov_data(isub_loc)%vec_in(i) = recycling_basis(isub_loc)%cw(i,jbasis)
-!               end do
-!            end do
-!            call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
-!            do isub_loc = 1,nsub_loc
-!               do i = 1,common_krylov_data(isub_loc)%lvec_out
-!                  recycling_basis(isub_loc)%cmw(i,jbasis) = common_krylov_data(isub_loc)%vec_out(i)
-!               end do
-!            end do
-!         end do
-!         do isub_loc = 1,nsub_loc
-!            deallocate(common_krylov_data(isub_loc)%vec_in)
-!            deallocate(common_krylov_data(isub_loc)%vec_out)
-!         end do
-
-!         ! construct the left hand side of the eigenvalue problem
-!         ! W'*M^(-1) W
-!         lwtmw = nallvec
-!         allocate(wtmw_loc(lwtmw,lwtmw))
-!         wtmw_loc = 0._kr
-!         allocate(wtmw(lwtmw,lwtmw))
-!         do ibasis = 1,nallvec
-!            do jbasis = 1,nallvec
-!               do isub_loc = 1,nsub_loc
-!                  call levels_dd_dotprod_local(ilevel,isub_loc,&
-!                                               recycling_basis(isub_loc)%cw(:,ibasis),recycling_basis(isub_loc)%lcw1, &
-!                                               recycling_basis(isub_loc)%cmw(:,jbasis),recycling_basis(isub_loc)%lcmw1, &
-!                                               wtmw_sub)
-!                  wtmw_loc(ibasis,jbasis) = wtmw_loc(ibasis,jbasis) + wtmw_sub
-!               end do
-!            end do
-!         end do
-!    !*****************************************************************PARALLEL
-!         call MPI_ALLREDUCE(wtmw_loc,wtmw, lwtmw*lwtmw, MPI_DOUBLE_PRECISION,&
-!                            MPI_SUM, comm_all, ierr) 
-!    !*****************************************************************PARALLEL
-!         deallocate(wtmw_loc)
-
-!         ! construct the right hand side of the eigenvalue problem
-!         ! V'*W
-!         lvtw = nallvec
-!         allocate(vtw_loc(lvtw,lvtw))
-!         vtw_loc = 0._kr
-!         allocate(vtw(lvtw,lvtw))
-!         do ibasis = 1,nallvec
-!            do jbasis = 1,nallvec
-!               do isub_loc = 1,nsub_loc
-!                  call levels_dd_dotprod_local(ilevel,isub_loc,&
-!                                               recycling_basis(isub_loc)%cv(:,ibasis),recycling_basis(isub_loc)%lcv1, &
-!                                               recycling_basis(isub_loc)%cw(:,jbasis),recycling_basis(isub_loc)%lcw1, &
-!                                               vtw_sub)
-!                  vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
-!               end do
-!            end do
-!         end do
-!    !*****************************************************************PARALLEL
-!         call MPI_ALLREDUCE(vtw_loc,vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
-!                            MPI_SUM, comm_all, ierr) 
-!    !*****************************************************************PARALLEL
-!         deallocate(vtw_loc)
-         
-         !if (myid.eq.0) then
-         !   write(*,'(a)') "Matrix WTMW:"
-         !   call write_matrix(6,wtmw)
-         !end if
-
-         ! matrices A and B are ready, call LAPACK eigensolver
-!         leiglap = nallvec
-!         allocate(eiglap(leiglap))
-!         ! determine size of work array
-!         lwork2 = 1
-!         allocate(work2(lwork2))
-!         lwork2 = -1
-!         ! first call routine just to find optimal size of WORK2
-!         call DSYGV( 1,'V','U', nallvec, wtmw, nallvec, vtw, nallvec, eiglap, work2,lwork2, lapack_info)
-!         if (lapack_info.ne.0) then
-!            call error(routine_name,'in LAPACK during finding size for eigenproblem solution:',lapack_info)
-!         end if
-!         lwork2 = int(work2(1))
-!         deallocate(work2)
-!         !print *,'I am here, LAPACK OK, lwork2:',lwork2
-!         allocate(work2(lwork2))
-!         ! now call LAPACK to solve the eigenproblem
-!         ! eigenvectors are stored in wtmw after the solve
-!         call DSYGV( 1,'V','U', nallvec, wtmw, nallvec, vtw, nallvec, eiglap, work2,lwork2, lapack_info)
-!         deallocate(work2)
-!         !print *,'I am here 2, LAPACK OK, lwork2:',lwork2
-!         if (lapack_info.ne.0) then
-!            call error(routine_name,'in LAPACK during solving eigenproblems:',lapack_info)
-!         end if
-
-         ! construct the left-hand side of the eigenvalue problem
+         ! Construct the left-hand side of the eigenvalue problem.
          lG = nallvec
          allocate(G(lG,lG))
          G = 0.
          if (nactive_cols_recycling_basis > 0) then
+
             ! the [1,1] block of the matrix is embedded from previous steps
             G(1:nactive_cols_recycling_basis,1:nactive_cols_recycling_basis) = recycling_YTGY
-            ! the [1,2] block is symmetric
+
+            ! the [1,2] block of the matrix is V'AV*Delta*L
+
+            ! compute first the product of Delta * L
+            do j = 1,nbuffer
+               recycling_delta(1:nactive_cols_recycling_basis,j) &
+                  = recycling_delta(1:nactive_cols_recycling_basis,j)   * recycling_L(j) &
+                  - recycling_delta(1:nactive_cols_recycling_basis,j+1) * recycling_L(j) 
+            end do
+            ! now construct the [1,2] block
             G(1:nactive_cols_recycling_basis,nactive_cols_recycling_basis+1:nallvec) &
-               = matmul(recycling_YTFY,&
-                    matmul(recycling_delta(1:nactive_cols_recycling_basis,1:nbuffer+1),recycling_L(1:nbuffer+1,1:nbuffer)))
+               = matmul(recycling_YTFY, recycling_delta(1:nactive_cols_recycling_basis,1:nbuffer))
             do j = 1,nbuffer
                G(1:nactive_cols_recycling_basis,nactive_cols_recycling_basis+j) & 
                   = G(1:nactive_cols_recycling_basis,nactive_cols_recycling_basis+j) &
                   * recycling_scaling_of_basis(j)
             end do
             
-            ! the [1,2] block is symmetric
-            ! the [2,1] block of the matrix is V'AV*Delta
+            ! the [2,1] block is symmetric
             G(nactive_cols_recycling_basis+1:nallvec,1:nactive_cols_recycling_basis) &
                = transpose(G(1:nactive_cols_recycling_basis,nactive_cols_recycling_basis+1:nallvec))
          end if
@@ -2546,24 +2406,7 @@
          !   !write(*,*) "scaling:", recycling_scaling_of_basis(1:nbuffer)
          !end if
 
-         !if (myid.eq.0) then
-         !   write(*,'(a)') "Matrix Delta:"
-         !   call write_matrix(6,recycling_delta(1:nactive_cols_recycling_basis,1:nbuffer+1))
-         !   write(*,'(a)') "Matrix L:"
-         !   call write_matrix(6,recycling_L(1:nbuffer+1,1:nbuffer))
-         !   !write(*,*) "scaling:", recycling_scaling_of_basis(1:nbuffer)
-         !end if
-
-         !allocate(UL(size(recycling_L,1),size(recycling_L,2)))
-         !UL = matmul(recycling_U, recycling_L)
-         !if (myid.eq.0) then
-         !   write(*,'(a)') "Matrix UL:"
-         !   call write_matrix(6,UL(1:nbuffer,1:nbuffer))
-         !end if
-
-         !deallocate(UL)
-
-         ! construct the right-hand side of the eigenvalue problem
+         ! Construct the right-hand side of the eigenvalue problem.
          ! P'*A*P = I
          lF = nallvec
          allocate(F(lF,lF))
@@ -2579,53 +2422,35 @@
          end do
 
          !if (myid.eq.0) then
-         !   write(*,'(a)') "Matrix VTW:"
-         !   !call write_matrix(6,VTW,'(E8.4)')
-         !   call write_matrix(6,VTW)
-         !end if
-         !if (myid.eq.0) then
          !   write(*,'(a)') "Matrix F:"
          !   !call write_matrix(6,F,'(E8.4)')
          !   call write_matrix(6,F)
          !end if
 
-         ! matrices A and B are ready, call LAPACK eigensolver
+         ! Matrices G and F are ready, call LAPACK generalized eigensolver.
          leiglap = nallvec
-         allocate(eiglap(leiglap))
+         allocate(eigvals(leigvals))
          ! determine size of work array
          lwork2 = 1
          allocate(work2(lwork2))
          lwork2 = -1
          ! first call routine just to find optimal size of WORK2
-         call DSYGV( 1,'V','U', nallvec, eigvecs, nallvec, F, nallvec, eiglap, work2,lwork2, lapack_info)
+         call DSYGV( 1,'V','U', nallvec, eigvecs, nallvec, F, nallvec, eigvals, work2,lwork2, lapack_info)
          if (lapack_info.ne.0) then
             call error(routine_name,'in LAPACK during finding size for eigenproblem solution:',lapack_info)
          end if
          lwork2 = int(work2(1))
          deallocate(work2)
-         !print *,'I am here, LAPACK OK, lwork2:',lwork2
          allocate(work2(lwork2))
          ! now call LAPACK to solve the eigenproblem
-         ! eigenvectors are stored in G after the solve
-         call DSYGV( 1,'V','U', nallvec, eigvecs, nallvec, F, nallvec, eiglap, work2,lwork2, lapack_info)
+         ! eigenvectors are stored in eigvecs after the solve
+         call DSYGV( 1,'V','U', nallvec, eigvecs, nallvec, F, nallvec, eigvals, work2,lwork2, lapack_info)
          deallocate(work2)
-         !print *,'I am here 2, LAPACK OK, lwork2:',lwork2
          if (lapack_info.ne.0) then
             call error(routine_name,'in LAPACK during solving eigenproblems:',lapack_info)
          end if
 
-         !if (myid.eq.0) then
-         !   write(*,'(a)') "Matrix WTMW with eigenvectors:"
-         !   call write_matrix(6,wtmw)
-         !   !write(*,*) "scaling:", recycling_scaling_of_basis(1:nbuffer)
-         !end if
-         !if (myid.eq.0) then
-         !   write(*,'(a)') "Matrix eigvecs with eigenvectors:"
-         !   call write_matrix(6,eigvecs)
-         !   !write(*,*) "scaling:", recycling_scaling_of_basis(1:nbuffer)
-         !end if
-
-         ! get the new basis from the smallest eigenvalues
+         ! Get the new basis from the smallest or largest eigenvalues.
          ! find the maximal capacity
          if (nsub_loc > 0) then
             capacity = recycling_basis(1)%lv2
@@ -2633,48 +2458,59 @@
             capacity = 0
          end if
 
-         ! selection of size of the new recycling basis
+         ! Selection of size of the new recycling basis.
          nstore = min(nallvec, capacity)
+         ! Which part of the spectrum do we want to take?
          if (take_largest) then
-            start = nallvec - nstore + 1
-            end   = nallvec
+            startv = nallvec - nstore + 1
+            endv   = startv+nactive_cols_recycling_basis - 1
+            startw = endv+1
+            endw   = nallvec
          else
-            start = 1
-            end   = nstore
+            startv = 1
+            endv   = startv+nactive_cols_recycling_basis - 1
+            startw = endv+1
+            endw   = nstore
          end if
 
          if (myid.eq.0) then
             write(*,*) routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
-            write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values in the old way', eiglap(start:end)
+            write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values in the old way', eigvals(startv:endw)
          end if
-         deallocate(eiglap)
+         deallocate(eigvals)
 
-         ! generate the matrices for the next step
+         ! Generate the matrices for the next step.
          if (allocated(recycling_YTGY)) then
             deallocate(recycling_YTGY)
          end if
          lrecycling_YTGY = nstore
          allocate(recycling_YTGY(lrecycling_YTGY,lrecycling_YTGY))
-         recycling_YTGY = matmul(transpose(eigvecs(:,start:end)),matmul(G,eigvecs(:,start:end)))
+         recycling_YTGY = matmul(transpose(eigvecs(:,startv:endw)),matmul(G,eigvecs(:,startv:endw)))
 
          if (allocated(recycling_YTFY)) then
             deallocate(recycling_YTFY)
          end if
          lrecycling_YTFY = nstore
          allocate(recycling_YTFY(lrecycling_YTFY,lrecycling_YTFY))
-         recycling_YTFY = matmul(transpose(eigvecs(:,start:end)),matmul(F,eigvecs(:,start:end)))
+         recycling_YTFY = matmul(transpose(eigvecs(:,startv:endw)),matmul(F,eigvecs(:,startv:endw)))
 
-         ! store the first eigenvectors to V and W
+         ! Store the first eigenvectors to V and W
          do isub_loc = 1,nsub_loc
-            recycling_basis(isub_loc)%v(:,1:nstore) = matmul(recycling_basis(isub_loc)%cv, eigvecs(:,start:end))
-            recycling_basis(isub_loc)%w(:,1:nstore) = matmul(recycling_basis(isub_loc)%cw, eigvecs(:,start:end))
+            recycling_basis(isub_loc)%v(:,1:nstore) &
+               = matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
+                        eigvecs(startv:endv,1:nstore)) &
+               + matmul(recycling_basis(isub_loc)%p_buffer(:,1:nbuffer), &
+                        eigvecs(startw:endw,1:nstore))
+            recycling_basis(isub_loc)%w(:,1:nstore) &
+               = matmul(recycling_basis(isub_loc)%w(:,1:nactive_cols_recycling_basis), &
+                        eigvecs(startv:endv,1:nstore)) &
+               + matmul(recycling_basis(isub_loc)%ap_buffer(:,1:nbuffer), &
+                        eigvecs(startw:endw,1:nstore))
          end do
          nactive_cols_recycling_basis = nstore
          deallocate(eigvecs)
          deallocate(G)
          deallocate(F)
-
-         deallocate(common_krylov_data)
       end select
 
       end subroutine
