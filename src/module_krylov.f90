@@ -28,6 +28,10 @@
           logical,parameter,private :: debug = .false.
     ! profiling 
           logical,private ::           profile = .false.
+    ! tolerance on relative difference in Ritz values
+          real(kr),parameter,private ::   tol_ritz_values = 1.e-5_kr
+    ! how to normalize the relative residual
+          logical,private ::           stop_by_rhs = .false.
     ! adjustable parameters ############################
 
     ! data necessary for recycling of Krylov subspace
@@ -41,7 +45,6 @@
           !logical,private :: recycling_is_inverse_prepared = .false.
 
           ! controls whether Ritz vectors and values still require recomputing
-          real(kr),parameter,private ::   tol_ritz_values = 1.e-5_kr
           logical,private :: is_recycling_ritz_converged = .false.
 
           integer ::             lrecycling_L
@@ -568,10 +571,13 @@
              end if
 
              ! Evaluation of stopping criterion
-             ! compute it as relative residual with respect to initial residual
-             !relres = normres/normres0
-             ! compute it as relative residual with respect to right-hand side
-             relres = normres/normrhs
+             if (stop_by_rhs) then
+                ! compute it as relative residual with respect to right-hand side
+                relres = normres/normrhs
+             else
+                ! compute it as relative residual with respect to initial residual
+                relres = normres/normres0
+             end if
              if (relres.lt.tol) then
                 iter = 0
                 if (myid.eq.0) then
@@ -729,6 +735,8 @@
                    call info(routine_name,'Number of PCG iterations:',num_iter)
                 end if
                 converged_reason = 0
+
+                ! process the basis for recycling
                 if (recycling) then
                    if (is_recycling_ritz_converged) then
                       if (myid.eq.0) then
@@ -754,6 +762,20 @@
                 num_iter = iter - 1 
                 converged_reason = -1
 
+                ! process the basis for recycling
+                if (recycling) then
+                   if (is_recycling_ritz_converged) then
+                      if (myid.eq.0) then
+                         call info(routine_name,'Harmonic Ritz values already converged, not recomputing the deflation basis.')
+                      end if
+                   else
+                      if (myid.eq.0) then
+                         call info(routine_name,'Harmonic Ritz values not converged, recomputing the deflation basis.')
+                      end if
+                      call recycling_process_basis(comm_all, jbuffer)
+                   end if
+                end if
+
                 exit
              end if
 
@@ -769,6 +791,20 @@
                    end if
                    num_iter = iter - 1
                    converged_reason = -2
+
+                   ! process the basis for recycling
+                   if (recycling) then
+                      if (is_recycling_ritz_converged) then
+                         if (myid.eq.0) then
+                            call info(routine_name,'Harmonic Ritz values already converged, not recomputing the deflation basis.')
+                         end if
+                      else
+                         if (myid.eq.0) then
+                            call info(routine_name,'Harmonic Ritz values not converged, recomputing the deflation basis.')
+                         end if
+                         call recycling_process_basis(comm_all, jbuffer)
+                      end if
+                   end if
 
                    exit
                 end if
@@ -945,10 +981,13 @@
              end if
 
              ! Evaluation of stopping criterion
-             ! compute it as relative residual with respect to initial residual
-             !relres = normres/normres0
-             ! compute it as relative residual with respect to right-hand side
-             relres = normres/normrhs
+             if (stop_by_rhs) then
+                ! compute it as relative residual with respect to right-hand side
+                relres = normres/normrhs
+             else
+                ! compute it as relative residual with respect to initial residual
+                relres = normres/normres0
+             end if
              if (myid.eq.0) then
                 call info (routine_name, 'iteration: ',iter)
                 call info (routine_name, '          relative residual: ',relres)
@@ -2144,6 +2183,8 @@
          ! store nu only from the first iteration of the iterative Gram-Schmidt
          if (i == 1) then
             nu = aux
+         else
+            nu = nu + aux
          end if
       end do
       deallocate(aux)
