@@ -695,12 +695,12 @@
     !***************************************************************PARALLEL
                       deallocate(vtw_loc)
 
-                      if (myid.eq.0) then
-                         write(*,*) 'V^T*W'
-                         do i = 1,lvtw
-                            write(*,'(1000f20.13)') (vtw(i,j), j = 1,lvtw)
-                         end do
-                      end if
+                      !if (myid.eq.0) then
+                      !   write(*,*) 'V^T*W'
+                      !   do i = 1,lvtw
+                      !      write(*,'(1000f20.13)') (vtw(i,j), j = 1,lvtw)
+                      !   end do
+                      !end if
 
                       ! inv(D)*V'*W
                       do ibasis = 1,nactive_cols_recycling_basis
