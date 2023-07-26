@@ -670,61 +670,62 @@
                 recycling_delta(1:nactive_cols_recycling_basis,iter) = nu
                 deallocate(nu)
 
-                if (debug) then
-                   ! check orthogonality of basis
-                   ! V'*W
-                   lvtw     = nactive_cols_recycling_basis
-                   allocate(vtw_loc(lvtw,lvtw))
-                   vtw_loc = 0._kr
-                   allocate(vtw(lvtw,lvtw))
-                   do ibasis = 1,nactive_cols_recycling_basis
-                      do jbasis = 1,nactive_cols_recycling_basis
-                         do isub_loc = 1,nsub_loc
-                            call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                                         recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
-                                                         recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
-                                                         vtw_sub)
-                            vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
+                if (iter == 1) then
+                   if (debug) then
+                      ! check orthogonality of basis
+                      ! V'*W
+                      lvtw     = nactive_cols_recycling_basis
+                      allocate(vtw_loc(lvtw,lvtw))
+                      vtw_loc = 0._kr
+                      allocate(vtw(lvtw,lvtw))
+                      do ibasis = 1,nactive_cols_recycling_basis
+                         do jbasis = 1,nactive_cols_recycling_basis
+                            do isub_loc = 1,nsub_loc
+                               call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                                            recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                                                            recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
+                                                            vtw_sub)
+                               vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
+                            end do
                          end do
                       end do
-                   end do
     !***************************************************************PARALLEL
-                   call MPI_ALLREDUCE(vtw_loc,vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
-                                      MPI_SUM, comm_all, ierr) 
+                      call MPI_ALLREDUCE(vtw_loc,vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
+                                         MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
-                   deallocate(vtw_loc)
+                      deallocate(vtw_loc)
 
-                   if (myid.eq.0) then
-                      write(*,*) 'V^T*W'
-                      do i = 1,lvtw
-                         write(*,'(1000f20.13)') (vtw(i,j), j = 1,lvtw)
-                      end do
-                   end if
-
-                   ! inv(D)*V'*W
-                   do ibasis = 1,nactive_cols_recycling_basis
-                      !vtw(:,ibasis) = recycling_idvtw(1:nactive_cols_recycling_basis) * vtw(:,ibasis) 
-                      call recycling_apply_diagonal_inverse(vtw(1,ibasis),lvtw)
-                   end do
-
-                   ! subtract identity matrix
-                   ! inv(D)*V'*W - I
-                   do ibasis = 1,nactive_cols_recycling_basis
-                      vtw(ibasis,ibasis) = vtw(ibasis,ibasis) - 1._kr
-                   end do
-                   check_orthogonality = sqrt(sum(vtw**2))
-                   if (myid.eq.0) then
-                      write(*,*) 'D^{-1}*V^T*W - I'
-                      do i = 1,lvtw
-                         write(*,'(1000e12.5)') (vtw(i,j), j = 1,lvtw)
-                      end do
-                      if (check_orthogonality .gt. 1.e-4_kr) then
-                         call warning( routine_name, 'Krylov basis has problems with orthogonality:', check_orthogonality )
+                      if (myid.eq.0) then
+                         write(*,*) 'V^T*W'
+                         do i = 1,lvtw
+                            write(*,'(1000f20.13)') (vtw(i,j), j = 1,lvtw)
+                         end do
                       end if
-                   end if
-                   deallocate(vtw)
-                end if 
 
+                      ! inv(D)*V'*W
+                      do ibasis = 1,nactive_cols_recycling_basis
+                         !vtw(:,ibasis) = recycling_idvtw(1:nactive_cols_recycling_basis) * vtw(:,ibasis) 
+                         call recycling_apply_diagonal_inverse(vtw(1,ibasis),lvtw)
+                      end do
+
+                      ! subtract identity matrix
+                      ! inv(D)*V'*W - I
+                      do ibasis = 1,nactive_cols_recycling_basis
+                         vtw(ibasis,ibasis) = vtw(ibasis,ibasis) - 1._kr
+                      end do
+                      check_orthogonality = sqrt(sum(vtw**2))
+                      if (myid.eq.0) then
+                         write(*,*) 'D^{-1}*V^T*W - I'
+                         do i = 1,lvtw
+                            write(*,'(1000e12.5)') (vtw(i,j), j = 1,lvtw)
+                         end do
+                         if (check_orthogonality .gt. 1.e-4_kr) then
+                            call warning( routine_name, 'Krylov basis has problems with orthogonality:', check_orthogonality )
+                         end if
+                      end if
+                      deallocate(vtw)
+                   end if 
+                end if 
              end if
 
              ! check convergence
@@ -1098,7 +1099,7 @@
 
     ! Condition number estimation on root processor, if there are no NaNs
           if (nw.gt.0) then
-             call krylov_condsparse(nw,diag,nw,subdiag,nw-1, cond)
+             call krylov_condsparse(myid,nw,diag,nw,subdiag,nw-1, cond)
           else
              cond = 1._kr
           end if
@@ -2575,14 +2576,17 @@
 
       end subroutine
 
-      !***********************************************
-      subroutine krylov_condsparse(nw,d,ld,e,le, cond)
-      !***********************************************
+      !****************************************************
+      subroutine krylov_condsparse(myid,nw,d,ld,e,le, cond)
+      !****************************************************
       ! Routine that estimates condition number of a real symmetric tridiagonal matrix 
       ! using LAPACK
             use module_utils
             implicit none
       
+      ! ID of process
+            integer,intent(in) :: myid
+
       ! used dimension of matrix
             integer,intent(in) :: nw
       
@@ -2620,7 +2624,7 @@
             ! LAPACK routine for searching eigenvalues (returned in ascending order)
             iaux = 1
             call DSTEV( 'N', nw, d, e, raux, iaux, raux, lapack_info)
-            if (debug) then
+            if (debug .and. myid == 0) then
                write(*,*) 'eigenvalues = '
                write(*,*) d(1:nw)
             end if
@@ -2628,7 +2632,7 @@
             ! compute condition number
             eigmax = d(nw)
             ! do not get the lowest eigenvalue from the Lanczos sequence - the Ritz value may not converge (cf Treffethen, Bau)
-            if (debug) then
+            if (debug .and. myid == 0) then
                write(*,*) 'eigmax = ',eigmax
             end if
             cond = eigmax
