@@ -32,6 +32,8 @@
           real(kr),parameter,private ::   tol_ritz_values = 1.e-5_kr
     ! how to normalize the relative residual
           logical,private ::           stop_by_rhs = .false.
+    ! reorthogonalize residual
+          logical,private ::           reorthogonalize_residual = .true.
     ! adjustable parameters ############################
 
     ! data necessary for recycling of Krylov subspace
@@ -68,6 +70,7 @@
 
           integer ::             lrecycling_previous_eigvals
           real(kr),allocatable :: recycling_previous_eigvals(:)
+
           contains
 
     !******************************************************************************************************
@@ -162,10 +165,18 @@
           real(kr), allocatable :: vtw(:,:)
           real(kr), allocatable :: vtw_loc(:,:)
           real(kr) :: vtw_sub
+          integer ::              lvtv
+          integer ::              ldvtv
+          real(kr), allocatable :: vtv(:,:)
+          real(kr), allocatable :: vtv_loc(:,:)
+          real(kr) :: vtv_sub
           real(kr) :: check_orthogonality
           integer ::              lnu
           real(kr), allocatable :: nu(:)
           !integer :: recycling_info
+
+          ! LAPACK
+          integer :: lapack_info
 
           ! time variables
           real(kr) :: t_sm_apply, t_pc_apply
@@ -642,6 +653,44 @@
              end if
           end if
     
+          ! prepare matrix for residual reorthogonalization
+          if (recycling .and. reorthogonalize_residual) then
+             ! V'*V
+             lvtv     = nactive_cols_recycling_basis
+             allocate(vtv_loc(lvtv,lvtv))
+             vtv_loc = 0._kr
+             allocate(vtv(lvtv,lvtv))
+             do ibasis = 1,nactive_cols_recycling_basis
+                do jbasis = 1,nactive_cols_recycling_basis
+                   do isub_loc = 1,nsub_loc
+                      call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                                   recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                                                   recycling_basis(isub_loc)%v(:,jbasis),recycling_basis(isub_loc)%lv1, &
+                                                   vtv_sub)
+                      vtv_loc(ibasis,jbasis) = vtv_loc(ibasis,jbasis) + vtv_sub
+                   end do
+                end do
+             end do
+    !******************************************************PARALLEL
+             call MPI_ALLREDUCE(vtv_loc,vtv, lvtv*lvtv, MPI_DOUBLE_PRECISION,&
+                                MPI_SUM, comm_all, ierr) 
+    !******************************************************PARALLEL
+             deallocate(vtv_loc)
+
+             ldvtv = max(1,lvtv)
+             call DPOTRF('U',lvtv,vtv,ldvtv,lapack_info)
+             if (lapack_info /= 0) then 
+                call error(routine_name, 'Error in Cholesky factorization', lapack_info)
+             end if
+
+             !if (myid.eq.0) then
+             !   write(*,*) 'V^T*V'
+             !   do i = 1,lvtv
+             !      write(*,'(1000f20.13)') (vtv(i,j), j = 1,lvtv)
+             !   end do
+             !end if
+          end if
+
     ! Setting up the properties for decreasing residual
           ndecr   = 0
           lastres = 1.0D0
@@ -959,6 +1008,15 @@
                    pcg_data(isub_loc)%resi(i) = pcg_data(isub_loc)%resi(i) - alpha * pcg_data(isub_loc)%ap(i)
                 end do
              end do
+
+             ! reorthogonalization of the residual (Saad et al. 2000 (7.1))
+             if (recycling .and. reorthogonalize_residual) then
+                do isub_loc = 1,nsub_loc
+                   common_krylov_data(isub_loc)%lvec_in =  pcg_data(isub_loc)%lresi
+                   common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%resi
+                end do
+                call krylov_reortho_residal(comm_all, vtv, lvtv, common_krylov_data,lcommon_krylov_data)
+             end if 
 
              ! determine norm of residual 
              ! normres = ||resi||
@@ -2060,6 +2118,87 @@
          end if
       end if
 !-----profile
+
+      end subroutine
+
+  !***********************************************************************************
+      subroutine krylov_reortho_residal(comm_all, vtv,lvtv, krylov_data,lkrylov_data)
+  !***********************************************************************************
+      ! reorthogonalize residual
+      use module_levels
+      use module_utils
+
+      implicit none
+      
+      include "mpif.h"
+
+      ! parallel variables
+      integer,intent(in) :: comm_all 
+
+      ! factorized matrix V'*V
+      integer,intent(in) ::  lvtv
+      real(kr),intent(in) ::  vtv(lvtv,lvtv)
+
+      ! data for PCG
+      integer,intent(in) ::                         lkrylov_data
+      type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data) 
+
+      ! local vars
+      character(*),parameter:: routine_name = 'KRYLOV_REORTHO_RESIDUAL'
+      integer,parameter :: ilevel = 1
+
+      integer ::              lvtr
+      real(kr), allocatable :: vtr(:)
+      real(kr), allocatable :: vtr_loc(:)
+      real(kr) :: vtr_sub
+
+      integer :: isub_loc, ibasis, nsub, nsub_loc 
+      integer :: ldvtv, ldvtr
+      integer :: ierr
+      integer :: lapack_info
+
+      ! find number of subdomains
+      call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
+
+      lvtr     = nactive_cols_recycling_basis 
+      allocate(vtr_loc(lvtr))
+      vtr_loc = 0._kr
+      allocate(vtr(lvtr))
+
+      ! V'*res
+      do ibasis = 1,nactive_cols_recycling_basis
+         do isub_loc = 1,nsub_loc
+            call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                         recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                                         krylov_data(isub_loc)%vec_in,krylov_data(isub_loc)%lvec_in, &
+                                         vtr_sub)
+            vtr_loc(ibasis) = vtr_loc(ibasis) + vtr_sub
+         end do
+      end do
+!***************************************************************PARALLEL
+      call MPI_ALLREDUCE(vtr_loc,vtr, lvtr, MPI_DOUBLE_PRECISION,&
+                         MPI_SUM, comm_all, ierr) 
+!***************************************************************PARALLEL
+      deallocate(vtr_loc)
+
+      ! solve (V'V) x = V'*res
+
+      ldvtv = max(1,lvtv)
+      ldvtr = max(1,lvtr)
+      call DPOTRS('U', lvtv, 1, vtv, ldvtv, vtr, ldvtr, lapack_info)
+      if (lapack_info /= 0) then 
+         call error(routine_name, 'Error in Cholesky solve', lapack_info)
+      end if
+
+      ! correct search direction vector
+      ! res <- res - V*(V'V)^(-1)*V'*res
+      do isub_loc = 1,nsub_loc
+         krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
+                                      - matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
+                                               vtr(1:nactive_cols_recycling_basis) )
+      end do
+
+      deallocate(vtr)
 
       end subroutine
 
