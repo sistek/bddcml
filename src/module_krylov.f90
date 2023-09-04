@@ -1009,8 +1009,8 @@
                 end do
              end do
 
-             ! reorthogonalization of the residual (Saad et al. 2000 (7.1))
-             if (recycling .and. reorthogonalize_residual) then
+             ! reorthogonalization of the residual (Saad et al. 2000 (7.1)) if relative residual increases
+             if (recycling .and. reorthogonalize_residual .and. ndecr > 0) then
                 do isub_loc = 1,nsub_loc
                    common_krylov_data(isub_loc)%lvec_in =  pcg_data(isub_loc)%lresi
                    common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%resi
