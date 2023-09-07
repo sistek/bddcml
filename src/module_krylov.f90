@@ -27,13 +27,14 @@
     ! debugging 
           logical,parameter,private :: debug = .false.
     ! profiling 
-          logical,private ::           profile = .false.
+          logical,private :: profile = .false.
     ! tolerance on relative difference in Ritz values
-          real(kr),parameter,private ::   tol_ritz_values = 1.e-5_kr
+          real(kr),parameter,private :: tol_ritz_values = 1.e-5_kr
     ! how to normalize the relative residual
-          logical,private ::           stop_by_rhs = .false.
+          logical,parameter,private ::  stop_by_rhs = .false.
     ! reorthogonalize residual
-          logical,private ::           reorthogonalize_residual = .true.
+          logical,parameter,private ::  reorthogonalize_residual = .true.
+          integer,parameter,private ::  num_its_before_reorthogonalization = 10
     ! adjustable parameters ############################
 
     ! data necessary for recycling of Krylov subspace
@@ -1010,7 +1011,9 @@
              end do
 
              ! reorthogonalization of the residual (Saad et al. 2000 (7.1)) if relative residual increases
-             if (recycling .and. reorthogonalize_residual .and. (ndecr > 0 .or. mod(iter,10) == 0) ) then
+             ! or every selected iteration
+             if (recycling .and. reorthogonalize_residual .and. &
+                 (ndecr > 0 .or. mod(iter,num_its_before_reorthogonalization) == 0) ) then
                 do isub_loc = 1,nsub_loc
                    common_krylov_data(isub_loc)%lvec_in =  pcg_data(isub_loc)%lresi
                    common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%resi
