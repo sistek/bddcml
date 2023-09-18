@@ -43,9 +43,9 @@
           integer,private                                        :: lrecycling_basis = 0
           type(krylov_recycling_data_type), allocatable, private ::  recycling_basis(:) ! one per each local subdomain
           ! the above matrix should be diagonal, so for a well-conditioned basis, only its diagonal is needed
-          integer ::             lrecycling_idvtw
-          real(kr),allocatable :: recycling_idvtw(:) ! array of the inverse of the diagonal of p'*A*p at interface 
-          !logical,private :: recycling_is_inverse_prepared = .false.
+          integer ::              recycling_lvtw
+          real(kr),allocatable :: recycling_vtw(:,:) ! array of the inverse of the diagonal of p'*A*p at interface 
+          logical,private :: recycling_is_inverse_prepared = .false.
 
           ! controls whether Ritz vectors and values still require recomputing
           logical,private :: is_recycling_ritz_converged = .false.
@@ -157,6 +157,7 @@
 
           ! Recycling of Krylov spaces
           integer :: ibasis, jbasis
+          integer :: ldvtw
           integer :: jbuffer, lstored
           integer ::              lvtb
           real(kr), allocatable :: vtb(:)
@@ -228,8 +229,8 @@
              ! allocate when called first
              if (.not. is_recycling_prepared) then
 
-                lrecycling_idvtw = max_number_of_stored_vectors
-                allocate(recycling_idvtw(lrecycling_idvtw))
+                !recycling_lvtw = max_number_of_stored_vectors
+                !allocate(recycling_vtw(recycling_lvtw,recycling_lvtw))
 
                 lrecycling_basis = nsub_loc
                 allocate(recycling_basis(lrecycling_basis))
@@ -427,60 +428,50 @@
 
           if (recycling .and. nactive_cols_recycling_basis .gt. 0) then 
 
-             if (debug) then
-                ! check orthogonality of basis
-                ! V'*W
-                lvtw     = nactive_cols_recycling_basis
-                allocate(vtw_loc(lvtw,lvtw))
-                vtw_loc = 0._kr
-                allocate(vtw(lvtw,lvtw))
-                do ibasis = 1,nactive_cols_recycling_basis
-                   do jbasis = 1,nactive_cols_recycling_basis
-                      do isub_loc = 1,nsub_loc
-                         call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                                      recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
-                                                      recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
-                                                      vtw_sub)
-                         vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
-                      end do
+             ! TODO: for harmonic Ritz-values based basis, it can be obtained from YTFY
+             ! check orthogonality of basis
+             ! V'*W
+             recycling_lvtw = nactive_cols_recycling_basis
+             allocate(vtw_loc(recycling_lvtw,recycling_lvtw))
+             vtw_loc = 0._kr
+             if (allocated(recycling_vtw)) then
+                deallocate(recycling_vtw)
+                recycling_is_inverse_prepared = .false.
+             end if
+             allocate(recycling_vtw(recycling_lvtw,recycling_lvtw))
+             do ibasis = 1,nactive_cols_recycling_basis
+                do jbasis = 1,nactive_cols_recycling_basis
+                   do isub_loc = 1,nsub_loc
+                      call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                                   recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                                                   recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
+                                                   vtw_sub)
+                      vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
                    end do
                 end do
+             end do
     !***************************************************************PARALLEL
-                call MPI_ALLREDUCE(vtw_loc,vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
-                                   MPI_SUM, comm_all, ierr) 
+             call MPI_ALLREDUCE(vtw_loc,recycling_vtw, recycling_lvtw*recycling_lvtw, &
+                                MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
-                deallocate(vtw_loc)
+             deallocate(vtw_loc)
 
-                !if (myid.eq.0) then
-                !   write(*,*) 'V^T*W'
-                !   do i = 1,lvtw
-                !      write(*,'(1000f12.5)') (vtw(i,j), j = 1,lvtw)
-                !   end do
-                !end if
+             ! Prepare Cholesky factorization of V'W to be used in deflation
+             ldvtw = max(1,recycling_lvtw)
+             call DPOTRF('U',recycling_lvtw,recycling_vtw,ldvtw,lapack_info)
+             if (lapack_info /= 0) then 
+                call error(routine_name, 'Error in Cholesky factorization of VTW', lapack_info)
+             end if
+             recycling_is_inverse_prepared = .true.
 
-                ! inv(D)*V'*W
-                do ibasis = 1,nactive_cols_recycling_basis
-                   !vtw(:,ibasis) = recycling_idvtw(1:nactive_cols_recycling_basis) * vtw(:,ibasis) 
-                   call recycling_apply_diagonal_inverse(vtw(1,ibasis),lvtw)
-                end do
 
-                ! subtract identity matrix
-                ! inv(D)*V'*W - I
-                do ibasis = 1,nactive_cols_recycling_basis
-                   vtw(ibasis,ibasis) = vtw(ibasis,ibasis) - 1._kr
-                end do
-                check_orthogonality = sqrt(sum(vtw**2))
-                if (myid.eq.0) then
-                   write(*,*) 'D^{-1}*V^T*W - I'
-                   do i = 1,lvtw
-                      write(*,'(1000e12.5)') (vtw(i,j), j = 1,lvtw)
-                   end do
-                   if (check_orthogonality .gt. 1.e-4_kr) then
-                      call warning( routine_name, 'Krylov basis has problems with orthogonality:', check_orthogonality )
-                   end if
-                end if
-                deallocate(vtw)
-             end if 
+             !if (myid.eq.0) then
+             !   write(*,*) 'V^T*W'
+             !   do i = 1,lvtw
+             !      write(*,'(1000f12.5)') (vtw(i,j), j = 1,lvtw)
+             !   end do
+             !end if
+
 
              ! Initial projection of the right-hand side onto the Krylov basis
              call MPI_BARRIER(comm_all,ierr)
@@ -509,10 +500,10 @@
     !***************************************************************PARALLEL
              deallocate(vtb_loc)
 
-             ! inv(D)*V'*b
+             ! inv(V'W)*V'*b
              !vtb(1:nactive_cols_recycling_basis) = vtb(1:nactive_cols_recycling_basis) &
              !                                    * recycling_idvtw(1:nactive_cols_recycling_basis)
-             call recycling_apply_diagonal_inverse(vtb,lvtb)
+             call recycling_solve_vtw(vtb,lvtb)
 
              ! update solution by projection
              ! u <- u + Pb = u + V*inv(D)*V'*b = u + V*IDIAG*V'
@@ -719,63 +710,6 @@
                 ! embed the nu into the delta matrix
                 recycling_delta(1:nactive_cols_recycling_basis,iter) = nu
                 deallocate(nu)
-
-                if (iter == 1) then
-                   if (debug) then
-                      ! check orthogonality of basis
-                      ! V'*W
-                      lvtw     = nactive_cols_recycling_basis
-                      allocate(vtw_loc(lvtw,lvtw))
-                      vtw_loc = 0._kr
-                      allocate(vtw(lvtw,lvtw))
-                      do ibasis = 1,nactive_cols_recycling_basis
-                         do jbasis = 1,nactive_cols_recycling_basis
-                            do isub_loc = 1,nsub_loc
-                               call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                                            recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
-                                                            recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
-                                                            vtw_sub)
-                               vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
-                            end do
-                         end do
-                      end do
-    !***************************************************************PARALLEL
-                      call MPI_ALLREDUCE(vtw_loc,vtw, lvtw*lvtw, MPI_DOUBLE_PRECISION,&
-                                         MPI_SUM, comm_all, ierr) 
-    !***************************************************************PARALLEL
-                      deallocate(vtw_loc)
-
-                      !if (myid.eq.0) then
-                      !   write(*,*) 'V^T*W'
-                      !   do i = 1,lvtw
-                      !      write(*,'(1000f20.13)') (vtw(i,j), j = 1,lvtw)
-                      !   end do
-                      !end if
-
-                      ! inv(D)*V'*W
-                      do ibasis = 1,nactive_cols_recycling_basis
-                         !vtw(:,ibasis) = recycling_idvtw(1:nactive_cols_recycling_basis) * vtw(:,ibasis) 
-                         call recycling_apply_diagonal_inverse(vtw(1,ibasis),lvtw)
-                      end do
-
-                      ! subtract identity matrix
-                      ! inv(D)*V'*W - I
-                      do ibasis = 1,nactive_cols_recycling_basis
-                         vtw(ibasis,ibasis) = vtw(ibasis,ibasis) - 1._kr
-                      end do
-                      check_orthogonality = sqrt(sum(vtw**2))
-                      if (myid.eq.0) then
-                         write(*,*) 'D^{-1}*V^T*W - I'
-                         do i = 1,lvtw
-                            write(*,'(1000e12.5)') (vtw(i,j), j = 1,lvtw)
-                         end do
-                         if (check_orthogonality .gt. 1.e-4_kr) then
-                            call warning( routine_name, 'Krylov basis has problems with orthogonality:', check_orthogonality )
-                         end if
-                      end if
-                      deallocate(vtw)
-                   end if 
-                end if 
              end if
 
              ! check convergence
@@ -2265,8 +2199,8 @@
 !***************************************************************PARALLEL
       deallocate(wtp_loc)
 
-      ! inv(D) * W' * p
-      call recycling_apply_diagonal_inverse(wtp,lwtp)
+      ! inv(V'W) * W' * p
+      call recycling_solve_vtw(wtp,lwtp)
       !wtp = wtp * recycling_idvtw(1:nactive_cols_recycling_basis)
 
       ! At this point, wtp is nu by Saad 2000
@@ -2393,6 +2327,38 @@
                                          - wtp * recycling_basis(isub_loc)%v(:,ibasis) 
          end do
       end do
+
+      end subroutine
+
+      !***************************************
+      subroutine recycling_solve_vtw(vec,lvec)
+      !***************************************
+      ! application of the inverse of the diagonal matrix in recycling
+      use module_utils
+
+      implicit none
+
+      integer,intent(in)     :: lvec
+      real(kr),intent(inout) ::  vec(lvec) 
+
+      ! local vars
+      character(*),parameter:: routine_name = 'RECYCLING_SOLVE_VTW'
+      integer :: lapack_info 
+      integer :: ldvtw, ldvec
+
+      if (lvec /= nactive_cols_recycling_basis) then
+         call error( routine_name, 'size mismatch', lvec )
+      end if
+      if ( .not. recycling_is_inverse_prepared ) then
+         call error( routine_name, 'VTW matrix is not prepared, cannot solve with it', lvec )
+      end if
+
+      ldvtw = max(1,recycling_lvtw)
+      ldvec = max(1,lvec)
+      call DPOTRS('U', recycling_lvtw, 1, recycling_vtw, ldvtw, vec, ldvec, lapack_info)
+      if (lapack_info /= 0) then 
+         call error(routine_name, 'Error in Cholesky solve:', lapack_info)
+      end if
 
       end subroutine
 
@@ -2819,9 +2785,9 @@
          lrecycling_basis = 0
          nactive_cols_recycling_basis = 0
       end if
-      if (allocated(recycling_idvtw)) then
-         deallocate(recycling_idvtw)
-         lrecycling_idvtw = 0
+      if (allocated(recycling_vtw)) then
+         deallocate(recycling_vtw)
+         recycling_lvtw = 0
       end if
       if (allocated(recycling_L)) then
          deallocate(recycling_L)
