@@ -456,6 +456,13 @@
     !***************************************************************PARALLEL
              deallocate(vtw_loc)
 
+             if (myid.eq.0 .and. debug) then
+                write(*,*) 'V^T*W'
+                do i = 1,lvtw
+                   write(*,'(1000f12.5)') (vtw(i,j), j = 1,lvtw)
+                end do
+             end if
+
              ! Prepare Cholesky factorization of V'W to be used in deflation
              ldvtw = max(1,recycling_lvtw)
              call DPOTRF('U',recycling_lvtw,recycling_vtw,ldvtw,lapack_info)
@@ -463,15 +470,6 @@
                 call error(routine_name, 'Error in Cholesky factorization of VTW', lapack_info)
              end if
              recycling_is_inverse_prepared = .true.
-
-
-             !if (myid.eq.0) then
-             !   write(*,*) 'V^T*W'
-             !   do i = 1,lvtw
-             !      write(*,'(1000f12.5)') (vtw(i,j), j = 1,lvtw)
-             !   end do
-             !end if
-
 
              ! Initial projection of the right-hand side onto the Krylov basis
              call MPI_BARRIER(comm_all,ierr)
