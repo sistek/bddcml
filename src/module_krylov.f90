@@ -458,10 +458,11 @@
 
              if (myid.eq.0 .and. debug) then
                 write(*,*) 'V^T*W'
-                do i = 1,lvtw
-                   write(*,'(1000f12.5)') (vtw(i,j), j = 1,lvtw)
+                do i = 1,recycling_lvtw
+                   write(*,'(1000f12.5)') (recycling_vtw(i,j), j = 1,recycling_lvtw)
                 end do
              end if
+             call MPI_BARRIER(comm_all,ierr)
 
              ! Prepare Cholesky factorization of V'W to be used in deflation
              ldvtw = max(1,recycling_lvtw)
