@@ -25,7 +25,7 @@
     ! type of real variables
           integer,parameter,private :: kr = REAL64
     ! debugging 
-          logical,parameter,private :: debug = .false.
+          logical,parameter,private :: debug = .true.
     ! profiling 
           logical,private :: profile = .false.
     ! tolerance on relative difference in Ritz values
@@ -164,7 +164,6 @@
           real(kr), allocatable :: vtb_loc(:)
           real(kr) :: vtb_sub
           integer ::              lvtw
-          real(kr), allocatable :: vtw(:,:)
           real(kr), allocatable :: vtw_loc(:,:)
           real(kr) :: vtw_sub
           integer ::              lvtv
@@ -459,8 +458,15 @@
              if (myid.eq.0 .and. debug) then
                 write(*,*) 'V^T*W'
                 do i = 1,recycling_lvtw
-                   write(*,'(1000f12.5)') (recycling_vtw(i,j), j = 1,recycling_lvtw)
+                   write(*,'(1000e13.5)') (recycling_vtw(i,j), j = 1,recycling_lvtw)
                 end do
+                if (lrecycling_YTFY == recycling_lvtw) then
+                  ! the YTFY matrix seems to be filled, compare it with VTW
+                  write(*,*) 'V^T*W - Y^TFY'
+                  do i = 1,recycling_lvtw
+                     write(*,'(1000e13.5)') (recycling_vtw(i,j) - recycling_YTFY(i,j), j = 1,recycling_lvtw)
+                  end do
+                end if
              end if
              call MPI_BARRIER(comm_all,ierr)
 
@@ -2414,7 +2420,7 @@
       integer,intent(in) :: comm_all 
 
       ! number of vectors from the buffer
-      integer,intent(in) :: nbuffer
+      integer,intent(inout) :: nbuffer
 
       ! local vars
       character(*),parameter:: routine_name = 'RECYCLING_PROCESS_BASIS'
@@ -2436,6 +2442,12 @@
       real(kr), allocatable :: F(:,:)
       real(kr), allocatable :: eigvecs(:,:)
 
+      integer :: lvtw22
+      real(kr), allocatable :: vtw22(:,:)
+      real(kr), allocatable :: vtw22_loc(:,:)
+      real(kr) :: vtw22_sub
+      integer :: nbuffer_reduced
+
       ! LAPACK QR related variables
       integer :: lapack_info
       ! LAPACK eigenproblems
@@ -2448,6 +2460,7 @@
 
       integer :: nallvec, nstore, capacity, startv, endv, startw, endw, j
       integer :: myid, ierr
+      integer :: ibasis, jbasis, jcol
 
       ! which part of the Ritz vectors consider in the deflation
       logical :: take_largest = .true.
@@ -2456,6 +2469,45 @@
 
       ! find number of subdomains
       call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
+
+      ! construct V'*W for the new vectors, also called Ftilde in Ritz-based deflation below
+      ! V'*W_(2,2)
+      lvtw22 = nbuffer
+      allocate(vtw22(lvtw22,lvtw22))
+      allocate(vtw22_loc(lvtw22,lvtw22))
+      vtw22_loc = 0._kr
+      do ibasis = 1,nbuffer
+         do jbasis = 1,nbuffer
+            do isub_loc = 1,nsub_loc
+               call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                            recycling_basis(isub_loc)%p_buffer(:,ibasis),recycling_basis(isub_loc)%lp_buffer1, &
+                                            recycling_basis(isub_loc)%ap_buffer(:,jbasis),recycling_basis(isub_loc)%lap_buffer1, &
+                                            vtw22_sub)
+               vtw22_loc(ibasis,jbasis) = vtw22_loc(ibasis,jbasis) + vtw22_sub
+            end do
+         end do
+      end do
+    !***************************************************************PARALLEL
+      call MPI_ALLREDUCE(vtw22_loc,vtw22, lvtw22*lvtw22, &
+                         MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+      deallocate(vtw22_loc)
+
+      ! analyze the first row of VTW to see loss of orthogonality among the new direction vectors
+      nbuffer_reduced = nbuffer
+      if (nbuffer > 1) then
+         do jcol = 2,nbuffer
+            if (abs(vtw22(1,jcol)) > 1.e-8) then
+               ! reduce the size of nbuffer
+               nbuffer_reduced = max(1,jcol-1)
+               exit
+            end if
+         end do
+      end if
+      if (nbuffer_reduced < nbuffer) then 
+         call warning(routine_name, "Reducing number of stored new vectors to: ", nbuffer_reduced)
+      end if
+      nbuffer = nbuffer_reduced
 
       select case (recycling_strategy)
       case(0)
@@ -2555,7 +2607,6 @@
          !end if
 
          ! Construct the right-hand side of the eigenvalue problem.
-         ! P'*A*P = I
          lF = nallvec
          allocate(F(lF,lF))
          F = 0.
@@ -2564,10 +2615,12 @@
             F(1:nactive_cols_recycling_basis,1:nactive_cols_recycling_basis) = recycling_YTFY
             ! the block [1,2] and [2,1] blocks are zero
          end if
-         ! the block [2,2] block is an identity
-         do i = nactive_cols_recycling_basis+1,nallvec
-            F(i,i) = 1.
-         end do
+         ! the block [2,2] block should be close to identity, take it from VTW
+         !do i = nactive_cols_recycling_basis+1,nallvec
+         !   F(i,i) = 1.
+         !end do
+         F(nactive_cols_recycling_basis+1:nallvec,nactive_cols_recycling_basis+1:nallvec) = &
+            vtw22(1:nbuffer,1:nbuffer)
 
          !if (myid.eq.0) then
          !   write(*,'(a)') "Matrix F:"
