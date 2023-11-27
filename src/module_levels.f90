@@ -31,11 +31,11 @@ module module_levels
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! debugging 
-      logical,parameter,private :: debug = .false.
+      logical,parameter,private :: debug = .true.
 ! plot input data in ParaView - useful for debugging
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
-      logical,private ::           profile = .false.
+      logical,private ::           profile = .true.
 ! dumping division
       logical,parameter,private :: dump_division = .false.
 ! export matrix of subdomains on the second level for further analysis
@@ -2978,12 +2978,20 @@ subroutine levels_prepare_standard_level(parallel_division,&
 
       ! upload coarse mesh
       ndofc = sum(nndfc)
+      if (debug) then 
+         if (myid.eq.0) then
+            call info(routine_name, 'Coarse problem size: ', ndofc)
+         end if
+      end if
+      
       call levels_upload_level_mesh(ilevel, ncorner,nedge,nface,nnodc, ndofc, &
                                     inetc,linetc,nnetc,lnnetc,nndfc,lnndfc,xyzc,lxyzc1,lxyzc2)
       deallocate(inetc)
       deallocate(nnetc)
       deallocate(nndfc)
       deallocate(xyzc)
+
+
 
       ! prepare memory for coarse solutions
       levels(ilevel)%lsolc = ndofc

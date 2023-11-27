@@ -27,7 +27,7 @@
     ! debugging 
           logical,parameter,private :: debug = .true.
     ! profiling 
-          logical,private :: profile = .false.
+          logical,private :: profile = .true.
     ! tolerance on relative difference in Ritz values
           real(kr),parameter,private :: tol_ritz_values = 1.e-5_kr
     ! how to normalize the relative residual
