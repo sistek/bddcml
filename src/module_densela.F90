@@ -23,6 +23,7 @@ module module_densela
 #if defined(BDDCML_WITH_MAGMA)
       use magma
 #endif
+      use tnl_bddcml_interface
       implicit none
 
 ! type of real variables
@@ -36,6 +37,7 @@ module module_densela
 ! library to use
       integer,parameter :: DENSELA_LAPACK = 1
       integer,parameter :: DENSELA_MAGMA  = 2
+      integer,parameter :: DENSELA_TNL    = 3
 
 #if defined(BDDCML_WITH_MAGMA)
       integer,private :: number_of_gpus = 0
@@ -224,7 +226,6 @@ subroutine densela_getrs(library, trans, n, nrhs, A, lda, ipiv, B, ldb)
       real(kr),intent(inout) :: B(ldb,*)
 ! Leading dimension of B
       integer,intent(in) :: ldb
-
 ! local vars
       character(*),parameter:: routine_name = 'densela_getrs'
       integer :: lapack_info
@@ -826,7 +827,9 @@ subroutine densela_symv_matrix_on_gpu(library, uplo, n, alpha, dA, lddA, x, incx
 
             ! copy vectors from CPU to GPU
             call magmaf_dsetvector(n, x, incx, dx, 1, queue)
-            call magmaf_dsetvector(n, y, incx, dy, 1, queue)
+            if (beta /= 0.) then
+               call magmaf_dsetvector(n, y, incx, dy, 1, queue)
+            end if
 
             !if      (kr == REAL64) then
             !   ! double precision
@@ -845,6 +848,8 @@ subroutine densela_symv_matrix_on_gpu(library, uplo, n, alpha, dA, lddA, x, incx
             ierr = magmaf_free(dx)
             ierr = magmaf_free(dy)
 #endif
+         case (DENSELA_TNL)
+            call tnl_gemv_matrix_on_gpu(n, n, dA, x, y)
          case default
             call error(routine_name, "Illegal library:", library)
       end select
@@ -903,6 +908,8 @@ subroutine densela_copy_matrix_to_gpu(library, m, n, A, dA, lda)
 
             call magmaf_queue_destroy(queue)
 #endif
+         case (DENSELA_TNL)
+            call tnl_create_and_set_matrix_on_gpu(m, n, A, lda, dA)
          case default
             call error(routine_name, "Illegal library:", library)
       end select
@@ -935,6 +942,8 @@ subroutine densela_clear_matrix_on_gpu(library, dA)
             ! free memory on GPU
             ierr = magmaf_free(dA)
 #endif
+         case (DENSELA_TNL)
+            call tnl_clear_matrix_on_gpu(dA)
          case default
             call error(routine_name, "Illegal library:", library)
       end select
