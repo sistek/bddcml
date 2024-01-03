@@ -56,6 +56,13 @@ module module_levels
       logical,parameter,private :: levels_load_pairs = .false.
 ! should disconnected subdomains be connected? (not applicable for parallel division)
       logical,parameter,private :: levels_correct_division = .false.
+! build explicit Schur complements
+      logical,parameter,private :: use_explicit_schurs = .true.
+! use GPU acceleration
+      logical,parameter,private :: use_gpus = .false.
+! enforce contiguous subdomains
+      logical,parameter,private :: use_contiguous_subdomains = .false.
+
 ! adjustable parameters ############################
 
 ! shift of indexing between C and Fortran
@@ -387,7 +394,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
             allocate(levels(iactive_level)%subdomains(levels(iactive_level)%lsubdomains))
             do isub_loc = 1,nsub_loc
                isub = levels(iactive_level)%indexsub(isub_loc)
-               call dd_init(levels(iactive_level)%subdomains(isub_loc),isub,nsub,comm_all)
+               call dd_init(levels(iactive_level)%subdomains(isub_loc),isub,nsub,comm_all,use_gpus)
             end do
 
          else
@@ -1448,9 +1455,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer ::            lsub2proc_aux
       integer,allocatable :: sub2proc_aux(:)
 
-      logical,parameter :: use_explicit_schurs = .true.
-      logical,parameter :: use_contiguous_subdomains = .false.
-
       integer :: contiguous_subdomains_int
 
       character(1) :: levelstring
@@ -1476,6 +1480,16 @@ subroutine levels_prepare_standard_level(parallel_division,&
 
       if (.not.levels(ilevel-1)%is_level_prepared .and.  levels(ilevel)%nsub_loc .gt. 0 ) then
          call error(routine_name, 'Previous level not ready:', ilevel-1)
+      end if
+
+      ! check parameters compatibility
+      if (use_gpus .and. .not. use_explicit_schurs) then
+         call error(routine_name, "GPUs are supported only with explicit Schur complements")
+      end if
+      if (use_gpus) then
+#ifndef BDDCML_WITH_MAGMA
+         call error(routine_name, "BDDCML has to be compiled with BDDCML_WITH_MAGMA to use GPUs")
+#endif
       end if
 
       ! orient in the communicator
