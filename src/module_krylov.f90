@@ -577,25 +577,28 @@
              if (myid.eq.0 .and. profile) then
                 call time_print('RHS projection onto existing Krylov basis',t_recycling_projection)
              end if
+          else 
+             ! Without recycling, the residual is not updated.
+             normres = normres0
+          end if
 
-             ! Evaluation of stopping criterion
-             if (stop_by_rhs) then
-                ! compute it as relative residual with respect to right-hand side
-                relres = normres/normrhs
-             else
-                ! compute it as relative residual with respect to initial residual
-                relres = normres/normres0
+          ! Evaluation of stopping criterion
+          if (stop_by_rhs) then
+             ! compute it as relative residual with respect to right-hand side
+             relres = normres/normrhs
+          else
+             ! compute it as relative residual with respect to initial residual
+             relres = normres/normres0
+          end if
+          if (relres.lt.tol) then
+             iter = 0
+             if (myid.eq.0) then
+                call info(routine_name,'Number of PCG iterations:',iter)
              end if
-             if (relres.lt.tol) then
-                iter = 0
-                if (myid.eq.0) then
-                   call info(routine_name,'Number of PCG iterations:',iter)
-                end if
-                num_iter = iter
-                converged_reason = 0
-                nw = 0
-                goto 123
-             end if
+             num_iter = iter
+             converged_reason = 0
+             nw = 0
+             goto 123
           end if
 
     ! Initial action of the preconditioner M on residual vector RESI
