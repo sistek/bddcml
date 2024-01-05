@@ -68,6 +68,8 @@ module module_levels
 ! shift of indexing between C and Fortran
       integer,private :: levels_numshift
 
+      integer,private :: densela_lib
+
 ! type for data about levels
       type levels_type
 
@@ -229,7 +231,6 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
       integer :: myid_old, nproc_old
       integer :: nsub_1
       integer :: i, ir
-      integer :: densela_lib
 
 ! switch parallel direct solve
       levels_just_direct_solve = just_direct_solve
@@ -5210,7 +5211,7 @@ subroutine levels_finalize
       iactive_level = 0
 
       ! Finalize the dense LA library.
-      call densela_finalize(DENSELA_MAGMA)
+      call densela_finalize(densela_lib)
 
 end subroutine
 
