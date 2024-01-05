@@ -56,10 +56,19 @@ module module_levels
       logical,parameter,private :: levels_load_pairs = .false.
 ! should disconnected subdomains be connected? (not applicable for parallel division)
       logical,parameter,private :: levels_correct_division = .false.
+! enforce contiguous subdomains
+      logical,parameter,private :: use_contiguous_subdomains = .false.
+! build explicit Schur complements
+      logical,parameter,private :: use_explicit_schurs = .true.
+! use GPU acceleration, only possible with explicit Schur complements
+      logical,parameter,private :: use_gpus = .true.
+
 ! adjustable parameters ############################
 
 ! shift of indexing between C and Fortran
       integer,private :: levels_numshift
+
+      integer,private :: densela_lib
 
 ! type for data about levels
       type levels_type
@@ -192,6 +201,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
       ! L(0)   :   0 1 2 3 4 5 6 7 8 9 10
       use module_utils
       use module_pp
+      use module_densela
       implicit none
       include "mpif.h"
 
@@ -224,6 +234,13 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
 
 ! switch parallel direct solve
       levels_just_direct_solve = just_direct_solve
+
+! dense LA library selection
+      if (use_gpus) then
+         densela_lib = DENSELA_MAGMA
+      else
+         densela_lib = DENSELA_LAPACK
+      end if
 
 ! initial checks 
       if (nl.lt.2) then
@@ -386,7 +403,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
             allocate(levels(iactive_level)%subdomains(levels(iactive_level)%lsubdomains))
             do isub_loc = 1,nsub_loc
                isub = levels(iactive_level)%indexsub(isub_loc)
-               call dd_init(levels(iactive_level)%subdomains(isub_loc),isub,nsub,comm_all)
+               call dd_init(levels(iactive_level)%subdomains(isub_loc),isub,nsub,comm_all,use_gpus, densela_lib)
             end do
 
          else
@@ -407,6 +424,10 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
       levels(iactive_level)%comm_all  = levels(iactive_level-1)%comm_all
       levels(iactive_level)%i_am_active_in_this_level = levels(iactive_level-1)%i_am_active_in_this_level
       levels(iactive_level)%is_new_comm_created       = .false.
+
+      ! find rank on the first level and initialize the numerical library
+      call MPI_COMM_RANK(levels(1)%comm_all, myid, ierr)
+      call densela_init(densela_lib, myid)
 
       !do iactive_level = 1,nlevels
       !   print *, 'myid ',myid,':level ',iactive_level,': Active cores:', &
@@ -1443,9 +1464,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer ::            lsub2proc_aux
       integer,allocatable :: sub2proc_aux(:)
 
-      logical,parameter :: use_explicit_schurs = .false.
-      logical,parameter :: use_contiguous_subdomains = .false.
-
       integer :: contiguous_subdomains_int
 
       character(1) :: levelstring
@@ -1471,6 +1489,17 @@ subroutine levels_prepare_standard_level(parallel_division,&
 
       if (.not.levels(ilevel-1)%is_level_prepared .and.  levels(ilevel)%nsub_loc .gt. 0 ) then
          call error(routine_name, 'Previous level not ready:', ilevel-1)
+      end if
+
+      ! check parameters compatibility
+      if (use_gpus .and. .not. use_explicit_schurs) then
+         call error(routine_name, "GPUs are supported only with explicit Schur complements")
+      end if
+
+      if (use_gpus) then
+#ifndef BDDCML_WITH_MAGMA
+         call error(routine_name, "BDDCML has to be compiled with BDDCML_WITH_MAGMA to use GPUs")
+#endif
       end if
 
       ! orient in the communicator
@@ -1512,7 +1541,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       end if
       ! for debugging purposes
       !if (ilevel.gt.1) then
-      !   levels(ilevel)%load_division = levels(ilevel-1)%load_division
+         !levels(ilevel)%load_division = levels(ilevel-1)%load_division
+         !levels(ilevel)%load_division = .true.
       !end if
 
       levels(ilevel)%linet = levels(ilevel-1)%linetc  
@@ -5159,6 +5189,7 @@ subroutine levels_finalize
 !*************************
 ! Subroutine for initialization of levels data
       use module_mumps
+      use module_densela
       implicit none
       include "mpif.h"
 
@@ -5205,6 +5236,8 @@ subroutine levels_finalize
       nlevels = 0
       iactive_level = 0
 
+      ! Finalize the dense LA library.
+      call densela_finalize(densela_lib)
 
 end subroutine
 
