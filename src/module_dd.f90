@@ -435,9 +435,9 @@ module module_dd
 
 contains
 
-!************************************************
-subroutine dd_init(sub,indsub,nsub,comm,use_gpus)
-!************************************************
+!************************************************************
+subroutine dd_init(sub,indsub,nsub,comm,use_gpus,densela_lib)
+!************************************************************
 ! Subroutine for initialization of subdomain data - assign a processor
       use module_densela
       implicit none
@@ -451,6 +451,8 @@ subroutine dd_init(sub,indsub,nsub,comm,use_gpus)
       integer,intent(in) :: comm
 ! use GPU for this subdomain
       logical,intent(in) :: use_gpus
+! dense LA lib
+      integer,intent(in) :: densela_lib
 
 ! local vars
       integer :: myid, ierr
@@ -464,11 +466,7 @@ subroutine dd_init(sub,indsub,nsub,comm,use_gpus)
       sub%proc              = myid
       sub%comm              = comm
       sub%use_gpus          = use_gpus
-      if (use_gpus) then
-         sub%densela_lib    = DENSELA_MAGMA
-      else
-         sub%densela_lib    = DENSELA_LAPACK
-      end if
+      sub%densela_lib       = densela_lib
       sub%is_initialized    = .true.
 
 end subroutine
@@ -4206,9 +4204,9 @@ subroutine dd_prepare_schur(sub,comm_self,use_explicit_schurs)
             end do
          end if
 
-         call densela_copy_matrix_to_gpu(sub%densela_lib, sub%lschur1, sub%lschur2, sub%schur, sub%dschur, sub%lschur1)
-         !call densela_copy_matrix_to_gpu(DENSELA_MAGMA, sub%lschur1, sub%lschur2, sub%schur, sub%dschur, sub%lschur1)
-         !call densela_copy_matrix_to_gpu(DENSELA_TNL, sub%lschur1, sub%lschur2, sub%schur, sub%dschur, sub%lschur1)
+         if (sub%use_gpus) then
+            call densela_copy_matrix_to_gpu(sub%densela_lib, sub%lschur1, sub%lschur2, sub%schur, sub%dschur, sub%lschur1)
+         end if
       else
          ! block the matrix into four blocks
          remove_original = .false.
@@ -5278,11 +5276,11 @@ subroutine dd_prepare_aug(sub,comm_self)
             goto 133
          end if
 
-         call densela_copy_matrix_to_gpu(sub%densela_lib, sub%laaug_dense1, sub%laaug_dense2, sub%aaug_dense, &
-                                         sub%daaug_dense, sub%laaug_dense1)
-         !call densela_copy_matrix_to_gpu(DENSELA_MAGMA, sub%laaug_dense1, sub%laaug_dense2, sub%aaug_dense, &
-         !                                sub%daaug_dense, sub%laaug_dense1)
-         deallocate(sub%aaug_dense)
+         if (sub%use_gpus) then
+            call densela_copy_matrix_to_gpu(sub%densela_lib, sub%laaug_dense1, sub%laaug_dense2, sub%aaug_dense, &
+                                            sub%daaug_dense, sub%laaug_dense1)
+            deallocate(sub%aaug_dense)
+         end if
 
          ! factorize matrix Aaug by LAPACK
          ! Set type of matrix
@@ -5291,8 +5289,13 @@ subroutine dd_prepare_aug(sub,comm_self)
             sub%laaug_ipiv = sub%laaug_dense1
             allocate(sub%aaug_ipiv(sub%laaug_ipiv))
             !call densela_getrf(DENSELA_LAPACK, sub%laaug_dense1, sub%laaug_dense2, sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv)
-            call densela_getrf_matrix_on_gpu(sub%densela_lib, sub%laaug_dense1, sub%laaug_dense2, sub%daaug_dense, &
-                                             sub%laaug_dense1, sub%aaug_ipiv)
+            if (sub%use_gpus) then
+               call densela_getrf_matrix_on_gpu(sub%densela_lib, sub%laaug_dense1, sub%laaug_dense2, sub%daaug_dense, &
+                                                sub%laaug_dense1, sub%aaug_ipiv)
+            else
+               call densela_getrf(sub%densela_lib, sub%laaug_dense1, sub%laaug_dense2, sub%aaug_dense, &
+                                  sub%laaug_dense1, sub%aaug_ipiv)
+            end if
             !call densela_getrf_matrix_on_gpu(DENSELA_MAGMA, sub%laaug_dense1, sub%laaug_dense2, sub%daaug_dense, &
             !                                 sub%laaug_dense1, sub%aaug_ipiv)
          else if (sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) then
@@ -5300,11 +5303,15 @@ subroutine dd_prepare_aug(sub,comm_self)
             ! even if the original matrix is SPD, use LDLT
             sub%laaug_ipiv = sub%laaug_dense1
             allocate(sub%aaug_ipiv(sub%laaug_ipiv))
-            !call densela_sytrf(DENSELA_LAPACK, 'U', sub%laaug_dense1, sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv)
-            call densela_getrf_matrix_on_gpu(sub%densela_lib, sub%laaug_dense1, sub%laaug_dense2, sub%daaug_dense, &
-                                             sub%laaug_dense1, sub%aaug_ipiv)
-            !call densela_getrf_matrix_on_gpu(DENSELA_MAGMA, sub%laaug_dense1, sub%laaug_dense2, sub%daaug_dense, &
-            !                                 sub%laaug_dense1, sub%aaug_ipiv)
+            if (sub%use_gpus) then
+               call densela_getrf_matrix_on_gpu(sub%densela_lib, sub%laaug_dense1, sub%laaug_dense2, sub%daaug_dense, &
+                                                sub%laaug_dense1, sub%aaug_ipiv)
+               !call densela_getrf_matrix_on_gpu(DENSELA_MAGMA, sub%laaug_dense1, sub%laaug_dense2, sub%daaug_dense, &
+               !                                 sub%laaug_dense1, sub%aaug_ipiv)
+            else
+               call densela_sytrf(sub%densela_lib, 'U', sub%laaug_dense1, sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv)
+               !call densela_sytrf(DENSELA_LAPACK, 'U', sub%laaug_dense1, sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv)
+            end if
          else 
             call error(routine_name,'Matrixtype not set for subdomain:', sub%isub)
          end if
@@ -5874,17 +5881,27 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs, solve_adjoint)
             end if
             !call densela_getrs(DENSELA_LAPACK, transa, sub%laaug_dense1, nrhs, &
             !                   sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
-            call densela_getrs_matrix_on_gpu(sub%densela_lib, transa, sub%laaug_dense1, nrhs, sub%daaug_dense, &
-                                             sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
-            !call densela_getrs_matrix_on_gpu(DENSELA_MAGMA, transa, sub%laaug_dense1, nrhs, sub%daaug_dense, &
-            !                                 sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
+            if (sub%use_gpus) then
+               call densela_getrs_matrix_on_gpu(sub%densela_lib, transa, sub%laaug_dense1, nrhs, sub%daaug_dense, &
+                                                sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
+               !call densela_getrs_matrix_on_gpu(DENSELA_MAGMA, transa, sub%laaug_dense1, nrhs, sub%daaug_dense, &
+               !                                 sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
+            else
+               call densela_getrs(sub%densela_lib, transa, sub%laaug_dense1, nrhs, sub%aaug_dense, &
+                                  sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
+            end if
          else if (sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) then
             ! in symmetric case, saddle point problem makes the augmented matrix indefinite,
             ! even if the original matrix is SPD, use LDLT
-            !call densela_sytrs(DENSELA_LAPACK, 'U', sub%laaug_dense1, nrhs, &
-            !                   sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
-            call densela_getrs_matrix_on_gpu(sub%densela_lib, 'N', sub%laaug_dense1, nrhs, sub%daaug_dense, &
-                                             sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
+            if (sub%use_gpus) then
+               call densela_getrs_matrix_on_gpu(sub%densela_lib, 'N', sub%laaug_dense1, nrhs, sub%daaug_dense, &
+                                                sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
+            else
+               call densela_sytrs(sub%densela_lib, 'U', sub%laaug_dense1, nrhs, &
+                                  sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
+               !call densela_sytrs(DENSELA_LAPACK, 'U', sub%laaug_dense1, nrhs, &
+               !                   sub%aaug_dense, sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
+            end if
             !call densela_getrs_matrix_on_gpu(DENSELA_MAGMA, 'N', sub%laaug_dense1, nrhs, sub%daaug_dense, &
             !                                 sub%laaug_dense1, sub%aaug_ipiv, vec, ldb)
          else 
@@ -5892,7 +5909,7 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs, solve_adjoint)
             call error_exit
          end if
       else
-         if (nrhs > 0) then
+            if (nrhs > 0) then
             if (lvec/nrhs /= sub%ndof+sub%nconstr) then          ! intentional integer divide
                write(*,*) 'DD_SOLVE_AUG: Length of augmented system does not match:', sub%isub
                call error_exit
@@ -6519,13 +6536,22 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly,ncol)
          ! copy x to y
          y = x
          if      (sub%istorage == 2) then
-            call densela_symv_matrix_on_gpu(sub%densela_lib, 'U', sub%lschur1, 1._kr, sub%dschur, sub%lschur1, x, 1, 0._kr, y, 1)
+            if (sub%use_gpus) then
+               call densela_symv_matrix_on_gpu(sub%densela_lib, 'U', sub%lschur1, 1._kr, sub%dschur, sub%lschur1, x, 1, 0._kr, y, 1)
+            else
+               call densela_symv(sub%densela_lib, 'U', sub%lschur1, 1._kr, sub%schur, sub%lschur1, x, 1, 0._kr, y, 1)
+            end if
             !call densela_symv_matrix_on_gpu(DENSELA_MAGMA, 'U', sub%lschur1, 1._kr, sub%dschur, sub%lschur1, x, 1, 0._kr, y, 1)
             !call densela_symv_matrix_on_gpu(DENSELA_TNL, 'U', sub%lschur1, 1._kr, sub%dschur, sub%lschur1, x, 1, 0._kr, y, 1)
             !call densela_symv(DENSELA_LAPACK, 'U', sub%lschur1, 1._kr, sub%schur, sub%lschur1, x, 1, 0._kr, y, 1)
          else if (sub%istorage == 1) then
-            call densela_gemv_matrix_on_gpu(sub%densela_lib, 'N', sub%lschur1, sub%lschur2, 1.0_kr, sub%dschur, sub%lschur1, &
-                                            x, 1, 0._kr, y, 1)
+            if (sub%use_gpus) then
+               call densela_gemv_matrix_on_gpu(sub%densela_lib, 'N', sub%lschur1, sub%lschur2, 1.0_kr, sub%dschur, sub%lschur1, &
+                                               x, 1, 0._kr, y, 1)
+            else
+               call densela_gemv(sub%densela_lib, 'N', sub%lschur1, sub%lschur2, 1.0_kr, sub%schur, sub%lschur1, &
+                                 x, 1, 0._kr, y, 1)
+            end if
             !call densela_gemv_matrix_on_gpu(DENSELA_MAGMA, 'N', sub%lschur1, sub%lschur2, 1.0_kr, sub%dschur, sub%lschur1, &
             !                                x, 1, 0._kr, y, 1)
             !call densela_gemv(DENSELA_LAPACK, 'N', sub%lschur1, sub%lschur2, 1.0_kr, sub%schur, sub%lschur1, &
@@ -14780,13 +14806,17 @@ subroutine dd_finalize(sub)
       if (allocated(sub%schur)) then
          deallocate(sub%schur)
       end if
-      call densela_clear_matrix_on_gpu(sub%densela_lib, sub%dschur)
+      if (sub%use_gpus) then
+         call densela_clear_matrix_on_gpu(sub%densela_lib, sub%dschur)
+      end if
       !call densela_clear_matrix_on_gpu(DENSELA_MAGMA, sub%dschur)
       !call densela_clear_matrix_on_gpu(DENSELA_TNL, sub%dschur)
       if (allocated(sub%aaug_dense)) then
          deallocate(sub%aaug_dense)
       end if
-      call densela_clear_matrix_on_gpu(sub%densela_lib, sub%daaug_dense)
+      if (sub%use_gpus) then
+         call densela_clear_matrix_on_gpu(sub%densela_lib, sub%daaug_dense)
+      end if
       !call densela_clear_matrix_on_gpu(DENSELA_MAGMA, sub%daaug_dense)
       if (allocated(sub%aaug_ipiv)) then
          deallocate(sub%aaug_ipiv)
