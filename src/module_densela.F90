@@ -23,7 +23,7 @@ module module_densela
 #if defined(BDDCML_WITH_MAGMA)
       use magma
 #endif
-      use tnl_bddcml_interface
+      !use tnl_bddcml_interface
       implicit none
 
 ! type of real variables
@@ -848,8 +848,8 @@ subroutine densela_symv_matrix_on_gpu(library, uplo, n, alpha, dA, lddA, x, incx
             ierr = magmaf_free(dx)
             ierr = magmaf_free(dy)
 #endif
-         case (DENSELA_TNL)
-            call tnl_gemv_matrix_on_gpu(n, n, dA, x, y)
+         !case (DENSELA_TNL)
+         !   call tnl_gemv_matrix_on_gpu(n, n, dA, x, y)
          case default
             call error(routine_name, "Illegal library:", library)
       end select
@@ -908,8 +908,8 @@ subroutine densela_copy_matrix_to_gpu(library, m, n, A, dA, lda)
 
             call magmaf_queue_destroy(queue)
 #endif
-         case (DENSELA_TNL)
-            call tnl_create_and_set_matrix_on_gpu(m, n, A, lda, dA)
+         !case (DENSELA_TNL)
+         !   call tnl_create_and_set_matrix_on_gpu(m, n, A, lda, dA)
          case default
             call error(routine_name, "Illegal library:", library)
       end select
@@ -942,8 +942,8 @@ subroutine densela_clear_matrix_on_gpu(library, dA)
             ! free memory on GPU
             ierr = magmaf_free(dA)
 #endif
-         case (DENSELA_TNL)
-            call tnl_clear_matrix_on_gpu(dA)
+         !case (DENSELA_TNL)
+         !   call tnl_clear_matrix_on_gpu(dA)
          case default
             call error(routine_name, "Illegal library:", library)
       end select

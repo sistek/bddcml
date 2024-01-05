@@ -59,9 +59,9 @@ module module_levels
 ! enforce contiguous subdomains
       logical,parameter,private :: use_contiguous_subdomains = .false.
 ! build explicit Schur complements
-      logical,parameter,private :: use_explicit_schurs = .false.
+      logical,parameter,private :: use_explicit_schurs = .true.
 ! use GPU acceleration, only possible with explicit Schur complements
-      logical,parameter,private :: use_gpus = .false.
+      logical,parameter,private :: use_gpus = .true.
 
 ! adjustable parameters ############################
 
