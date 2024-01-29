@@ -739,10 +739,12 @@ subroutine densela_symv(library, uplo, n, alpha, A, lda, x, incx, beta, y, incy)
             ! copy the matrix from CPU to GPU
             lddA = n
             call magmaf_dsetmatrix( n, n, A, lda, dA, lddA, queue )
+            call magmaf_queue_sync( queue )
 
             ! copy vectors from CPU to GPU
             call magmaf_dsetvector(n, x, incx, dx, 1, queue)
             call magmaf_dsetvector(n, y, incx, dy, 1, queue)
+            call magmaf_queue_sync( queue )
 
             !if      (kr == REAL64) then
             !   ! double precision
@@ -750,9 +752,11 @@ subroutine densela_symv(library, uplo, n, alpha, A, lda, x, incx, beta, y, incy)
             !   ! single precision
             !   call magmaf_ssymv(uplo, n, alpha, A, lda, x, incx, beta, y, incy, queue)
             !end if
+            call magmaf_queue_sync( queue )
  
             ! copy data from GPU to CPU
             call magmaf_dgetvector(n, dy, 1, y, incy, queue)
+            call magmaf_queue_sync( queue )
 
             call magmaf_queue_destroy(queue)
 
@@ -830,6 +834,7 @@ subroutine densela_symv_matrix_on_gpu(library, uplo, n, alpha, dA, lddA, x, incx
             if (beta /= 0.) then
                call magmaf_dsetvector(n, y, incx, dy, 1, queue)
             end if
+            call magmaf_queue_sync(queue)
 
             !if      (kr == REAL64) then
             !   ! double precision
@@ -841,6 +846,7 @@ subroutine densela_symv_matrix_on_gpu(library, uplo, n, alpha, dA, lddA, x, incx
  
             ! copy data from GPU to CPU
             call magmaf_dgetvector(n, dy, 1, y, incy, queue)
+            call magmaf_queue_sync(queue)
 
             call magmaf_queue_destroy(queue)
 
@@ -906,6 +912,7 @@ subroutine densela_copy_matrix_to_gpu(library, m, n, A, dA, lda)
             lddA = m
             call magmaf_dsetmatrix(m, n, A, lda, dA, lddA, queue)
 
+            call magmaf_queue_sync(queue)
             call magmaf_queue_destroy(queue)
 #endif
          !case (DENSELA_TNL)
