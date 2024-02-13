@@ -51,6 +51,11 @@ interface time_print
    module procedure time_print_with_number_int
 end interface time_print
 
+interface rquick_sort
+   module procedure rquick_sort_sp
+   module procedure rquick_sort_dp
+end interface rquick_sort
+
 ! Time measurements
 integer,parameter,private :: level_time_max = 30
 real(kr),private ::          times(level_time_max) = 0._kr
@@ -731,9 +736,9 @@ end do
 
 end subroutine iquick_sort_2
 
-!***********************************************************************
-recursive subroutine rquick_sort(list,llist1,llist2,indsort,istart,iend)
-!***********************************************************************
+!**************************************************************************
+recursive subroutine rquick_sort_sp(list,llist1,llist2,indsort,istart,iend)
+!**************************************************************************
 ! Quick sort routine from:
 ! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
 ! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
@@ -742,26 +747,26 @@ recursive subroutine rquick_sort(list,llist1,llist2,indsort,istart,iend)
 
 implicit none
 integer,intent(in) ::      llist1, llist2
-real(kr),intent(inout) ::  list(llist1,llist2)
+real(4),intent(inout) ::  list(llist1,llist2)
 integer,intent(in) ::      indsort
 integer,intent(in) ::      istart, iend
 
-call rquick_sort_1(istart, iend)
+call rquick_sort_1_sp(istart, iend)
 
 contains
 
-recursive subroutine rquick_sort_1(left_end, right_end)
+recursive subroutine rquick_sort_1_sp(left_end, right_end)
 
 integer, intent(in) :: left_end, right_end
 
 !     local variables
 integer             :: i, j, k
-real(kr)            :: reference, temp
+real(4)            :: reference, temp
 integer, parameter  :: max_simple_sort_size = 6
 
 if (right_end < left_end + max_simple_sort_size) then
   ! use interchange sort for small lists
-  call rinterchange_sort(left_end, right_end)
+  call rinterchange_sort_sp(left_end, right_end)
 
 else
   ! use partition ("quick") sort
@@ -797,19 +802,19 @@ else
     end if
   end do
 
-  if (left_end < j) call rquick_sort_1(left_end, j)
-  if (i < right_end) call rquick_sort_1(i, right_end)
+  if (left_end < j) call rquick_sort_1_sp(left_end, j)
+  if (i < right_end) call rquick_sort_1_sp(i, right_end)
 end if
 
-end subroutine rquick_sort_1
+end subroutine rquick_sort_1_sp
 
-subroutine rinterchange_sort(left_end, right_end)
+subroutine rinterchange_sort_sp(left_end, right_end)
 
 integer, intent(in) :: left_end, right_end
 
 !     local variables
 integer             :: i, j, k
-real(kr)            :: temp
+real(4)            :: temp
 
 do i = left_end, right_end - 1
   do j = i+1, right_end
@@ -824,8 +829,104 @@ do i = left_end, right_end - 1
   end do
 end do
 
-end subroutine rinterchange_sort
-end subroutine rquick_sort
+end subroutine rinterchange_sort_sp
+end subroutine rquick_sort_sp
+
+!**************************************************************************
+recursive subroutine rquick_sort_dp(list,llist1,llist2,indsort,istart,iend)
+!**************************************************************************
+! Quick sort routine from:
+! Brainerd, W.S., Goldberg, C.H. & Adams, J.C. (1990) "Programmer's Guide to
+! Fortran 90", McGraw-Hill  ISBN 0-07-000248-7, pages 149-150.
+! modified by Jakub Sistek
+! sort two-dimensional real array according to indsort-th column
+
+implicit none
+integer,intent(in) ::      llist1, llist2
+real(8),intent(inout) ::  list(llist1,llist2)
+integer,intent(in) ::      indsort
+integer,intent(in) ::      istart, iend
+
+call rquick_sort_1_dp(istart, iend)
+
+contains
+
+recursive subroutine rquick_sort_1_dp(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     local variables
+integer             :: i, j, k
+real(8)            :: reference, temp
+integer, parameter  :: max_simple_sort_size = 6
+
+if (right_end < left_end + max_simple_sort_size) then
+  ! use interchange sort for small lists
+  call rinterchange_sort_dp(left_end, right_end)
+
+else
+  ! use partition ("quick") sort
+  reference = list((left_end + right_end)/2,indsort)
+  i = left_end  - 1 
+  j = right_end + 1
+
+  do
+    ! scan list from left end until element >= reference is found
+    do
+      i = i + 1
+      if (list(i,indsort) >= reference) exit
+    end do
+    ! scan list from right end until element <= reference is found
+    do
+      j = j - 1
+      if (list(j,indsort) <= reference) exit
+    end do
+
+
+    if (i < j) then
+      ! swap two out-of-order elements
+      do k = 1,llist2
+         temp = list(i,k) 
+         list(i,k) = list(j,k) 
+         list(j,k) = temp
+      end do
+    else if (i == j) then
+      i = i + 1
+      exit
+    else
+      exit
+    end if
+  end do
+
+  if (left_end < j) call rquick_sort_1_dp(left_end, j)
+  if (i < right_end) call rquick_sort_1_dp(i, right_end)
+end if
+
+end subroutine rquick_sort_1_dp
+
+subroutine rinterchange_sort_dp(left_end, right_end)
+
+integer, intent(in) :: left_end, right_end
+
+!     local variables
+integer             :: i, j, k
+real(8)            :: temp
+
+do i = left_end, right_end - 1
+  do j = i+1, right_end
+    if (list(i,indsort) > list(j,indsort)) then
+      ! swap two out-of-order rows
+      do k = 1,llist2
+         temp = list(i,k) 
+         list(i,k) = list(j,k) 
+         list(j,k) = temp
+      end do
+    end if
+  end do
+end do
+
+end subroutine rinterchange_sort_dp
+end subroutine rquick_sort_dp
 
 !****************************************************************************
 subroutine get_array_union(array1,larray1,array2,larray2,union,lunion,nunion)

@@ -30,8 +30,10 @@ module module_paraview
 
 interface paraview_write_dataarray
    module procedure paraview_write_dataarray_int
+   module procedure paraview_write_dataarray_sp
    module procedure paraview_write_dataarray_dp
    module procedure paraview_write_dataarray2d_int
+   module procedure paraview_write_dataarray2d_sp
    module procedure paraview_write_dataarray2d_dp
 end interface paraview_write_dataarray
 
@@ -304,56 +306,6 @@ subroutine paraview_close_pointdata(idvtu)
 
 end subroutine paraview_close_pointdata
 
-!******************************************************************************************
-subroutine paraview_write_dataarray_int(idvtu,number_of_components,array_name,array,larray)
-!******************************************************************************************
-! Subroutine for writing a one-dimensional integer array into a VTU file
-!******************************************************************************************
-      use module_utils
-      implicit none
-      
-      ! unit with opened file
-      integer, intent(in) :: idvtu
-      ! how many components are in the array (e.g. 1 for scalar, 3 for vectors in 3D)
-      integer, intent(in) :: number_of_components
-      ! name of the array
-      character(*), intent(in) :: array_name           
-      ! the array
-      integer, intent(in) :: larray
-      integer, intent(in) :: array(larray)
-
-      ! local vars
-      real(kr) :: realaux(1)
-
-      call paraview_write_dataarray_generic(idvtu,number_of_components,array_name,array,realaux,larray,.true.)
-
-end subroutine paraview_write_dataarray_int
-
-!*****************************************************************************************
-subroutine paraview_write_dataarray_dp(idvtu,number_of_components,array_name,array,larray)
-!*****************************************************************************************
-! Subroutine for writing a one-dimensional double precision array into a VTU file
-!*****************************************************************************************
-      use module_utils
-      implicit none
-      
-      ! unit with opened file
-      integer, intent(in) :: idvtu
-      ! how many components are in the array (e.g. 1 for scalar, 3 for vectors in 3D)
-      integer, intent(in) :: number_of_components
-      ! name of the array
-      character(*), intent(in) :: array_name           
-      ! the array
-      integer, intent(in) :: larray
-      real(kr), intent(in) :: array(larray)
-
-      ! local vars
-      integer :: intaux(1)
-
-      call paraview_write_dataarray_generic(idvtu,number_of_components,array_name,intaux,array,larray,.false.)
-
-end subroutine paraview_write_dataarray_dp
-
 !*****************************************************************************************************
 subroutine paraview_write_dataarray2d_int(idvtu,number_of_components,array_name,array,larray1,larray2)
 !*****************************************************************************************************
@@ -374,7 +326,6 @@ subroutine paraview_write_dataarray2d_int(idvtu,number_of_components,array_name,
 
       ! local vars
       integer  :: larray
-      real(kr) :: realaux(1)
       integer  :: new_shape(2)
 
       ! set sizes of reshaped array to make the array one-dimensional
@@ -382,9 +333,40 @@ subroutine paraview_write_dataarray2d_int(idvtu,number_of_components,array_name,
       new_shape(1) = larray
       new_shape(2) = 1
 
-      call paraview_write_dataarray_generic(idvtu,number_of_components,array_name,reshape(array,new_shape),realaux,larray,.true.)
+      call paraview_write_dataarray_int(idvtu,number_of_components,array_name,reshape(array,new_shape),larray)
 
 end subroutine paraview_write_dataarray2d_int
+
+!****************************************************************************************************
+subroutine paraview_write_dataarray2d_sp(idvtu,number_of_components,array_name,array,larray1,larray2)
+!****************************************************************************************************
+! Subroutine for writing a two-dimensional double precision array into a VTU file
+!****************************************************************************************************
+      use module_utils
+      implicit none
+      
+      ! unit with opened file
+      integer, intent(in) :: idvtu
+      ! how many components are in the array (e.g. 1 for scalar, 3 for vectors in 3D)
+      integer, intent(in) :: number_of_components
+      ! name of the array
+      character(*), intent(in) :: array_name           
+      ! the array
+      integer, intent(in) :: larray1, larray2
+      real(REAL32), intent(in) :: array(larray1,larray2)
+
+      ! local vars
+      integer  :: larray
+      integer :: new_shape(2)
+
+      ! set sizes of reshaped array to make the array one-dimensional
+      larray = larray1 * larray2
+      new_shape(1) = larray
+      new_shape(2) = 1
+
+      call paraview_write_dataarray_sp(idvtu,number_of_components,array_name,reshape(array,new_shape),larray)
+
+end subroutine paraview_write_dataarray2d_sp
 
 !****************************************************************************************************
 subroutine paraview_write_dataarray2d_dp(idvtu,number_of_components,array_name,array,larray1,larray2)
@@ -402,11 +384,10 @@ subroutine paraview_write_dataarray2d_dp(idvtu,number_of_components,array_name,a
       character(*), intent(in) :: array_name           
       ! the array
       integer, intent(in) :: larray1, larray2
-      real(kr), intent(in) :: array(larray1,larray2)
+      real(REAL64), intent(in) :: array(larray1,larray2)
 
       ! local vars
       integer  :: larray
-      integer :: intaux(1)
       integer :: new_shape(2)
 
       ! set sizes of reshaped array to make the array one-dimensional
@@ -414,9 +395,117 @@ subroutine paraview_write_dataarray2d_dp(idvtu,number_of_components,array_name,a
       new_shape(1) = larray
       new_shape(2) = 1
 
-      call paraview_write_dataarray_generic(idvtu,number_of_components,array_name,intaux,reshape(array,new_shape),larray,.false.)
+      call paraview_write_dataarray_dp(idvtu,number_of_components,array_name,reshape(array,new_shape),larray)
 
 end subroutine paraview_write_dataarray2d_dp
+
+!******************************************************************************************
+subroutine paraview_write_dataarray_int(idvtu,number_of_components,array_name,array,larray)
+!******************************************************************************************
+! Subroutine for writing an integer array into a VTU file.
+!******************************************************************************************
+      use module_utils
+      implicit none
+      
+      ! unit with opened file
+      integer, intent(in) :: idvtu
+      ! how many components are in the array (e.g. 1 for scalar, 3 for vectors in 3D)
+      integer, intent(in) :: number_of_components
+      ! name of the array
+      character(*), intent(in) :: array_name           
+      ! the array
+      integer, intent(in) :: larray
+      integer, intent(in) :: array(larray)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'PARAVIEW_WRITE_DATAARRAY_INT'
+      integer :: icol, i
+      integer :: npoint
+
+      write(idvtu,'(a,i1,a)')  '      <DataArray type="Int32" NumberOfComponents="',number_of_components,&
+                                       '" Name="'//trim(array_name)//'" format="ascii">'
+      npoint = larray/number_of_components
+      if (mod(larray,npoint).ne.0) then
+         call error( routine_name, 'Length of dataarray mismatch. Expected length: ', npoint * number_of_components )
+      end if
+      do i = 1,npoint
+         write(idvtu,'(3i15)')   ( array( (icol-1)*npoint + i ), icol = 1,number_of_components )
+            !write(idvtu,'(3e15.7)') ( arrayreal( (icol-1)*npoint + i ), icol = 1,number_of_components )
+      end do
+      write(idvtu,'(a)')       '      </DataArray>'
+
+end subroutine paraview_write_dataarray_int
+
+!*****************************************************************************************
+subroutine paraview_write_dataarray_sp(idvtu,number_of_components,array_name,array,larray)
+!*****************************************************************************************
+! Subroutine for writing an integer array into a VTU file.
+!*****************************************************************************************
+      use module_utils
+      implicit none
+      
+      ! unit with opened file
+      integer, intent(in) :: idvtu
+      ! how many components are in the array (e.g. 1 for scalar, 3 for vectors in 3D)
+      integer, intent(in) :: number_of_components
+      ! name of the array
+      character(*), intent(in) :: array_name           
+      ! the array
+      integer, intent(in) :: larray
+      real(REAL32), intent(in) :: array(larray)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'PARAVIEW_WRITE_DATAARRAY_SP'
+      integer :: icol, i
+      integer :: npoint
+
+      write(idvtu,'(a,i1,a)')  '      <DataArray type="Float32" NumberOfComponents="',number_of_components,&
+                                       '" Name="'//trim(array_name)//'" format="ascii">'
+      npoint = larray/number_of_components
+      if (mod(larray,npoint).ne.0) then
+         call error( routine_name, 'Length of dataarray mismatch. Expected length: ', npoint * number_of_components )
+      end if
+      do i = 1,npoint
+         write(idvtu,'(3e15.7)') ( array( (icol-1)*npoint + i ), icol = 1,number_of_components )
+      end do
+      write(idvtu,'(a)')       '      </DataArray>'
+
+end subroutine paraview_write_dataarray_sp
+
+!*****************************************************************************************
+subroutine paraview_write_dataarray_dp(idvtu,number_of_components,array_name,array,larray)
+!*****************************************************************************************
+! Subroutine for writing an integer array into a VTU file.
+!*****************************************************************************************
+      use module_utils
+      implicit none
+      
+      ! unit with opened file
+      integer, intent(in) :: idvtu
+      ! how many components are in the array (e.g. 1 for scalar, 3 for vectors in 3D)
+      integer, intent(in) :: number_of_components
+      ! name of the array
+      character(*), intent(in) :: array_name           
+      ! the array
+      integer, intent(in) :: larray
+      real(REAL64), intent(in) :: array(larray)
+
+      ! local vars
+      character(*),parameter:: routine_name = 'PARAVIEW_WRITE_DATAARRAY_SP'
+      integer :: icol, i
+      integer :: npoint
+
+      write(idvtu,'(a,i1,a)')  '      <DataArray type="Float64" NumberOfComponents="',number_of_components,&
+                                       '" Name="'//trim(array_name)//'" format="ascii">'
+      npoint = larray/number_of_components
+      if (mod(larray,npoint).ne.0) then
+         call error( routine_name, 'Length of dataarray mismatch. Expected length: ', npoint * number_of_components )
+      end if
+      do i = 1,npoint
+         write(idvtu,'(3e15.7)') ( array( (icol-1)*npoint + i ), icol = 1,number_of_components )
+      end do
+      write(idvtu,'(a)')       '      </DataArray>'
+end subroutine paraview_write_dataarray_dp
 
 !**********************************************************************************************************************
 subroutine paraview_write_dataarray_generic(idvtu,number_of_components,array_name,arrayint,arrayreal,larray,is_integer)
@@ -469,6 +558,7 @@ subroutine paraview_write_dataarray_generic(idvtu,number_of_components,array_nam
       write(idvtu,'(a)')       '      </DataArray>'
 
 end subroutine paraview_write_dataarray_generic
+
 
 !***************************************
 subroutine paraview_finalize_file(idvtu)
