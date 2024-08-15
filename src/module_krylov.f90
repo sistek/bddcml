@@ -32,6 +32,8 @@
           real(kr),parameter,private :: tol_ritz_values = 1.e-5_kr
     ! how to normalize the relative residual
           logical,parameter,private ::  stop_by_rhs = .true.
+    ! compute actual residual for the check of numerical accuracy
+          logical,parameter,private ::  compute_actual_residual = .false.
     ! reorthogonalize residual
           logical,parameter,private ::  reorthogonalize_residual = .true.
           integer,parameter,private ::  num_its_before_reorthogonalization = 1
@@ -997,50 +999,52 @@
              ! r = b - A*u
              ! ap = A*u
              ! first set pointers to soli and ap
-             do isub_loc = 1,nsub_loc
-                common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lsoli
-                common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%soli
-                common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
-                common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
-             end do
-             call MPI_BARRIER(comm_all,ierr)
-             call time_start
-             call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
-             call MPI_BARRIER(comm_all,ierr)
-             call time_end(t_sm_apply)
-             if (myid.eq.0 .and. profile) then
-                call time_print('application of system matrix',t_sm_apply)
-             end if
-
-             ! fix boundary conditions in residual to zero
-             do isub_loc = 1,nsub_loc
-                call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,pcg_data(isub_loc)%ap,pcg_data(isub_loc)%lap)
-             end do
-
-             ! compute residual
-             ! r = b - A*u
-             do isub_loc = 1,nsub_loc
-                do i = 1,pcg_data(isub_loc)%lz
-                   pcg_data(isub_loc)%z(i) = pcg_data(isub_loc)%rhsi(i) - pcg_data(isub_loc)%ap(i)
+             if (compute_actual_residual) then
+                do isub_loc = 1,nsub_loc
+                   common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lsoli
+                   common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%soli
+                   common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
+                   common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
                 end do
-             end do
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
+                call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+                call MPI_BARRIER(comm_all,ierr)
+                call time_end(t_sm_apply)
+                if (myid.eq.0 .and. profile) then
+                   call time_print('application of system matrix',t_sm_apply)
+                end if
 
-             ! compute norm of the actual residual
-             normres2_act_loc = 0._kr
-             do isub_loc = 1,nsub_loc
-                call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%z,pcg_data(isub_loc)%lz, &
-                                             pcg_data(isub_loc)%z,pcg_data(isub_loc)%lz, &
-                                             normres2_act_sub)
-                normres2_act_loc = normres2_act_loc + normres2_act_sub
-             end do
+                ! fix boundary conditions in residual to zero
+                do isub_loc = 1,nsub_loc
+                   call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,pcg_data(isub_loc)%ap,pcg_data(isub_loc)%lap)
+                end do
+
+                ! compute residual
+                ! r = b - A*u
+                do isub_loc = 1,nsub_loc
+                   do i = 1,pcg_data(isub_loc)%lz
+                      pcg_data(isub_loc)%z(i) = pcg_data(isub_loc)%rhsi(i) - pcg_data(isub_loc)%ap(i)
+                   end do
+                end do
+
+                ! compute norm of the actual residual
+                normres2_act_loc = 0._kr
+                do isub_loc = 1,nsub_loc
+                   call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%z,pcg_data(isub_loc)%lz, &
+                                                pcg_data(isub_loc)%z,pcg_data(isub_loc)%lz, &
+                                                normres2_act_sub)
+                   normres2_act_loc = normres2_act_loc + normres2_act_sub
+                end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(normres2_act_loc,normres2_act, 1, MPI_DOUBLE_PRECISION,&
-                                MPI_SUM, comm_all, ierr) 
+                call MPI_ALLREDUCE(normres2_act_loc,normres2_act, 1, MPI_DOUBLE_PRECISION,&
+                                   MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
-             normres_act = sqrt(normres2_act)
-             if (debug) then
-                if (myid.eq.0) then
-                   call info(routine_name,'Norm of the actual residual =',normres_act)
+                normres_act = sqrt(normres2_act)
+                if (debug) then
+                   if (myid.eq.0) then
+                      call info(routine_name,'Norm of the actual residual =',normres_act)
+                   end if
                 end if
              end if
 
