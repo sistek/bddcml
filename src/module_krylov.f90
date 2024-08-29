@@ -33,7 +33,7 @@
     ! how to normalize the relative residual
           logical,parameter,private ::  stop_by_rhs = .true.
     ! compute actual residual for the check of numerical accuracy
-          logical,parameter,private ::  compute_actual_residual = .false.
+          logical,parameter,private ::  compute_actual_residual = .true.
     ! reorthogonalize residual
           logical,parameter,private ::  reorthogonalize_residual = .true.
           integer,parameter,private ::  num_its_before_reorthogonalization = 1
@@ -149,6 +149,7 @@
           real(kr) :: rmpold
           real(kr) :: alpha, beta
           real(kr) :: relres, lastres
+          real(kr) :: relres_act
 
           ! MPI vars
           integer :: ierr
@@ -995,6 +996,19 @@
                 end if
              end if
 
+             ! Evaluation of stopping criterion
+             if (stop_by_rhs) then
+                ! compute it as relative residual with respect to right-hand side
+                relres = normres/normrhs
+             else
+                ! compute it as relative residual with respect to initial residual
+                relres = normres/normres0
+             end if
+             if (myid.eq.0) then
+                call info (routine_name, 'iteration: ',iter)
+                call info (routine_name, '          relative residual: ',relres)
+             end if
+
              ! determine norm of the actual residual
              ! r = b - A*u
              ! ap = A*u
@@ -1045,22 +1059,21 @@
                    if (myid.eq.0) then
                       call info(routine_name,'Norm of the actual residual =',normres_act)
                    end if
+
+                   ! Evaluation of stopping criterion
+                   if (stop_by_rhs) then
+                      ! compute it as relative residual with respect to right-hand side
+                      relres_act = normres_act/normrhs
+                   else
+                      ! compute it as relative residual with respect to initial residual
+                      relres_act = normres_act/normres0
+                   end if
+                   if (myid.eq.0) then
+                      call info (routine_name, '          relative actual residual: ',relres_act)
+                   end if
                 end if
              end if
 
-             ! Evaluation of stopping criterion
-             if (stop_by_rhs) then
-                ! compute it as relative residual with respect to right-hand side
-                relres = normres/normrhs
-             else
-                ! compute it as relative residual with respect to initial residual
-                relres = normres/normres0
-             end if
-             if (myid.eq.0) then
-                call info (routine_name, 'iteration: ',iter)
-                call info (routine_name, '          relative residual: ',relres)
-             end if
-                
     ! Action of the preconditioner M on residual vector RES 
     ! M*resi => z
              if (debug) then
