@@ -37,6 +37,8 @@ module module_krylov_types_def
       type pcg_data_type
          integer ::             lsoli
          real(kr),allocatable :: soli(:)     ! array of solution at interface
+         integer ::             lrhsi
+         real(kr),allocatable :: rhsi(:)      ! array of initial right-hand side
          integer ::             lresi
          real(kr),allocatable :: resi(:)     ! array of residual at interface
          integer ::             lp
