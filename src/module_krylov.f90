@@ -25,9 +25,9 @@
     ! type of real variables
           integer,parameter,private :: kr = REAL64
     ! debugging 
-          logical,parameter,private :: debug = .true.
+          logical,parameter,private :: debug = .false.
     ! profiling 
-          logical,private :: profile = .true.
+          logical,private :: profile = .false.
     ! tolerance on relative difference in Ritz values
           real(kr),parameter,private :: tol_ritz_values = 1.e-5_kr
     ! how to normalize the relative residual
@@ -2678,8 +2678,8 @@
          end if
 
          if (myid.eq.0) then
-            write(*,*) routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
-            write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values: ', eigvals(startv:endw)
+            !write(*,*) routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
+            !write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values: ', eigvals(startv:endw)
          end if
          ! quit recomputing the Ritz vectors if they are converged
          if (.not.allocated(recycling_previous_eigvals)) then
@@ -2691,9 +2691,9 @@
             diff_ritz = norm2(eigvals(startv:endw) - recycling_previous_eigvals) 
             norm_ritz = norm2(eigvals(startv:endw))
             diff_ritz_rel = diff_ritz / norm_ritz
-            if (myid == 0) then
-               write(*,'(a,a,50f9.6)') routine_name,': Difference in Ritz values ', diff_ritz
-            end if
+            !if (myid == 0) then
+            !   write(*,'(a,a,50f9.6)') routine_name,': Difference in Ritz values ', diff_ritz
+            !end if
             if (diff_ritz_rel < tol_ritz_values) then
                is_recycling_ritz_converged = .true.
             end if
@@ -2787,10 +2787,10 @@
             ! LAPACK routine for searching eigenvalues (returned in ascending order)
             iaux = 1
             call DSTEV( 'N', nw, d, e, raux, iaux, raux, lapack_info)
-            if (debug .and. myid == 0) then
-               write(*,*) 'eigenvalues = '
-               write(*,*) d(1:nw)
-            end if
+            !if (debug .and. myid == 0) then
+            !   write(*,*) 'eigenvalues = '
+            !   write(*,*) d(1:nw)
+            !end if
       
             ! compute condition number
             eigmax = d(nw)
