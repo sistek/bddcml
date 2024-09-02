@@ -2915,7 +2915,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          allocate(pair2proc(lpair2proc))
          call pp_distribute_linearly(npair,nproc,pair2proc,lpair2proc)
 
-         write(6, *) 'I am here 1'
+         !write(6, *) 'I am here 1'
 
          !if (use_explicit_schurs) then
          !   do isub_loc = 1,nsub_loc
@@ -3079,6 +3079,8 @@ subroutine levels_prepare_last_level(matrixtype)
          call error(routine_name, 'Previous level not ready.')
       end if
 
+      print *, "I am here 99"
+
       ! orient in the communicator
       comm_all  = levels(ilevel)%comm_all
       comm_self = levels(ilevel)%comm_self
@@ -3152,6 +3154,7 @@ subroutine levels_prepare_last_level(matrixtype)
 
 ! Analyze matrix
 !-----profile
+      print *, "I am here 110"
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
          call time_start
@@ -3183,6 +3186,7 @@ subroutine levels_prepare_last_level(matrixtype)
          call time_start
       end if
 !-----profile
+      print *, "I am here 111"
       !if (nnz > 0) then
          call mumps_factorize(mumps_coarse)
          if (debug) then
@@ -3191,6 +3195,7 @@ subroutine levels_prepare_last_level(matrixtype)
             end if
          end if
       !end if
+      print *, "I am here 112"
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
