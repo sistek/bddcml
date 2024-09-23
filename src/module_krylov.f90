@@ -25,7 +25,7 @@
     ! type of real variables
           integer,parameter,private :: kr = REAL64
     ! debugging 
-          logical,parameter,private :: debug = .false.
+          logical,parameter,private :: debug = .true.
     ! profiling 
           logical,private :: profile = .false.
     ! tolerance on relative difference in Ritz values
@@ -2577,6 +2577,9 @@
       ! analyze the first row of VTW to see loss of orthogonality among the new direction vectors
       nbuffer_reduced = nbuffer
       if (nbuffer > 1) then
+         if (myid == 0) then
+            write(*,'(a,a,50f9.6)') routine_name,': first row of VTW: ', vtw22(1,:)
+         end if
          do jcol = 2,nbuffer
             if (abs(vtw22(1,jcol)) > 1.e-8) then
                ! reduce the size of nbuffer
@@ -2586,7 +2589,9 @@
          end do
       end if
       if (nbuffer_reduced < nbuffer) then 
-         call warning(routine_name, "Reducing number of stored new vectors to: ", nbuffer_reduced)
+         if (myid == 0) then
+            call warning(routine_name, "Reducing number of stored new vectors to: ", nbuffer_reduced)
+         end if
       end if
       nbuffer = nbuffer_reduced
 
@@ -2756,8 +2761,8 @@
          end if
 
          if (myid.eq.0) then
-            !write(*,*) routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
-            !write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values: ', eigvals(startv:endw)
+            write(*,*) routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
+            write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values: ', eigvals(startv:endw)
          end if
          ! quit recomputing the Ritz vectors if they are converged
          if (.not.allocated(recycling_previous_eigvals)) then

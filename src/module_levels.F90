@@ -31,7 +31,7 @@ module module_levels
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! debugging 
-      logical,parameter,private :: debug = .true.
+      logical,parameter,private :: debug = .false.
 ! plot input data in ParaView - useful for debugging
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
@@ -3079,8 +3079,6 @@ subroutine levels_prepare_last_level(matrixtype)
          call error(routine_name, 'Previous level not ready.')
       end if
 
-      print *, "I am here 99"
-
       ! orient in the communicator
       comm_all  = levels(ilevel)%comm_all
       comm_self = levels(ilevel)%comm_self
@@ -3154,7 +3152,6 @@ subroutine levels_prepare_last_level(matrixtype)
 
 ! Analyze matrix
 !-----profile
-      print *, "I am here 110"
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
          call time_start
@@ -3186,7 +3183,6 @@ subroutine levels_prepare_last_level(matrixtype)
          call time_start
       end if
 !-----profile
-      print *, "I am here 111"
       !if (nnz > 0) then
          call mumps_factorize(mumps_coarse)
          if (debug) then
@@ -3195,7 +3191,6 @@ subroutine levels_prepare_last_level(matrixtype)
             end if
          end if
       !end if
-      print *, "I am here 112"
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
