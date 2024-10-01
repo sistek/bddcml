@@ -2577,9 +2577,9 @@
       ! analyze the first row of VTW to see loss of orthogonality among the new direction vectors
       nbuffer_reduced = nbuffer
       if (nbuffer > 1) then
-         if (myid == 0) then
-            write(*,'(a,a,50f9.6)') routine_name,': first row of VTW: ', vtw22(1,:)
-         end if
+         !if (myid == 0) then
+         !   write(*,'(a,a,50f9.6)') routine_name,': first row of VTW: ', vtw22(1,:)
+         !end if
          do jcol = 2,nbuffer
             if (abs(vtw22(1,jcol)) > 1.e-8) then
                ! reduce the size of nbuffer

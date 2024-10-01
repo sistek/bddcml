@@ -46,7 +46,7 @@ real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-9_kr
 integer,parameter,private ::  neigvecx     = 10  
 ! verbosity of LOBPCG solver
 ! 0 - no output
-!i 1 - some output
+! 1 - some output
 ! 2 - maximal output
 integer,parameter,private ::  lobpcg_verbosity = 0
 ! loading old values of initial guess of eigenvectors
