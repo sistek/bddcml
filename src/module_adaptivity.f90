@@ -46,7 +46,7 @@ real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-9_kr
 integer,parameter,private ::  neigvecx     = 10  
 ! verbosity of LOBPCG solver
 ! 0 - no output
-! 1 - some output
+!i 1 - some output
 ! 2 - maximal output
 integer,parameter,private ::  lobpcg_verbosity = 0
 ! loading old values of initial guess of eigenvectors
@@ -74,6 +74,9 @@ integer,parameter,private :: lfnamex = 130
 
 real(kr),private :: threshold_eigval
 integer,parameter,private :: idbase = 100 ! basic unit to add myid for independent units for procs
+
+! unit for printing to screen
+integer,parameter,private :: idstdout = 6
 
 !=================================================
 
@@ -1744,12 +1747,12 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                end if
                lwork2 = int(work2(1))
                deallocate(work2)
-               print *,'I am here, LAPACK OK, lwork2:',lwork2
+               write(idstdout,*) 'I am here, LAPACK OK, lwork2:',lwork2
                allocate(work2(lwork2))
                ! now call LAPACK to solve the eigenproblem
                call DSYGV( 1,'V','U', problemsize, mata, problemsize, matb, problemsize, eiglap, work2,lwork2, lapack_info)
                deallocate(work2)
-               print *,'I am here 2, LAPACK OK, lwork2:',lwork2
+               write(idstdout,*) 'I am here 2, LAPACK OK, lwork2:',lwork2
                if (lapack_info.ne.0) then
                   call error(routine_name,'in LAPACK during solving eigenproblems:',lapack_info)
                end if
@@ -2093,8 +2096,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
                   ! compute eigenvectors and store them into file
                   if (debug) then
-                     write(*,*) 'myid =',myid,', I am calling eigensolver for pair ',my_pair
-                     write(*,*) 'myid =',myid,', LOBPCG tolerance: ',lobpcg_tol
+                     write(idstdout,*) 'myid =',myid,', I am calling eigensolver for pair ',my_pair
+                     write(idstdout,*) 'myid =',myid,', LOBPCG tolerance: ',lobpcg_tol
                   end if
                   ierr = 0
                   if (neigvec.gt.0) then
@@ -2124,7 +2127,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   eigval = -eigval
 
                   if (debug) then
-                     open(unit = idmyunit,file=filename,status='replace',form='formatted')
+                     open(unit=idmyunit,file=filename,status='replace',form='formatted')
                      write(idmyunit,*) neigvec, problemsize
                      do i = 1,neigvec
                         write(idmyunit,*) eigval(i)
@@ -2133,7 +2136,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                         write(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
                      end do
                      close(idmyunit)
-                     write(*,*) 'myid =',myid,', Eigenvalues stored in file ',trim(filename)
+                     write(idstdout,*) 'myid =',myid,', Eigenvalues stored in file ',trim(filename)
                   end if
                   !write(90+myid,*) 'x ='
                   !do i = 1,problemsize
@@ -2145,8 +2148,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                else
                   ! read eigenvectors from file
                   if (debug) then
-                     write(*,*) 'myid =',myid,', I am reading eigenvalues for pair ',my_pair,' from file ',trim(filename)
-                     open(unit = idmyunit,file=filename,status='old',form='formatted')
+                     write(idstdout,*) 'myid =',myid,', I am reading eigenvalues for pair ',my_pair,' from file ',trim(filename)
+                     open(unit=idmyunit,file=filename,status='old',form='formatted')
                      read(idmyunit,*) neigvecf, problemsizef
                      if (neigvecf.ne.neigvec .or. problemsizef.ne.problemsize) then
                         call error(routine_name,'Wrong dimensions of input eigenvectors for glob', gglob)
@@ -2183,14 +2186,14 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          if (i_compute_pair) then
 
             if (debug) then
-               write(*,*) 'eigval for pair:',my_pair,' between subdomains ',comm_myisub,' and',comm_myjsub
-               write(*,'(f20.10)') eigval
+               write(idstdout,*) 'eigval for pair:',my_pair,' between subdomains ',comm_myisub,' and',comm_myjsub
+               write(idstdout,'(f20.10)') eigval
             end if
 
             nadaptive = count(eigval.ge.threshold_eigval)
 
             if (debug) then
-               write(*,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: I am going to add ',nadaptive,' constraints for pair ',my_pair
+               write(idstdout,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: I am going to add ',nadaptive,' constraints for pair ',my_pair
             end if
 
             ! find estimator of condition number
@@ -3111,7 +3114,7 @@ subroutine adaptivity_apply_weights(dp,ldp,vec,lvec)
 
       ! check the length of vector for data
       if (ldp .ne. lvec) then
-         write(*,*) 'ADAPTIVITY_APPLY_WEIGHTS: Data size does not match.'
+         write(idstdout,*) 'ADAPTIVITY_APPLY_WEIGHTS: Data size does not match.'
          call error_exit
       end if
 
@@ -3139,7 +3142,7 @@ subroutine adaptivity_apply_R(slavery,lslavery,vec,lvec)
 
       ! check the length of vector for data
       if (lslavery .ne. lvec ) then
-         write(*,*) 'ADAPTIVITY_APPLY_R: Data size does not match.'
+         write(idstdout,*) 'ADAPTIVITY_APPLY_R: Data size does not match.'
          call error_exit
       end if
 
@@ -3171,7 +3174,7 @@ subroutine adaptivity_apply_RT(slavery,lslavery,vec,lvec)
 
       ! check the length of vector for data
       if (lslavery .ne. lvec ) then
-         write(*,*) 'ADAPTIVITY_APPLY_RT: Data size does not match.'
+         write(idstdout,*) 'ADAPTIVITY_APPLY_RT: Data size does not match.'
          call error_exit
       end if
 
@@ -3202,21 +3205,21 @@ subroutine adaptivity_get_pair_data(idpair,pair_data,lpair_data)
 
       ! check the length of vector for data
       if (lpair_data .ne. lpair_subdomains2) then
-         write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Size not sufficient for getting info about pair.'
+         write(idstdout,*) 'ADAPTIVITY_GET_PAIR_DATA: Size not sufficient for getting info about pair.'
          call error_exit
       end if
       ! check that the info about pair is available
       if (.not.allocated(pair_subdomains)) then
-         write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Structure with global pair data is not allocated.'
+         write(idstdout,*) 'ADAPTIVITY_GET_PAIR_DATA: Structure with global pair data is not allocated.'
          call error_exit
       end if
       if (pair_subdomains(idpair,1).eq.-1) then
-         write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - processor not assigned.'
+         write(idstdout,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - processor not assigned.'
          call error_exit
       end if
       if (any(pair_subdomains(idpair,2:3).eq.0)) then
-         write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: subdomain data:', pair_subdomains(idpair,1:lpair_subdomains2)
-         write(*,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - zeros in subdomain data.'
+         write(idstdout,*) 'ADAPTIVITY_GET_PAIR_DATA: subdomain data:', pair_subdomains(idpair,1:lpair_subdomains2)
+         write(idstdout,*) 'ADAPTIVITY_GET_PAIR_DATA: Incomplete information about pair - zeros in subdomain data.'
          call error_exit
       end if
 
@@ -3243,14 +3246,14 @@ subroutine adaptivity_print_pairs(myid, nsub)
 
       if (allocated(pair_subdomains)) then
          if (myid.eq.0) then
-            write(*,*) 'Info about loaded pairs: ',lpair_subdomains1,' pairs loaded:'
-            write(*,*) lpair_subdomains1, nsub
+            write(idstdout,*) 'Info about loaded pairs: ',lpair_subdomains1,' pairs loaded:'
+            write(idstdout,*) lpair_subdomains1, nsub
             do ipair = 1,lpair_subdomains1
-               write(*,'(6i10)') ipair, (pair_subdomains(ipair,j),j = 2,lpair_subdomains2)
+               write(idstdout,'(6i10)') ipair, (pair_subdomains(ipair,j),j = 2,lpair_subdomains2)
             end do
          end if
       else 
-         write(*,*) 'ADAPTIVITY_PRINT_PAIRS: Array of pairs is not allocated.'
+         write(idstdout,*) 'ADAPTIVITY_PRINT_PAIRS: Array of pairs is not allocated.'
       end if
 end subroutine
 

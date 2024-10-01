@@ -2577,6 +2577,9 @@
       ! analyze the first row of VTW to see loss of orthogonality among the new direction vectors
       nbuffer_reduced = nbuffer
       if (nbuffer > 1) then
+         if (myid == 0) then
+            write(*,'(a,a,50f9.6)') routine_name,': first row of VTW: ', vtw22(1,:)
+         end if
          do jcol = 2,nbuffer
             if (abs(vtw22(1,jcol)) > 1.e-8) then
                ! reduce the size of nbuffer
@@ -2586,7 +2589,9 @@
          end do
       end if
       if (nbuffer_reduced < nbuffer) then 
-         call warning(routine_name, "Reducing number of stored new vectors to: ", nbuffer_reduced)
+         if (myid == 0) then
+            call warning(routine_name, "Reducing number of stored new vectors to: ", nbuffer_reduced)
+         end if
       end if
       nbuffer = nbuffer_reduced
 
@@ -2769,9 +2774,9 @@
             diff_ritz = norm2(eigvals(startv:endw) - recycling_previous_eigvals) 
             norm_ritz = norm2(eigvals(startv:endw))
             diff_ritz_rel = diff_ritz / norm_ritz
-            if (myid == 0) then
-               write(*,'(a,a,50f9.6)') routine_name,': Difference in Ritz values ', diff_ritz
-            end if
+            !if (myid == 0) then
+            !   write(*,'(a,a,50f9.6)') routine_name,': Difference in Ritz values ', diff_ritz
+            !end if
             if (diff_ritz_rel < tol_ritz_values) then
                is_recycling_ritz_converged = .true.
             end if
@@ -2865,10 +2870,10 @@
             ! LAPACK routine for searching eigenvalues (returned in ascending order)
             iaux = 1
             call DSTEV( 'N', nw, d, e, raux, iaux, raux, lapack_info)
-            if (debug .and. myid == 0) then
-               write(*,*) 'eigenvalues = '
-               write(*,*) d(1:nw)
-            end if
+            !if (debug .and. myid == 0) then
+            !   write(*,*) 'eigenvalues = '
+            !   write(*,*) d(1:nw)
+            !end if
       
             ! compute condition number
             eigmax = d(nw)

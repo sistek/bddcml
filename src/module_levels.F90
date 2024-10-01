@@ -31,7 +31,7 @@ module module_levels
 ! numerical zero
       real(kr),parameter,private :: numerical_zero = 1.e-12_kr
 ! debugging 
-      logical,parameter,private :: debug = .true.
+      logical,parameter,private :: debug = .false.
 ! plot input data in ParaView - useful for debugging
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
@@ -2907,11 +2907,15 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call adaptivity_init(comm_all,pairs,lpairs1,lpairs2, npair)
          deallocate(pairs)
 
+         !write(6, *) 'I am here 0.5'
+
          !call adaptivity_print_pairs(myid, levels(ilevel)%nsub)
 
          lpair2proc = nproc + 1
          allocate(pair2proc(lpair2proc))
          call pp_distribute_linearly(npair,nproc,pair2proc,lpair2proc)
+
+         !write(6, *) 'I am here 1'
 
          !if (use_explicit_schurs) then
          !   do isub_loc = 1,nsub_loc
@@ -2928,6 +2932,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
                                             levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
                                             pair2proc,lpair2proc, comm_all, explicit_schurs, weights_type, &
                                             matrixtype, levels(ilevel)%adaptivity_estimate)
+
+         !print *, 'I am here 2.'
 
          !if (use_explicit_schurs) then
          !   do isub_loc = 1,nsub_loc
