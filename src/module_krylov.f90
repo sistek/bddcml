@@ -33,7 +33,7 @@
     ! how to normalize the relative residual
           logical,parameter,private ::  stop_by_rhs = .true.
     ! compute actual residual for the check of numerical accuracy
-          logical,parameter,private ::  compute_actual_residual = .true.
+          logical,parameter,private ::  compute_actual_residual = .false.
     ! reorthogonalize residual
           logical,parameter,private ::  reorthogonalize_residual = .true.
           integer,parameter,private ::  num_its_before_reorthogonalization = 1
