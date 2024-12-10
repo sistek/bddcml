@@ -292,12 +292,12 @@ program poisson_on_cube
       end if
 
 ! Number of elements in an edge of a subdomain and number of subdomains in an edge of the unit cube
-      if(iargc().eq.3) then
-         call getarg(1,aux)
+      if(command_argument_count().eq.3) then
+         call get_command_argument(1,aux)
          read(aux,*) num_el_per_sub_edge
-         call getarg(2,aux)
+         call get_command_argument(2,aux)
          read(aux,*) num_sub_per_cube_edge
-         call getarg(3,aux)
+         call get_command_argument(3,aux)
          read(aux,*) nlevels
       else
          if ( myid .eq. 0 ) then
