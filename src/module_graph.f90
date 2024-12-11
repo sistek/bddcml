@@ -269,8 +269,7 @@ integer :: neledge
 end subroutine graph_from_mesh
 
 !*******************************************************************************
-subroutine graph_from_mesh_metis(nelem,graphtype,neighbouring,inet,linet,nnet,lnnet,&
-                                 ietn,lietn,netn,lnetn,kietn,lkietn,&
+subroutine graph_from_mesh_metis(nelem,neighbouring,inet,linet,nnet,lnnet,&
                                  nedge, xadj, adjncy, adjwgt)
 !*******************************************************************************
 ! Construct a dual graph from the mesh and its dual mesh, corresponding to 
@@ -284,8 +283,6 @@ use iso_c_binding
 implicit none
 ! number of elements in mesh
 integer, intent(in) :: nelem
-! type of output graph
-integer, intent(in) :: graphtype
 ! prescribed value of number of shared nodes between two neighbours
 integer, intent(in) :: neighbouring
 
@@ -294,13 +291,6 @@ integer, intent(in) :: linet
 integer, intent(in), target ::  inet(linet)
 integer, intent(in) :: lnnet
 integer, intent(in) ::  nnet(lnnet)
-! PMD dual mesh description
-integer, intent(in) :: lietn
-integer, intent(in) ::  ietn(lietn)
-integer, intent(in) :: lnetn
-integer, intent(in) ::  netn(lnetn)
-integer, intent(in) :: lkietn
-integer, intent(in) ::  kietn(lkietn)
 
 ! METIS graph description
 integer, intent(out) ::  nedge
@@ -310,9 +300,6 @@ integer, allocatable, intent(out) :: adjwgt(:)
 
 ! local variables
 character(*),parameter:: routine_name = 'GRAPH_FROM_MESH_METIS'
-integer,allocatable :: onerow(:), onerowweig(:)
-integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine
-integer :: ionerow, nelmn, nne, pointietn, lorin, lorout
 integer :: lxadj
 integer :: ladjncy
 integer :: ladjwgt
@@ -324,7 +311,6 @@ integer :: numflag
 
 integer, pointer, dimension(:) :: xadj_aux
 integer, pointer, dimension(:) :: adjncy_aux
-integer, pointer, dimension(:) :: adjwgt_aux
 
 type(c_ptr) :: r_xadj
 type(c_ptr) :: r_adjncy

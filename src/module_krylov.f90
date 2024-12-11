@@ -25,7 +25,7 @@
     ! type of real variables
           integer,parameter,private :: kr = REAL64
     ! debugging 
-          logical,parameter,private :: debug = .true.
+          logical,parameter,private :: debug = .false.
     ! profiling 
           logical,private :: profile = .false.
     ! tolerance on relative difference in Ritz values
@@ -2760,7 +2760,7 @@
             endw   = nstore
          end if
 
-         if (myid.eq.0) then
+         if (myid.eq.0 .and. debug) then
             write(*,*) routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
             write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values: ', eigvals(startv:endw)
          end if

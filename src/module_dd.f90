@@ -4432,6 +4432,8 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2)
       integer ::             lmatrix1, lmatrix2
       real(kr),allocatable :: matrix(:,:)
       integer :: nnz_new
+      integer ::            lcnode_numbers
+      integer,allocatable :: cnode_numbers(:)
 
       ! check the prerequisities
       if (.not.allocated(sub%cnodes) .or. .not.sub%is_cnodes_loaded) then
@@ -4439,7 +4441,12 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2)
       end if
 
       ! find local (subdomain) index of the glob from its global number
-      call get_index(gglob,sub%cnodes%global_cnode_number,sub%ncnodes,ind_loc)
+      lcnode_numbers = sub%ncnodes
+      allocate(cnode_numbers(lcnode_numbers))
+      do i = 1,sub%ncnodes
+         cnode_numbers(i) = sub%cnodes(i)%global_cnode_number
+      end do
+      call get_index(gglob,cnode_numbers,lcnode_numbers,ind_loc)
       if (ind_loc.le.0) then
          call error(routine_name,' Index of local glob not found for global ',gglob)
       end if
@@ -5260,17 +5267,9 @@ subroutine dd_prepare_aug(sub,comm_self)
       integer ::  i, iaaug
       integer ::  mumpsinfo, aaugmatrixtype
       integer ::  icol, icoli
-      integer ::  jcoli, iconstr, jconstr
+      integer ::  jconstr
       integer ::  ndofi, ndofiaug
       integer :: iparallel
-
-      ! LAPACK related variables
-      integer, external :: ILAENV
-
-      integer ::  nb
-      integer :: lwork
-      real(kr), allocatable :: work(:)
-      integer :: lapack_info
 
       ! check the prerequisities
       !if (sub%is_degenerated) then
@@ -5422,6 +5421,7 @@ subroutine dd_prepare_aug(sub,comm_self)
          nnza     = sub%nnza
          nnzc     = sub%nnzc
 
+         nnzaaug = 0
          if      (sub%matrixtype .eq. 0) then
             ! unsymmetric case:
             nnzaaug = nnza + 2*nnzc
@@ -5806,11 +5806,11 @@ subroutine dd_prepare_coarse(sub,keep_global)
 
       ! load the coarse matrix to the structure in appropriate format
       matrixtype = sub%matrixtype
+      icoarsem = 0
       if      (matrixtype.eq.0) then
          ! in unsymmetric case, load the whole coarse matrix columnwise
          lcoarsem = nconstr * nconstr
          allocate(sub%coarsem(lcoarsem))
-         icoarsem = 0
          do j = 1,nconstr
             do i = 1,nconstr
                icoarsem = icoarsem + 1
@@ -5822,7 +5822,6 @@ subroutine dd_prepare_coarse(sub,keep_global)
          ! in symmetric case, load the upper triangle columnwise
          lcoarsem = (nconstr+1)*nconstr/2
          allocate(sub%coarsem(lcoarsem))
-         icoarsem = 0
          do j = 1,nconstr
             do i = 1,j
                icoarsem = icoarsem + 1
@@ -5916,7 +5915,6 @@ subroutine dd_solve_aug(sub, vec,lvec, nrhs, solve_adjoint)
       ! local vars
       integer ::  ldb
       character(1) :: transa
-      integer ::  lapack_info
 
       if (sub%is_degenerated) then
          return
@@ -6100,11 +6098,6 @@ subroutine dd_phisi_apply(sub, vec1,lvec1, vec2,lvec2)
       ! local vars
       character(*),parameter:: routine_name = 'DD_PHISI_APPLY'
 
-      ! BLAS vars
-      character(1) :: TRANS
-      integer :: M, N, LDA, INCX, INCY
-      real(kr) :: alpha, beta
-
       ! check the prerequisities
       if (.not.sub%is_phisi_prepared) then
          call error(routine_name, 'PHISI matrix not ready for sub: ', sub%isub)
@@ -6142,11 +6135,6 @@ subroutine dd_phis_apply(sub, vec1,lvec1, vec2,lvec2)
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_PHIS_APPLY'
-
-      ! BLAS vars
-      character(1) :: TRANS
-      integer :: M, N, LDA, INCX, INCY
-      real(kr) :: alpha, beta
 
       ! check the prerequisities
       if (sub%is_degenerated) then
@@ -6188,11 +6176,6 @@ subroutine dd_phisi_dual_apply(sub, vec1,lvec1, vec2,lvec2)
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_PHISI_DUAL_APPLY'
-
-      ! BLAS vars
-      character(1) :: TRANS
-      integer :: M, N, LDA, INCX, INCY
-      real(kr) :: alpha, beta
 
       ! check the prerequisities
       if (sub%is_degenerated) then
@@ -6251,11 +6234,6 @@ subroutine dd_phis_dual_apply(sub, vec1,lvec1, vec2,lvec2)
 
       ! local vars
       character(*),parameter:: routine_name = 'DD_PHIS_DUAL_APPLY'
-
-      ! BLAS vars
-      character(1) :: TRANS
-      integer :: M, N, LDA, INCX, INCY
-      real(kr) :: alpha, beta
 
       ! check the prerequisities
       if (sub%is_degenerated) then
@@ -6670,6 +6648,7 @@ subroutine dd_multiply_by_schur(sub,x,lx,y,ly,ncol)
             ndofi = sub%ndofi
             laux2 = ndofi * ncol
             allocate(aux2(laux2))
+            aux2 = 0._kr
    
             ! get aux2 = A_21*aux1, i.e. aux2 = A_21 * (A_11)^-1 * A_12 * x
             do j = 1,ncol
