@@ -298,7 +298,7 @@ end subroutine
 !******************************************************************************************
 subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexsub,&
                                          pair2proc,lpair2proc,comm_all,&
-                                         use_explicit_schurs, weights_type, matrixtype, est)
+                                         gather_explicit_schurs_for_pairs, weights_type, matrixtype, est)
 !******************************************************************************************
 ! Subroutine for parallel solution of distributed eigenproblems
       use module_dd
@@ -323,8 +323,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
 ! communicator global
       integer,intent(in) :: comm_all
-! should explicit Schur complements be used and sent?
-      logical,intent(in) :: use_explicit_schurs
+! should explicit Schur complements be composed for the two subdomains and sent to the pair owner?
+! It would allows to use LAPACK to find the eigenvalues of the pair, though it is not implemented now.
+      logical,intent(in) :: gather_explicit_schurs_for_pairs
 ! type of weigths used also in the preconditioner
       integer,intent(in) :: weights_type
 ! type of matrix
@@ -1380,7 +1381,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          comm_comm = comm_all
          comm_myid = myid
 
-         if (use_explicit_schurs) then
+         if (gather_explicit_schurs_for_pairs) then
             continue
          else
             if (i_compute_pair) then
@@ -1408,7 +1409,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 !-----profile
          ! now construct matrix B*Z
          if (apply_null_projection) then
-            if (use_explicit_schurs) then
+            if (gather_explicit_schurs_for_pairs) then
                continue
             else
                if (i_compute_pair) then
@@ -1560,7 +1561,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          !end if
 
          ! All arrays are ready for solving eigenproblems
-         if (use_explicit_schurs) then
+         if (gather_explicit_schurs_for_pairs) then
             ireq = 0
             if (i_compute_pair) then
                ! prepare space for local Schur complements
@@ -2212,7 +2213,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             allocate(constraints(lconstraints1,lconstraints2))
          end if
 
-         if (use_explicit_schurs) then
+         if (gather_explicit_schurs_for_pairs) then
             if (i_compute_pair) then
                ! multiply eigenvectors locally
                do jcol = 1,nadaptive
@@ -2461,13 +2462,27 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                is_nullB_ready = .false.
             end if
             if (lobpcg_preconditioner .eq. 1) then
-               deallocate(indrowc_adapt_i)
-               deallocate(indrowc_adapt_j)
-               deallocate(kceigval)
-               deallocate(coarsem_adapt)
-               deallocate(comm_resc)
-               deallocate(comm_resc_i)
-               deallocate(comm_resc_j)
+               if (allocated(indrowc_adapt_i)) then
+                  deallocate(indrowc_adapt_i)
+               end if
+               if (allocated(indrowc_adapt_j)) then
+                  deallocate(indrowc_adapt_j)
+               end if
+               if (allocated(kceigval)) then
+                  deallocate(kceigval)
+               end if
+               if (allocated(coarsem_adapt)) then
+                  deallocate(coarsem_adapt)
+               end if
+               if (allocated(comm_resc)) then
+                  deallocate(comm_resc)
+               end if
+               if (allocated(comm_resc_i)) then
+                  deallocate(comm_resc_i)
+               end if
+               if (allocated(comm_resc_j)) then
+                  deallocate(comm_resc_j)
+               end if
             end if
             deallocate(kdofi_i,kdofi_j)
             deallocate(dij)

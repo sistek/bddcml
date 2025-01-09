@@ -1474,6 +1474,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       !integer :: lsize
 
       logical :: explicit_schurs
+      logical :: gather_explicit_schurs
 
 
       ! time variables
@@ -2919,14 +2920,16 @@ subroutine levels_prepare_standard_level(parallel_division,&
          !   end do
          !end if
          if (use_explicit_schurs .and. ilevel == 1) then
-             explicit_schurs = .true.
+             ! TODO: This feature is not implemented. It would open the way to use MAGMA for searching eigenvectors.
+             !gather_explicit_schurs = .true.
+             gather_explicit_schurs = .false.
          else
-             explicit_schurs = .false.
+             gather_explicit_schurs = .false.
          end if
          call adaptivity_solve_eigenvectors(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                                             levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                                             levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
-                                            pair2proc,lpair2proc, comm_all, explicit_schurs, weights_type, &
+                                            pair2proc,lpair2proc, comm_all, gather_explicit_schurs, weights_type, &
                                             matrixtype, levels(ilevel)%adaptivity_estimate)
 
          !if (use_explicit_schurs) then

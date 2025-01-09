@@ -5292,7 +5292,9 @@ subroutine dd_prepare_aug(sub,comm_self)
          ! we are in the explicit world, allocate the large dense matrix
          if (sub%is_aug_factorized) then
 
-            deallocate(sub%aaug_dense)
+            if (allocated(sub%aaug_dense)) then
+               deallocate(sub%aaug_dense)
+            end if
             sub%laaug_dense1 = 0
             sub%laaug_dense2 = 0
 
@@ -5376,6 +5378,9 @@ subroutine dd_prepare_aug(sub,comm_self)
          else if (sub%matrixtype .eq. 1 .or. sub%matrixtype .eq. 2) then
             ! in symmetric case, saddle point problem makes the augmented matrix indefinite,
             ! even if the original matrix is SPD, use LDLT
+            if (allocated(sub%aaug_ipiv)) then
+               deallocate(sub%aaug_ipiv)
+            end if
             sub%laaug_ipiv = sub%laaug_dense1
             allocate(sub%aaug_ipiv(sub%laaug_ipiv))
             if (sub%use_gpus) then
