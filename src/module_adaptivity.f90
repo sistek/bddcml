@@ -2120,9 +2120,11 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                                            no_prec,&
                                            eigval,eigvec,lobpcg_iter,ierr) 
                      end if
-                     lobpcg_converged = .false.
-                  else
+                  end if
+                  if (lobpcg_iter > 0) then
                      lobpcg_converged = .true.
+                  else
+                     lobpcg_converged = .false.
                   end if
 
                   call info ( routine_name, ' myid: ',myid )
