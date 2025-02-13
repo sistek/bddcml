@@ -486,6 +486,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       ! LOBPCG related variables
       integer ::  lobpcg_iter ! final number of iterations
       real(kr)::   est_round, est_loc
+      logical :: lobpcg_converged
 
       ! MPI related variables
       integer :: myid, nproc, ierr, ireq, nreq
@@ -2119,7 +2120,11 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                                            no_prec,&
                                            eigval,eigvec,lobpcg_iter,ierr) 
                      end if
+                     lobpcg_converged = .false.
+                  else
+                     lobpcg_converged = .true.
                   end if
+
                   call info ( routine_name, ' myid: ',myid )
                   call info ( routine_name, ' For pair: ',my_pair )
                   call info ( routine_name, ' Number of iterations needed by LOBPCG: ', lobpcg_iter )
@@ -2127,18 +2132,18 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   ! turn around the eigenvalues to be the largest
                   eigval = -eigval
 
-                  if (debug) then
-                     open(unit=idmyunit,file=filename,status='replace',form='formatted')
-                     write(idmyunit,*) neigvec, problemsize
-                     do i = 1,neigvec
-                        write(idmyunit,*) eigval(i)
-                     end do
-                     do i = 1,problemsize
-                        write(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
-                     end do
-                     close(idmyunit)
-                     write(idstdout,*) 'myid =',myid,', Eigenvalues stored in file ',trim(filename)
-                  end if
+                  !if (debug) then
+                  !   open(unit=idmyunit,file=filename,status='replace',form='formatted')
+                  !   write(idmyunit,*) neigvec, problemsize
+                  !   do i = 1,neigvec
+                  !      write(idmyunit,*) eigval(i)
+                  !   end do
+                  !   do i = 1,problemsize
+                  !      write(idmyunit,*) (eigvec((j-1)*problemsize + i),j = 1,neigvec)
+                  !   end do
+                  !   close(idmyunit)
+                  !   write(idstdout,*) 'myid =',myid,', Eigenvalues stored in file ',trim(filename)
+                  !end if
                   !write(90+myid,*) 'x ='
                   !do i = 1,problemsize
                   !   write(90+myid,'(30f13.7)') (eigvec((j-1)*problemsize + i),j = 1,neigvec)
@@ -2188,29 +2193,37 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
             if (debug) then
                write(idstdout,*) 'eigval for pair:',my_pair,' between subdomains ',comm_myisub,' and',comm_myjsub
-               write(idstdout,'(f20.10)') eigval
+               write(idstdout,*) eigval
             end if
 
-            nadaptive = count(eigval.ge.threshold_eigval)
+            if (lobpcg_converged) then
+               nadaptive = count(eigval.ge.threshold_eigval)
+            else
+               nadaptive = 0
+            end if
 
             if (debug) then
                write(idstdout,*) 'ADAPTIVITY_SOLVE_EIGENVECTORS: I am going to add ',nadaptive,' constraints for pair ',my_pair
             end if
 
-            ! find estimator of condition number
-            if (neigvec.gt.0) then
+            ! find estimator of the condition number
+            if (neigvec.gt.0 .and. lobpcg_converged) then
                if (nadaptive.lt.neigvec) then
                   est_loc = eigval(nadaptive + 1)
                else
                   est_loc = eigval(nadaptive)
                end if
             else
+               ! resort to the default value
                est_loc = 1.0_kr
             end if
 
             lconstraints1 = problemsize
             lconstraints2 = nadaptive
             allocate(constraints(lconstraints1,lconstraints2))
+         else
+            ! resort to the default value
+            est_loc = 1.0_kr
          end if
 
          if (gather_explicit_schurs_for_pairs) then

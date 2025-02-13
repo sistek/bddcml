@@ -167,7 +167,7 @@
           real(kr), allocatable :: vtb(:)
           real(kr), allocatable :: vtb_loc(:)
           real(kr) :: vtb_sub
-          integer ::              lvtw
+          !integer ::              lvtw
           real(kr), allocatable :: vtw_loc(:,:)
           real(kr) :: vtw_sub
           integer ::              lvtv
@@ -175,7 +175,6 @@
           real(kr), allocatable :: vtv(:,:)
           real(kr), allocatable :: vtv_loc(:,:)
           real(kr) :: vtv_sub
-          real(kr) :: check_orthogonality
           integer ::              lnu
           real(kr), allocatable :: nu(:)
           !integer :: recycling_info
@@ -1191,6 +1190,821 @@
           end if
           deallocate(diag)
           deallocate(subdiag)
+
+          ! Postprocessing of solution - computing interior values
+          call time_start
+          ! first set pointers to soli
+          do isub_loc = 1,nsub_loc
+             common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lsoli
+             common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%soli
+          end do
+          call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
+          call time_end(t_postproc)
+          if (myid.eq.0 .and. profile) then
+             call time_print('postprocessing of solution',t_postproc)
+          end if
+
+          ! Clear memory of PCG
+          do isub_loc = 1,nsub_loc
+             nullify(common_krylov_data(isub_loc)%vec_in)
+             nullify(common_krylov_data(isub_loc)%vec_out)
+          end do
+          deallocate(common_krylov_data)
+          do isub_loc = 1,nsub_loc
+             deallocate(pcg_data(isub_loc)%soli)
+             deallocate(pcg_data(isub_loc)%rhsi)
+             deallocate(pcg_data(isub_loc)%resi)
+             deallocate(pcg_data(isub_loc)%ap)
+             deallocate(pcg_data(isub_loc)%p)
+             deallocate(pcg_data(isub_loc)%z)
+          end do
+          deallocate(pcg_data)
+
+    !-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_end(t_krylov_solve)
+             if (myid.eq.0) then
+                call time_print('solution by Krylov method',t_krylov_solve)
+             end if
+          end if
+    !-----profile
+
+          end subroutine
+
+    !******************************************************************************************************
+          subroutine krylov_bddcchebyshev(comm_all,tol,maxit,ndecrmax, recycling, max_number_of_stored_vectors, &
+                                          eigmin_bound, eigmax_bound, &
+                                          num_iter, converged_reason, cond)
+    !******************************************************************************************************
+    ! subroutine realizing Chebyshev iteration with vectors distributed by subdomains
+
+    ! module for preconditioner
+          use module_levels
+    ! Program name
+          use module_utils
+
+          implicit none
+          
+          include "mpif.h"
+
+          ! parallel variables
+          integer,intent(in) :: comm_all 
+
+          ! limit on iterations
+          integer,intent(in) :: maxit
+
+          ! limit on iterations with increasing residual
+          integer,intent(in) :: ndecrmax
+
+          ! desired accuracy of relative residual
+          real(kr),intent(in) :: tol
+
+          ! should recycling of Krylov space be used?
+          logical,intent(in) :: recycling 
+
+          ! if recycling should be used, how many vectors of the Krylov basis do you want to store?
+          integer,intent(in) :: max_number_of_stored_vectors
+
+          ! bound of the smallest eigenvalue
+          real(kr),intent(in) :: eigmin_bound
+
+          ! bound of the largest eigenvalue
+          real(kr),intent(in) :: eigmax_bound
+
+          ! resulting number of iterations
+          integer,intent(out) :: num_iter
+
+          ! convergence reason
+          !  =  0 - converged relative residual
+          !  = -1 - reached limit on number of iterations
+          !  = -2 - reached limit on number of iterations with nondecreasing residual
+          integer,intent(out) :: converged_reason
+
+          ! estimated condition number
+          real(kr),intent(out) :: cond
+
+          ! local vars
+          character(*),parameter:: routine_name = 'KRYLOV_BDDCCHEBYSHEV'
+          integer,parameter :: ilevel = 1
+
+          ! data for storing actual data
+          integer ::                                  lpcg_data
+          type (pcg_data_type), allocatable, target :: pcg_data(:)
+
+          ! data for auxiliary manipulation with preconditioner and system matrix 
+          integer ::                                     lcommon_krylov_data
+          type (common_krylov_data_type), allocatable ::  common_krylov_data(:)
+
+          integer :: myid
+          integer :: nsub, nsub_loc
+          integer :: isub_loc, i, j
+          integer :: iter, ndecr
+          integer :: lsoli, lp
+          integer :: ndofis, nnodis
+
+          ! Chebyshev vars
+          real(kr) :: normrhs, normrhs2, normrhs2_loc, normrhs2_sub
+          real(kr) :: normres, normres0, normres2, normres2_loc, normres2_sub
+          real(kr) :: alpha, diameter, omega, psi
+          real(kr) :: relres, lastres
+
+          ! MPI vars
+          integer :: ierr
+
+          ! Recycling of Krylov spaces
+          integer :: ibasis, jbasis
+          integer :: ldvtw
+          integer :: jbuffer
+          integer ::              lvtb
+          real(kr), allocatable :: vtb(:)
+          real(kr), allocatable :: vtb_loc(:)
+          real(kr) :: vtb_sub
+          !integer ::              lvtw
+          real(kr), allocatable :: vtw_loc(:,:)
+          real(kr) :: vtw_sub
+          integer ::              lvtv
+          integer ::              ldvtv
+          real(kr), allocatable :: vtv(:,:)
+          real(kr), allocatable :: vtv_loc(:,:)
+          real(kr) :: vtv_sub
+          integer ::              lnu
+          real(kr), allocatable :: nu(:)
+          !integer :: recycling_info
+
+          ! LAPACK
+          integer :: lapack_info
+
+          ! time variables
+          real(kr) :: t_sm_apply, t_pc_apply
+          real(kr) :: t_postproc
+          real(kr) :: t_krylov_solve
+          real(kr) :: t_recycling_projection
+
+    !-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+          end if
+    !-----profile
+
+          ! orient in the communicator
+          call MPI_COMM_RANK(comm_all,myid,ierr)
+
+          ! prepare data and memory for the Chebyshev iteration
+          call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
+          lcommon_krylov_data = nsub_loc
+          allocate(common_krylov_data(lcommon_krylov_data))
+          lpcg_data = nsub_loc
+          allocate(pcg_data(lpcg_data))
+          do isub_loc = 1,nsub_loc
+             call levels_dd_get_interface_size(ilevel,isub_loc, ndofis, nnodis)
+             pcg_data(isub_loc)%lsoli = ndofis
+             allocate(pcg_data(isub_loc)%soli(pcg_data(isub_loc)%lsoli))
+             pcg_data(isub_loc)%lrhsi = ndofis
+             allocate(pcg_data(isub_loc)%rhsi(pcg_data(isub_loc)%lrhsi))
+             pcg_data(isub_loc)%lresi = ndofis
+             allocate(pcg_data(isub_loc)%resi(pcg_data(isub_loc)%lresi))
+             pcg_data(isub_loc)%lap   = ndofis
+             allocate(pcg_data(isub_loc)%ap(pcg_data(isub_loc)%lap))
+             pcg_data(isub_loc)%lp    = ndofis
+             allocate(pcg_data(isub_loc)%p(pcg_data(isub_loc)%lp))
+             pcg_data(isub_loc)%lz    = ndofis
+             allocate(pcg_data(isub_loc)%z(pcg_data(isub_loc)%lz))
+          end do
+
+          ! edits for recycling of Krylov space
+          if (recycling) then
+             ! allocate when called first
+             if (.not. is_recycling_prepared) then
+
+                !recycling_lvtw = max_number_of_stored_vectors
+                !allocate(recycling_vtw(recycling_lvtw,recycling_lvtw))
+
+                lrecycling_basis = nsub_loc
+                allocate(recycling_basis(lrecycling_basis))
+
+                lrecycling_L = maxit
+                allocate(recycling_L(lrecycling_L))
+
+                !lrecycling_U1 = maxit + 1
+                !lrecycling_U2 = maxit + 1
+                !allocate(recycling_U(lrecycling_U1,lrecycling_U2))
+
+                lrecycling_Gtilde1 = maxit + 1
+                lrecycling_Gtilde2 = maxit + 1
+                allocate(recycling_Gtilde(lrecycling_Gtilde1,lrecycling_Gtilde2))
+                recycling_Gtilde = 0.
+
+                lrecycling_delta1 = max_number_of_stored_vectors
+                lrecycling_delta2 = maxit + 1
+                allocate(recycling_delta(lrecycling_delta1,lrecycling_delta2))
+
+                lrecycling_scaling_of_basis = maxit + 1
+                allocate(recycling_scaling_of_basis(lrecycling_scaling_of_basis))
+
+                ! prepare arrays to default value
+                do isub_loc = 1,nsub_loc
+                   call levels_dd_get_interface_size(ilevel,isub_loc, ndofis, nnodis)
+
+                   ! matrix of deflation basis V
+                   recycling_basis(isub_loc)%lv1 = ndofis
+                   recycling_basis(isub_loc)%lv2 = max_number_of_stored_vectors
+                   allocate(recycling_basis(isub_loc)%v(recycling_basis(isub_loc)%lv1,recycling_basis(isub_loc)%lv2))
+                   ! matrix of deflation basis W = A*V
+                   recycling_basis(isub_loc)%lw1 = ndofis
+                   recycling_basis(isub_loc)%lw2 = max_number_of_stored_vectors
+                   allocate(recycling_basis(isub_loc)%w(recycling_basis(isub_loc)%lw1,recycling_basis(isub_loc)%lw2))
+
+                   ! buffer matrix of search directions p
+                   recycling_basis(isub_loc)%lp_buffer1 = ndofis
+                   recycling_basis(isub_loc)%lp_buffer2 = max_number_of_stored_vectors
+                   allocate(recycling_basis(isub_loc)%p_buffer(recycling_basis(isub_loc)%lp_buffer1,&
+                                                               recycling_basis(isub_loc)%lp_buffer2))
+                   ! buffer matrix of vectors A*p
+                   recycling_basis(isub_loc)%lap_buffer1 = ndofis
+                   recycling_basis(isub_loc)%lap_buffer2 = max_number_of_stored_vectors
+                   allocate(recycling_basis(isub_loc)%ap_buffer(recycling_basis(isub_loc)%lap_buffer1,&
+                                                                recycling_basis(isub_loc)%lap_buffer2))
+                end do
+
+                is_recycling_prepared = .true.
+             else
+                ! check the matching size
+                if (lrecycling_basis.ne.nsub_loc) then
+                   call error( routine_name, 'Size mismatch of array RECYCLING_BASIS' )
+                end if
+                recycling_L = 0.
+                !recycling_U = 0.
+                recycling_Gtilde = 0.
+                recycling_delta = 0.
+                recycling_scaling_of_basis = 0.
+             end if
+          end if
+
+          ! prepare initial solution and right-hand side
+          do isub_loc = 1,nsub_loc
+             call levels_prepare_interface_initial_data(isub_loc,pcg_data(isub_loc)%soli,pcg_data(isub_loc)%lsoli,&
+                                                                 pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi)
+             ! fix boundary conditions in residual to zero
+             call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi)
+          end do
+
+          ! store the initial right-hand side in a separate array
+          do isub_loc = 1,nsub_loc
+             pcg_data(isub_loc)%rhsi = pcg_data(isub_loc)%resi
+          end do
+
+          ! compute norm of right-hand side
+          normrhs2_loc = 0._kr
+          do isub_loc = 1,nsub_loc
+             call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                          pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                          normrhs2_sub)
+             normrhs2_loc = normrhs2_loc + normrhs2_sub
+          end do
+    !***************************************************************PARALLEL
+          call MPI_ALLREDUCE(normrhs2_loc,normrhs2, 1, MPI_DOUBLE_PRECISION,&
+                             MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+          normrhs = sqrt(normrhs2)
+          if (debug) then
+             if (myid.eq.0) then
+                call info(routine_name,'Norm of the right-hand side =',normrhs)
+             end if
+          end if
+
+          ! Check of zero right-hand side => all zero solution
+          if (normrhs.eq.0.0D0) then
+             if (myid.eq.0) then
+                call warning(routine_name,'initial right-hand side zero => zero solution')
+             end if
+             return 
+          end if
+
+          ! get initial residual
+          ! r_0 = g - A*u_0
+          ! ap = A*u_0
+          ! first set pointers to soli and ap
+          do isub_loc = 1,nsub_loc
+             common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lsoli
+             common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%soli
+             common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
+             common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
+          end do
+          call MPI_BARRIER(comm_all,ierr)
+          call time_start
+          call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+          call MPI_BARRIER(comm_all,ierr)
+          call time_end(t_sm_apply)
+          if (myid.eq.0 .and. profile) then
+             call time_print('application of system matrix',t_sm_apply)
+          end if
+
+          do isub_loc = 1,nsub_loc
+             ! fix boundary conditions in residual to zero
+             call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,pcg_data(isub_loc)%ap,pcg_data(isub_loc)%lap)
+          end do
+
+          ! update residual
+          ! r_0 = g - A*u_0
+          do isub_loc = 1,nsub_loc
+             ! fix boundary conditions in residual to zero
+             do i = 1,pcg_data(isub_loc)%lresi
+                pcg_data(isub_loc)%resi(i) = pcg_data(isub_loc)%resi(i) - pcg_data(isub_loc)%ap(i)
+             end do
+          end do
+
+          ! compute norm of the initial residual
+          normres2_loc = 0._kr
+          do isub_loc = 1,nsub_loc
+             call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                          pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                          normres2_sub)
+             normres2_loc = normres2_loc + normres2_sub
+          end do
+    !***************************************************************PARALLEL
+          call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
+                             MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+          normres0 = sqrt(normres2)
+          if (debug) then
+             if (myid.eq.0) then
+                call info(routine_name,'Norm of the initial residual =',normres0)
+             end if
+          end if
+
+          ! Check of zero right-hand side => all zero solution
+          if (normres0.eq.0.0D0) then
+             if (myid.eq.0) then
+                call warning(routine_name,'initial residual zero => initial solution exact')
+             end if
+             return 
+          end if
+
+          if (recycling .and. nactive_cols_recycling_basis .gt. 0) then 
+
+             ! TODO: for harmonic Ritz-values based basis, it can be obtained from YTFY
+             ! check orthogonality of basis
+             ! V'*W
+             recycling_lvtw = nactive_cols_recycling_basis
+             allocate(vtw_loc(recycling_lvtw,recycling_lvtw))
+             vtw_loc = 0._kr
+             if (allocated(recycling_vtw)) then
+                deallocate(recycling_vtw)
+                recycling_is_inverse_prepared = .false.
+             end if
+             allocate(recycling_vtw(recycling_lvtw,recycling_lvtw))
+             do ibasis = 1,nactive_cols_recycling_basis
+                do jbasis = 1,nactive_cols_recycling_basis
+                   do isub_loc = 1,nsub_loc
+                      call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                                   recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                                                   recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
+                                                   vtw_sub)
+                      vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
+                   end do
+                end do
+             end do
+    !***************************************************************PARALLEL
+             call MPI_ALLREDUCE(vtw_loc,recycling_vtw, recycling_lvtw*recycling_lvtw, &
+                                MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+             deallocate(vtw_loc)
+
+             if (myid.eq.0 .and. debug) then
+                write(*,*) 'V^T*W'
+                do i = 1,recycling_lvtw
+                   write(*,'(1000e13.5)') (recycling_vtw(i,j), j = 1,recycling_lvtw)
+                end do
+                if (lrecycling_YTFY == recycling_lvtw) then
+                  ! the YTFY matrix seems to be filled, compare it with VTW
+                  write(*,*) 'V^T*W - Y^TFY'
+                  do i = 1,recycling_lvtw
+                     write(*,'(1000e13.5)') (recycling_vtw(i,j) - recycling_YTFY(i,j), j = 1,recycling_lvtw)
+                  end do
+                end if
+             end if
+             call MPI_BARRIER(comm_all,ierr)
+
+             ! Prepare Cholesky factorization of V'W to be used in deflation
+             ldvtw = max(1,recycling_lvtw)
+             call DPOTRF('U',recycling_lvtw,recycling_vtw,ldvtw,lapack_info)
+             if (lapack_info /= 0) then 
+                call error(routine_name, 'Error in Cholesky factorization of VTW', lapack_info)
+             end if
+             recycling_is_inverse_prepared = .true.
+
+             ! Initial projection of the right-hand side onto the Krylov basis
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+
+             ! project the right-hand side onto the stored Krylov space
+             lvtb     = nactive_cols_recycling_basis
+             allocate(vtb_loc(lvtb))
+             vtb_loc = 0._kr
+             allocate(vtb(lvtb))
+
+             ! V'*b
+             ! TODO: weight V, reorder loops and use matrix times vector
+             do ibasis = 1,nactive_cols_recycling_basis
+                do isub_loc = 1,nsub_loc
+                   call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                                recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                                                pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                                vtb_sub)
+                   vtb_loc(ibasis) = vtb_loc(ibasis) + vtb_sub
+                end do
+             end do
+    !***************************************************************PARALLEL
+             call MPI_ALLREDUCE(vtb_loc,vtb, lvtb, MPI_DOUBLE_PRECISION,&
+                                MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+             deallocate(vtb_loc)
+
+             ! inv(V'W)*V'*b
+             !vtb(1:nactive_cols_recycling_basis) = vtb(1:nactive_cols_recycling_basis) &
+             !                                    * recycling_idvtw(1:nactive_cols_recycling_basis)
+             call recycling_solve_vtw(vtb,lvtb)
+
+             ! update solution by projection
+             ! u <- u + Pb = u + V*inv(D)*V'*b = u + V*IDIAG*V'
+             do isub_loc = 1,nsub_loc
+                ! u_P - projected part of solution
+                pcg_data(isub_loc)%z = matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
+                                              vtb(1:nactive_cols_recycling_basis) )
+                ! u_I <- u_I + u_P - projected part of solution
+                pcg_data(isub_loc)%soli = pcg_data(isub_loc)%soli + pcg_data(isub_loc)%z
+             end do
+
+             deallocate(vtb)
+
+             ! update residual
+             ! r_0 = r_0 - A*u_P
+             ! ap = A*u_0
+             ! first set pointers to soli and ap
+             do isub_loc = 1,nsub_loc
+                common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lz
+                common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%z
+                common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
+                common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
+             end do
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+             call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+             call MPI_BARRIER(comm_all,ierr)
+             call time_end(t_sm_apply)
+             if (myid.eq.0 .and. profile) then
+                call time_print('application of system matrix',t_sm_apply)
+             end if
+
+             ! update residual
+             ! r_0 = g - A*u_P
+             do isub_loc = 1,nsub_loc
+                do i = 1,pcg_data(isub_loc)%lresi
+                   pcg_data(isub_loc)%resi(i) = pcg_data(isub_loc)%resi(i) - pcg_data(isub_loc)%ap(i)
+                end do
+             end do
+             ! fix boundary conditions in residual to zero
+             do isub_loc = 1,nsub_loc
+                call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi)
+             end do
+
+             ! compute norm of right-hand side
+             normres2_loc = 0._kr
+             do isub_loc = 1,nsub_loc
+                call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                             pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                             normres2_sub)
+                normres2_loc = normres2_loc + normres2_sub
+             end do
+    !***************************************************************PARALLEL
+             call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
+                                MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+             normres = sqrt(normres2)
+             if (debug) then
+                if (myid.eq.0) then
+                   call info(routine_name,'Norm of the first residual =',normres)
+                end if
+             end if
+
+             call MPI_BARRIER(comm_all,ierr)
+             call time_end(t_recycling_projection)
+             if (myid.eq.0 .and. profile) then
+                call time_print('RHS projection onto existing Krylov basis',t_recycling_projection)
+             end if
+          else 
+             ! Without recycling, the residual is not updated.
+             normres = normres0
+          end if
+
+          ! Evaluation of stopping criterion
+          if (stop_by_rhs) then
+             ! compute it as relative residual with respect to right-hand side
+             relres = normres/normrhs
+          else
+             ! compute it as relative residual with respect to initial residual
+             relres = normres/normres0
+          end if
+          if (relres.lt.tol) then
+             iter = 0
+             if (myid.eq.0) then
+                call info(routine_name,'Number of PCG iterations:',iter)
+             end if
+             num_iter = iter
+             converged_reason = 0
+             goto 123
+          end if
+
+    ! Initial action of the preconditioner M on residual vector RESI
+    ! M*resi => p
+          if (debug) then
+             if (myid.eq.0) then
+                call info(routine_name,' Initial action of preconditioner')
+             end if
+          end if
+          ! first set pointers to resi and p
+          do isub_loc = 1,nsub_loc
+             common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lresi
+             common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%resi
+             common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lp
+             common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%p
+          end do
+          call MPI_BARRIER(comm_all,ierr)
+          call time_start
+          call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
+          call MPI_BARRIER(comm_all,ierr)
+          call time_end(t_pc_apply)
+          if (myid.eq.0 .and. profile) then
+             call time_print('application of preconditioner',t_pc_apply)
+          end if
+
+    ! Control of positive definiteness of preconditioner matrix
+          !if (rmp.le.0._kr) then
+          !   if (myid.eq.0) then
+          !      call warning(routine_name,'Preconditioner not positive definite!')
+          !   end if
+          !end if
+
+          ! prepare matrix for residual reorthogonalization
+          if (recycling .and. reorthogonalize_residual) then
+             ! V'*V
+             lvtv     = nactive_cols_recycling_basis
+             allocate(vtv_loc(lvtv,lvtv))
+             vtv_loc = 0._kr
+             allocate(vtv(lvtv,lvtv))
+             do ibasis = 1,nactive_cols_recycling_basis
+                do jbasis = 1,nactive_cols_recycling_basis
+                   do isub_loc = 1,nsub_loc
+                      call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                                   recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                                                   recycling_basis(isub_loc)%v(:,jbasis),recycling_basis(isub_loc)%lv1, &
+                                                   vtv_sub)
+                      vtv_loc(ibasis,jbasis) = vtv_loc(ibasis,jbasis) + vtv_sub
+                   end do
+                end do
+             end do
+    !******************************************************PARALLEL
+             call MPI_ALLREDUCE(vtv_loc,vtv, lvtv*lvtv, MPI_DOUBLE_PRECISION,&
+                                MPI_SUM, comm_all, ierr) 
+    !******************************************************PARALLEL
+             deallocate(vtv_loc)
+
+             ldvtv = max(1,lvtv)
+             call DPOTRF('U',lvtv,vtv,ldvtv,lapack_info)
+             if (lapack_info /= 0) then 
+                call error(routine_name, 'Error in Cholesky factorization', lapack_info)
+             end if
+
+             !if (myid.eq.0) then
+             !   write(*,*) 'V^T*V'
+             !   do i = 1,lvtv
+             !      write(*,'(1000f20.13)') (vtv(i,j), j = 1,lvtv)
+             !   end do
+             !end if
+          end if
+
+    ! set parameters for the Chebyshev iteration
+          ! alpha = (m+M)/2
+          alpha    = (eigmin_bound + eigmax_bound) / 2._kr
+          ! diameter = (M-m)/2
+          diameter = (eigmax_bound - eigmin_bound) / 2._kr
+    ! set initial omega
+          omega = 1./alpha
+
+    ! Setting up the properties for decreasing residual
+          ndecr   = 0
+          lastres = 1.0D0
+          relres  = 1.0D0
+          jbuffer = 0
+
+    !***********************************************************************
+    !*************************MAIN LOOP OVER ITERATIONS*********************
+    !***********************************************************************
+          do iter = 1,maxit
+
+             if (recycling .and. nactive_cols_recycling_basis.gt.0) then
+                ! orthogonalize vector P with respect to the columns the stored Krylov space directions
+                do isub_loc = 1,nsub_loc
+                   common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%p
+                   common_krylov_data(isub_loc)%lvec_in =  pcg_data(isub_loc)%lp
+                end do
+
+                lnu = nactive_cols_recycling_basis
+                allocate(nu(lnu))
+                call krylov_orthogonalize_icgs( comm_all, common_krylov_data, lcommon_krylov_data, nu, lnu)
+                !call krylov_orthogonalize_cgs( comm_all, common_krylov_data, lcommon_krylov_data, nu, lnu)
+                !call krylov_orthogonalize_mgs( comm_all, common_krylov_data, lcommon_krylov_data)
+
+                ! embed the nu into the delta matrix
+                !recycling_delta(1:nactive_cols_recycling_basis,iter) = nu
+                deallocate(nu)
+             end if
+
+             ! check convergence
+             if (relres.lt.tol) then
+                num_iter = iter - 1
+                if (myid.eq.0) then
+                   call info(routine_name,'Number of Chebyshev iterations:',num_iter)
+                end if
+                converged_reason = 0
+
+                exit
+             end if
+
+             ! Check number of iterations
+             if (iter.eq.maxit) then
+                if (myid.eq.0) then
+                   call warning(routine_name,'Maximal number of iterations reached, precision not achieved.')
+                end if
+                num_iter = iter - 1 
+                converged_reason = -1
+
+                exit
+             end if
+
+             ! Check of decreasing of residual
+             if (relres.lt.lastres) then
+                ndecr = 0
+             else
+                ndecr = ndecr + 1
+                if (ndecr.ge.ndecrmax) then
+                   if (myid.eq.0) then
+                      call warning(routine_name,'Residual did not decrease for maximal number of iterations:',ndecrmax)
+                   end if
+                   num_iter = iter - 1
+                   converged_reason = -2
+
+                   ! process the basis for recycling
+                   if (recycling) then
+                      if (is_recycling_ritz_converged) then
+                         if (myid.eq.0) then
+                            call info(routine_name,'Harmonic Ritz values already converged, not recomputing the deflation basis.')
+                         end if
+                      else
+                         if (myid.eq.0) then
+                            call info(routine_name,'Harmonic Ritz values not converged, recomputing the deflation basis.')
+                         end if
+                         call recycling_process_basis(comm_all, jbuffer)
+                      end if
+                   end if
+
+                   exit
+                end if
+             end if
+             lastres = relres
+
+             ! Correction of solution vector SOLI
+             ! u   = u   + alpha*p
+             do isub_loc = 1,nsub_loc
+                lsoli = pcg_data(isub_loc)%lsoli
+                do i = 1,lsoli
+                   pcg_data(isub_loc)%soli(i) = pcg_data(isub_loc)%soli(i) + omega * pcg_data(isub_loc)%p(i)
+                end do
+             end do
+
+             ! multiply by system matrix
+             ! ap = A * p
+             if (debug) then
+                if (myid.eq.0) then
+                   call info(routine_name,' Action of system matrix')
+                end if
+             end if
+             ! first set pointers to soli 
+             do isub_loc = 1,nsub_loc
+                common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lsoli
+                common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%soli
+                common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
+                common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
+             end do
+             call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+
+             ! fix boundary conditions in residual to zero
+             do isub_loc = 1,nsub_loc
+                call levels_dd_fix_bc_interface_dual(ilevel,isub_loc,pcg_data(isub_loc)%ap,pcg_data(isub_loc)%lap)
+             end do
+
+             ! Computing the new residual vector RES
+             ! res   = b - A*x
+             do isub_loc = 1,nsub_loc
+                lsoli = pcg_data(isub_loc)%lsoli
+                do i = 1,lsoli
+                   pcg_data(isub_loc)%resi(i) = pcg_data(isub_loc)%rhsi(i) - pcg_data(isub_loc)%ap(i)
+                end do
+             end do
+
+             ! reorthogonalization of the residual (Saad et al. 2000 (7.1)) if relative residual increases
+             ! or every selected iteration
+             if (recycling .and. reorthogonalize_residual .and. &
+                 (ndecr > 0 .or. mod(iter,num_its_before_reorthogonalization) == 0) ) then
+                do isub_loc = 1,nsub_loc
+                   common_krylov_data(isub_loc)%lvec_in =  pcg_data(isub_loc)%lresi
+                   common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%resi
+                end do
+                call krylov_reortho_residal(comm_all, vtv, lvtv, common_krylov_data,lcommon_krylov_data)
+             end if 
+
+             ! determine norm of the updated residual 
+             ! normres = ||resi||
+             normres2_loc = 0._kr
+             do isub_loc = 1,nsub_loc
+                call levels_dd_dotprod_local(ilevel,isub_loc, &
+                                             pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                             pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                                             normres2_sub)
+                normres2_loc = normres2_loc + normres2_sub
+             end do
+    !***************************************************************PARALLEL
+             call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION, &
+                                MPI_SUM, comm_all, ierr) 
+    !***************************************************************PARALLEL
+             normres = sqrt(normres2)
+             if (debug) then
+                if (myid.eq.0) then
+                   call info(routine_name,'normres =',normres)
+                end if
+             end if
+
+             ! Evaluation of stopping criterion
+             if (stop_by_rhs) then
+                ! compute it as relative residual with respect to right-hand side
+                relres = normres/normrhs
+             else
+                ! compute it as relative residual with respect to initial residual
+                relres = normres/normres0
+             end if
+             if (myid.eq.0) then
+                call info (routine_name, 'iteration: ',iter)
+                call info (routine_name, '          relative residual: ',relres)
+             end if
+
+    ! Action of the preconditioner M on residual vector RES 
+    ! M*resi => z
+             if (debug) then
+                if (myid.eq.0) then
+                   call info(routine_name,' Action of preconditioner')
+                end if
+             end if
+             ! first set pointers to resi and p
+             do isub_loc = 1,nsub_loc
+                common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lresi
+                common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%resi
+                common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lz
+                common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%z
+             end do
+             call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
+             ! produced new z
+
+             ! Compute the scalar coefficients for the Chebyshev iteration
+             if (iter == 1) then 
+                psi = -2. * (diameter / 2.)**2 * omega**2
+             else
+                psi = -1. * (diameter / 2.)**2 * omega**2
+             end if
+             omega = 1./(alpha + psi/omega)
+
+             ! Determination of new step direction P
+             ! p = z - psi*p
+             do isub_loc = 1,nsub_loc
+                lp = pcg_data(isub_loc)%lp
+                do i = 1,lp
+                   pcg_data(isub_loc)%p(i) = pcg_data(isub_loc)%z(i) - psi * pcg_data(isub_loc)%p(i)
+                end do
+             end do
+
+          end do
+    !*************************END OF MAIN LOOP OVER ITERATIONS**************
+    123   continue
+
+    ! Condition number estimation on root processor, if there are no NaNs
+          cond = eigmax_bound / eigmin_bound
+          if (myid.eq.0) then
+             call info(routine_name, '================================================')
+             call info(routine_name, 'ESTIMATION OF CONDITION NUMBER FROM THE BOUNDS  ')
+             call info(routine_name, 'Condition number cond = ',cond                   )
+             call info(routine_name, '================================================')
+          end if
 
           ! Postprocessing of solution - computing interior values
           call time_start
@@ -2449,42 +3263,42 @@
       end subroutine
 
       !****************************************************
-      subroutine recycling_apply_diagonal_inverse(vec,lvec)
-      !****************************************************
-      ! application of the inverse of the diagonal matrix in recycling
-      use module_utils
+      !subroutine recycling_apply_diagonal_inverse(vec,lvec)
+      !!****************************************************
+      !! application of the inverse of the diagonal matrix in recycling
+      !use module_utils
 
-      implicit none
+      !implicit none
 
-      integer,intent(in)     :: lvec
-      real(kr),intent(inout) ::  vec(lvec) 
+      !integer,intent(in)     :: lvec
+      !real(kr),intent(inout) ::  vec(lvec) 
 
-      ! local vars
-      character(*),parameter:: routine_name = 'RECYCLING_APPLY_DIAGONAL_INVERSE'
-      !integer :: nrhs 
-      !integer :: lapack_info 
+      !! local vars
+      !character(*),parameter:: routine_name = 'RECYCLING_APPLY_DIAGONAL_INVERSE'
+      !!integer :: nrhs 
+      !!integer :: lapack_info 
 
-      if (lvec /= nactive_cols_recycling_basis) then
-         call error( routine_name, 'size mismatch', lvec )
-      end if
-      ! only diagonal
-      ! do nothing because there are ones on the diagonal
-      !vec(1:lvec) = vec(1:lvec) * recycling_idvtw(1:nactive_cols_recycling_basis)
+      !if (lvec /= nactive_cols_recycling_basis) then
+      !   call error( routine_name, 'size mismatch', lvec )
+      !end if
+      !! only diagonal
+      !! do nothing because there are ones on the diagonal
+      !!vec(1:lvec) = vec(1:lvec) * recycling_idvtw(1:nactive_cols_recycling_basis)
 
-      !print *, 'diagonal:', recycling_idvtw(1:nactive_cols_recycling_basis)
+      !!print *, 'diagonal:', recycling_idvtw(1:nactive_cols_recycling_basis)
       
-      ! actually apply the inverse of the Grammian
-      !if ( .not. recycling_is_inverse_prepared ) then
-      !   call error( routine_name, 'Gramian of the basis is not factorized', lvec )
-      !end if
+      !! actually apply the inverse of the Grammian
+      !!if ( .not. recycling_is_inverse_prepared ) then
+      !!   call error( routine_name, 'Gramian of the basis is not factorized', lvec )
+      !!end if
 
-      !nrhs = 1
-      !call DGETRS('N', lvec, nrhs, recycling_vtw, lvec, recycling_ipiv, vec, lvec, lapack_info)
-      !if (lapack_info /= 0) then
-      !   call error( routine_name, 'error in LAPACK, info ', lapack_info )
-      !end if
+      !!nrhs = 1
+      !!call DGETRS('N', lvec, nrhs, recycling_vtw, lvec, recycling_ipiv, vec, lvec, lapack_info)
+      !!if (lapack_info /= 0) then
+      !!   call error( routine_name, 'error in LAPACK, info ', lapack_info )
+      !!end if
 
-      end subroutine
+      !end subroutine
 
       !***************************************************
       subroutine recycling_process_basis(comm_all,nbuffer)
@@ -2514,7 +3328,7 @@
       ! 2 - harmonic Ritz vectors
       integer,parameter :: recycling_strategy = 2
 
-      integer :: isub_loc, nsub, nsub_loc, i
+      integer :: isub_loc, nsub, nsub_loc
       integer :: room, nvectors_to_copy, lstored, nreplace, shift
 
       integer ::              lG

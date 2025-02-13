@@ -178,6 +178,9 @@ module module_levels
       type(DMUMPS_STRUC), private :: levels_jds_mumps  
       logical,private :: is_mumps_jds_ready = .false.
 
+      ! bound on the largest eigenvalue
+      real(kr) :: levels_max_eigenvalue = 1.0_kr
+
       integer ::             llevels_jds_bc
       real(kr),allocatable :: levels_jds_bc(:)
       integer ::             llevels_jds_rhs
@@ -1063,6 +1066,10 @@ subroutine levels_pc_setup( parallel_division,&
             end do
             call info(routine_name,'Expected estimated multilevel condition number: ',cond_est)
          end if
+         call MPI_BCAST(cond_est,1,MPI_DOUBLE_PRECISION,0,comm_all,ierr)
+         levels_max_eigenvalue = cond_est
+      else
+         levels_max_eigenvalue = 1._kr
       end if
 
       ! prepare last level

@@ -51,7 +51,7 @@ program poisson_on_cube
       integer, parameter :: just_direct_solve_int = 0
 
 ! verbosity of BDDCML ( 0 - only fatal errors, 1 - mild output, 2 - detailed output )
-      integer,parameter:: verbose_level = 0
+      integer,parameter:: verbose_level = 1
 
 ! export solution to VTU files?
       logical,parameter :: export_solution = .true.
@@ -68,13 +68,14 @@ program poisson_on_cube
 !     0 - PCG
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
 !     2 - steepest descent method
+!     3 - Chebyshev iteration (only to be used in connection to adaptive BDDC)
 !     5 - direct solve by MUMPS
-      integer,parameter :: krylov_method = 0  
+      integer,parameter :: krylov_method = 3  
 
 ! use recycling of Krylov subspace
 !     0 - no recycling used
 !     1 - basis of the Krylov subspace will be orthogonalized and also used for new right hand sides
-      integer,parameter :: recycling_int = 1
+      integer,parameter :: recycling_int = 0
 ! size of the Krylov subspace basis to store
       integer,parameter :: max_number_of_stored_vectors = 50
 
@@ -101,7 +102,7 @@ program poisson_on_cube
       integer,parameter :: use_arithmetic_constraints = 1
 
 ! use adaptive constraints on faces?
-      integer,parameter :: use_adaptive_constraints = 0
+      integer,parameter :: use_adaptive_constraints = 1
 
 ! use user constraints? - not used in this example
       integer,parameter :: use_user_constraints = 0

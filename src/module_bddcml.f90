@@ -475,6 +475,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       ! 0 - PCG
       ! 1 - BICGSTAB
       ! 2 - steepest descent method
+      ! 3 - Chebyshev iteration
       ! 5 - direct solve by MUMPS
       integer, intent(in) :: method
 
@@ -522,6 +523,12 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       character(*),parameter:: routine_name = 'BDDCML_SOLVE'
       logical :: recycling
 
+      ! Bounds on the spectrum (only relevant for the Chebyshev iteration, ignored otherwise)
+      ! minimal eigenvalue bound
+      real(kr) :: eigmin_bound = 1._kr
+      ! maximal eigenvalue bound
+      real(kr) :: eigmax_bound = 1._kr
+
       call integer2logical(recycling_int,recycling)
 
       ! determine Krylov method and parameters
@@ -541,30 +548,40 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
          krylov_method = 5
       end if
 
-      if (krylov_method.eq.0) then 
+      select case(krylov_method)
+      case (0)
          ! use PCG 
          call krylov_bddcpcg(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
                              krylov_recycling, krylov_max_number_of_stored_vectors, &
                              num_iter, converged_reason, condition_number)
-      else if (krylov_method.eq.1) then 
+      case (1)
          ! use BICGSTAB 
          call krylov_bddcbicgstab(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
                                   num_iter, converged_reason)
          condition_number = -1._kr ! condition number is not computed for BICGSTAB
-      else if (krylov_method.eq.2) then 
+      case (2)
          ! use steepest descent iteration
          call krylov_bddcsteepestdescent(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
                                          num_iter, converged_reason)
          condition_number = -1._kr ! condition number is not computed for steepest descent
-      else if (krylov_method.eq.5) then 
+      case (3)
+         ! use Chebyshev iteration
+         eigmin_bound = 1._kr
+         eigmax_bound = levels_max_eigenvalue * 1.0_kr
+         !eigmax_bound = 1.45
+         call krylov_bddcchebyshev(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
+                                   krylov_recycling, krylov_max_number_of_stored_vectors, &
+                                   eigmin_bound, eigmax_bound, &
+                                   num_iter, converged_reason, condition_number)
+      case (5)
          ! use direct solve from the levels module
          call levels_jds_solve
          num_iter = 0
          condition_number = -1._kr ! condition number is not computed for steepest descent
          converged_reason = 0
-      else
+      case default
          call error(routine_name,'unknown iterative method',krylov_method)
-      end if
+      end select
 
 end subroutine
 
