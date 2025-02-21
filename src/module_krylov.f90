@@ -1540,7 +1540,7 @@
              call MPI_BARRIER(comm_all,ierr)
              call time_end(t_scalar_product)
           end if
-   !-----profile
+    !-----profile
           if (debug) then
              if (myid.eq.0) then
                 call info(routine_name,'Norm of the initial residual =',normres0)
