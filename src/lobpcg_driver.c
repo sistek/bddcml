@@ -87,7 +87,7 @@ void mvecmultB (void * data, void * x_p, void * y_p)
 }
 
 void mvecmultM (void * data, void * x_p, void * y_p)
-   /* auxiliary routine to multiply by matrix B */
+   /* auxiliary routine to multiply by matrix M */
 {
    mvecmult_c (data, x_p, y_p, 5);
 }
@@ -248,7 +248,7 @@ extern void lobpcg_driver(int *N, int *NVEC, double *TOL, int *MAXIT, int *VERBO
           NULL,
           mvecmultB,
           NULL,
-	  precfun, /* precfun is set above: for option with preconditioner, use mvecmultM here, without it, use NULL */
+	       precfun, /* precfun is set above: for option with preconditioner, use mvecmultM here, without it, use NULL */
           NULL,
           blap_fn,
           lobpcg_tol,

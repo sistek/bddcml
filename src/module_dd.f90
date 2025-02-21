@@ -70,7 +70,7 @@ module module_dd
          integer ::             proc    ! index of processor taking care of this subdomain
          integer ::             comm    ! communicator to which proc refer
 
-         logical ::             use_gpus ! store this subdomain on GPU
+         logical ::             use_gpus = .false.! store this subdomain on GPU
          integer ::             densela_lib ! library for dense numerical linear algebra
 
          logical ::             is_degenerated = .false. ! this flag serves for switching off degenerated subdomains 
@@ -324,10 +324,10 @@ module module_dd
          integer ::              laaug_ipiv
          integer, allocatable ::  aaug_ipiv(:)
 
-         logical :: is_aug_dense_active = .false.
          logical :: is_mumps_aug_active = .false.
          logical :: is_aug_factorized   = .false.
          type(DMUMPS_STRUC) :: mumps_aug
+         logical :: is_aug_dense_active = .false.
 
          ! coarse space basis functions on whole subdomain PHIS
          logical :: is_phis_prepared  = .false.
@@ -5298,6 +5298,10 @@ subroutine dd_prepare_aug(sub,comm_self)
             sub%laaug_dense1 = 0
             sub%laaug_dense2 = 0
 
+            if (sub%use_gpus) then
+               call densela_clear_matrix_on_gpu(sub%densela_lib, sub%daaug_dense)
+            end if
+
             sub%is_mumps_aug_active = .false.
             sub%is_aug_factorized = .false.
          end if
@@ -5396,7 +5400,7 @@ subroutine dd_prepare_aug(sub,comm_self)
             call error(routine_name,'Matrixtype not set for subdomain:', sub%isub)
          end if
 
- 133     sub%is_aug_factorized = .true.
+ 133     sub%is_aug_factorized   = .true.
          sub%is_aug_dense_active = .true.
 
       else

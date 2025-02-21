@@ -58,10 +58,10 @@ module module_levels
       logical,parameter,private :: levels_correct_division = .false.
 ! enforce contiguous subdomains
       logical,parameter,private :: use_contiguous_subdomains = .false.
-! build explicit Schur complements
-      logical,parameter,private :: use_explicit_schurs = .false.
-! use GPU acceleration, only possible with explicit Schur complements
-      logical,parameter,private :: use_gpus = .false.
+! build explicit Schur complements, only applies to the first level
+      logical,parameter,private :: use_explicit_schurs = .true.
+! use GPU acceleration, only possible with explicit Schur complements, this only applies to the first level
+      logical,parameter,private :: use_gpus = .true.
 
 ! adjustable parameters ############################
 
@@ -232,6 +232,8 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
       integer,allocatable :: ranks(:)
       integer :: mpi_group_new, mpi_group_old, comm_new, comm_old
       integer :: myid_old, nproc_old
+      integer :: densela_lib_this_level
+      logical :: use_gpus_this_level
       integer :: nsub_1
       integer :: i, ir
 
@@ -361,7 +363,7 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
             levels(iactive_level)%lsub2proc = nproc + 1
             allocate(levels(iactive_level)%sub2proc(levels(iactive_level)%lsub2proc))
 
-            if ( iactive_level .eq. 1 .and. nsub_loc_1 .ne. -1 ) then ! user defined subdomain distribution on first level
+            if ( iactive_level == 1 .and. nsub_loc_1 /= -1 ) then ! user defined subdomain distribution on first level
 !***************************************************************PARALLEL
                call MPI_ALLGATHER( nsub_loc_1, 1, MPI_INTEGER, levels(iactive_level)%sub2proc, 1, MPI_INTEGER, &
                                    comm_all,ierr)
@@ -404,9 +406,17 @@ subroutine levels_init(nl,nsublev,lnsublev,nsub_loc_1,comm_init,numbase,just_dir
             ! prepare space for subdomains
             levels(iactive_level)%lsubdomains = nsub_loc
             allocate(levels(iactive_level)%subdomains(levels(iactive_level)%lsubdomains))
+            if (use_gpus .and. iactive_level == 1) then
+               use_gpus_this_level    = .true.
+               densela_lib_this_level = densela_lib
+            else
+               use_gpus_this_level    = .false.
+               densela_lib_this_level = DENSELA_LAPACK
+            end if
             do isub_loc = 1,nsub_loc
                isub = levels(iactive_level)%indexsub(isub_loc)
-               call dd_init(levels(iactive_level)%subdomains(isub_loc),isub,nsub,comm_all,use_gpus, densela_lib)
+               call dd_init(levels(iactive_level)%subdomains(isub_loc),isub,nsub,comm_all,&
+                            use_gpus_this_level, densela_lib_this_level)
             end do
 
          else

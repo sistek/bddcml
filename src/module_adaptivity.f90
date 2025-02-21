@@ -1995,7 +1995,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   allocate(work2(lwork2))
                   lwork2 = -1
                   ! first call routine just to find optimal size of WORK2
-                  call DSYEV( 'Vectors', 'Upper', lcoarsem_adapt1, coarsem_adapt(:,:), lcoarsem_adapt1, &
+                  call DSYEV( 'Vectors', 'Upper', lcoarsem_adapt1, coarsem_adapt(1,1), lcoarsem_adapt1, &
                               kceigval, work2, lwork2, lapack_info )
                   if (lapack_info.ne.0) then
                      call error(routine_name,'in LAPACK during finding size for eigendecomposition of local coarse matrix:',&
@@ -2005,7 +2005,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   deallocate(work2)
                   allocate(work2(lwork2))
                   ! now call LAPACK to solve the eigenproblem
-                  call DSYEV( 'Vectors', 'Upper', lcoarsem_adapt1, coarsem_adapt(:,:), lcoarsem_adapt1, &
+                  call DSYEV( 'Vectors', 'Upper', lcoarsem_adapt1, coarsem_adapt(1,1), lcoarsem_adapt1, &
                               kceigval, work2, lwork2, lapack_info )
                   deallocate(work2)
                   if (lapack_info.ne.0) then
@@ -2635,7 +2635,7 @@ integer ::             lrescs
 real(kr),allocatable :: rescs(:)
 integer ::             lsolis
 real(kr),allocatable :: solis(:)
-integer ::             nrhs, ncol, nnods, nelems, ndofs, ndofaaugs, lindrowc, ndofi, nnodi
+integer ::             nrhs, ncol, nnods, nelems, ndofs, ndofis, nnodis, ndofaaugs, lindrowc, ndofi, nnodi
 integer :: stat(MPI_STATUS_SIZE)
 
 integer :: indc
@@ -2819,12 +2819,25 @@ do iinstr = 1,ninstructions
       ! prepare array of augmented size
       call get_index(isub,indexsub,lindexsub,isub_loc)
       call dd_get_aug_size(suba(isub_loc), ndofaaugs)
+      ! It is ndofs + nconstr for standard implementation,
+      ! but  ndofis + nconstr for the one with dense matrices
       laux2 = ndofaaugs
       allocate(aux2(laux2))
       aux2(:) = 0
+
       call dd_get_size(suba(isub_loc), ndofs,nnods,nelems)
+      call dd_get_interface_size(suba(isub_loc),ndofis,nnodis)
       ! truncate the vector for embedding - zeros at the end
-      call dd_map_subi_to_sub(suba(isub_loc), bufrecv(point),length, aux2,ndofs)
+      if (suba(isub_loc)%is_aug_dense_active) then
+         ! for dense matrices, it is simply a copy
+         if (ndofis /= length) then
+            call error(routine_name, 'Vector size mismatch.', ndofis)
+         end if
+         aux2(1:ndofis) = bufrecv(point:point+length-1)
+      else
+         ! otherwise map it from interface to the whole subdomain
+         call dd_map_subi_to_sub(suba(isub_loc), bufrecv(point),length, aux2(1:ndofs),ndofs)
+      end if
 
       nrhs = 1
       solve_adjoint = .false.
@@ -2843,7 +2856,13 @@ do iinstr = 1,ninstructions
       call MPI_SEND(rescs,lrescs,MPI_DOUBLE_PRECISION,owner,isub,comm_comm,ierr)
       deallocate(rescs)
 
-      call dd_map_sub_to_subi(suba(isub_loc), aux2,ndofs, bufsend(point),length)
+      if (suba(isub_loc)%is_aug_dense_active) then
+         ! for dense matrices, it is simply a copy
+         bufsend(point:point+length-1) = aux2(1:ndofis)
+      else
+         ! otherwise map it from subdomain vector to interface vector
+         call dd_map_sub_to_subi(suba(isub_loc), aux2(1:ndofs),ndofs, bufsend(point),length)
+      end if
       deallocate(aux2)
 
    end if

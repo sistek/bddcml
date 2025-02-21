@@ -554,7 +554,7 @@ integer, allocatable, intent(out) :: adjwgt(:)
 character(*),parameter:: routine_name = 'GRAPH_FROM_MESH'
 integer,allocatable :: onerow(:), onerowweig(:)
 integer :: nnetx, netnx, lonerow, lonerowweig, ie, indinet, indnode, ine, je, indje
-integer :: posarray(1), pos
+integer :: pos
 integer :: ionerow, nelmn, nne, pointietn, lorin, lorout
 integer :: lxadj
 integer :: ladjncy
@@ -595,9 +595,10 @@ integer :: ladjwgt
                   cycle
                end if
 
-               posarray = findloc(onerow(1:ionerow),indje)
-               pos = posarray(1)
-               if (pos == 0) then
+               !posarray = findloc(onerow(1:ionerow),indje)
+               !pos = posarray(1)
+               call get_index(indje,onerow(1:ionerow),ionerow,pos)
+               if (pos == -1) then
                   ! element not found, append it
                   ionerow = ionerow + 1
                   onerow(ionerow)     = indje
@@ -656,9 +657,10 @@ integer :: ladjwgt
                   cycle
                end if
 
-               posarray = findloc(onerow(1:ionerow),indje)
-               pos = posarray(1)
-               if (pos == 0) then
+               !posarray = findloc(onerow(1:ionerow),indje)
+               !pos = posarray(1)
+               call get_index(indje,onerow(1:ionerow),ionerow,pos)
+               if (pos == -1) then
                   ! element not found, append it
                   ionerow = ionerow + 1
                   onerow(ionerow)     = indje

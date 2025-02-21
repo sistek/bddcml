@@ -54,7 +54,7 @@ program poisson_on_cube
       integer,parameter:: verbose_level = 1
 
 ! export solution to VTU files?
-      logical,parameter :: export_solution = .true.
+      logical,parameter :: export_solution = .false.
 
 ! what is the name of that file (resp. collection of files)
       character(*),parameter :: output_file_prefix = 'poisson_solution'
