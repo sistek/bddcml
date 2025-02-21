@@ -1519,9 +1519,9 @@
           ! compute norm of the initial residual
     !-----profile
           if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_start
-         end if
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+          end if
     !-----profile
           normres2_loc = 0._kr
           do isub_loc = 1,nsub_loc
@@ -1537,9 +1537,9 @@
           normres0 = sqrt(normres2)
     !-----profile
           if (profile) then
-            call MPI_BARRIER(comm_all,ierr)
-            call time_end(t_scalar_product)
-         end if
+             call MPI_BARRIER(comm_all,ierr)
+             call time_end(t_scalar_product)
+          end if
    !-----profile
           if (debug) then
              if (myid.eq.0) then
@@ -1547,7 +1547,7 @@
              end if
           end if
           if (myid.eq.0 .and. profile) then
-            call time_print('scalar product',t_scalar_product)
+             call time_print('scalar product',t_scalar_product)
           end if
 
           ! Check of zero right-hand side => all zero solution
