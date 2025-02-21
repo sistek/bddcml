@@ -1338,6 +1338,7 @@
           ! time variables
           real(kr) :: t_sm_apply, t_pc_apply
           real(kr) :: t_postproc
+          real(kr) :: t_scalar_product
           real(kr) :: t_krylov_solve
           real(kr) :: t_recycling_projection
 
@@ -1516,6 +1517,12 @@
           end do
 
           ! compute norm of the initial residual
+    !-----profile
+          if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_start
+         end if
+    !-----profile
           normres2_loc = 0._kr
           do isub_loc = 1,nsub_loc
              call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
@@ -1528,10 +1535,19 @@
                              MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
           normres0 = sqrt(normres2)
+    !-----profile
+          if (profile) then
+            call MPI_BARRIER(comm_all,ierr)
+            call time_end(t_scalar_product)
+         end if
+   !-----profile
           if (debug) then
              if (myid.eq.0) then
                 call info(routine_name,'Norm of the initial residual =',normres0)
              end if
+          end if
+          if (myid.eq.0 .and. profile) then
+            call time_print('scalar product',t_scalar_product)
           end if
 
           ! Check of zero right-hand side => all zero solution
