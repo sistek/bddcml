@@ -59,6 +59,7 @@ end interface rquick_sort
 ! Time measurements
 integer,parameter,private :: level_time_max = 30
 real(kr),private ::          times(level_time_max) = 0._kr
+integer(8),private ::        timesms(level_time_max) = 0
 logical,private ::           is_wall_time(level_time_max) 
 integer,private  ::          level_time = 0
 
@@ -1453,7 +1454,7 @@ subroutine time_start(use_cpu_time)
          call processor_time(times(level_time))
          is_wall_time(level_time) = .false.
       else
-         call wall_time(times(level_time))
+         call wall_time_mpi(times(level_time))
          is_wall_time(level_time) = .true.
       end if
 
@@ -1476,7 +1477,7 @@ subroutine time_end(time)
       
 ! Local variables
       character(*),parameter:: routine_name = 'TIME_END'
-      real(kr) :: current_time
+      real(8) :: current_time
 
 ! check if it is not too few
       if (level_time.le.0) then
@@ -1486,7 +1487,7 @@ subroutine time_end(time)
 
 ! measure the time
       if (is_wall_time(level_time)) then
-         call wall_time(current_time)
+         call wall_time_mpi(current_time)
       else
          call processor_time(current_time)
       end if
@@ -1551,6 +1552,16 @@ call date_and_time(values=v)
 timems=(v(8)+1000*(v(7)+60*(v(6)+60*(v(5)+24*(v(3))))))
 t= timems / 1000._kr
 end subroutine wall_time
+
+!******************************
+subroutine wall_time_mpi(time)
+!******************************
+! return wall clock time in s
+implicit none
+include "mpif.h"
+real(8) :: time
+time=MPI_Wtime()
+end subroutine wall_time_mpi
 
 !***************************
 subroutine processor_time(t)
