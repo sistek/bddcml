@@ -567,11 +567,13 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       case (3)
          ! use Chebyshev iteration
          eigmin_bound = 1._kr
+         ! estimate maximal eigenvalue as an estimate of the largest eigenvalue times safety factor
          eigmax_bound = levels_max_eigenvalue * 1.2_kr
          call krylov_bddcchebyshev(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
                                    krylov_recycling, krylov_max_number_of_stored_vectors, &
                                    eigmin_bound, eigmax_bound, &
-                                   num_iter, converged_reason, condition_number)
+                                   num_iter, converged_reason)
+         condition_number = -1._kr ! condition number is not computed for Chebyshev iteration
       case (5)
          ! use direct solve from the levels module
          call levels_jds_solve

@@ -158,6 +158,7 @@
           real(kr),allocatable :: diag(:)
           real(kr),allocatable :: subdiag(:)
           integer :: nw, ldiag, lsubdiag
+          real(kr) :: eigmin, eigmax
 
           ! Recycling of Krylov spaces
           integer :: ibasis, jbasis
@@ -1178,7 +1179,8 @@
 
     ! Condition number estimation on root processor, if there are no NaNs
           if (nw.gt.0) then
-             call krylov_condsparse(myid,nw,diag,nw,subdiag,nw-1, cond)
+             call krylov_condsparse(myid,nw,diag,nw,subdiag,nw-1, eigmin, eigmax)
+             cond = eigmax / eigmin
           else
              cond = 1._kr
           end if
@@ -1186,6 +1188,8 @@
              call info(routine_name, '================================================')
              call info(routine_name, 'ESTIMATION OF CONDITION NUMBER BY LANCZOS METHOD')
              call info(routine_name, 'Condition number cond = ',cond                   )
+             call info(routine_name, 'Minimal eigenvalue = ',eigmin                    )
+             call info(routine_name, 'Maximal eigenvalue = ',eigmax                    )
              call info(routine_name, '================================================')
           end if
           deallocate(diag)
@@ -1235,7 +1239,7 @@
     !******************************************************************************************************
           subroutine krylov_bddcchebyshev(comm_all,tol,maxit,ndecrmax, recycling, max_number_of_stored_vectors, &
                                           eigmin_bound, eigmax_bound, &
-                                          num_iter, converged_reason, cond)
+                                          num_iter, converged_reason)
     !******************************************************************************************************
     ! subroutine realizing Chebyshev iteration with vectors distributed by subdomains
 
@@ -1280,9 +1284,6 @@
           !  = -1 - reached limit on number of iterations
           !  = -2 - reached limit on number of iterations with nondecreasing residual
           integer,intent(out) :: converged_reason
-
-          ! estimated condition number
-          real(kr),intent(out) :: cond
 
           ! local vars
           character(*),parameter:: routine_name = 'KRYLOV_BDDCCHEBYSHEV'
@@ -2014,11 +2015,10 @@
     123   continue
 
     ! Condition number estimation on root processor, if there are no NaNs
-          cond = eigmax_bound / eigmin_bound
           if (myid.eq.0) then
              call info(routine_name, '================================================')
              call info(routine_name, 'ESTIMATION OF CONDITION NUMBER FROM THE BOUNDS  ')
-             call info(routine_name, 'Condition number cond = ',cond                   )
+             call info(routine_name, 'Chebyshev iteration run on interval: 1-',eigmax_bound)
              call info(routine_name, '================================================')
           end if
 
@@ -3652,9 +3652,9 @@
 
       end subroutine
 
-      !****************************************************
-      subroutine krylov_condsparse(myid,nw,d,ld,e,le, cond)
-      !****************************************************
+      !**************************************************************
+      subroutine krylov_condsparse(myid,nw,d,ld,e,le, eigmin, eigmax)
+      !**************************************************************
       ! Routine that estimates condition number of a real symmetric tridiagonal matrix 
       ! using LAPACK
             use module_utils
@@ -3673,15 +3673,16 @@
             integer,intent(in) :: le
             real(kr),intent(in) :: e(le)
       
-      ! estimate of the condition number
-            real(kr),intent(out) :: cond
+      ! estimate of the lowest eigenvalue
+            real(kr),intent(out) :: eigmin
+
+      ! estimate of the largest eigenvalue
+            real(kr),intent(out) :: eigmax
       
             ! auxiliary variables
             character(*),parameter:: routine_name = 'KRYLOV_CONDSPARSE'
             integer ::  iaux
             real(kr) :: raux(1)
-      
-            real(kr) :: eigmax
       
             ! LAPACK
             integer :: lapack_info
@@ -3693,7 +3694,8 @@
       
             ! return silently if only 1 or less iterations were performed
             if (nw.le.1) then
-               cond = 1._kr
+               eigmin = 1._kr
+               eigmax = 1._kr
                return
             end if
       
@@ -3706,12 +3708,13 @@
             !end if
       
             ! compute condition number
+            eigmin = d(1)
             eigmax = d(nw)
             ! do not get the lowest eigenvalue from the Lanczos sequence - the Ritz value may not converge (cf Treffethen, Bau)
             if (debug .and. myid == 0) then
+               write(*,*) 'eigmin = ',eigmin
                write(*,*) 'eigmax = ',eigmax
             end if
-            cond = eigmax
       
       end subroutine
 
