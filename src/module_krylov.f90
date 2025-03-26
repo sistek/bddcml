@@ -185,6 +185,7 @@
 
           ! time variables
           real(kr) :: t_sm_apply, t_pc_apply
+          real(kr) :: t_scalar_product
           real(kr) :: t_postproc
           real(kr) :: t_krylov_solve
           real(kr) :: t_recycling_projection
@@ -312,6 +313,12 @@
           end do
 
           ! compute norm of right-hand side
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+          end if
+!-----profile
           normrhs2_loc = 0._kr
           do isub_loc = 1,nsub_loc
              call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
@@ -323,6 +330,14 @@
           call MPI_ALLREDUCE(normrhs2_loc,normrhs2, 1, MPI_DOUBLE_PRECISION,&
                              MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
+!-----profile
+          if (profile) then
+             call time_end(t_scalar_product)
+             if (myid.eq.0) then
+                call time_print('scalar product',t_scalar_product)
+             end if
+          end if
+!-----profile
           normrhs = sqrt(normrhs2)
           if (debug) then
              if (myid.eq.0) then
@@ -348,14 +363,22 @@
              common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
              common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
           end do
-          call MPI_BARRIER(comm_all,ierr)
-          call time_start
-          call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
-          call MPI_BARRIER(comm_all,ierr)
-          call time_end(t_sm_apply)
-          if (myid.eq.0 .and. profile) then
-             call time_print('application of system matrix',t_sm_apply)
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
           end if
+!-----profile
+          call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_end(t_sm_apply)
+             if (myid.eq.0) then
+                call time_print('application of system matrix',t_sm_apply)
+             end if
+          end if
+!-----profile
 
 !          ! step_optimal = u_0'*g / u_0' A u_0
 !          ! u_0'*g
@@ -410,6 +433,12 @@
           end do
 
           ! compute norm of the initial residual
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+          end if
+!-----profile
           normres2_loc = 0._kr
           do isub_loc = 1,nsub_loc
              call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
@@ -421,6 +450,14 @@
           call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
                              MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
+!-----profile
+          if (profile) then
+             call time_end(t_scalar_product)
+             if (myid.eq.0) then
+                call time_print('scalar product',t_scalar_product)
+             end if
+          end if
+!-----profile
           normres0 = sqrt(normres2)
           if (debug) then
              if (myid.eq.0) then
@@ -490,9 +527,12 @@
              recycling_is_inverse_prepared = .true.
 
              ! Initial projection of the right-hand side onto the Krylov basis
-             call MPI_BARRIER(comm_all,ierr)
-             call time_start
-
+!-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
+             end if
+!-----profile
              ! project the right-hand side onto the stored Krylov space
              lvtb     = nactive_cols_recycling_basis
              allocate(vtb_loc(lvtb))
@@ -543,14 +583,7 @@
                 common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
                 common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
              end do
-             call MPI_BARRIER(comm_all,ierr)
-             call time_start
              call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
-             call MPI_BARRIER(comm_all,ierr)
-             call time_end(t_sm_apply)
-             if (myid.eq.0 .and. profile) then
-                call time_print('application of system matrix',t_sm_apply)
-             end if
 
              ! update residual
              ! r_0 = g - A*u_P
@@ -576,6 +609,14 @@
              call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
                                 MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
+!-----profile
+             if (profile) then
+                call time_end(t_recycling_projection)
+                if (myid.eq.0) then
+                   call time_print('RHS projection onto existing Krylov basis',t_recycling_projection)
+                end if
+             end if
+!-----profile
              normres = sqrt(normres2)
              if (debug) then
                 if (myid.eq.0) then
@@ -583,11 +624,6 @@
                 end if
              end if
 
-             call MPI_BARRIER(comm_all,ierr)
-             call time_end(t_recycling_projection)
-             if (myid.eq.0 .and. profile) then
-                call time_print('RHS projection onto existing Krylov basis',t_recycling_projection)
-             end if
           else 
              ! Without recycling, the residual is not updated.
              normres = normres0
@@ -626,18 +662,32 @@
              common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lp
              common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%p
           end do
-          call MPI_BARRIER(comm_all,ierr)
-          call time_start
-          call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
-          call MPI_BARRIER(comm_all,ierr)
-          call time_end(t_pc_apply)
-          if (myid.eq.0 .and. profile) then
-             call time_print('application of preconditioner',t_pc_apply)
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
           end if
+!-----profile
+          call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_end(t_pc_apply)
+             if (myid.eq.0) then
+                call time_print('application of preconditioner',t_pc_apply)
+             end if
+          end if
+!-----profile
           ! produced new p
 
           ! compute rmp = res'*M*res
           ! ||f||
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+          end if
+!-----profile
           rmp_loc = 0._kr
           do isub_loc = 1,nsub_loc
              call levels_dd_dotprod_local(ilevel,isub_loc, &
@@ -650,6 +700,14 @@
           call MPI_ALLREDUCE(rmp_loc,rmp, 1, MPI_DOUBLE_PRECISION,          &
                              MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
+!-----profile
+          if (profile) then
+             call time_end(t_scalar_product)
+             if (myid.eq.0) then
+                call time_print('scalar product',t_scalar_product)
+             end if
+          end if
+!-----profile
 
     ! Control of positive definiteness of preconditioner matrix
           !if (rmp.le.0._kr) then
@@ -829,7 +887,22 @@
                 common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
                 common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
              end do
+!-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
+             end if
+!-----profile
              call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+!-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_end(t_sm_apply)
+                if (myid.eq.0) then
+                   call time_print('application of system matrix',t_sm_apply)
+                end if
+             end if
+!-----profile
 
              ! write ap
              !do isub_loc = 1,nsub_loc
@@ -837,6 +910,12 @@
              !end do
 
              ! Scalar product of vectors of old search direction and ap - p*ap => pap
+!-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
+             end if
+!-----profile
              pap_loc = 0._kr
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc, &
@@ -849,6 +928,14 @@
              call MPI_ALLREDUCE(pap_loc,pap, 1, MPI_DOUBLE_PRECISION,          &
                                 MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
+!-----profile
+             if (profile) then
+                call time_end(t_scalar_product)
+                if (myid.eq.0) then
+                   call time_print('scalar product',t_scalar_product)
+                end if
+             end if
+!-----profile
 
     ! Control of positive definiteness of system matrix
              if (pap.le.0._kr) then
@@ -977,6 +1064,12 @@
 
              ! determine norm of the updated residual 
              ! normres = ||resi||
+!-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
+             end if
+!-----profile
              normres2_loc = 0._kr
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc, &
@@ -989,6 +1082,14 @@
              call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION, &
                                 MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
+!-----profile
+             if (profile) then
+                call time_end(t_scalar_product)
+                if (myid.eq.0) then
+                   call time_print('scalar product',t_scalar_product)
+                end if
+             end if
+!-----profile
              normres = sqrt(normres2)
              if (debug) then
                 if (myid.eq.0) then
@@ -1020,14 +1121,22 @@
                    common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
                    common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
                 end do
-                call MPI_BARRIER(comm_all,ierr)
-                call time_start
-                call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
-                call MPI_BARRIER(comm_all,ierr)
-                call time_end(t_sm_apply)
-                if (myid.eq.0 .and. profile) then
-                   call time_print('application of system matrix',t_sm_apply)
+!-----profile
+                if (profile) then
+                   call MPI_BARRIER(comm_all,ierr)
+                   call time_start
                 end if
+!-----profile
+                call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+!-----profile
+                if (profile) then
+                   call MPI_BARRIER(comm_all,ierr)
+                   call time_end(t_sm_apply)
+                   if (myid.eq.0) then
+                      call time_print('application of system matrix',t_sm_apply)
+                   end if
+                end if
+!-----profile
 
                 ! fix boundary conditions in residual to zero
                 do isub_loc = 1,nsub_loc
@@ -1043,6 +1152,12 @@
                 end do
 
                 ! compute norm of the actual residual
+!-----profile
+                if (profile) then
+                   call MPI_BARRIER(comm_all,ierr)
+                   call time_start
+                end if
+!-----profile
                 normres2_act_loc = 0._kr
                 do isub_loc = 1,nsub_loc
                    call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%z,pcg_data(isub_loc)%lz, &
@@ -1054,6 +1169,14 @@
                 call MPI_ALLREDUCE(normres2_act_loc,normres2_act, 1, MPI_DOUBLE_PRECISION,&
                                    MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
+!-----profile
+                if (profile) then
+                   call time_end(t_scalar_product)
+                   if (myid.eq.0) then
+                      call time_print('scalar product',t_scalar_product)
+                   end if
+                end if
+!-----profile
                 normres_act = sqrt(normres2_act)
                 if (debug) then
                    if (myid.eq.0) then
@@ -1088,7 +1211,22 @@
                 common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lz
                 common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%z
              end do
+!-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
+             end if
+!-----profile
              call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
+!-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_end(t_pc_apply)
+                if (myid.eq.0) then
+                   call time_print('application of preconditioner',t_pc_apply)
+                end if
+             end if
+!-----profile
              ! produced new z
 
              ! write z
@@ -1103,6 +1241,12 @@
 
              ! compute rmp = res'*M*res
              ! ||f||
+!-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
+             end if
+!-----profile
              rmp_loc = 0._kr
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc, &
@@ -1115,6 +1259,14 @@
              call MPI_ALLREDUCE(rmp_loc,rmp, 1, MPI_DOUBLE_PRECISION,          &
                                 MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
+!-----profile
+             if (profile) then
+                call time_end(t_scalar_product)
+                if (myid.eq.0) then
+                   call time_print('scalar product',t_scalar_product)
+                end if
+             end if
+!-----profile
 
              ! Check of positive definiteness of preconditioner matrix
              if (rmp.le.0._kr) then
@@ -1196,17 +1348,26 @@
           deallocate(subdiag)
 
           ! Postprocessing of solution - computing interior values
-          call time_start
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+          end if
+!-----profile
           ! first set pointers to soli
           do isub_loc = 1,nsub_loc
              common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lsoli
              common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%soli
           end do
           call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
-          call time_end(t_postproc)
-          if (myid.eq.0 .and. profile) then
-             call time_print('postprocessing of solution',t_postproc)
+!-----profile
+          if (profile) then
+             call time_end(t_postproc)
+             if (myid.eq.0) then
+                call time_print('postprocessing of solution',t_postproc)
+             end if
           end if
+!-----profile
 
           ! Clear memory of PCG
           do isub_loc = 1,nsub_loc
@@ -1458,6 +1619,12 @@
           end do
 
           ! compute norm of right-hand side
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+          end if
+!-----profile
           normrhs2_loc = 0._kr
           do isub_loc = 1,nsub_loc
              call levels_dd_dotprod_local(ilevel,isub_loc,pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
@@ -1469,6 +1636,14 @@
           call MPI_ALLREDUCE(normrhs2_loc,normrhs2, 1, MPI_DOUBLE_PRECISION,&
                              MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
+!-----profile
+          if (profile) then
+             call time_end(t_scalar_product)
+             if (myid.eq.0) then
+                call time_print('scalar product',t_scalar_product)
+             end if
+          end if
+!-----profile
           normrhs = sqrt(normrhs2)
           if (debug) then
              if (myid.eq.0) then
@@ -1494,14 +1669,22 @@
              common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
              common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
           end do
-          call MPI_BARRIER(comm_all,ierr)
-          call time_start
-          call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
-          call MPI_BARRIER(comm_all,ierr)
-          call time_end(t_sm_apply)
-          if (myid.eq.0 .and. profile) then
-             call time_print('application of system matrix',t_sm_apply)
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
           end if
+!-----profile
+          call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_end(t_sm_apply)
+             if (myid.eq.0) then
+                call time_print('application of system matrix',t_sm_apply)
+             end if
+          end if
+!-----profile
 
           do isub_loc = 1,nsub_loc
              ! fix boundary conditions in residual to zero
@@ -1535,20 +1718,19 @@
           call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
                              MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
-          normres0 = sqrt(normres2)
     !-----profile
           if (profile) then
-             call MPI_BARRIER(comm_all,ierr)
              call time_end(t_scalar_product)
+             if (myid.eq.0) then
+                call time_print('scalar product',t_scalar_product)
+             end if
           end if
     !-----profile
+          normres0 = sqrt(normres2)
           if (debug) then
              if (myid.eq.0) then
                 call info(routine_name,'Norm of the initial residual =',normres0)
              end if
-          end if
-          if (myid.eq.0 .and. profile) then
-             call time_print('scalar product',t_scalar_product)
           end if
 
           ! Check of zero right-hand side => all zero solution
@@ -1613,8 +1795,12 @@
              recycling_is_inverse_prepared = .true.
 
              ! Initial projection of the right-hand side onto the Krylov basis
-             call MPI_BARRIER(comm_all,ierr)
-             call time_start
+!-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
+             end if
+!-----profile
 
              ! project the right-hand side onto the stored Krylov space
              lvtb     = nactive_cols_recycling_basis
@@ -1666,14 +1852,22 @@
                 common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
                 common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
              end do
-             call MPI_BARRIER(comm_all,ierr)
-             call time_start
-             call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
-             call MPI_BARRIER(comm_all,ierr)
-             call time_end(t_sm_apply)
-             if (myid.eq.0 .and. profile) then
-                call time_print('application of system matrix',t_sm_apply)
+    !-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
              end if
+    !-----profile
+             call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+    !-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_end(t_sm_apply)
+                if (myid.eq.0) then
+                   call time_print('application of system matrix',t_sm_apply)
+                end if
+             end if
+    !-----profile
 
              ! update residual
              ! r_0 = g - A*u_P
@@ -1699,6 +1893,14 @@
              call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION,&
                                 MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
+!-----profile
+             if (profile) then
+                call time_end(t_recycling_projection)
+                if (myid.eq.0) then
+                   call time_print('RHS projection onto existing Krylov basis',t_recycling_projection)
+                end if
+             end if
+!-----profile
              normres = sqrt(normres2)
              if (debug) then
                 if (myid.eq.0) then
@@ -1706,11 +1908,6 @@
                 end if
              end if
 
-             call MPI_BARRIER(comm_all,ierr)
-             call time_end(t_recycling_projection)
-             if (myid.eq.0 .and. profile) then
-                call time_print('RHS projection onto existing Krylov basis',t_recycling_projection)
-             end if
           else 
              ! Without recycling, the residual is not updated.
              normres = normres0
@@ -1748,14 +1945,22 @@
              common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lp
              common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%p
           end do
-          call MPI_BARRIER(comm_all,ierr)
-          call time_start
-          call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
-          call MPI_BARRIER(comm_all,ierr)
-          call time_end(t_pc_apply)
-          if (myid.eq.0 .and. profile) then
-             call time_print('application of preconditioner',t_pc_apply)
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
           end if
+!-----profile
+          call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
+!-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_end(t_pc_apply)
+             if (myid.eq.0) then
+                call time_print('application of preconditioner',t_pc_apply)
+             end if
+          end if
+!-----profile
 
     ! Control of positive definiteness of preconditioner matrix
           !if (rmp.le.0._kr) then
@@ -1915,7 +2120,22 @@
                 common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lap
                 common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%ap
              end do
+!-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
+             end if
+!-----profile
              call levels_sm_apply(common_krylov_data,lcommon_krylov_data)
+!-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_end(t_sm_apply)
+                if (myid.eq.0) then
+                   call time_print('application of system matrix',t_sm_apply)
+                end if
+             end if
+!-----profile
 
              ! fix boundary conditions in residual to zero
              do isub_loc = 1,nsub_loc
@@ -1944,6 +2164,12 @@
 
              ! determine norm of the updated residual 
              ! normres = ||resi||
+    !-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
+             end if
+    !-----profile
              normres2_loc = 0._kr
              do isub_loc = 1,nsub_loc
                 call levels_dd_dotprod_local(ilevel,isub_loc, &
@@ -1956,6 +2182,14 @@
              call MPI_ALLREDUCE(normres2_loc,normres2, 1, MPI_DOUBLE_PRECISION, &
                                 MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
+    !-----profile
+             if (profile) then
+                call time_end(t_scalar_product)
+                if (myid.eq.0) then
+                   call time_print('scalar product',t_scalar_product)
+                end if
+             end if
+    !-----profile
              normres = sqrt(normres2)
              if (debug) then
                 if (myid.eq.0) then
@@ -1990,7 +2224,22 @@
                 common_krylov_data(isub_loc)%lvec_out = pcg_data(isub_loc)%lz
                 common_krylov_data(isub_loc)%vec_out => pcg_data(isub_loc)%z
              end do
+    !-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_start
+             end if
+    !-----profile
              call levels_pc_apply(common_krylov_data,lcommon_krylov_data)
+    !-----profile
+             if (profile) then
+                call MPI_BARRIER(comm_all,ierr)
+                call time_end(t_pc_apply)
+                if (myid.eq.0) then
+                   call time_print('application of preconditioner',t_pc_apply)
+                end if
+             end if
+    !-----profile
              ! produced new z
 
              ! Compute the scalar coefficients for the Chebyshev iteration
@@ -2023,17 +2272,27 @@
           end if
 
           ! Postprocessing of solution - computing interior values
-          call time_start
+    !-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_start
+          end if
+    !-----profile
           ! first set pointers to soli
           do isub_loc = 1,nsub_loc
              common_krylov_data(isub_loc)%lvec_in  = pcg_data(isub_loc)%lsoli
              common_krylov_data(isub_loc)%vec_in  => pcg_data(isub_loc)%soli
           end do
           call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
-          call time_end(t_postproc)
-          if (myid.eq.0 .and. profile) then
-             call time_print('postprocessing of solution',t_postproc)
+    !-----profile
+          if (profile) then
+             call MPI_BARRIER(comm_all,ierr)
+             call time_end(t_postproc)
+             if (myid.eq.0) then
+                call time_print('postprocessing of solution',t_postproc)
+             end if
           end if
+    !-----profile
 
           ! Clear memory of PCG
           do isub_loc = 1,nsub_loc
@@ -2579,18 +2838,29 @@
           end do
     !*************************END OF MAIN LOOP OVER ITERATIONS**************
 
-          ! Postprocessing of solution - computing interior values
-          call time_start
-          ! first set pointers to soli
-          do isub_loc = 1,nsub_loc
-             common_krylov_data(isub_loc)%lvec_in  = bicgstab_data(isub_loc)%lsoli
-             common_krylov_data(isub_loc)%vec_in  => bicgstab_data(isub_loc)%soli
-          end do
-      call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
-      call time_end(t_postproc)
-      if (myid.eq.0 .and. profile) then
-         call time_print('postprocessing of solution',t_postproc)
+      ! Postprocessing of solution - computing interior values
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
       end if
+!-----profile
+      ! first set pointers to soli
+      do isub_loc = 1,nsub_loc
+         common_krylov_data(isub_loc)%lvec_in  = bicgstab_data(isub_loc)%lsoli
+         common_krylov_data(isub_loc)%vec_in  => bicgstab_data(isub_loc)%soli
+      end do
+
+      call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_postproc)
+         if (myid.eq.0) then
+            call time_print('postprocessing of solution',t_postproc)
+         end if
+      end if
+!-----profile
 
       ! Clear memory of BICGSTAB
       do isub_loc = 1,nsub_loc
@@ -2934,17 +3204,26 @@
           end do
     !*************************END OF MAIN LOOP OVER ITERATIONS**************
 
-          ! Postprocessing of solution - computing interior values
-          call time_start
-          ! first set pointers to soli
-          do isub_loc = 1,nsub_loc
-             common_krylov_data(isub_loc)%lvec_in  = steepestdescent_data(isub_loc)%lsoli
-             common_krylov_data(isub_loc)%vec_in  => steepestdescent_data(isub_loc)%soli
-          end do
+      ! Postprocessing of solution - computing interior values
+!-----profile
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_start
+      end if
+!-----profile
+      ! first set pointers to soli
+      do isub_loc = 1,nsub_loc
+         common_krylov_data(isub_loc)%lvec_in  = steepestdescent_data(isub_loc)%lsoli
+         common_krylov_data(isub_loc)%vec_in  => steepestdescent_data(isub_loc)%soli
+      end do
+
       call levels_postprocess_solution(common_krylov_data,lcommon_krylov_data)
-      call time_end(t_postproc)
-      if (myid.eq.0 .and. profile) then
-         call time_print('postprocessing of solution',t_postproc)
+      if (profile) then
+         call MPI_BARRIER(comm_all,ierr)
+         call time_end(t_postproc)
+         if (myid.eq.0) then
+            call time_print('postprocessing of solution',t_postproc)
+         end if
       end if
 
       ! Clear memory of BICGSTAB
