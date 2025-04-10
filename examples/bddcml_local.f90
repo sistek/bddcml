@@ -107,7 +107,7 @@ program bddcml_local
       logical,parameter :: print_solution = .false.
 
 ! use recycling of Krylov subspace
-      integer :: recycling_int = 1
+      integer :: recycling_int = 0
       integer :: max_number_of_stored_vectors = 100
 
 !######### END OF PARAMETERS TO SET

@@ -27,7 +27,7 @@
     ! debugging 
           logical,parameter,private :: debug = .false.
     ! profiling 
-          logical,private :: profile = .true.
+          logical,private :: profile = .false.
     ! tolerance on relative difference in Ritz values
           real(kr),parameter,private :: tol_ritz_values = 1.e-5_kr
     ! how to normalize the relative residual
@@ -3869,9 +3869,10 @@
             endw   = nstore
          end if
 
-         if (myid.eq.0 .and. debug) then
+         if (myid.eq.0) then
             write(*,*) routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
-            write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values: ', eigvals(startv:endw)
+            !write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values: ', eigvals(startv:endw)
+            write(*,'(a,a,50f9.6)') routine_name,': minimal and maximal harmonic Ritz values: ', eigvals(startv), eigvals(endw)
          end if
          ! quit recomputing the Ritz vectors if they are converged
          if (.not.allocated(recycling_previous_eigvals)) then
@@ -3880,12 +3881,15 @@
             recycling_previous_eigvals = 0._kr
          end if
          if (nstore == capacity) then ! it is no longer expanding
-            diff_ritz = norm2(eigvals(startv:endw) - recycling_previous_eigvals) 
-            norm_ritz = norm2(eigvals(startv:endw))
-            diff_ritz_rel = diff_ritz / norm_ritz
-            !if (myid == 0) then
-            !   write(*,'(a,a,50f9.6)') routine_name,': Difference in Ritz values ', diff_ritz
-            !end if
+            ! difference in Ritz vectors measured by norm
+            !diff_ritz = norm2(eigvals(startv:endw) - recycling_previous_eigvals) 
+            !norm_ritz = norm2(eigvals(startv:endw))
+            !diff_ritz_rel = diff_ritz / norm_ritz
+            ! difference in Ritz vectors measured component-wise, i.e. all Ritz values have to converge
+            diff_ritz_rel = maxval(abs((eigvals(startv:endw)-recycling_previous_eigvals) / eigvals(startv:endw))) 
+            if (myid == 0) then
+               write(*,'(a,a,50f9.6)') routine_name,': Difference in Ritz values ', diff_ritz_rel
+            end if
             if (diff_ritz_rel < tol_ritz_values) then
                is_recycling_ritz_converged = .true.
             end if
