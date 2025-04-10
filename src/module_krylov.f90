@@ -478,53 +478,55 @@
              ! TODO: for harmonic Ritz-values based basis, it can be obtained from YTFY
              ! check orthogonality of basis
              ! V'*W
-             recycling_lvtw = nactive_cols_recycling_basis
-             allocate(vtw_loc(recycling_lvtw,recycling_lvtw))
-             vtw_loc = 0._kr
-             if (allocated(recycling_vtw)) then
-                deallocate(recycling_vtw)
-                recycling_is_inverse_prepared = .false.
-             end if
-             allocate(recycling_vtw(recycling_lvtw,recycling_lvtw))
-             do ibasis = 1,nactive_cols_recycling_basis
-                do jbasis = 1,nactive_cols_recycling_basis
-                   do isub_loc = 1,nsub_loc
-                      call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                                   recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
-                                                   recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
-                                                   vtw_sub)
-                      vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
+             if (.not. recycling_is_inverse_prepared) then
+                recycling_lvtw = nactive_cols_recycling_basis
+                allocate(vtw_loc(recycling_lvtw,recycling_lvtw))
+                vtw_loc = 0._kr
+                if (allocated(recycling_vtw)) then
+                   deallocate(recycling_vtw)
+                   recycling_is_inverse_prepared = .false.
+                end if
+                allocate(recycling_vtw(recycling_lvtw,recycling_lvtw))
+                do ibasis = 1,nactive_cols_recycling_basis
+                   do jbasis = 1,nactive_cols_recycling_basis
+                      do isub_loc = 1,nsub_loc
+                         call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                                      recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                                                      recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
+                                                      vtw_sub)
+                         vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
+                      end do
                    end do
                 end do
-             end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(vtw_loc,recycling_vtw, recycling_lvtw*recycling_lvtw, &
-                                MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
+                call MPI_ALLREDUCE(vtw_loc,recycling_vtw, recycling_lvtw*recycling_lvtw, &
+                                   MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
-             deallocate(vtw_loc)
+                deallocate(vtw_loc)
 
-             if (myid.eq.0 .and. debug) then
-                write(*,*) 'V^T*W'
-                do i = 1,recycling_lvtw
-                   write(*,'(1000e13.5)') (recycling_vtw(i,j), j = 1,recycling_lvtw)
-                end do
-                if (lrecycling_YTFY == recycling_lvtw) then
-                  ! the YTFY matrix seems to be filled, compare it with VTW
-                  write(*,*) 'V^T*W - Y^TFY'
-                  do i = 1,recycling_lvtw
-                     write(*,'(1000e13.5)') (recycling_vtw(i,j) - recycling_YTFY(i,j), j = 1,recycling_lvtw)
-                  end do
+                if (myid.eq.0 .and. debug) then
+                   write(*,*) 'V^T*W'
+                   do i = 1,recycling_lvtw
+                      write(*,'(1000e13.5)') (recycling_vtw(i,j), j = 1,recycling_lvtw)
+                   end do
+                   if (lrecycling_YTFY == recycling_lvtw) then
+                     ! the YTFY matrix seems to be filled, compare it with VTW
+                     write(*,*) 'V^T*W - Y^TFY'
+                     do i = 1,recycling_lvtw
+                        write(*,'(1000e13.5)') (recycling_vtw(i,j) - recycling_YTFY(i,j), j = 1,recycling_lvtw)
+                     end do
+                   end if
                 end if
-             end if
-             call MPI_BARRIER(comm_all,ierr)
+                call MPI_BARRIER(comm_all,ierr)
 
-             ! Prepare Cholesky factorization of V'W to be used in deflation
-             ldvtw = max(1,recycling_lvtw)
-             call DPOTRF('U',recycling_lvtw,recycling_vtw,ldvtw,lapack_info)
-             if (lapack_info /= 0) then 
-                call error(routine_name, 'Error in Cholesky factorization of VTW', lapack_info)
+                ! Prepare Cholesky factorization of V'W to be used in deflation
+                ldvtw = max(1,recycling_lvtw)
+                call DPOTRF('U',recycling_lvtw,recycling_vtw,ldvtw,lapack_info)
+                if (lapack_info /= 0) then 
+                   call error(routine_name, 'Error in Cholesky factorization of VTW', lapack_info)
+                end if
+                recycling_is_inverse_prepared = .true.
              end if
-             recycling_is_inverse_prepared = .true.
 
              ! Initial projection of the right-hand side onto the Krylov basis
 !-----profile
@@ -1746,53 +1748,55 @@
              ! TODO: for harmonic Ritz-values based basis, it can be obtained from YTFY
              ! check orthogonality of basis
              ! V'*W
-             recycling_lvtw = nactive_cols_recycling_basis
-             allocate(vtw_loc(recycling_lvtw,recycling_lvtw))
-             vtw_loc = 0._kr
-             if (allocated(recycling_vtw)) then
-                deallocate(recycling_vtw)
-                recycling_is_inverse_prepared = .false.
-             end if
-             allocate(recycling_vtw(recycling_lvtw,recycling_lvtw))
-             do ibasis = 1,nactive_cols_recycling_basis
-                do jbasis = 1,nactive_cols_recycling_basis
-                   do isub_loc = 1,nsub_loc
-                      call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                                   recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
-                                                   recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
-                                                   vtw_sub)
-                      vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
+             if (.not. recycling_is_inverse_prepared) then
+                recycling_lvtw = nactive_cols_recycling_basis
+                allocate(vtw_loc(recycling_lvtw,recycling_lvtw))
+                vtw_loc = 0._kr
+                if (allocated(recycling_vtw)) then
+                   deallocate(recycling_vtw)
+                   recycling_is_inverse_prepared = .false.
+                end if
+                allocate(recycling_vtw(recycling_lvtw,recycling_lvtw))
+                do ibasis = 1,nactive_cols_recycling_basis
+                   do jbasis = 1,nactive_cols_recycling_basis
+                      do isub_loc = 1,nsub_loc
+                         call levels_dd_dotprod_local(ilevel,isub_loc,&
+                                                      recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                                                      recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
+                                                      vtw_sub)
+                         vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
+                      end do
                    end do
                 end do
-             end do
     !***************************************************************PARALLEL
-             call MPI_ALLREDUCE(vtw_loc,recycling_vtw, recycling_lvtw*recycling_lvtw, &
-                                MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
+                call MPI_ALLREDUCE(vtw_loc,recycling_vtw, recycling_lvtw*recycling_lvtw, &
+                                   MPI_DOUBLE_PRECISION, MPI_SUM, comm_all, ierr) 
     !***************************************************************PARALLEL
-             deallocate(vtw_loc)
+                deallocate(vtw_loc)
 
-             if (myid.eq.0 .and. debug) then
-                write(*,*) 'V^T*W'
-                do i = 1,recycling_lvtw
-                   write(*,'(1000e13.5)') (recycling_vtw(i,j), j = 1,recycling_lvtw)
-                end do
-                if (lrecycling_YTFY == recycling_lvtw) then
-                  ! the YTFY matrix seems to be filled, compare it with VTW
-                  write(*,*) 'V^T*W - Y^TFY'
-                  do i = 1,recycling_lvtw
-                     write(*,'(1000e13.5)') (recycling_vtw(i,j) - recycling_YTFY(i,j), j = 1,recycling_lvtw)
-                  end do
+                if (myid.eq.0 .and. debug) then
+                   write(*,*) 'V^T*W'
+                   do i = 1,recycling_lvtw
+                      write(*,'(1000e13.5)') (recycling_vtw(i,j), j = 1,recycling_lvtw)
+                   end do
+                   if (lrecycling_YTFY == recycling_lvtw) then
+                     ! the YTFY matrix seems to be filled, compare it with VTW
+                     write(*,*) 'V^T*W - Y^TFY'
+                     do i = 1,recycling_lvtw
+                        write(*,'(1000e13.5)') (recycling_vtw(i,j) - recycling_YTFY(i,j), j = 1,recycling_lvtw)
+                     end do
+                   end if
                 end if
-             end if
-             call MPI_BARRIER(comm_all,ierr)
+                call MPI_BARRIER(comm_all,ierr)
 
-             ! Prepare Cholesky factorization of V'W to be used in deflation
-             ldvtw = max(1,recycling_lvtw)
-             call DPOTRF('U',recycling_lvtw,recycling_vtw,ldvtw,lapack_info)
-             if (lapack_info /= 0) then 
-                call error(routine_name, 'Error in Cholesky factorization of VTW', lapack_info)
+                ! Prepare Cholesky factorization of V'W to be used in deflation
+                ldvtw = max(1,recycling_lvtw)
+                call DPOTRF('U',recycling_lvtw,recycling_vtw,ldvtw,lapack_info)
+                if (lapack_info /= 0) then 
+                   call error(routine_name, 'Error in Cholesky factorization of VTW', lapack_info)
+                end if
+                recycling_is_inverse_prepared = .true.
              end if
-             recycling_is_inverse_prepared = .true.
 
              ! Initial projection of the right-hand side onto the Krylov basis
 !-----profile
@@ -2077,20 +2081,6 @@
                    end if
                    num_iter = iter - 1
                    converged_reason = -2
-
-                   ! process the basis for recycling
-                   if (recycling) then
-                      if (is_recycling_ritz_converged) then
-                         if (myid.eq.0) then
-                            call info(routine_name,'Harmonic Ritz values already converged, not recomputing the deflation basis.')
-                         end if
-                      else
-                         if (myid.eq.0) then
-                            call info(routine_name,'Harmonic Ritz values not converged, recomputing the deflation basis.')
-                         end if
-                         call recycling_process_basis(comm_all, jbuffer)
-                      end if
-                   end if
 
                    exit
                 end if
@@ -3933,6 +3923,46 @@
          deallocate(F)
       end select
 
+      ! Sign the VTW matrix as outdated due to the update of the recycling basis.
+      recycling_is_inverse_prepared = .false.
+
+      end subroutine
+
+      !**********************************************************************
+      subroutine krylov_is_recycling_ritz_converged(recycling_ritz_converged)
+      !**********************************************************************
+      ! Routine to check if the harmonic Ritz values are already converged
+      ! Just gets the module private variable.
+            implicit none
+            logical,intent(out) :: recycling_ritz_converged
+
+            recycling_ritz_converged = is_recycling_ritz_converged
+      end subroutine
+
+      !**********************************************************************
+      subroutine krylov_get_spectral_bounds_estimate(eigmin, eigmax)
+      !**********************************************************************
+      ! Routine to check if the harmonic Ritz values are already converged
+      ! Just gets the module private variable.
+            use module_levels
+            use module_utils
+            implicit none
+
+            ! estimated bounds on eigenvalues
+            real(kr),intent(out) :: eigmin, eigmax
+
+            ! auxiliary variables
+            character(*),parameter:: routine_name = 'KRYLOV_GET_SPECTRAL_BOUNDS_ESTIMATE'
+
+            ! For BDDC, the lowest eigenvalue is 1.
+            eigmin = 1.
+            ! Get the estimate of the largest eigenvalue from the adaptive BDDC.
+            ! eigmax = levels_max_eigenvalue
+            ! Get the estimate from the harmonic Ritz values.
+            if (.not. allocated(recycling_previous_eigvals) .or. .not. is_recycling_ritz_converged) then
+               call error(routine_name, "Ritz values not allocated, or they are not converged.")
+            end if
+            eigmax = recycling_previous_eigvals(1)
       end subroutine
 
       !**************************************************************

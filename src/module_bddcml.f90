@@ -465,6 +465,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       use module_krylov
       use module_utils
       implicit none
+      include "mpif.h"
 
       ! parallel variables
       integer,intent(in) :: comm_all 
@@ -476,6 +477,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       ! 1 - BICGSTAB
       ! 2 - steepest descent method
       ! 3 - Chebyshev iteration
+      ! 4 - hybrid PCG/Chebyshev iteration
       ! 5 - direct solve by MUMPS
       integer, intent(in) :: method
 
@@ -523,6 +525,9 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       character(*),parameter:: routine_name = 'BDDCML_SOLVE'
       logical :: recycling
 
+      integer :: myid, ierr
+      logical :: ritz_values_converged
+
       ! Bounds on the spectrum (only relevant for the Chebyshev iteration, ignored otherwise)
       ! minimal eigenvalue bound
       real(kr) :: eigmin_bound = 1._kr
@@ -530,6 +535,8 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
       real(kr) :: eigmax_bound = 1._kr
 
       call integer2logical(recycling_int,recycling)
+
+      call MPI_COMM_RANK(comm_all, myid, ierr)
 
       ! determine Krylov method and parameters
       if (method .ne. -1) then
@@ -574,6 +581,31 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
                                    eigmin_bound, eigmax_bound, &
                                    num_iter, converged_reason)
          condition_number = -1._kr ! condition number is not computed for Chebyshev iteration
+      case (4)
+         ! hybrid PCG, later deflated Chebyshev iteration
+         ! use PCG until the Ritz values converge
+         call krylov_is_recycling_ritz_converged(ritz_values_converged)
+         if (.not. ritz_values_converged) then
+            if (myid == 0) then
+               call info(routine_name, "Within the hybrid CG/Chebyshev method, calling PCG.")
+            end if
+            call krylov_bddcpcg(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
+                                krylov_recycling, krylov_max_number_of_stored_vectors, &
+                                num_iter, converged_reason, condition_number)
+         else
+            if (myid == 0) then
+               call info(routine_name, "Within the hybrid CG/Chebyshev method, calling Chebyshev.")
+            end if
+            call krylov_get_spectral_bounds_estimate(eigmin_bound, eigmax_bound)
+            !eigmin_bound = 1._kr
+            ! estimate maximal eigenvalue as an estimate of the largest eigenvalue times safety factor
+            !eigmax_bound = levels_max_eigenvalue * 1.2_kr
+            call krylov_bddcchebyshev(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
+                                      krylov_recycling, krylov_max_number_of_stored_vectors, &
+                                      eigmin_bound, eigmax_bound, &
+                                      num_iter, converged_reason)
+            condition_number = -1._kr ! condition number is not computed for Chebyshev iteration
+         end if
       case (5)
          ! use direct solve from the levels module
          call levels_jds_solve
