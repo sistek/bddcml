@@ -575,7 +575,7 @@ subroutine bddcml_solve(comm_all,method,tol,maxit,ndecrmax, &
          ! use Chebyshev iteration
          eigmin_bound = 1._kr
          ! estimate maximal eigenvalue as an estimate of the largest eigenvalue times safety factor
-         eigmax_bound = levels_max_eigenvalue * 1.2_kr
+         eigmax_bound = levels_max_eigenvalue
          call krylov_bddcchebyshev(comm_all,krylov_tol,krylov_maxit,krylov_ndecrmax, &
                                    krylov_recycling, krylov_max_number_of_stored_vectors, &
                                    eigmin_bound, eigmax_bound, &
