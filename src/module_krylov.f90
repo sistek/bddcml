@@ -52,6 +52,9 @@
           ! controls whether Ritz vectors and values still require recomputing
           logical,private :: is_recycling_ritz_converged = .false.
 
+          ! estimate of the effective maximal eigenvalue from the Lanczos process
+          real(kr), private :: previous_eigmax_from_lanczos = 1._kr
+
           integer ::             lrecycling_L
           real(kr),allocatable :: recycling_L(:)
 
@@ -1335,6 +1338,8 @@
           if (nw.gt.0) then
              call krylov_condsparse(myid,nw,diag,nw,subdiag,nw-1, eigmin, eigmax)
              cond = eigmax / eigmin
+             ! for sequences of linear systems
+             previous_eigmax_from_lanczos = eigmax
           else
              cond = 1._kr
           end if
@@ -3954,6 +3959,8 @@
             ! auxiliary variables
             character(*),parameter:: routine_name = 'KRYLOV_GET_SPECTRAL_BOUNDS_ESTIMATE'
 
+            real(kr) :: smallest_ritz_value, lanczos_eigenvalue
+
             ! For BDDC, the lowest eigenvalue is 1.
             eigmin = 1.
             ! Get the estimate of the largest eigenvalue from the adaptive BDDC.
@@ -3962,7 +3969,10 @@
             if (.not. allocated(recycling_previous_eigvals) .or. .not. is_recycling_ritz_converged) then
                call error(routine_name, "Ritz values not allocated, or they are not converged.")
             end if
-            eigmax = recycling_previous_eigvals(1)
+            smallest_ritz_value = recycling_previous_eigvals(1)
+            lanczos_eigenvalue  = previous_eigmax_from_lanczos
+            ! take as the bound the largest from minimal Ritz value and the largest estimate from the Lanczos process
+            eigmax = max(recycling_previous_eigvals(1),lanczos_eigenvalue)
       end subroutine
 
       !**************************************************************
