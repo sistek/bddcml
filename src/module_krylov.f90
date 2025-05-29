@@ -37,6 +37,8 @@
     ! reorthogonalize residual
           logical,parameter,private ::  reorthogonalize_residual = .true.
           integer,parameter,private ::  num_its_before_reorthogonalization = 1
+    ! should GPUs be used for the Krylov methods?
+          logical,parameter,private ::  krylov_use_gpus = .true.
     ! adjustable parameters ############################
 
     ! data necessary for recycling of Krylov subspace
@@ -510,7 +512,7 @@
                    end do
                    vtw_loc = vtw_loc + matmul(transpose(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis)), &
                                               auxmat(:,1:nactive_cols_recycling_basis))
-                     
+                   deallocate(auxmat)
                 !do ibasis = 1,nactive_cols_recycling_basis
                 !   do jbasis = 1,nactive_cols_recycling_basis
                 !      do isub_loc = 1,nsub_loc
@@ -567,7 +569,6 @@
              allocate(vtb(lvtb))
 
              ! V'*b
-             ! TODO: weight V, reorder loops and use matrix times vector
              do isub_loc = 1,nsub_loc
                 ! copy the vector to auxiliary value
                 laux = pcg_data(isub_loc)%lresi
@@ -593,6 +594,7 @@
                                   recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
                                   lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
                                   aux, incx, lapack_beta, vtb_loc, incy)
+                deallocate(aux)
              end do
     !***************************************************************PARALLEL
              call MPI_ALLREDUCE(vtb_loc,vtb, lvtb, MPI_DOUBLE_PRECISION,&
@@ -782,16 +784,28 @@
              allocate(vtv_loc(lvtv,lvtv))
              vtv_loc = 0._kr
              allocate(vtv(lvtv,lvtv))
-             do ibasis = 1,nactive_cols_recycling_basis
-                do jbasis = 1,nactive_cols_recycling_basis
-                   do isub_loc = 1,nsub_loc
-                      call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                                   recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
-                                                   recycling_basis(isub_loc)%v(:,jbasis),recycling_basis(isub_loc)%lv1, &
-                                                   vtv_sub)
-                      vtv_loc(ibasis,jbasis) = vtv_loc(ibasis,jbasis) + vtv_sub
-                   end do
+
+             do isub_loc = 1,nsub_loc
+                lauxmat1 = recycling_basis(isub_loc)%lv1
+                lauxmat2 = nactive_cols_recycling_basis
+                allocate(auxmat(lauxmat1,lauxmat2))
+                auxmat = recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis)
+                do j = 1,nactive_cols_recycling_basis
+                   call levels_dd_weightsi_apply(1,isub_loc,auxmat(:,j),lauxmat1)
                 end do
+                vtv_loc = vtv_loc + matmul(transpose(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis)), &
+                                           auxmat(:,1:nactive_cols_recycling_basis))
+                deallocate(auxmat)
+                !do ibasis = 1,nactive_cols_recycling_basis
+                !   do jbasis = 1,nactive_cols_recycling_basis
+                !      call levels_dd_dotprod_local(ilevel,isub_loc,&
+                !                                      recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                !                                      recycling_basis(isub_loc)%v(:,jbasis),recycling_basis(isub_loc)%lv1, &
+                !                                      vtv_sub)
+                !         vtv_loc(ibasis,jbasis) = vtv_loc(ibasis,jbasis) + vtv_sub
+                !      end do
+                !   end do
+                ! end do
              end do
     !******************************************************PARALLEL
              call MPI_ALLREDUCE(vtv_loc,vtv, lvtv*lvtv, MPI_DOUBLE_PRECISION,&
@@ -1900,6 +1914,7 @@
                                   lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
                                   aux, incx, lapack_beta, vtb_loc, incy)
                 !vtb_loc(ibasis) = vtb_loc(ibasis) + vtb_sub
+                deallocate(aux)
              end do
     !***************************************************************PARALLEL
              call MPI_ALLREDUCE(vtb_loc,vtb, lvtb, MPI_DOUBLE_PRECISION,&
@@ -3464,8 +3479,15 @@
       allocate(wtp(lwtp))
 
       ! W'*p
-      ! TODO: accelerate by using matrix * vector BLAS L2
       do isub_loc = 1,nsub_loc
+         ! prepare the GPU matrices when the basis is final
+         if (krylov_use_gpus .and. is_recycling_ritz_converged .and. .not. recycling_basis(isub_loc)%is_dw_prepared) then
+            call densela_copy_matrix_to_gpu(DENSELA_MAGMA, recycling_basis(isub_loc)%lw1, nactive_cols_recycling_basis, &
+                                            recycling_basis(isub_loc)%w, recycling_basis(isub_loc)%dw, &
+                                            recycling_basis(isub_loc)%lw1)
+            recycling_basis(isub_loc)%is_dw_prepared = .true.
+         end if
+
          ! copy the vector to auxiliary value
          laux = krylov_data(isub_loc)%lvec_in
          allocate(aux(laux))
@@ -3486,10 +3508,20 @@
          lapack_beta  = 1._kr
          incx  = 1
          incy  = 1
-         call densela_gemv(DENSELA_LAPACK, trans, &
-                           recycling_basis(isub_loc)%lw1, nactive_cols_recycling_basis, &
-                           lapack_alpha, recycling_basis(isub_loc)%w, recycling_basis(isub_loc)%lw1, &
-                           aux, incx, lapack_beta, wtp_loc, incy)
+         if (recycling_basis(isub_loc)%is_dv_prepared) then
+            ! use the GPU version
+            call densela_gemv_matrix_on_gpu(DENSELA_MAGMA, trans, &
+                                            recycling_basis(isub_loc)%lw1, nactive_cols_recycling_basis, &
+                                            lapack_alpha, recycling_basis(isub_loc)%dw, recycling_basis(isub_loc)%lw1, &
+                                            aux, incx, lapack_beta, wtp_loc, incy)
+         else
+            ! use the CPU version
+            call densela_gemv(DENSELA_LAPACK, trans, &
+                              recycling_basis(isub_loc)%lw1, nactive_cols_recycling_basis, &
+                              lapack_alpha, recycling_basis(isub_loc)%w, recycling_basis(isub_loc)%lw1, &
+                              aux, incx, lapack_beta, wtp_loc, incy)
+         end if
+         deallocate(aux)
       end do
 !***************************************************************PARALLEL
       call MPI_ALLREDUCE(wtp_loc,wtp, lwtp, MPI_DOUBLE_PRECISION,&
@@ -3510,15 +3542,33 @@
          !krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
          !                             - matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
          !                                      wtp(1:nactive_cols_recycling_basis) )
+
+         ! prepare the GPU matrices when the basis is final
+         if (krylov_use_gpus .and. is_recycling_ritz_converged .and. .not. recycling_basis(isub_loc)%is_dv_prepared) then
+            call densela_copy_matrix_to_gpu(DENSELA_MAGMA, recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                            recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%dv, &
+                                            recycling_basis(isub_loc)%lv1)
+            recycling_basis(isub_loc)%is_dv_prepared = .true.
+         end if
+
          trans = 'N'
          lapack_alpha = -1._kr
          lapack_beta  =  1._kr
          incx  = 1
          incy  = 1
-         call densela_gemv(DENSELA_LAPACK, trans, &
-                           recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
-                           lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
-                           wtp, incx, lapack_beta, krylov_data(isub_loc)%vec_in, incy)
+         if (recycling_basis(isub_loc)%is_dv_prepared) then
+            ! use the GPU version
+            call densela_gemv_matrix_on_gpu(DENSELA_MAGMA, trans, &
+                                            recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                            lapack_alpha, recycling_basis(isub_loc)%dv, recycling_basis(isub_loc)%lv1, &
+                                            wtp, incx, lapack_beta, krylov_data(isub_loc)%vec_in, incy)
+         else
+            ! use the CPU version
+            call densela_gemv(DENSELA_LAPACK, trans, &
+                              recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                              lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
+                              wtp, incx, lapack_beta, krylov_data(isub_loc)%vec_in, incy)
+         end if
       end do
 
       deallocate(wtp)
@@ -3791,6 +3841,7 @@
          end do
          vtw22_loc = vtw22_loc + matmul(transpose(recycling_basis(isub_loc)%p_buffer(:,1:nbuffer)), &
                                         aux(:,1:nbuffer))
+         deallocate(aux)
       !do ibasis = 1,nbuffer
       !   do jbasis = 1,nbuffer
       !      do isub_loc = 1,nsub_loc
@@ -4008,11 +4059,11 @@
          end if
          if (nstore == capacity) then ! it is no longer expanding
             ! difference in Ritz vectors measured by norm
-            !diff_ritz = norm2(eigvals(startv:endw) - recycling_previous_eigvals) 
-            !norm_ritz = norm2(eigvals(startv:endw))
-            !diff_ritz_rel = diff_ritz / norm_ritz
+            diff_ritz = norm2(eigvals(startv:endw) - recycling_previous_eigvals) 
+            norm_ritz = norm2(eigvals(startv:endw))
+            diff_ritz_rel = diff_ritz / norm_ritz
             ! difference in Ritz vectors measured component-wise, i.e. all Ritz values have to converge
-            diff_ritz_rel = maxval(abs((eigvals(startv:endw)-recycling_previous_eigvals) / eigvals(startv:endw))) 
+            !diff_ritz_rel = maxval(abs((eigvals(startv:endw)-recycling_previous_eigvals) / eigvals(startv:endw))) 
             if (myid == 0) then
                write(*,'(a,a,50f9.6)') routine_name,': Difference in Ritz values ', diff_ritz_rel
             end if
@@ -4189,6 +4240,7 @@
       !*************************
       subroutine krylov_finalize
       !*************************
+      use module_densela
       ! deallocating data from recycling
       !local vars
       integer :: i
@@ -4199,10 +4251,18 @@
             recycling_basis(i)%lv1 = 0
             recycling_basis(i)%lv2 = 0
          end if
+         if (recycling_basis(i)%is_dv_prepared) then
+            call densela_clear_matrix_on_gpu(DENSELA_MAGMA, recycling_basis(i)%dv)
+            recycling_basis(i)%is_dv_prepared = .false.
+         end if
          if (allocated(recycling_basis(i)%w)) then
             deallocate(recycling_basis(i)%w)
             recycling_basis(i)%lw1 = 0
             recycling_basis(i)%lw2 = 0
+         end if
+         if (recycling_basis(i)%is_dw_prepared) then
+            call densela_clear_matrix_on_gpu(DENSELA_MAGMA, recycling_basis(i)%dw)
+            recycling_basis(i)%is_dw_prepared = .false.
          end if
       end do
       if (allocated(recycling_basis)) then

@@ -89,9 +89,13 @@ module module_krylov_types_def
          integer ::             lv1
          integer ::             lv2
          real(kr),allocatable :: v(:,:)   ! array of all search directions p on interface
+         integer(8) :: dv                 ! GPU copy stored as a pointer
+         logical :: is_dv_prepared = .false.
          integer ::             lw1
          integer ::             lw2
          real(kr),allocatable :: w(:,:)   ! array of all A*p at interface
+         integer(8) :: dw                 ! GPU copy stored as a pointer
+         logical :: is_dw_prepared = .false.
          integer ::             lp_buffer1
          integer ::             lp_buffer2
          real(kr),allocatable :: p_buffer(:,:)   ! array of search directions p on interface at one solve 
