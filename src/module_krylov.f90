@@ -30,6 +30,9 @@
           logical,private :: profile = .false.
     ! tolerance on relative difference in Ritz values
           real(kr),parameter,private :: tol_ritz_values = 1.e-5_kr
+    ! should all the Ritz values be converged to the same precision? If not, only relative norm of the difference
+    ! should be below the tolerance
+          logical,parameter,private :: all_ritz_values_must_be_converged = .false.
     ! how to normalize the relative residual
           logical,parameter,private ::  stop_by_rhs = .true.
     ! compute actual residual for the check of numerical accuracy
@@ -570,6 +573,20 @@
 
              ! V'*b
              do isub_loc = 1,nsub_loc
+                ! prepare the GPU matrices when the basis is final
+                if (krylov_use_gpus .and. is_recycling_ritz_converged .and. .not. recycling_basis(isub_loc)%is_dv_prepared) then
+                   call densela_copy_matrix_to_gpu(DENSELA_MAGMA, recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                                   recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%dv, &
+                                                   recycling_basis(isub_loc)%lv1)
+                   recycling_basis(isub_loc)%is_dv_prepared = .true.
+                end if
+                if (krylov_use_gpus .and. is_recycling_ritz_converged .and. .not. recycling_basis(isub_loc)%is_dw_prepared) then
+                   call densela_copy_matrix_to_gpu(DENSELA_MAGMA, recycling_basis(isub_loc)%lw1, nactive_cols_recycling_basis, &
+                                                   recycling_basis(isub_loc)%w, recycling_basis(isub_loc)%dw, &
+                                                   recycling_basis(isub_loc)%lw1)
+                   recycling_basis(isub_loc)%is_dw_prepared = .true.
+                end if
+
                 ! copy the vector to auxiliary value
                 laux = pcg_data(isub_loc)%lresi
                 allocate(aux(laux))
@@ -590,10 +607,19 @@
                 lapack_beta  = 1._kr
                 incx  = 1
                 incy  = 1
-                call densela_gemv(DENSELA_LAPACK, trans, &
-                                  recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
-                                  lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
-                                  aux, incx, lapack_beta, vtb_loc, incy)
+                if (recycling_basis(isub_loc)%is_dv_prepared) then
+                   ! use the GPU version
+                   call densela_gemv_matrix_on_gpu(DENSELA_MAGMA, trans, &
+                                                   recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                                   lapack_alpha, recycling_basis(isub_loc)%dv, recycling_basis(isub_loc)%lv1, &
+                                                   aux, incx, lapack_beta, vtb_loc, incy)
+                else
+                   ! use the CPU version
+                   call densela_gemv(DENSELA_LAPACK, trans, &
+                                     recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                     lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
+                                     aux, incx, lapack_beta, vtb_loc, incy)
+                end if
                 deallocate(aux)
              end do
     !***************************************************************PARALLEL
@@ -618,10 +644,19 @@
                 lapack_beta  = 0._kr
                 incx  = 1
                 incy  = 1
-                call densela_gemv(DENSELA_LAPACK, trans, &
-                                  recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
-                                  lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
-                                  vtb, incx, lapack_beta, pcg_data(isub_loc)%z, incy)
+                if (recycling_basis(isub_loc)%is_dv_prepared) then
+                   ! use the GPU version
+                   call densela_gemv_matrix_on_gpu(DENSELA_MAGMA, trans, &
+                                                   recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                                   lapack_alpha, recycling_basis(isub_loc)%dv, recycling_basis(isub_loc)%lv1, &
+                                                   vtb, incx, lapack_beta, pcg_data(isub_loc)%z, incy)
+                else
+                   ! use the CPU version
+                   call densela_gemv(DENSELA_LAPACK, trans, &
+                                     recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                     lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
+                                     vtb, incx, lapack_beta, pcg_data(isub_loc)%z, incy)
+                end if
                 ! u_I <- u_I + u_P - projected part of solution
                 pcg_data(isub_loc)%soli = pcg_data(isub_loc)%soli + pcg_data(isub_loc)%z
              end do
@@ -1888,6 +1923,20 @@
 
              ! V'*b
              do isub_loc = 1,nsub_loc
+                ! prepare the GPU matrices when the basis is final
+                if (krylov_use_gpus .and. is_recycling_ritz_converged .and. .not. recycling_basis(isub_loc)%is_dv_prepared) then
+                   call densela_copy_matrix_to_gpu(DENSELA_MAGMA, recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                                   recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%dv, &
+                                                   recycling_basis(isub_loc)%lv1)
+                   recycling_basis(isub_loc)%is_dv_prepared = .true.
+                end if
+                if (krylov_use_gpus .and. is_recycling_ritz_converged .and. .not. recycling_basis(isub_loc)%is_dw_prepared) then
+                   call densela_copy_matrix_to_gpu(DENSELA_MAGMA, recycling_basis(isub_loc)%lw1, nactive_cols_recycling_basis, &
+                                                   recycling_basis(isub_loc)%w, recycling_basis(isub_loc)%dw, &
+                                                   recycling_basis(isub_loc)%lw1)
+                   recycling_basis(isub_loc)%is_dw_prepared = .true.
+                end if
+
                 ! copy the vector to auxiliary value
                 laux = pcg_data(isub_loc)%lresi
                 allocate(aux(laux))
@@ -1909,10 +1958,19 @@
                 lapack_beta  = 1._kr
                 incx  = 1
                 incy  = 1
-                call densela_gemv(DENSELA_LAPACK, trans, &
-                                  recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
-                                  lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
-                                  aux, incx, lapack_beta, vtb_loc, incy)
+                if (recycling_basis(isub_loc)%is_dv_prepared) then
+                   ! use the GPU version
+                   call densela_gemv_matrix_on_gpu(DENSELA_MAGMA, trans, &
+                                                   recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                                   lapack_alpha, recycling_basis(isub_loc)%dv, recycling_basis(isub_loc)%lv1, &
+                                                   aux, incx, lapack_beta, vtb_loc, incy)
+                else
+                   ! use the CPU version
+                   call densela_gemv(DENSELA_LAPACK, trans, &
+                                     recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                     lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
+                                     aux, incx, lapack_beta, vtb_loc, incy)
+                end if
                 !vtb_loc(ibasis) = vtb_loc(ibasis) + vtb_sub
                 deallocate(aux)
              end do
@@ -1938,10 +1996,19 @@
                 lapack_beta  = 0._kr
                 incx  = 1
                 incy  = 1
-                call densela_gemv(DENSELA_LAPACK, trans, &
-                                  recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
-                                  lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
-                                  vtb, incx, lapack_beta, pcg_data(isub_loc)%z, incy)
+                if (recycling_basis(isub_loc)%is_dv_prepared) then
+                   ! use the GPU version
+                   call densela_gemv_matrix_on_gpu(DENSELA_MAGMA, trans, &
+                                                   recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                                   lapack_alpha, recycling_basis(isub_loc)%dv, recycling_basis(isub_loc)%lv1, &
+                                                   vtb, incx, lapack_beta, pcg_data(isub_loc)%z, incy)
+                else
+                   ! use the CPU version
+                   call densela_gemv(DENSELA_LAPACK, trans, &
+                                     recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                     lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
+                                     vtb, incx, lapack_beta, pcg_data(isub_loc)%z, incy)
+                end if
                 ! u_I <- u_I + u_P - projected part of solution
                 pcg_data(isub_loc)%soli = pcg_data(isub_loc)%soli + pcg_data(isub_loc)%z
              end do
@@ -3480,14 +3547,6 @@
 
       ! W'*p
       do isub_loc = 1,nsub_loc
-         ! prepare the GPU matrices when the basis is final
-         if (krylov_use_gpus .and. is_recycling_ritz_converged .and. .not. recycling_basis(isub_loc)%is_dw_prepared) then
-            call densela_copy_matrix_to_gpu(DENSELA_MAGMA, recycling_basis(isub_loc)%lw1, nactive_cols_recycling_basis, &
-                                            recycling_basis(isub_loc)%w, recycling_basis(isub_loc)%dw, &
-                                            recycling_basis(isub_loc)%lw1)
-            recycling_basis(isub_loc)%is_dw_prepared = .true.
-         end if
-
          ! copy the vector to auxiliary value
          laux = krylov_data(isub_loc)%lvec_in
          allocate(aux(laux))
@@ -3542,15 +3601,6 @@
          !krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
          !                             - matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
          !                                      wtp(1:nactive_cols_recycling_basis) )
-
-         ! prepare the GPU matrices when the basis is final
-         if (krylov_use_gpus .and. is_recycling_ritz_converged .and. .not. recycling_basis(isub_loc)%is_dv_prepared) then
-            call densela_copy_matrix_to_gpu(DENSELA_MAGMA, recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
-                                            recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%dv, &
-                                            recycling_basis(isub_loc)%lv1)
-            recycling_basis(isub_loc)%is_dv_prepared = .true.
-         end if
-
          trans = 'N'
          lapack_alpha = -1._kr
          lapack_beta  =  1._kr
@@ -4058,12 +4108,15 @@
             recycling_previous_eigvals = 0._kr
          end if
          if (nstore == capacity) then ! it is no longer expanding
-            ! difference in Ritz vectors measured by norm
-            diff_ritz = norm2(eigvals(startv:endw) - recycling_previous_eigvals) 
-            norm_ritz = norm2(eigvals(startv:endw))
-            diff_ritz_rel = diff_ritz / norm_ritz
-            ! difference in Ritz vectors measured component-wise, i.e. all Ritz values have to converge
-            !diff_ritz_rel = maxval(abs((eigvals(startv:endw)-recycling_previous_eigvals) / eigvals(startv:endw))) 
+            if (all_ritz_values_must_be_converged) then
+               ! difference in Ritz vectors measured component-wise, i.e. all Ritz values have to converge
+               diff_ritz_rel = maxval(abs((eigvals(startv:endw)-recycling_previous_eigvals) / eigvals(startv:endw))) 
+            else
+               ! difference in Ritz vectors measured by norm
+               diff_ritz = norm2(eigvals(startv:endw) - recycling_previous_eigvals) 
+               norm_ritz = norm2(eigvals(startv:endw))
+               diff_ritz_rel = diff_ritz / norm_ritz
+            end if
             if (myid == 0) then
                write(*,'(a,a,50f9.6)') routine_name,': Difference in Ritz values ', diff_ritz_rel
             end if
