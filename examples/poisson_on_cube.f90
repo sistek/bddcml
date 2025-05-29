@@ -70,7 +70,7 @@ program poisson_on_cube
 !     2 - steepest descent method
 !     3 - Chebyshev iteration (only to be used in connection to adaptive BDDC)
 !     5 - direct solve by MUMPS
-      integer,parameter :: krylov_method = 3  
+      integer,parameter :: krylov_method = 0  
 
 ! use recycling of Krylov subspace
 !     0 - no recycling used
@@ -102,7 +102,7 @@ program poisson_on_cube
       integer,parameter :: use_arithmetic_constraints = 1
 
 ! use adaptive constraints on faces?
-      integer,parameter :: use_adaptive_constraints = 1
+      integer,parameter :: use_adaptive_constraints = 0
 
 ! use user constraints? - not used in this example
       integer,parameter :: use_user_constraints = 0

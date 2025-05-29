@@ -5037,6 +5037,26 @@ subroutine levels_dd_dotprod_local(ilevel,isub_loc, vec1,lvec1, vec2,lvec2, dotp
 
 end subroutine
 
+!*************************************************************
+subroutine levels_dd_weightsi_apply(ilevel,isub_loc, vec,lvec)
+!*************************************************************
+! Subroutine used for indirect access to DD data
+! multiplies vector 1 and vector 2 using weights in DD, only uses vectors at
+! interface
+      implicit none
+
+      ! length of vector
+      integer,intent(in) ::   ilevel 
+      integer,intent(in) ::   isub_loc 
+      ! vectors to multiply
+      integer,intent(in) ::  lvec
+      real(kr), intent(inout) :: vec(lvec)
+      
+      ! add data from module and call function from adaptive module
+      call dd_weightsi_apply(levels(ilevel)%subdomains(isub_loc), vec,lvec)
+
+end subroutine
+
 !***********************************************************************
 subroutine levels_dd_get_interface_size(ilevel,isub_loc, ndofis, nnodis)
 !***********************************************************************

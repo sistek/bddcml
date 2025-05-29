@@ -84,6 +84,7 @@ module_levels.o: \
 module_krylov.o: \
    module_krylov_types_def.o \
    module_levels.o \
+   module_densela.o \
    module_utils.o
 
 module_mumps.o: \

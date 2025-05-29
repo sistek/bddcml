@@ -87,6 +87,8 @@
 
     ! module for preconditioner
           use module_levels
+    ! dense linear algebra
+          use module_densela
     ! Program name
           use module_utils
 
@@ -181,10 +183,17 @@
           real(kr) :: vtv_sub
           integer ::              lnu
           real(kr), allocatable :: nu(:)
+          integer ::              laux
+          real(kr), allocatable :: aux(:)
+          integer ::              lauxmat1, lauxmat2
+          real(kr), allocatable :: auxmat(:,:)
           !integer :: recycling_info
 
           ! LAPACK
           integer :: lapack_info
+          integer :: incx, incy
+          character(1) :: trans
+          real(kr) :: lapack_alpha, lapack_beta
 
           ! time variables
           real(kr) :: t_sm_apply, t_pc_apply
@@ -490,16 +499,29 @@
                    recycling_is_inverse_prepared = .false.
                 end if
                 allocate(recycling_vtw(recycling_lvtw,recycling_lvtw))
-                do ibasis = 1,nactive_cols_recycling_basis
-                   do jbasis = 1,nactive_cols_recycling_basis
-                      do isub_loc = 1,nsub_loc
-                         call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                                      recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
-                                                      recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
-                                                      vtw_sub)
-                         vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
-                      end do
+
+                do isub_loc = 1,nsub_loc
+                   lauxmat1 = recycling_basis(isub_loc)%lw1
+                   lauxmat2 = nactive_cols_recycling_basis
+                   allocate(auxmat(lauxmat1,lauxmat2))
+                   auxmat = recycling_basis(isub_loc)%w(:,1:nactive_cols_recycling_basis)
+                   do j = 1,nactive_cols_recycling_basis
+                      call levels_dd_weightsi_apply(1,isub_loc,auxmat(:,j),lauxmat1)
                    end do
+                   vtw_loc = vtw_loc + matmul(transpose(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis)), &
+                                              auxmat(:,1:nactive_cols_recycling_basis))
+                     
+                !do ibasis = 1,nactive_cols_recycling_basis
+                !   do jbasis = 1,nactive_cols_recycling_basis
+                !      do isub_loc = 1,nsub_loc
+                !         call levels_dd_dotprod_local(ilevel,isub_loc,&
+                !                                      recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                !                                      recycling_basis(isub_loc)%w(:,jbasis),recycling_basis(isub_loc)%lw1, &
+                !                                      vtw_sub)
+                !         vtw_loc(ibasis,jbasis) = vtw_loc(ibasis,jbasis) + vtw_sub
+                !      end do
+                !   end do
+                !end do
                 end do
     !***************************************************************PARALLEL
                 call MPI_ALLREDUCE(vtw_loc,recycling_vtw, recycling_lvtw*recycling_lvtw, &
@@ -546,14 +568,31 @@
 
              ! V'*b
              ! TODO: weight V, reorder loops and use matrix times vector
-             do ibasis = 1,nactive_cols_recycling_basis
-                do isub_loc = 1,nsub_loc
-                   call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                                recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
-                                                pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
-                                                vtb_sub)
-                   vtb_loc(ibasis) = vtb_loc(ibasis) + vtb_sub
-                end do
+             do isub_loc = 1,nsub_loc
+                ! copy the vector to auxiliary value
+                laux = pcg_data(isub_loc)%lresi
+                allocate(aux(laux))
+                aux = pcg_data(isub_loc)%resi
+                ! apply the weight for partition of unity
+                call levels_dd_weightsi_apply(1,isub_loc,aux,laux)
+                
+                !do ibasis = 1,nactive_cols_recycling_basis
+                !   call levels_dd_dotprod_local(ilevel,isub_loc,&
+                !                                recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                !                                pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                !                                vtb_sub)
+                !   vtb_loc(ibasis) = vtb_loc(ibasis) + vtb_sub
+                !end do
+                !vtb_loc = vtb_loc + matmul(transpose(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis)), aux)
+                trans = 'T'
+                lapack_alpha = 1._kr
+                lapack_beta  = 1._kr
+                incx  = 1
+                incy  = 1
+                call densela_gemv(DENSELA_LAPACK, trans, &
+                                  recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                  lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
+                                  aux, incx, lapack_beta, vtb_loc, incy)
              end do
     !***************************************************************PARALLEL
              call MPI_ALLREDUCE(vtb_loc,vtb, lvtb, MPI_DOUBLE_PRECISION,&
@@ -570,8 +609,17 @@
              ! u <- u + Pb = u + V*inv(D)*V'*b = u + V*IDIAG*V'
              do isub_loc = 1,nsub_loc
                 ! u_P - projected part of solution
-                pcg_data(isub_loc)%z = matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
-                                              vtb(1:nactive_cols_recycling_basis) )
+                !pcg_data(isub_loc)%z = matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
+                !                              vtb(1:nactive_cols_recycling_basis) )
+                trans = 'N'
+                lapack_alpha = 1._kr
+                lapack_beta  = 0._kr
+                incx  = 1
+                incy  = 1
+                call densela_gemv(DENSELA_LAPACK, trans, &
+                                  recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                  lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
+                                  vtb, incx, lapack_beta, pcg_data(isub_loc)%z, incy)
                 ! u_I <- u_I + u_P - projected part of solution
                 pcg_data(isub_loc)%soli = pcg_data(isub_loc)%soli + pcg_data(isub_loc)%z
              end do
@@ -1413,6 +1461,8 @@
 
     ! module for preconditioner
           use module_levels
+    ! dense linear algebra
+          use module_densela
     ! Program name
           use module_utils
 
@@ -1499,10 +1549,15 @@
           real(kr) :: vtv_sub
           integer ::              lnu
           real(kr), allocatable :: nu(:)
+          integer ::              laux
+          real(kr), allocatable :: aux(:)
           !integer :: recycling_info
 
           ! LAPACK
           integer :: lapack_info
+          integer :: incx, incy
+          character(1) :: trans
+          real(kr) :: lapack_alpha, lapack_beta
 
           ! time variables
           real(kr) :: t_sm_apply, t_pc_apply
@@ -1818,15 +1873,33 @@
              allocate(vtb(lvtb))
 
              ! V'*b
-             ! TODO: weight V, reorder loops and use matrix times vector
-             do ibasis = 1,nactive_cols_recycling_basis
-                do isub_loc = 1,nsub_loc
-                   call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                                recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
-                                                pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
-                                                vtb_sub)
-                   vtb_loc(ibasis) = vtb_loc(ibasis) + vtb_sub
-                end do
+             do isub_loc = 1,nsub_loc
+                ! copy the vector to auxiliary value
+                laux = pcg_data(isub_loc)%lresi
+                allocate(aux(laux))
+                aux = pcg_data(isub_loc)%resi
+                ! apply the weight for partition of unity
+                call levels_dd_weightsi_apply(1,isub_loc,aux,laux)
+                
+                !do ibasis = 1,nactive_cols_recycling_basis
+                !   call levels_dd_dotprod_local(ilevel,isub_loc,&
+                !                                recycling_basis(isub_loc)%v(:,ibasis),recycling_basis(isub_loc)%lv1, &
+                !                                pcg_data(isub_loc)%resi,pcg_data(isub_loc)%lresi, &
+                !                                vtb_sub)
+                !   vtb_loc(ibasis) = vtb_loc(ibasis) + vtb_sub
+                !end do
+
+                !vtb_loc = vtb_loc + matmul(transpose(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis)), aux)
+                trans = 'T'
+                lapack_alpha = 1._kr
+                lapack_beta  = 1._kr
+                incx  = 1
+                incy  = 1
+                call densela_gemv(DENSELA_LAPACK, trans, &
+                                  recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                  lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
+                                  aux, incx, lapack_beta, vtb_loc, incy)
+                !vtb_loc(ibasis) = vtb_loc(ibasis) + vtb_sub
              end do
     !***************************************************************PARALLEL
              call MPI_ALLREDUCE(vtb_loc,vtb, lvtb, MPI_DOUBLE_PRECISION,&
@@ -1843,8 +1916,17 @@
              ! u <- u + Pb = u + V*inv(D)*V'*b = u + V*IDIAG*V'
              do isub_loc = 1,nsub_loc
                 ! u_P - projected part of solution
-                pcg_data(isub_loc)%z = matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
-                                              vtb(1:nactive_cols_recycling_basis) )
+                !pcg_data(isub_loc)%z = matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
+                !                              vtb(1:nactive_cols_recycling_basis) )
+                trans = 'N'
+                lapack_alpha = 1._kr
+                lapack_beta  = 0._kr
+                incx  = 1
+                incy  = 1
+                call densela_gemv(DENSELA_LAPACK, trans, &
+                                  recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                                  lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
+                                  vtb, incx, lapack_beta, pcg_data(isub_loc)%z, incy)
                 ! u_I <- u_I + u_P - projected part of solution
                 pcg_data(isub_loc)%soli = pcg_data(isub_loc)%soli + pcg_data(isub_loc)%z
              end do
@@ -3335,6 +3417,7 @@
       ! project vector P onto the stored Krylov space A*p
       ! using classical Gram-Schmidt orthogonalization
       use module_levels
+      use module_densela
       use module_utils
 
       implicit none
@@ -3360,6 +3443,14 @@
       real(kr), allocatable :: wtp(:)
       real(kr), allocatable :: wtp_loc(:)
       real(kr) :: wtp_sub
+      integer ::              laux
+      real(kr), allocatable :: aux(:)
+
+      ! LAPACK
+      integer :: lapack_info
+      integer :: incx, incy
+      character(1) :: trans
+      real(kr) :: lapack_alpha, lapack_beta
 
       integer :: isub_loc, ibasis, nsub, nsub_loc 
       integer :: ierr
@@ -3374,14 +3465,31 @@
 
       ! W'*p
       ! TODO: accelerate by using matrix * vector BLAS L2
-      do ibasis = 1,nactive_cols_recycling_basis
-         do isub_loc = 1,nsub_loc
-            call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                         recycling_basis(isub_loc)%w(:,ibasis),recycling_basis(isub_loc)%lw1, &
-                                         krylov_data(isub_loc)%vec_in,krylov_data(isub_loc)%lvec_in, &
-                                         wtp_sub)
-            wtp_loc(ibasis) = wtp_loc(ibasis) + wtp_sub
-         end do
+      do isub_loc = 1,nsub_loc
+         ! copy the vector to auxiliary value
+         laux = krylov_data(isub_loc)%lvec_in
+         allocate(aux(laux))
+         aux = krylov_data(isub_loc)%vec_in
+         ! apply the weight for partition of unity
+         call levels_dd_weightsi_apply(1,isub_loc,aux,laux)
+         !do ibasis = 1,nactive_cols_recycling_basis
+         !   call levels_dd_dotprod_local(ilevel,isub_loc,&
+         !                                recycling_basis(isub_loc)%w(:,ibasis),recycling_basis(isub_loc)%lw1, &
+         !                                krylov_data(isub_loc)%vec_in,krylov_data(isub_loc)%lvec_in, &
+         !                                wtp_sub)
+         !   wtp_loc(ibasis) = wtp_loc(ibasis) + wtp_sub
+         !end do
+         !wtp_loc = wtp_loc + matmul(transpose(recycling_basis(isub_loc)%w(:,1:nactive_cols_recycling_basis)), &
+         !                           aux)
+         trans = 'T'
+         lapack_alpha = 1._kr
+         lapack_beta  = 1._kr
+         incx  = 1
+         incy  = 1
+         call densela_gemv(DENSELA_LAPACK, trans, &
+                           recycling_basis(isub_loc)%lw1, nactive_cols_recycling_basis, &
+                           lapack_alpha, recycling_basis(isub_loc)%w, recycling_basis(isub_loc)%lw1, &
+                           aux, incx, lapack_beta, wtp_loc, incy)
       end do
 !***************************************************************PARALLEL
       call MPI_ALLREDUCE(wtp_loc,wtp, lwtp, MPI_DOUBLE_PRECISION,&
@@ -3399,9 +3507,18 @@
       ! correct search direction vector
       ! p <- p - V*inv(D)*W'p = p - V*IDIAG*W'p
       do isub_loc = 1,nsub_loc
-         krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
-                                      - matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
-                                               wtp(1:nactive_cols_recycling_basis) )
+         !krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
+         !                             - matmul(recycling_basis(isub_loc)%v(:,1:nactive_cols_recycling_basis), &
+         !                                      wtp(1:nactive_cols_recycling_basis) )
+         trans = 'N'
+         lapack_alpha = -1._kr
+         lapack_beta  =  1._kr
+         incx  = 1
+         incy  = 1
+         call densela_gemv(DENSELA_LAPACK, trans, &
+                           recycling_basis(isub_loc)%lv1, nactive_cols_recycling_basis, &
+                           lapack_alpha, recycling_basis(isub_loc)%v, recycling_basis(isub_loc)%lv1, &
+                           wtp, incx, lapack_beta, krylov_data(isub_loc)%vec_in, incy)
       end do
 
       deallocate(wtp)
@@ -3458,67 +3575,67 @@
 
       end subroutine
 
-  !*************************************************************************
-      subroutine krylov_orthogonalize_mgs(comm_all,krylov_data,lkrylov_data)
-  !*************************************************************************
-      ! project vector P onto the stored Krylov space A*p
-      ! using modified Gram-Schmidt orthogonalization
-      ! this algorithm needs a lot of synchronization by global MPI functions
-      use module_levels
-      use module_utils
+  !!*************************************************************************
+  !    subroutine krylov_orthogonalize_mgs(comm_all,krylov_data,lkrylov_data)
+  !!*************************************************************************
+  !    ! project vector P onto the stored Krylov space A*p
+  !    ! using modified Gram-Schmidt orthogonalization
+  !    ! this algorithm needs a lot of synchronization by global MPI functions
+  !    use module_levels
+  !    use module_utils
 
-      implicit none
-      
-      include "mpif.h"
+  !    implicit none
+  !    
+  !    include "mpif.h"
 
-      ! parallel variables
-      integer,intent(in) :: comm_all 
+  !    ! parallel variables
+  !    integer,intent(in) :: comm_all 
 
-      ! data for PCG
-      integer,intent(in) ::                         lkrylov_data
-      type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data) 
+  !    ! data for PCG
+  !    integer,intent(in) ::                         lkrylov_data
+  !    type(common_krylov_data_type),intent(inout) :: krylov_data(lkrylov_data) 
 
-      ! local vars
-      character(*),parameter:: routine_name = 'KRYLOV_ORTHOGONALIZE_MGS'
-      integer,parameter :: ilevel = 1
+  !    ! local vars
+  !    character(*),parameter:: routine_name = 'KRYLOV_ORTHOGONALIZE_MGS'
+  !    integer,parameter :: ilevel = 1
 
-      real(kr) :: wtp
-      real(kr) :: wtp_loc
-      real(kr) :: wtp_sub
+  !    real(kr) :: wtp
+  !    real(kr) :: wtp_loc
+  !    real(kr) :: wtp_sub
 
-      integer :: isub_loc, ibasis, nsub, nsub_loc 
-      integer :: ierr
+  !    integer :: isub_loc, ibasis, nsub, nsub_loc 
+  !    integer :: ierr
 
-      ! find number of subdomains
-      call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
+  !    ! find number of subdomains
+  !    call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
 
-      ! W'*p
-      do ibasis = 1,nactive_cols_recycling_basis
-         wtp_loc = 0._kr
-         do isub_loc = 1,nsub_loc
-            call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                         recycling_basis(isub_loc)%w(:,ibasis),recycling_basis(isub_loc)%lw1, &
-                                         krylov_data(isub_loc)%vec_in,krylov_data(isub_loc)%lvec_in, &
-                                         wtp_sub)
-            wtp_loc = wtp_loc + wtp_sub
-         end do
-!***************************************************************PARALLEL
-         call MPI_ALLREDUCE(wtp_loc,wtp, 1, MPI_DOUBLE_PRECISION,&
-                            MPI_SUM, comm_all, ierr) 
-!***************************************************************PARALLEL
+  !    ! W'*p
+  !    do ibasis = 1,nactive_cols_recycling_basis
+  !       wtp_loc = 0._kr
+  !       do isub_loc = 1,nsub_loc
+  !          call levels_dd_dotprod_local(ilevel,isub_loc,&
+  !                                       recycling_basis(isub_loc)%w(:,ibasis),recycling_basis(isub_loc)%lw1, &
+  !                                       krylov_data(isub_loc)%vec_in,krylov_data(isub_loc)%lvec_in, &
+  !                                       wtp_sub)
+  !          wtp_loc = wtp_loc + wtp_sub
+  !       end do
+!*!**************************************************************PARALLEL
+  !       call MPI_ALLREDUCE(wtp_loc,wtp, 1, MPI_DOUBLE_PRECISION,&
+  !                          MPI_SUM, comm_all, ierr) 
+!*!**************************************************************PARALLEL
 
-         ! inv(D) * W' * p
-         !wtp = wtp * recycling_idvtw(ibasis)
+  !       ! inv(D) * W' * p
+  !       !wtp = wtp * recycling_idvtw(ibasis)
 
-         ! correct search direction vector
-         ! p <- p - V*inv(D)+W'p = p - V*IDIAG*W'p
-         do isub_loc = 1,nsub_loc
-            krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
-                                         - wtp * recycling_basis(isub_loc)%v(:,ibasis) 
-         end do
-      end do
+  !       ! correct search direction vector
+  !       ! p <- p - V*inv(D)+W'p = p - V*IDIAG*W'p
+  !       do isub_loc = 1,nsub_loc
+  !          krylov_data(isub_loc)%vec_in = krylov_data(isub_loc)%vec_in &
+  !                                       - wtp * recycling_basis(isub_loc)%v(:,ibasis) 
+  !       end do
+  !    end do
 
-      end subroutine
+  !    end subroutine
 
       !***************************************
       subroutine recycling_solve_vtw(vec,lvec)
@@ -3641,6 +3758,9 @@
       integer::              leigvals
       real(kr),allocatable :: eigvals(:)
 
+      integer::              laux1, laux2
+      real(kr),allocatable :: aux(:,:)
+
       real(kr) :: diff_ritz, norm_ritz, diff_ritz_rel
 
       integer :: nallvec, nstore, capacity, startv, endv, startw, endw, j
@@ -3661,16 +3781,27 @@
       allocate(vtw22(lvtw22,lvtw22))
       allocate(vtw22_loc(lvtw22,lvtw22))
       vtw22_loc = 0._kr
-      do ibasis = 1,nbuffer
-         do jbasis = 1,nbuffer
-            do isub_loc = 1,nsub_loc
-               call levels_dd_dotprod_local(ilevel,isub_loc,&
-                                            recycling_basis(isub_loc)%p_buffer(:,ibasis),recycling_basis(isub_loc)%lp_buffer1, &
-                                            recycling_basis(isub_loc)%ap_buffer(:,jbasis),recycling_basis(isub_loc)%lap_buffer1, &
-                                            vtw22_sub)
-               vtw22_loc(ibasis,jbasis) = vtw22_loc(ibasis,jbasis) + vtw22_sub
-            end do
+      do isub_loc = 1,nsub_loc
+         laux1 = recycling_basis(isub_loc)%lap_buffer1
+         laux2 = nbuffer
+         allocate(aux(laux1,laux2))
+         aux = recycling_basis(isub_loc)%ap_buffer(:,1:nbuffer)
+         do j = 1,nbuffer
+            call levels_dd_weightsi_apply(1,isub_loc,aux(:,j),laux1)
          end do
+         vtw22_loc = vtw22_loc + matmul(transpose(recycling_basis(isub_loc)%p_buffer(:,1:nbuffer)), &
+                                        aux(:,1:nbuffer))
+      !do ibasis = 1,nbuffer
+      !   do jbasis = 1,nbuffer
+      !      do isub_loc = 1,nsub_loc
+      !         call levels_dd_dotprod_local(ilevel,isub_loc,&
+      !                                      recycling_basis(isub_loc)%p_buffer(:,ibasis),recycling_basis(isub_loc)%lp_buffer1, &
+      !                                      recycling_basis(isub_loc)%ap_buffer(:,jbasis),recycling_basis(isub_loc)%lap_buffer1, &
+      !                                      vtw22_sub)
+      !         vtw22_loc(ibasis,jbasis) = vtw22_loc(ibasis,jbasis) + vtw22_sub
+      !      end do
+      !   end do
+      !end do
       end do
     !***************************************************************PARALLEL
       call MPI_ALLREDUCE(vtw22_loc,vtw22, lvtw22*lvtw22, &
