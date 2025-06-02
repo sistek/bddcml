@@ -217,6 +217,11 @@
           ! orient in the communicator
           call MPI_COMM_RANK(comm_all,myid,ierr)
 
+! initialize dense LA library
+          if (krylov_use_gpus) then
+             call densela_init(DENSELA_MAGMA, myid)
+          end if
+
           ! Prepare data for Lanczos estimation
           ldiag    = maxit + 1
           lsubdiag = maxit 
@@ -1624,6 +1629,11 @@
 
           ! orient in the communicator
           call MPI_COMM_RANK(comm_all,myid,ierr)
+
+! initialize dense LA library
+          if (krylov_use_gpus) then
+             call densela_init(DENSELA_MAGMA, myid)
+          end if
 
           ! prepare data and memory for the Chebyshev iteration
           call levels_get_number_of_subdomains(ilevel,nsub,nsub_loc)
@@ -4346,6 +4356,11 @@
          deallocate(recycling_previous_eigvals)
       end if
       is_recycling_prepared = .false.
+
+! finalize dense LA library
+      if (krylov_use_gpus) then
+         call densela_finalize(DENSELA_MAGMA)
+      end if
 
       end subroutine
 

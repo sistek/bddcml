@@ -42,6 +42,7 @@ module module_densela
 #if defined(BDDCML_WITH_MAGMA)
       integer,private :: number_of_gpus = 0
       integer,private :: my_device = 0
+      logical,private :: magma_initialized = .false.
 #endif
 
       !integer,parameter,private :: library = DENSELA_MAGMA
@@ -71,12 +72,17 @@ subroutine densela_init(library,rank)
 #if defined(BDDCML_WITH_MAGMA)
          case (DENSELA_MAGMA)
             ! MAGMA
-            call magmaf_init()
-            number_of_gpus = magmaf_num_gpus()
-            write (*,*) "Number of GPUs: ", number_of_gpus
-            my_device = mod(rank,number_of_gpus)
-            write (*,*) "My device: ", my_device
-            call magmaf_setdevice(my_device)
+            if (.not. magma_initialized) then
+               call info(routine_name, 'Initializing MAGMA library.')
+
+               call magmaf_init()
+               number_of_gpus = magmaf_num_gpus()
+               write (*,*) "Number of GPUs: ", number_of_gpus
+               my_device = mod(rank,number_of_gpus)
+               write (*,*) "My device: ", my_device
+               call magmaf_setdevice(my_device)
+               magma_initialized = .true.
+            end if
 #endif
          case default
             call error(routine_name, "Illegal library:", library)
@@ -977,7 +983,10 @@ subroutine densela_finalize(library)
 #if defined(BDDCML_WITH_MAGMA)
          case (DENSELA_MAGMA)
             ! MAGMA
-            call magmaf_finalize()
+            if (magma_initialized) then
+               call magmaf_finalize()
+               magma_initialized = .false.
+            end if
 #endif
          case default
             call error(routine_name, "Illegal library:", library)
