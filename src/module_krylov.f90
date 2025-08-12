@@ -41,7 +41,7 @@
           logical,parameter,private ::  reorthogonalize_residual = .true.
           integer,parameter,private ::  num_its_before_reorthogonalization = 1
     ! should GPUs be used for the Krylov methods?
-          logical,parameter,private ::  krylov_use_gpus = .true.
+          logical,parameter,private ::  krylov_use_gpus = .false.
     ! adjustable parameters ############################
 
     ! data necessary for recycling of Krylov subspace
