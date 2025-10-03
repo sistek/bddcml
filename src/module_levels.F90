@@ -3798,6 +3798,9 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
       integer :: request
       integer :: status(MPI_STATUS_SIZE)
 
+      ! time info
+      real(kr) :: t_solve_aug
+
       ! on first level, resudial is collected from individual subdomains
       ilevel = 1
 
@@ -3882,9 +3885,18 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
             call dd_map_subi_to_sub(levels(ilevel)%subdomains(isub_loc), aux,laux, aux2,ndofs)
          end if
 
+         if (profile) then
+            call time_start
+         end if
          nrhs = 1
          solve_adjoint = .false.
          call dd_solve_aug(levels(ilevel)%subdomains(isub_loc), aux2,laux2, nrhs, solve_adjoint)
+         if (profile) then
+            call time_end(t_solve_aug)
+            if (.true.) then
+               call time_print('computing local correction in BDDC',t_solve_aug)
+            end if
+         end if
 
          ! get interface part of the vector of preconditioned residual
          if (levels(ilevel)%subdomains(isub_loc)%is_aug_dense_active) then
