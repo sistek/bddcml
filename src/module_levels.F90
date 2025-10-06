@@ -3893,7 +3893,7 @@ subroutine levels_corsub_first_level(common_krylov_data,lcommon_krylov_data)
          call dd_solve_aug(levels(ilevel)%subdomains(isub_loc), aux2,laux2, nrhs, solve_adjoint)
          if (profile) then
             call time_end(t_solve_aug)
-            if (.true.) then
+            if (myid == 0) then
                call time_print('computing local correction in BDDC',t_solve_aug)
             end if
          end if
@@ -4534,6 +4534,8 @@ subroutine levels_sm_apply(common_krylov_data,lcommon_krylov_data)
 
       integer :: ncol
 
+      real(kr) :: t_mult_by_schur
+
       ! check prerequisites
       if (.not.levels(ilevel)%is_level_prepared) then
          call error(routine_name,'Level is not prepared:',ilevel)
@@ -4553,10 +4555,19 @@ subroutine levels_sm_apply(common_krylov_data,lcommon_krylov_data)
 
          common_krylov_data(isub_loc)%vec_out(:) = 0._kr
 
+         if (profile) then
+            call time_start
+         end if
          ncol = 1
          call dd_multiply_by_schur(levels(ilevel)%subdomains(isub_loc),&
                                    common_krylov_data(isub_loc)%vec_in,common_krylov_data(isub_loc)%lvec_in, &
                                    common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out,ncol)
+         if (profile) then
+            call time_end(t_mult_by_schur)
+            if (myid == 0) then
+               call time_print('computing application of the Schur complement',t_mult_by_schur)
+            end if
+         end if
 
          call dd_comm_upload(levels(ilevel)%subdomains(isub_loc), &
                              common_krylov_data(isub_loc)%vec_out,common_krylov_data(isub_loc)%lvec_out)
