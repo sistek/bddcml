@@ -7001,7 +7001,8 @@ subroutine dd_solve_interior_problem(sub,vec,lvec)
 end subroutine
 
 !***********************************************************************************************
-subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexsub,comm_all)
+subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexsub, &
+                                      just_direct_solve,comm_all)
 !***********************************************************************************************
 ! Subroutine for construction of reduced rhs
 ! g = f_2 - A_21 * A_11^-1 * f_1
@@ -7019,6 +7020,8 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
       ! subdomain number of local subdomains
       integer,intent(in) :: lindexsub
       integer,intent(in) ::  indexsub(lindexsub)
+      ! only use direct solve on the first level
+      logical,intent(in) :: just_direct_solve
       ! communicator
       integer,intent(in) :: comm_all
 
@@ -7042,13 +7045,14 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
 
          ! check the prerequisities
          if (.not. suba(isub_loc)%is_explicit_schur_prepared .and. &
-             .not. suba(isub_loc)%is_interior_factorized    ) then
+             .not. suba(isub_loc)%is_interior_factorized     .and. &
+             .not. just_direct_solve) then
             call error(routine_name,'Interior block not factorized yet.')
          end if
          if (.not. (suba(isub_loc)%is_rhs_loaded)) then
             call error(routine_name,'RHS not loaded.')
          end if
-         if (.not. (suba(isub_loc)%is_weights_ready)) then
+         if (.not. (suba(isub_loc)%is_weights_ready) .and. .not. just_direct_solve) then
             call error(routine_name,'Weights not ready.')
          end if
  
@@ -7074,7 +7078,7 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
          end do
 
          ! only if restriction of RHS is loaded, i.e. not assembled subdomain RHS,
-         if ( suba(isub_loc)%is_rhs_complete ) then
+         if ( suba(isub_loc)%is_rhs_complete .and. .not. just_direct_solve) then
             ! apply weights on interface
             call dd_weights_apply(suba(isub_loc), rhs,lrhs)
          end if
@@ -7090,36 +7094,41 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
             end do
 
             ! apply weights on interface
-            call dd_weights_apply(suba(isub_loc), bc,lbc)
+            if (.not. just_direct_solve) then
+               call dd_weights_apply(suba(isub_loc), bc,lbc)
+            end if
             call sm_prepare_rhs(suba(isub_loc)%ifix,suba(isub_loc)%lifix,&
                                 bc,lbc,rhs,lrhs)
             deallocate(bc)
          end if
 
          ! prepare interior portion of solution
-         call dd_prepare_reduced_rhs(suba(isub_loc),rhs,lrhs,solo,lsolo,g,lg)
+         if (.not. just_direct_solve) then
+            ! construct reduced rhs
+            call dd_prepare_reduced_rhs(suba(isub_loc),rhs,lrhs,solo,lsolo,g,lg)
 
-         ! store interior solution in the structure
-         call dd_upload_interior_solution(suba(isub_loc),solo,lsolo)
+            ! store interior solution in the structure
+            call dd_upload_interior_solution(suba(isub_loc),solo,lsolo)
 
-         ! load reduced RHS for communication structure
-         call dd_comm_upload(suba(isub_loc), g,lg) 
+            ! load reduced RHS for communication structure
+            call dd_comm_upload(suba(isub_loc), g,lg) 
  
-         ! save my own g into sub
-         ! is it already allocated?
-         if (.not.allocated(suba(isub_loc)%g)) then
-            ! if not, allocate it
-            suba(isub_loc)%lg = lg
-            allocate(suba(isub_loc)%g(lg))
-         else
-            ! if yes, check that it is allocated to correct dimension
-            if (lg.ne.suba(isub_loc)%lg) then
-               call error(routine_name,'Dimension of subdomain G mismatch for subdomain:',isub)
+            ! save my own g into sub
+            ! is it already allocated?
+            if (.not.allocated(suba(isub_loc)%g)) then
+               ! if not, allocate it
+               suba(isub_loc)%lg = lg
+               allocate(suba(isub_loc)%g(lg))
+            else
+               ! if yes, check that it is allocated to correct dimension
+               if (lg.ne.suba(isub_loc)%lg) then
+                  call error(routine_name,'Dimension of subdomain G mismatch for subdomain:',isub)
+               end if
             end if
+            do i = 1,lg
+               suba(isub_loc)%g(i) = g(i)
+            end do
          end if
-         do i = 1,lg
-            suba(isub_loc)%g(i) = g(i)
-         end do
 
          deallocate(rhs)
          deallocate(solo)
@@ -7127,7 +7136,9 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
       end do
 
       ! communicate condensed right hand side
-      call dd_comm_swapdata(suba,lsuba, indexsub,lindexsub, sub2proc,lsub2proc,comm_all)
+      if (.not. just_direct_solve) then
+         call dd_comm_swapdata(suba,lsuba, indexsub,lindexsub, sub2proc,lsub2proc,comm_all)
+      end if
 
       ! loop over subdomains
       do isub_loc = 1,lindexsub
@@ -7136,7 +7147,9 @@ subroutine dd_prepare_reduced_rhs_all(suba,lsuba,sub2proc,lsub2proc,indexsub,lin
          ndofi = suba(isub_loc)%ndofi
 
          ! download contribution to g from my neighbours
-         call dd_comm_download(suba(isub_loc), suba(isub_loc)%g,suba(isub_loc)%lg) 
+         if (.not. just_direct_solve) then
+            call dd_comm_download(suba(isub_loc), suba(isub_loc)%g,suba(isub_loc)%lg) 
+         end if
 
          suba(isub_loc)%is_reduced_rhs_loaded = .true.
  

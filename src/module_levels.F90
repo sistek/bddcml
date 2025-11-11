@@ -923,7 +923,7 @@ subroutine levels_setup_new_data
       call dd_prepare_reduced_rhs_all(levels(iactive_level)%subdomains,levels(iactive_level)%lsubdomains, &
                                       levels(iactive_level)%sub2proc,levels(iactive_level)%lsub2proc,&
                                       levels(iactive_level)%indexsub,levels(iactive_level)%lindexsub,& 
-                                      comm_all)
+                                      levels_just_direct_solve, comm_all)
 !-----profile
       if (profile) then
          call MPI_BARRIER(comm_all,ierr)
@@ -3014,7 +3014,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call dd_prepare_reduced_rhs_all(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                                          levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                                          levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
-                                         comm_all)
+                                         levels_just_direct_solve, comm_all)
 !-----profile
          if (profile) then
             call MPI_BARRIER(comm_all,ierr)
@@ -4005,7 +4005,7 @@ subroutine levels_corsub_standard_level(ilevel)
       call dd_prepare_reduced_rhs_all(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                                       levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
                                       levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
-                                      comm_all)
+                                      levels_just_direct_solve, comm_all)
 
       ! prepare global coarse residual 
       allocate(rescaux(lresc))

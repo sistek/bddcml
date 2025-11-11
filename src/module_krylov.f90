@@ -4207,7 +4207,7 @@
             real(kr) :: smallest_ritz_value, lanczos_eigenvalue
 
             ! For BDDC, the lowest eigenvalue is 1.
-            eigmin = 1.
+            eigmin = 1._kr
             ! Get the estimate of the largest eigenvalue from the adaptive BDDC.
             ! eigmax = levels_max_eigenvalue
             ! Get the estimate from the harmonic Ritz values.
@@ -4217,7 +4217,7 @@
             smallest_ritz_value = recycling_previous_eigvals(1)
             lanczos_eigenvalue  = previous_eigmax_from_lanczos
             ! take as the bound the largest from minimal Ritz value and the largest estimate from the Lanczos process
-            eigmax = max(recycling_previous_eigvals(1),lanczos_eigenvalue)
+            eigmax = max(smallest_ritz_value,lanczos_eigenvalue)
       end subroutine
 
       !**************************************************************
