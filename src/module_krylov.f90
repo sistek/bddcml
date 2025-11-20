@@ -4107,9 +4107,11 @@
          end if
 
          if (myid.eq.0) then
-            write(*,*) routine_name,': Condensing ',nallvec, 'to ', nstore, ' vectors.'
+            call info(routine_name,'Condensing number of vectors', nallvec)
+            call info(routine_name,'              to this number', nstore)
             !write(*,'(a,a,50f9.6)') routine_name,': harmonic Ritz values: ', eigvals(startv:endw)
-            write(*,'(a,a,50f9.6)') routine_name,': minimal and maximal harmonic Ritz values: ', eigvals(startv), eigvals(endw)
+            call info(routine_name,'minimal harmonic Ritz value: ', eigvals(startv))
+            call info(routine_name,'maximal harmonic Ritz value: ', eigvals(endw))
          end if
          ! quit recomputing the Ritz vectors if they are converged
          if (.not.allocated(recycling_previous_eigvals)) then
