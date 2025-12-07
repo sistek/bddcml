@@ -48,7 +48,7 @@
           logical,private :: is_recycling_prepared = .false.
           integer,private                                        :: nactive_cols_recycling_basis = 0
           integer,private                                        :: lrecycling_basis = 0
-          type(krylov_recycling_data_type), allocatable, private ::  recycling_basis(:) ! one per each local subdomain
+          type(krylov_recycling_data_type), allocatable, private, target ::  recycling_basis(:) ! one per each local subdomain
           ! the above matrix should be diagonal, so for a well-conditioned basis, only its diagonal is needed
           integer ::              recycling_lvtw
           real(kr),allocatable :: recycling_vtw(:,:) ! array of the inverse of the diagonal of p'*A*p at interface 
@@ -915,7 +915,7 @@
                       if (myid.eq.0) then
                          call info(routine_name,'Harmonic Ritz values not converged, recomputing the deflation basis.')
                       end if
-                      call recycling_process_basis(comm_all, jbuffer)
+                      call recycling_process_basis(comm_all, jbuffer, common_krylov_data)
                    end if
                 end if
 
@@ -941,7 +941,7 @@
                       if (myid.eq.0) then
                          call info(routine_name,'Harmonic Ritz values not converged, recomputing the deflation basis.')
                       end if
-                      call recycling_process_basis(comm_all, jbuffer)
+                      call recycling_process_basis(comm_all, jbuffer, common_krylov_data)
                    end if
                 end if
 
@@ -971,7 +971,7 @@
                          if (myid.eq.0) then
                             call info(routine_name,'Harmonic Ritz values not converged, recomputing the deflation basis.')
                          end if
-                         call recycling_process_basis(comm_all, jbuffer)
+                         call recycling_process_basis(comm_all, jbuffer, common_krylov_data)
                       end if
                    end if
 
@@ -3818,7 +3818,7 @@
       !end subroutine
 
       !***************************************************
-      subroutine recycling_process_basis(comm_all,nbuffer)
+      subroutine recycling_process_basis(comm_all,nbuffer, common_krylov_data)
       !***************************************************
       ! convert the stored search directions to a basis for deflation
       use module_levels
@@ -3833,6 +3833,9 @@
 
       ! number of vectors from the buffer
       integer,intent(inout) :: nbuffer
+
+      ! common Krylov data
+      type (common_krylov_data_type), allocatable :: common_krylov_data(:)
 
       ! local vars
       character(*),parameter:: routine_name = 'RECYCLING_PROCESS_BASIS'
@@ -3876,6 +3879,8 @@
       integer :: nallvec, nstore, capacity, startv, endv, startw, endw, j
       integer :: myid, ierr
       integer :: ibasis, jbasis, jcol
+
+      logical, parameter :: deflate_constant = .false.
 
       ! which part of the Ritz vectors consider in the deflation
       logical :: take_largest = .true.
@@ -4173,7 +4178,20 @@
          deallocate(eigvecs)
          deallocate(G)
          deallocate(F)
+
+         if (deflate_constant .and. nactive_cols_recycling_basis > 0) then
+            do isub_loc = 1,nsub_loc
+               recycling_basis(isub_loc)%v(:,1:1) = 1._kr
+               common_krylov_data(isub_loc)%lvec_in  = recycling_basis(isub_loc)%lv1
+               common_krylov_data(isub_loc)%vec_in  => recycling_basis(isub_loc)%v(:,1)
+               common_krylov_data(isub_loc)%lvec_out = recycling_basis(isub_loc)%lw1
+               common_krylov_data(isub_loc)%vec_out => recycling_basis(isub_loc)%w(:,1)
+            end do
+            call levels_sm_apply(common_krylov_data,nsub_loc)
+         end if
       end select
+
+
 
       ! Sign the VTW matrix as outdated due to the update of the recycling basis.
       recycling_is_inverse_prepared = .false.
