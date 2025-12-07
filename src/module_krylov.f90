@@ -4179,6 +4179,7 @@
          deallocate(G)
          deallocate(F)
 
+         ! deflate a constant vector, e.g. to be able to solve a pure Neumann problem
          if (deflate_constant .and. nactive_cols_recycling_basis > 0) then
             do isub_loc = 1,nsub_loc
                recycling_basis(isub_loc)%v(:,1:1) = 1._kr
@@ -4190,8 +4191,6 @@
             call levels_sm_apply(common_krylov_data,nsub_loc)
          end if
       end select
-
-
 
       ! Sign the VTW matrix as outdated due to the update of the recycling basis.
       recycling_is_inverse_prepared = .false.
