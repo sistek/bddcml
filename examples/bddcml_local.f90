@@ -48,8 +48,10 @@ program bddcml_local
 !     0 - PCG
 !     1 - BICGSTAB (choose for general symmetric and general matrices)
 !     2 - steepest descent method
+!     3 - Chebyshev iteration
+!     4 - hybrid PCG/Chebyshev iteration
 !     5 - direct solve by MUMPS
-      integer :: krylov_method = 0  
+      integer :: krylov_method = 3  
 
 ! find components of the mesh and handle them as independent subdomains when selecting coarse dofs 
       integer,parameter :: find_components_int = 1
@@ -71,7 +73,7 @@ program bddcml_local
       integer,parameter :: use_arithmetic_constraints = 1
 
 ! use adaptive constraints?
-      integer,parameter :: use_adaptive_constraints = 0
+      integer,parameter :: use_adaptive_constraints = 1
 
 ! use user constraints?
       integer,parameter :: use_user_constraints = 0

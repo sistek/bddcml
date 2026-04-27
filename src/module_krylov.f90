@@ -4227,16 +4227,21 @@
 
             ! For BDDC, the lowest eigenvalue is 1.
             eigmin = 1._kr
-            ! Get the estimate of the largest eigenvalue from the adaptive BDDC.
-            ! eigmax = levels_max_eigenvalue
             ! Get the estimate from the harmonic Ritz values.
             if (.not. allocated(recycling_previous_eigvals) .or. .not. is_recycling_ritz_converged) then
                call error(routine_name, "Ritz values not allocated, or they are not converged.")
             end if
             smallest_ritz_value = recycling_previous_eigvals(1)
             lanczos_eigenvalue  = previous_eigmax_from_lanczos
+            !eigmax = max(smallest_ritz_value,lanczos_eigenvalue)
             ! take as the bound the largest from minimal Ritz value and the largest estimate from the Lanczos process
-            eigmax = max(smallest_ritz_value,lanczos_eigenvalue)
+            ! Three options to get the upper bound for Chebyshev:
+            ! Get the estimate of the largest eigenvalue from the adaptive BDDC.
+            eigmax = levels_max_eigenvalue
+            ! Get the estimate from the Ritz values from Krylov subspace recycling
+            !eigmax = smallest_ritz_value
+            ! Get the estimate from previsus Lanzcos process in the Krylov solver
+            !eigmax = lanczos_eigenvalue
       end subroutine
 
       !**************************************************************

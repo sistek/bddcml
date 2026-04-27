@@ -1449,14 +1449,14 @@ subroutine time_start(use_cpu_time)
       end if
 
 ! measure the time and add it to the times array
-      if (uct) then
+      !if (uct) then
          ! use CPU time
          call processor_time(times(level_time))
          is_wall_time(level_time) = .false.
-      else
-         call wall_time_mpi(times(level_time))
-         is_wall_time(level_time) = .true.
-      end if
+      !else
+      !   call wall_time_mpi(times(level_time))
+      !   is_wall_time(level_time) = .true.
+      !end if
 
       return
 end subroutine
@@ -1486,11 +1486,11 @@ subroutine time_end(time)
       end if
 
 ! measure the time
-      if (is_wall_time(level_time)) then
-         call wall_time_mpi(current_time)
-      else
+      !if (is_wall_time(level_time)) then
+      !   call wall_time_mpi(current_time)
+      !else
          call processor_time(current_time)
-      end if
+      !end if
 
 ! find the elapsed time
       time =  current_time - times(level_time)
@@ -1553,15 +1553,15 @@ timems=(v(8)+1000*(v(7)+60*(v(6)+60*(v(5)+24*(v(3))))))
 t= timems / 1000._kr
 end subroutine wall_time
 
-!******************************
-subroutine wall_time_mpi(time)
-!******************************
-! return wall clock time in s
-implicit none
-include "mpif.h"
-real(8) :: time
-time=MPI_Wtime()
-end subroutine wall_time_mpi
+!!******************************
+!subroutine wall_time_mpi(time)
+!!******************************
+!! return wall clock time in s
+!implicit none
+!include "mpif.h"
+!real(8) :: time
+!time=MPI_Wtime()
+!end subroutine wall_time_mpi
 
 !***************************
 subroutine processor_time(t)
