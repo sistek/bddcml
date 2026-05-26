@@ -35,7 +35,7 @@ module module_levels
 ! plot input data in ParaView - useful for debugging
       logical,parameter,private :: plot_inputs = .false.
 ! profiling 
-      logical,private ::           profile = .true.
+      logical,private ::           profile = .false.
 ! dumping division
       logical,parameter,private :: dump_division = .false.
 ! export matrix of subdomains on the second level for further analysis
@@ -1457,8 +1457,13 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer ::            lpairs1, lpairs2
       integer,allocatable :: pairs(:,:)
       integer :: ipair, ldata
+      integer :: nmarked_pairs
+      integer ::            lmarked_pairs
+      integer,allocatable :: marked_pairs(:)
       integer ::            lpair2proc
       integer,allocatable :: pair2proc(:)
+      integer, parameter :: adaptivity_max_outer = 1
+      integer :: iouter
 
       logical :: remove_bc_nodes 
       logical :: keep_global 
@@ -2926,37 +2931,47 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call adaptivity_init(comm_all,pairs,lpairs1,lpairs2, npair)
          deallocate(pairs)
 
-         !call adaptivity_print_pairs(myid, levels(ilevel)%nsub)
+         ! The outer loop for adaptive selection of constraints by blocks of vectors
+         do iouter = 1, adaptivity_max_outer
 
-         lpair2proc = nproc + 1
-         allocate(pair2proc(lpair2proc))
-         call pp_distribute_linearly(npair,nproc,pair2proc,lpair2proc)
+            ! Marking of faces still to improve
+            call adaptivity_mark_pairs(comm_all, nmarked_pairs, marked_pairs,lmarked_pairs)
+            !call adaptivity_print_pairs(myid, levels(ilevel)%nsub)
 
-         !if (use_explicit_schurs) then
-         !   do isub_loc = 1,nsub_loc
-         !      call dd_prepare_explicit_schur(levels(ilevel)%subdomains(isub_loc))
-         !   end do
-         !end if
-         if (use_explicit_schurs .and. ilevel == 1) then
-             ! TODO: This feature is not implemented. It would open the way to use MAGMA for searching eigenvectors.
-             !gather_explicit_schurs = .true.
-             gather_explicit_schurs = .false.
-         else
-             gather_explicit_schurs = .false.
-         end if
-         call adaptivity_solve_eigenvectors(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
-                                            levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc,&
-                                            levels(ilevel)%indexsub,levels(ilevel)%lindexsub,&
-                                            pair2proc,lpair2proc, comm_all, gather_explicit_schurs, weights_type, &
-                                            matrixtype, levels(ilevel)%adaptivity_estimate)
+            lpair2proc = nproc + 1
+            allocate(pair2proc(lpair2proc))
+            !call pp_distribute_linearly(npair,nproc,pair2proc,lpair2proc)
+            call pp_distribute_linearly(nmarked_pairs,nproc,pair2proc,lpair2proc)
 
-         !if (use_explicit_schurs) then
-         !   do isub_loc = 1,nsub_loc
-         !      call dd_destroy_explicit_schur(levels(ilevel)%subdomains(isub_loc))
-         !   end do
-         !end if
+            !if (use_explicit_schurs) then
+            !   do isub_loc = 1,nsub_loc
+            !      call dd_prepare_explicit_schur(levels(ilevel)%subdomains(isub_loc))
+            !   end do
+            !end if
+            if (use_explicit_schurs .and. ilevel == 1) then
+                ! TODO: This feature is not implemented. It would open the way to use MAGMA for searching eigenvectors.
+                !gather_explicit_schurs = .true.
+                gather_explicit_schurs = .false.
+            else
+                gather_explicit_schurs = .false.
+            end if
+            call adaptivity_solve_eigenvectors(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                                               levels(ilevel)%sub2proc,levels(ilevel)%lsub2proc, &
+                                               levels(ilevel)%indexsub,levels(ilevel)%lindexsub, &
+                                               pair2proc,lpair2proc, marked_pairs,lmarked_pairs, &
+                                               comm_all, gather_explicit_schurs, weights_type, &
+                                               matrixtype, levels(ilevel)%adaptivity_estimate)
+
+            !if (use_explicit_schurs) then
+            !   do isub_loc = 1,nsub_loc
+            !      call dd_destroy_explicit_schur(levels(ilevel)%subdomains(isub_loc))
+            !   end do
+            !end if
+
+         end do ! The outer loop finishes here
 
          call adaptivity_finalize
+         deallocate(marked_pairs)
          deallocate(pair2proc)
 
          do isub_loc = 1,nsub_loc

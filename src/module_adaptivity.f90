@@ -36,14 +36,13 @@ real(kr),parameter,private :: threshold_eigval_default = 1.5_kr
 logical,parameter,private  :: read_threshold_from_file = .false.
 ! LOBPCG related variables
 ! maximal number of LOBPCG iterations
-integer,parameter,private ::  lobpcg_maxit = 15
+integer,parameter,private ::  lobpcg_maxit = 1
 ! precision of LOBPCG solver - worst residual
-!real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-9_kr
-real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-9_kr
+real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-11_kr
 ! maximal number of eigenvectors per problem
 ! this number is used for sufficient size of problems 
 ! for small problems, size of glob is used
-integer,parameter,private ::  neigvecx     = 10  
+integer,parameter,private ::  neigvecx     = 30  
 ! verbosity of LOBPCG solver
 ! 0 - no output
 ! 1 - some output
@@ -82,10 +81,13 @@ integer,parameter,private :: idstdout = 6
 
 ! table of pairs of eigenproblems to compute
 ! structure:
-!  IGLOB | ISUB | JSUB 
+!  IGLOB | ISUB | JSUB | ISUB FACTORIZATION COST | JSUB FACTORIZATION COST 
 integer,private            :: lpair_subdomains1 
 integer,parameter,private  :: lpair_subdomains2 = 5
 integer,allocatable,private :: pair_subdomains(:,:)
+
+integer,private  ::            lpair_omega_ij
+real(kr),allocatable,private :: pair_omega_ij(:)
 
 logical,private :: i_compute_pair
 logical,private :: i_compute_multiplications
@@ -182,6 +184,7 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
 !************************************************************
 ! Subroutine for initialization of adaptive search of constraints
       use module_utils
+      use, intrinsic :: ieee_arithmetic
       implicit none
       include "mpif.h"
 
@@ -218,6 +221,11 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
          end do
       end do
  
+! prepare the estimate of the condition number on each pair
+      lpair_omega_ij = npair
+      allocate(pair_omega_ij(lpair_omega_ij))
+      pair_omega_ij(:) = ieee_value(1.0_kr, ieee_positive_inf)
+
 ! set threshold
       if (read_threshold_from_file) then
          ! root reads the value
@@ -250,8 +258,59 @@ subroutine adaptivity_init(comm,pairs,lpairs1,lpairs2, npair)
 
 end subroutine
 
+!************************************************************************************
+subroutine adaptivity_mark_pairs(comm_all, nmarked_pairs, marked_pairs,lmarked_pairs)
+!************************************************************************************
+! Subroutine for selecting pairs yet to be improved
+      use module_utils
+      implicit none
+      include "mpif.h"
+
+! Global communicator
+      integer,intent(in) :: comm_all
+
+! number of marked pairs of subdomains
+      integer,intent(out) :: nmarked_pairs
+
+! marked pairs of subdomains
+      integer,intent(out) :: lmarked_pairs
+      integer,allocatable,intent(out) :: marked_pairs(:)
+
+! local variables
+      character(*),parameter:: routine_name = 'ADAPTIVITY_MARK_PAIRS'
+      integer :: ipair
+      integer :: imarked_pair
+      integer :: myid, ierr
+
+! orient in the communicator
+      call MPI_COMM_RANK(comm_all,myid,ierr)
+
+! count the number of pairs to be marked
+      nmarked_pairs = count(pair_omega_ij(:).gt.threshold_eigval)
+
+! allocate the array and fill it with indices of marked pairs
+      if (allocated(marked_pairs)) then
+         deallocate(marked_pairs)
+      end if
+      lmarked_pairs = nmarked_pairs
+      allocate(marked_pairs(lmarked_pairs))
+      imarked_pair = 0
+      do ipair = 1,lpair_omega_ij
+         if (pair_omega_ij(ipair).gt.threshold_eigval) then
+            imarked_pair = imarked_pair + 1
+            marked_pairs(imarked_pair) = ipair
+         end if
+      end do
+
+      if (myid.eq.0) then
+         call info( routine_name, 'number of marked pairs: ', nmarked_pairs )
+      end if
+
+end subroutine
+
 !******************************************************************************************************************
-subroutine adaptivity_get_active_pairs(iround,nproc,pair2proc,lpair2proc, active_pairs,lactive_pairs,nactive_pairs)
+subroutine adaptivity_get_active_pairs(iround,nproc,pair2proc,lpair2proc, marked_pairs,lmarked_pairs, &
+                                       active_pairs,lactive_pairs,nactive_pairs)
 !******************************************************************************************************************
 ! Subroutine for activating and deactivating pairs
       use module_utils
@@ -264,6 +323,9 @@ subroutine adaptivity_get_active_pairs(iround,nproc,pair2proc,lpair2proc, active
 ! distribution of pairs
       integer,intent(in) :: lpair2proc
       integer,intent(in) ::  pair2proc(lpair2proc)
+! indices of marked pairs
+      integer,intent(in) :: lmarked_pairs
+      integer,intent(in) ::  marked_pairs(lmarked_pairs)
 ! indices of active pairs
       integer,intent(in) :: lactive_pairs
       integer,intent(out) :: active_pairs(lactive_pairs)
@@ -272,7 +334,7 @@ subroutine adaptivity_get_active_pairs(iround,nproc,pair2proc,lpair2proc, active
 
 ! local variables
       character(*),parameter:: routine_name = 'ADAPTIVITY_GET_ACTIVE_PAIRS'
-      integer :: iproc, indpair
+      integer :: iproc, indpair, indmarked_pair
 
       ! check length
       if (lpair2proc.ne.nproc+1) then
@@ -284,9 +346,10 @@ subroutine adaptivity_get_active_pairs(iround,nproc,pair2proc,lpair2proc, active
 
       nactive_pairs = 0
       do iproc = 0,nproc-1
-         indpair = pair2proc(iproc+1) + iround - 1
-         if (indpair.lt.pair2proc(iproc+2)) then
+         indmarked_pair = pair2proc(iproc+1) + iround - 1
+         if (indmarked_pair.lt.pair2proc(iproc+2)) then
             nactive_pairs = nactive_pairs + 1
+            indpair = marked_pairs(indmarked_pair)
             active_pairs(iproc+1) = indpair
          else
             active_pairs(iproc+1) = -1 
@@ -297,7 +360,7 @@ end subroutine
 
 !******************************************************************************************
 subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,lindexsub,&
-                                         pair2proc,lpair2proc,comm_all,&
+                                         pair2proc,lpair2proc,marked_pairs,lmarked_pairs,comm_all,&
                                          gather_explicit_schurs_for_pairs, weights_type, matrixtype, est)
 !******************************************************************************************
 ! Subroutine for parallel solution of distributed eigenproblems
@@ -320,6 +383,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 ! division of pairs to processors (independent of subdomains)
       integer,intent(in) :: lpair2proc
       integer,intent(in) ::  pair2proc(lpair2proc)
+! indices of marked pairs
+      integer,intent(in) :: lmarked_pairs
+      integer,intent(in) ::  marked_pairs(lmarked_pairs)
 
 ! communicator global
       integer,intent(in) :: comm_all
@@ -529,6 +595,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
       ! find maximal number of pairs per proc
       npair_locx = maxval(pair2proc(2:nproc+1) - pair2proc(1:nproc))
       npair = pair2proc(nproc+1)-1
+      if (npair.ne.lmarked_pairs) then
+         call error(routine_name,'number of marked pairs does not match')
+      end if
 
       ! allocate table for work instructions - the worst case is that in each
       ! round, I have to compute all the subdomains, i.e. 2 for each pair
@@ -559,7 +628,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
          comm_calls = 0
 
          ! each round of eigenproblems has its structure - determine active pairs
-         call adaptivity_get_active_pairs(iround,nproc,pair2proc,lpair2proc, active_pairs,lactive_pairs,nactive_pairs)
+         call adaptivity_get_active_pairs(iround,nproc,pair2proc,lpair2proc, marked_pairs,lmarked_pairs, &
+                                          active_pairs,lactive_pairs,nactive_pairs)
 
          ! determine which pair I compute
          my_pair = active_pairs(myid+1)
@@ -2220,6 +2290,9 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                est_loc = 1.0_kr
             end if
 
+            ! set the current omega_ij
+            pair_omega_ij(my_pair) = est_loc
+
             lconstraints1 = problemsize
             lconstraints2 = nadaptive
             allocate(constraints(lconstraints1,lconstraints2))
@@ -2302,6 +2375,8 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
 
          ! global communication
          call MPI_ALLREDUCE(est_loc,est_round,1,MPI_DOUBLE_PRECISION,MPI_MAX,comm_all,ierr)
+         ! the local indicators can only be reduced by computing extra constraints, taking minimum over processes should work
+         call MPI_ALLREDUCE(MPI_IN_PLACE,pair_omega_ij,lpair_omega_ij,MPI_DOUBLE_PRECISION,MPI_MIN,comm_all,ierr)
          !if (my_pair.ge.0) then
          !   write(*,*) 'Constraints to be added on pair ',my_pair
          !   do i = 1,problemsize
@@ -3315,6 +3390,9 @@ subroutine adaptivity_finalize
 ! clear memory
       if (allocated(pair_subdomains)) then
          deallocate(pair_subdomains)
+      end if
+      if (allocated(pair_omega_ij)) then
+         deallocate(pair_omega_ij)
       end if
 
       return
