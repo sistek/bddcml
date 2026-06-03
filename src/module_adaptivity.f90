@@ -54,7 +54,7 @@ integer,parameter,private ::  lobpcg_verbosity = 0
 integer,parameter,private ::  use_vec_values = 1
 ! using preconditioner for LOBPCG
 ! 0 - no preconditioning (default)
-! 1 - local BDDC preconditioner (!!! EXPERIMENTAL !!!)
+! 1 - local BDDC preconditioner
 integer,parameter,private ::  lobpcg_preconditioner = 1
 ! using nullspace projection for eigenproblems - may improve robustness but can increase time dramatically
 logical,parameter,private ::  apply_null_projection = .false.
@@ -304,6 +304,10 @@ subroutine adaptivity_mark_pairs(comm_all, nmarked_pairs, marked_pairs,lmarked_p
 
       if (myid.eq.0) then
          call info( routine_name, 'number of marked pairs: ', nmarked_pairs )
+         if (debug) then
+            write(*,'(a)') "Values of omega_ij for pairs:"
+            write(*,'(e15.8)') pair_omega_ij
+         end if
       end if
 
 end subroutine

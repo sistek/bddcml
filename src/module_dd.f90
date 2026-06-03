@@ -59,6 +59,7 @@ module module_dd
          integer :: lmatrix1 = 0 ! = ncdof
          integer :: lmatrix2 = 0 ! = nvar
          real(kr),allocatable :: matrix(:,:)
+         logical :: matrix_updated = .false. ! has the matrix been updated by adaptivity?
       end type cnode_type
 
 ! type for subdomain data
@@ -298,6 +299,7 @@ module module_dd
 
          ! Matrices for BDDC 
          integer ::              ndofc            ! number of coarse degrees of freedom on subdomain
+         logical ::              recompute_coarse = .false.
          !  matrix C with constraints on subdomain
          logical ::              is_c_loaded = .false.
          integer ::              nconstr ! number of constraints, i.e. no. of rows in C
@@ -4341,6 +4343,7 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
       integer ::             lmatrix1, lmatrix2
       real(kr),allocatable :: matrix(:,:)
       integer :: nnz_new
+      integer :: i
 
       ! check the prerequisities
       if (.not.allocated(sub%cnodes) .or. .not.sub%is_cnodes_loaded) then
@@ -4400,6 +4403,13 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
             end do
 
             nnz_new = nvar ! number of new nonzeroes equal NVAR thanks to the structure
+            ! normalize the rows of the matrix to have unit Euclidean norm
+            !do i = 1,lmatrix1
+            !   val = norm2(matrix(i,:))
+            !   if (val.gt.0._kr) then
+            !      matrix(i,:) = matrix(i,:) / val
+            !   end if
+            !end do
             call dd_append_cnode_constraits(sub%cnodes(icnode),matrix,lmatrix1,lmatrix2,nnz_new)
             deallocate(matrix)
 
@@ -4662,6 +4672,7 @@ subroutine dd_append_cnode_constraits(cnode,matrix,lmatrix1,lmatrix2, nnz)
       cnode%matrix(lmatrix_old1+1:lmatrix_new1,:) = matrix
       cnode%lmatrix1 = lmatrix_new1
       cnode%lmatrix2 = lmatrix_new2
+      cnode%matrix_updated = .true.
 
       ! update properties
       cnode%ncdof = ncdof_old + lmatrix1
@@ -4686,8 +4697,8 @@ subroutine dd_orthogonalize_constraints(sub,itype)
       real(kr),allocatable :: constraints(:,:)
 
 ! LAPACK variables
-      integer             :: lipiv
-      integer,allocatable ::  ipiv(:)
+      !integer             :: lipiv
+      !integer,allocatable ::  ipiv(:)
       integer              :: lwork
       real(kr),allocatable ::  work(:)
       integer              :: ltau
@@ -4711,126 +4722,134 @@ subroutine dd_orthogonalize_constraints(sub,itype)
       ! get number of coarse nodes
       ncnodes = sub%ncnodes
 
-      ! generate arithmetic averages on coarse nodes of prescribed type (e.g. edges)
       do icnode = 1,ncnodes
          if (sub%cnodes(icnode)%itype .eq. itype) then
+            ! Orthogonalize only constraints that were updated in the previous step
+            if (sub%cnodes(icnode)%matrix_updated) then
 
-            nvar         = sub%cnodes(icnode)%nvar
-            ncdof_old    = sub%cnodes(icnode)%ncdof
-            nnz_old      = sub%cnodes(icnode)%nnz
+               nvar         = sub%cnodes(icnode)%nvar
+               ncdof_old    = sub%cnodes(icnode)%ncdof
+               nnz_old      = sub%cnodes(icnode)%nnz
 
-            lmatrix1_old = sub%cnodes(icnode)%lmatrix1
-            lmatrix2     = sub%cnodes(icnode)%lmatrix2
+               lmatrix1_old = sub%cnodes(icnode)%lmatrix1
+               lmatrix2     = sub%cnodes(icnode)%lmatrix2
 
-            ! perform checks
-            if (.not. allocated(sub%cnodes(icnode)%matrix)) then
-               call error(routine_name, 'Matrix not allocated, nothing to regularize.',sub%cnodes(icnode)%global_cnode_number)
-            end if
-            if (lmatrix1_old .ne. ncdof_old) then
-               call error(routine_name, 'Constraints size mismatch for glob',sub%cnodes(icnode)%global_cnode_number)
-            end if
-            if (lmatrix2 .ne. nvar) then
-               call error(routine_name, 'Constraints size mismatch for glob',sub%cnodes(icnode)%global_cnode_number)
-            end if
-
-            ! space for transposed constraints
-            lconstraints1 = lmatrix2
-            lconstraints2 = lmatrix1_old
-            allocate(constraints(lconstraints1,lconstraints2))
-            constraints = transpose(sub%cnodes(icnode)%matrix)
-
-            !write (*,*) 'CONSTRAINTS before QR'
-            !do i = 1,lconstraints1
-            !   write(*,*) (constraints(i,j),j = 1,lconstraints2)
-            !end do
-
-            ! perform QR decomposition of AVG by LAPACK
-            ! Prepare array for permutations
-            lipiv = lconstraints2
-            allocate(ipiv(lipiv))
-            ipiv = 0
-            ! prepare other LAPACK arrays
-            ltau = lconstraints1
-            allocate(tau(ltau))
-            lwork = 3*lconstraints2 + 1
-            allocate(work(lwork))
-
-            ldconstraints = max(1,lconstraints1)
-            ! QR decomposition
-            call DGEQP3( lconstraints1, lconstraints2, constraints, ldconstraints, ipiv, tau, work, lwork, lapack_info )
-
-            !write (*,*) 'constraints after QR factorization'
-            !do i = 1,lconstraints1
-            !   write(*,*) (constraints(i,j),j = 1,lconstraints2)
-            !end do
-            !write (*,*) 'IPIV after QR factorization'
-            !write(*,*) (ipiv(j),j = 1,lconstraints2)
-
-            ! determine number of columns to use
-            ! threshold of 1% of maximal norm
-            nvalid = 0
-            if (lconstraints1.gt.0.and.lconstraints2.gt.0) then
-               normval = abs(constraints(1,1))
-               if (normval.gt.numerical_zero) then
-                  thresh_diag = 0.01_kr * normval
-                  limit_loop = min(lconstraints1,lconstraints2)
-                  do i = 1,limit_loop
-                     if (abs(constraints(i,i)) .lt. thresh_diag) then
-                        exit
-                     else
-                        nvalid = i
-                     end if
-                  end do
+               ! perform checks
+               if (.not. allocated(sub%cnodes(icnode)%matrix)) then
+                  call error(routine_name, 'Matrix not allocated, nothing to regularize.',sub%cnodes(icnode)%global_cnode_number)
                end if
-            end if
+               if (lmatrix1_old .ne. ncdof_old) then
+                  call error(routine_name, 'Constraints size mismatch for glob',sub%cnodes(icnode)%global_cnode_number)
+               end if
+               if (lmatrix2 .ne. nvar) then
+                  call error(routine_name, 'Constraints size mismatch for glob',sub%cnodes(icnode)%global_cnode_number)
+               end if
 
-            !write (*,*) 'Number of constraints to really use nvalid',nvalid
+               ! space for transposed constraints
+               lconstraints1 = lmatrix2
+               lconstraints2 = lmatrix1_old
+               allocate(constraints(lconstraints1,lconstraints2))
+               constraints = transpose(sub%cnodes(icnode)%matrix)
 
-            ! construct Q in constraints array
-            call DORGQR( lconstraints1, nvalid, nvalid, constraints, ldconstraints, tau, work, lwork, lapack_info )
+               !write (*,*) 'CONSTRAINTS before QR'
+               !do i = 1,lconstraints1
+               !   write(*,*) (constraints(i,j),j = 1,lconstraints2)
+               !end do
 
-            deallocate(work)
-            deallocate(tau)
-            deallocate(ipiv)
+               ! perform QR decomposition of the constraints by LAPACK
+               ! Prepare array for permutations
+               !lipiv = lconstraints2
+               !allocate(ipiv(lipiv))
+               !ipiv = 0
+               ! prepare other LAPACK arrays
+               ltau = lconstraints1
+               allocate(tau(ltau))
+               lwork = 3*lconstraints2 + 1
+               allocate(work(lwork))
 
-            !write (*,*) 'constraints contains Q'
-            !do i = 1,lconstraints1
-            !   write(*,*) (constraints(i,j),j = 1,nvalid)
-            !end do
+               ldconstraints = max(1,lconstraints1)
+               ! QR decomposition with column pivoting (a.k.a. rank-revealing QR)
+               !call DGEQP3( lconstraints1, lconstraints2, constraints, ldconstraints, ipiv, tau, work, lwork, lapack_info )
+               ! QR decomposition
+               call DGEQRF( lconstraints1, lconstraints2, constraints, ldconstraints, tau, work, lwork, lapack_info )
 
-            if (debug) then
+               !write (*,*) 'constraints after QR factorization'
+               !do i = 1,lconstraints1
+               !   write(*,*) (constraints(i,j),j = 1,lconstraints2)
+               !end do
+               !write (*,*) 'IPIV after QR factorization'
+               !write(*,*) (ipiv(j),j = 1,lconstraints2)
+
+               nvalid = min(lconstraints1,lconstraints2)
+               ! determine number of columns to use
+               ! threshold of 1% of maximal norm
+               !nvalid = 0
+               !if (lconstraints1.gt.0.and.lconstraints2.gt.0) then
+               !   normval = abs(constraints(1,1))
+               !   if (normval.gt.numerical_zero) then
+               !      thresh_diag = 0.01_kr * normval
+               !      limit_loop = min(lconstraints1,lconstraints2)
+               !      do i = 1,limit_loop
+               !         if (abs(constraints(i,i)) .lt. thresh_diag) then
+               !            exit
+               !         else
+               !            nvalid = i
+               !         end if
+               !      end do
+               !   end if
+               !end if
+
+               !write (*,*) 'Number of constraints to really use nvalid',nvalid
+
+               ! construct Q in constraints array
+               call DORGQR( lconstraints1, nvalid, nvalid, constraints, ldconstraints, tau, work, lwork, lapack_info )
+
+               deallocate(work)
+               deallocate(tau)
+
+               !write (*,*) 'constraints contains Q'
+               !do i = 1,lconstraints1
+               !   write(*,*) (constraints(i,j),j = 1,nvalid)
+               !end do
+
+               !if (debug) then
                if (nvalid.lt.lconstraints2) then
                   call warning(routine_name,' Almost linearly dependent constraints on glob ',&
                                sub%cnodes(icnode)%global_cnode_number)
                   call warning(routine_name,' Number of constrains reduced to ',nvalid)
+                  call warning(routine_name,' Maximum number of constraints is ',nvar)
                end if
-            end if
+               !end if
 
-            ! copy transposed selected regularized constraints to the global structure
-            sub%cnodes(icnode)%ncdof = nvalid
+               ! copy transposed selected regularized constraints to the global structure
+               sub%cnodes(icnode)%ncdof = nvalid
 
-            sub%cnodes(icnode)%lmatrix1 = nvalid
-            sub%cnodes(icnode)%lmatrix2 = lmatrix2
-            deallocate(sub%cnodes(icnode)%matrix)
-            allocate(sub%cnodes(icnode)%matrix(sub%cnodes(icnode)%lmatrix1,sub%cnodes(icnode)%lmatrix2))
-            sub%cnodes(icnode)%matrix(:,:) = 0._kr
+               sub%cnodes(icnode)%lmatrix1 = nvalid
+               sub%cnodes(icnode)%lmatrix2 = lmatrix2
+               deallocate(sub%cnodes(icnode)%matrix)
+               allocate(sub%cnodes(icnode)%matrix(sub%cnodes(icnode)%lmatrix1,sub%cnodes(icnode)%lmatrix2))
+               sub%cnodes(icnode)%matrix(:,:) = 0._kr
 
-            nnz = 0
-            do i = 1,nvalid
-               do j = 1,nvar
+               nnz = 0
+               do i = 1,nvalid
+                  do j = 1,nvar
 
-                  val = constraints(j,i)
+                     val = constraints(j,i)
 
-                  if (abs(val).gt.0._kr) then
-                     sub%cnodes(icnode)%matrix(i,j) = val
-                     nnz = nnz + 1
-                  end if
+                     if (abs(val).gt.0._kr) then
+                        sub%cnodes(icnode)%matrix(i,j) = val
+                        nnz = nnz + 1
+                     end if
+                  end do
                end do
-            end do
-            sub%cnodes(icnode)%nnz = nnz
+               sub%cnodes(icnode)%nnz = nnz
 
-            deallocate(constraints)
+               deallocate(constraints)
 
+               ! Mark the matrix as not updated
+               sub%cnodes(icnode)%matrix_updated = .false.
+               sub%recompute_coarse = .true.
+            end if
          end if
       end do
 end subroutine

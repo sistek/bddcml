@@ -1462,7 +1462,7 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer,allocatable :: marked_pairs(:)
       integer ::            lpair2proc
       integer,allocatable :: pair2proc(:)
-      integer, parameter :: adaptivity_max_outer = 1
+      integer, parameter :: adaptivity_max_outer = 10
       integer :: iouter
 
       logical :: remove_bc_nodes 
@@ -2931,15 +2931,29 @@ subroutine levels_prepare_standard_level(parallel_division,&
          call adaptivity_init(comm_all,pairs,lpairs1,lpairs2, npair)
          deallocate(pairs)
 
+         lpair2proc = nproc + 1
+         allocate(pair2proc(lpair2proc))
+
          ! The outer loop for adaptive selection of constraints by blocks of vectors
          do iouter = 1, adaptivity_max_outer
+            if (debug) then 
+               if (myid.eq.0) then
+                  call info(routine_name, 'Greedy adaptivity outer iteration: ', iouter)
+               end if
+            end if
 
             ! Marking of faces still to improve
             call adaptivity_mark_pairs(comm_all, nmarked_pairs, marked_pairs,lmarked_pairs)
             !call adaptivity_print_pairs(myid, levels(ilevel)%nsub)
+            if (nmarked_pairs.eq.0) then
+               if (debug) then 
+                  if (myid.eq.0) then
+                     call info(routine_name, 'No more pairs to update, stopping adaptivity.')
+                  end if
+               end if
+               exit
+            end if
 
-            lpair2proc = nproc + 1
-            allocate(pair2proc(lpair2proc))
             !call pp_distribute_linearly(npair,nproc,pair2proc,lpair2proc)
             call pp_distribute_linearly(nmarked_pairs,nproc,pair2proc,lpair2proc)
 
@@ -2968,30 +2982,41 @@ subroutine levels_prepare_standard_level(parallel_division,&
             !   end do
             !end if
 
+            do isub_loc = 1,nsub_loc
+               glbtype = 1
+               call dd_orthogonalize_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
+            end do
+
+            call dd_embed_cnodes(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
+                                 levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
+                                 comm_all, nndfc,lnndfc)
+
+            ndofc = sum(nndfc)
+            if (myid.eq.0) then
+               call info(routine_name, 'Coarse problem size: ', ndofc)
+            end if
+      
+            ! prepare AGAIN BDDC data
+            do isub_loc = 1,nsub_loc
+               ! prepare matrix C for updated constraints on faces
+               call dd_prepare_c(levels(ilevel)%subdomains(isub_loc))
+
+               ! this works selectively
+               if (levels(ilevel)%subdomains(isub_loc)%recompute_coarse) then
+                  ! prepare augmented matrix for BDDC
+                  call dd_prepare_aug(levels(ilevel)%subdomains(isub_loc),comm_self)
+                  ! prepare coarse space basis functions for BDDC
+                  call dd_prepare_coarse(levels(ilevel)%subdomains(isub_loc),keep_global)
+                  levels(ilevel)%subdomains(isub_loc)%recompute_coarse = .false.
+               end if
+            end do
+
          end do ! The outer loop finishes here
 
          call adaptivity_finalize
          deallocate(marked_pairs)
          deallocate(pair2proc)
 
-         do isub_loc = 1,nsub_loc
-            glbtype = 1
-            call dd_orthogonalize_constraints(levels(ilevel)%subdomains(isub_loc),glbtype)
-         end do
-
-         call dd_embed_cnodes(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
-                              levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
-                              comm_all, nndfc,lnndfc)
-
-         ! prepare AGAIN BDDC data
-         do isub_loc = 1,nsub_loc
-            ! prepare matrix C for and updated constraints on faces
-            call dd_prepare_c(levels(ilevel)%subdomains(isub_loc))
-            ! prepare augmented matrix for BDDC
-            call dd_prepare_aug(levels(ilevel)%subdomains(isub_loc),comm_self)
-            ! prepare coarse space basis functions for BDDC
-            call dd_prepare_coarse(levels(ilevel)%subdomains(isub_loc),keep_global)
-         end do
 !-----profile
          if (profile) then
             call MPI_BARRIER(comm_all,ierr)
@@ -3042,14 +3067,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
 !-----profile
       end if
 
-      ! upload coarse mesh
-      ndofc = sum(nndfc)
-      if (debug) then 
-         if (myid.eq.0) then
-            call info(routine_name, 'Coarse problem size: ', ndofc)
-         end if
-      end if
-      
       call levels_upload_level_mesh(ilevel, ncorner,nedge,nface,nnodc, ndofc, &
                                     inetc,linetc,nnetc,lnnetc,nndfc,lnndfc,xyzc,lxyzc1,lxyzc2)
       deallocate(inetc)
