@@ -103,7 +103,7 @@ program bddcml_local
       integer,parameter:: lfilenamex = 130
 
 ! verbosity ( 0 - only fatal errors, 1 - mild output, 2 - detailed output )
-      integer,parameter:: verbose_level = 1
+      integer,parameter:: verbose_level = 3
 
 ! print solution on screen?
       logical,parameter :: print_solution = .false.
@@ -571,6 +571,7 @@ program bddcml_local
          open(unit=idelm,file=filename,status='old',form='unformatted')
          call sm_pmd_load(matrixtype,idelm,nelems,inets,linets,nnets,lnnets,nndfs,lnndfs,kdofs,lkdofs,&
                           i_sparse, j_sparse, a_sparse, la)
+         close(idelm)
 
 
          is_assembled_int = 0

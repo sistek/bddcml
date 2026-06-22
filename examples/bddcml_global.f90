@@ -73,7 +73,7 @@ program bddcml_global
       ! 5 - weights by Marta Certikova - unit jump
       ! 6 - weights by Schur row sums for whole subdomain
       ! 7 - weights by Schur row sums computed face by face
-      integer,parameter :: weights_type = 4
+      integer,parameter :: weights_type = 1
 
 ! beginning index of arrays ( 0 for C, 1 for Fortran )
       integer, parameter :: numbase = 1
@@ -87,7 +87,7 @@ program bddcml_global
 
 
 ! use prepared division into subdomains on first level in file *.ES?
-      integer,parameter :: load_division = 0
+      integer,parameter :: load_division = 1
 ! should parallel division be used (ParMETIS instead of METIS)?
       integer,parameter :: parallel_division = 1
 ! maximal length of problemname

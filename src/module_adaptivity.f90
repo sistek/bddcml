@@ -36,7 +36,7 @@ real(kr),parameter,private :: threshold_eigval_default = 1.5_kr
 logical,parameter,private  :: read_threshold_from_file = .false.
 ! LOBPCG related variables
 ! maximal number of LOBPCG iterations
-integer,parameter,private ::  lobpcg_maxit = 1
+integer,parameter,private ::  lobpcg_maxit = 5
 ! precision of LOBPCG solver - worst residual
 real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-11_kr
 ! maximal number of eigenvectors per problem
@@ -2151,6 +2151,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                   call initialize_random_number
                   do i = 1,neigvec*problemsize
                      call get_random_number(eigvec(i))
+                     !eigvec(i) = threshold_eigval * 2._kr * eigvec(i) - 1._kr ! transform to [-1,1], resp. [-threshold,threshold]
                   end do
 
                   ! debug

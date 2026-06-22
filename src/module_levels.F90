@@ -2779,6 +2779,10 @@ subroutine levels_prepare_standard_level(parallel_division,&
       call dd_embed_cnodes(levels(ilevel)%subdomains,levels(ilevel)%lsubdomains, &
                            levels(ilevel)%indexsub,levels(ilevel)%lindexsub,& 
                            comm_all, nndfc,lnndfc)
+      ndofc = sum(nndfc)
+      if (myid.eq.0) then
+         call info(routine_name, 'Initial coarse problem size: ', ndofc)
+      end if
 
       ! prepare matrix C for corners and arithmetic averages on edges
 !-----profile
@@ -3036,8 +3040,6 @@ subroutine levels_prepare_standard_level(parallel_division,&
       !   write(*,*) 'Number of interior dofs on subdomain',isub,' is ',levels(ilevel)%subdomains(isub_loc)%ndofo
       !   write(*,*) 'Number of constraints on subdomain',isub,' is ',levels(ilevel)%subdomains(isub_loc)%ndofc
       !end do
-
-
 
       ! print the output
       !do isub_loc = 1,nsub_loc
