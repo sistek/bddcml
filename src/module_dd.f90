@@ -5290,6 +5290,10 @@ subroutine dd_prepare_aug(sub,comm_self)
       integer ::  ndofi, ndofiaug
       integer :: iparallel
 
+      logical :: write_subdomain_matrices = .false.
+      integer :: ios, idcoo
+      character(len=256) :: fname
+
       ! check the prerequisities
       !if (sub%is_degenerated) then
       !   return
@@ -5546,6 +5550,20 @@ subroutine dd_prepare_aug(sub,comm_self)
 
             nnzaaug = sub%nnzaaug
             laaug   = sub%laaug
+            ! write the local matrix into a file for each subdomain
+            if (write_subdomain_matrices) then
+               call allocate_unit(idcoo)
+               call getfname('cube',sub%isub,'COO',fname)
+               open (unit=idcoo,file=trim(fname),status='replace',form='formatted',iostat=ios)
+               if (ios.eq.0) then
+               ! the subdomain file should exist, try writing into it
+                  write (idcoo,*) ndofaaug, nnzaaug 
+                  call sm_print(idcoo, sub%i_aaug_sparse, &
+                                       sub%j_aaug_sparse, &
+                                       sub%aaug_sparse, nnzaaug)
+               end if
+               close (idcoo)
+            end if
             call mumps_load_triplet_centralized(sub%mumps_aug,ndofaaug,nnzaaug,&
                                                 sub%i_aaug_sparse,sub%j_aaug_sparse,sub%aaug_sparse,nnzaaug)
             ! Analyze matrix
