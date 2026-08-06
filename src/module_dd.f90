@@ -432,6 +432,7 @@ module module_dd
 
          integer,pointer     :: comm_array_in(:)
          integer,pointer     :: comm_array_out(:)
+         integer             :: number_to_send
 
       end type
 
@@ -8284,7 +8285,6 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
    
          ! load data
          nadj  = suba(isub_loc)%nadj
-         nnod  = suba(isub_loc)%nnod
    
    ! Determine sizes of interace of my neighbours
          do ia = 1,nadj
@@ -8303,7 +8303,7 @@ subroutine dd_create_neighbouring(suba,lsuba, sub2proc,lsub2proc,indexsub,lindex
                ! send him my data
                call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc,tag)
                ireq = ireq + 1
-               call MPI_ISEND(nnod,1,MPI_INTEGER,procadj,tag,comm_all,request(ireq),ierr)
+               call MPI_ISEND(suba(isub_loc)%nnod,1,MPI_INTEGER,procadj,tag,comm_all,request(ireq),ierr)
                !print *, 'myid =',myid,'Sending', nnod,'to ',procadj,' tag',tag
             end if
          end do
@@ -10717,7 +10717,7 @@ subroutine dd_interchange_integer_arrays(suba,lsuba, &
 
          nadj = suba(isub_loc)%nadj
 
-         number_to_send = size(sub_aux(isub_loc)%comm_array_in)
+         sub_aux(isub_loc)%number_to_send = size(sub_aux(isub_loc)%comm_array_in)
 
          do ia = 1,nadj
 
@@ -10729,7 +10729,7 @@ subroutine dd_interchange_integer_arrays(suba,lsuba, &
                ! pass messages
                call pp_get_unique_tag(isub,isubadj,comm_all,sub2proc,lsub2proc, tag)
                ireq = ireq + 1
-               call MPI_ISEND(number_to_send,   1,MPI_INTEGER,neibproc,tag, comm_all,request(ireq),ierr)
+               call MPI_ISEND(sub_aux(isub_loc)%number_to_send,   1,MPI_INTEGER,neibproc,tag, comm_all,request(ireq),ierr)
             end if
 
          end do

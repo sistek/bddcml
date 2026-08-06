@@ -146,14 +146,14 @@ module module_levels
          real(kr),allocatable :: solc(:) ! coarse residual/solution at level
          logical :: use_initial_solution = .false. ! should some initial solution be used for iterations?
 
-         integer ::             idelm    ! unit with opened Fortran unformatted file with element matrices
+         integer :: idelm    ! unit with opened Fortran unformatted file with element matrices
 
-         logical ::             find_components = .true. ! should components be detected?
-         logical ::             use_dual_mesh_graph = .false. ! if yes, should they be derived from 
-                                                              ! the dual graph of subdomain mesh?
-         integer ::             neighbouring = 1              ! if yes, how many nodes two elements need to share 
-                                                              ! to define an edge in the graph?
-         logical ::      load_division = .false. ! should division into subdomains be read from file?
+         logical :: find_components = .true.      ! should components be detected?
+         logical :: use_dual_mesh_graph = .false. ! if yes, should they be derived from 
+                                                  ! the dual graph of subdomain mesh?
+         integer :: neighbouring = 1              ! if yes, how many nodes two elements need to share 
+                                                  ! to define an edge in the graph?
+         logical :: load_division = .false. ! should division into subdomains be read from file?
 
          logical :: compute_reactions = .false. ! should reactions be computed on the level?
          
