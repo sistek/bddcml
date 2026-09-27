@@ -3877,8 +3877,10 @@
       real(kr) :: diff_ritz, norm_ritz, diff_ritz_rel
 
       integer :: nallvec, nstore, capacity, startv, endv, startw, endw, j
+      integer :: nconverged
       integer :: myid, ierr
       integer :: ibasis, jbasis, jcol
+      integer :: ind
 
       logical, parameter :: deflate_constant = .false.
 
@@ -4135,10 +4137,26 @@
                diff_ritz_rel = diff_ritz / norm_ritz
             end if
             if (myid == 0) then
-               write(*,'(a,a,50f9.6)') routine_name,': Difference in Ritz values ', diff_ritz_rel
+               write(*,'(a,a,50f13.6)') routine_name,': Difference in Ritz values ', diff_ritz_rel
             end if
             if (diff_ritz_rel < tol_ritz_values) then
-               is_recycling_ritz_converged = .true.
+               if (myid == 0) then
+                  nconverged = 0
+                  write(*,'(a,a)') routine_name,': Ritz values and their relative difference'
+                  do j = endw, startv, -1
+                     write(*,'(i8,2f13.8)') j, eigvals(j), abs((eigvals(j)-recycling_previous_eigvals(j-startv+1)) / eigvals(j)) 
+                     ! count the number of Ritz values converged to the required precision
+                     if (abs((eigvals(j)-recycling_previous_eigvals(j-startv+1)) / eigvals(j)) < tol_ritz_values) then
+                        nconverged = nconverged + 1
+                     else
+                        exit
+                     end if
+                  end do
+                  write(*,'(a,a,i8)') routine_name,': Number of Ritz values converged to given precision: ', nconverged
+                  ind = min(endw-nconverged+1,endw)
+                  write(*,'(a,a,f13.8,f13.8)') routine_name,': Final converged Ritz value and its precision: ', &
+                  eigvals(ind), abs((eigvals(ind)-recycling_previous_eigvals(ind-startv+1)) / eigvals(ind))
+               end if
             end if
          end if
          ! store eigvals

@@ -421,6 +421,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
                  shift, indcommon, ndofcomm, idofn, irhoicomm,&
                  point_i, point_j, indiv, nadaptive, ioper, nadaptive_rcv, ind, &
                  nnzc_i, nnzc_j, inddrow, ic, indirow, indirow_loc, indjcol_loc, &
+                 indcnode_loc, &
                  neigvecf, problemsizef
       integer :: idmyunit
 
@@ -2518,7 +2519,7 @@ subroutine adaptivity_solve_eigenvectors(suba,lsuba,sub2proc,lsub2proc,indexsub,
             !end do
 
             ! load constraints into DD structure 
-            call dd_load_adaptive_constraints(suba(isub_loc),gglob,cadapt,lcadapt1,lcadapt2)
+            call dd_load_adaptive_constraints(suba(isub_loc),gglob,cadapt,lcadapt1,lcadapt2,indcnode_loc)
 
             deallocate(cadapt)
          end do

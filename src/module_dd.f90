@@ -4421,9 +4421,9 @@ subroutine dd_load_arithmetic_constraints(sub,itype)
 
 end subroutine
 
-!**************************************************************************
-subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2)
-!**************************************************************************
+!**********************************************************************************
+subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2,ind_loc)
+!**********************************************************************************
 ! Subroutine for assemblage of matrix
       use module_utils
       implicit none
@@ -4434,11 +4434,12 @@ subroutine dd_load_adaptive_constraints(sub,gglob,cadapt,lcadapt1,lcadapt2)
       integer,intent(in) :: lcadapt1, lcadapt2
       real(kr),intent(in) :: cadapt(lcadapt1,lcadapt2)
 
+      integer,intent(out) :: ind_loc
 ! local variables
       character(*),parameter:: routine_name = 'DD_LOAD_ADAPTIVE_CONSTRAINTS'
 
       ! local vars
-      integer :: ind_loc, nvarglb
+      integer :: nvarglb
       integer :: i, j, indiv
       integer ::             lmatrix1, lmatrix2
       real(kr),allocatable :: matrix(:,:)

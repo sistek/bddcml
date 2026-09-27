@@ -61,7 +61,7 @@ program bddcml_local
 
       ! if yes, how many nodes need two element to share to define them as neighbours? Usually, enough nodes to mark a face, but not
       ! edge or just vertex.
-      integer,parameter :: neighbouring = 4
+      integer,parameter :: neighbouring = 1
 
 ! use default values in preconditioner? In such case, all other parameters are ignored
       integer,parameter :: use_preconditioner_defaults = 0
