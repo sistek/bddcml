@@ -4139,19 +4139,23 @@
             if (myid == 0) then
                write(*,'(a,a,50f13.6)') routine_name,': Difference in Ritz values ', diff_ritz_rel
             end if
+            nconverged = 0
             if (diff_ritz_rel < tol_ritz_values) then
-               if (myid == 0) then
-                  nconverged = 0
-                  write(*,'(a,a)') routine_name,': Ritz values and their relative difference'
-                  do j = endw, startv, -1
+               is_recycling_ritz_converged = .true.
+               ! count the number of converged Ritz values
+               do j = endw, startv, -1
+                  if (myid == 0) then
                      write(*,'(i8,2f13.8)') j, eigvals(j), abs((eigvals(j)-recycling_previous_eigvals(j-startv+1)) / eigvals(j)) 
-                     ! count the number of Ritz values converged to the required precision
-                     if (abs((eigvals(j)-recycling_previous_eigvals(j-startv+1)) / eigvals(j)) < tol_ritz_values) then
-                        nconverged = nconverged + 1
-                     else
-                        exit
-                     end if
-                  end do
+                  end if
+                  ! count the number of Ritz values converged to the required precision
+                  if (abs((eigvals(j)-recycling_previous_eigvals(j-startv+1)) / eigvals(j)) < tol_ritz_values) then
+                     nconverged = nconverged + 1
+                  else
+                     exit
+                  end if
+               end do
+               if (myid == 0) then
+                  write(*,'(a,a)') routine_name,': Ritz values and their relative difference'
                   write(*,'(a,a,i8)') routine_name,': Number of Ritz values converged to given precision: ', nconverged
                   ind = min(endw-nconverged+1,endw)
                   write(*,'(a,a,f13.8,f13.8)') routine_name,': Final converged Ritz value and its precision: ', &
@@ -4162,6 +4166,26 @@
          ! store eigvals
          recycling_previous_eigvals(1:nstore) = eigvals(startv:endw)
          deallocate(eigvals)
+
+         ! If the Ritz values are converged, reduce the number of the stored vectors to 
+         if (is_recycling_ritz_converged .and. nconverged < nstore) then
+            if (nconverged > 0) then
+               if (myid == 0) then
+                  write(*,'(a,a,i8)') routine_name,': Reducing number of stored vectors to: ', nconverged
+               end if
+               nstore = nconverged
+               if (take_largest) then
+                  startv = nallvec - nstore + 1
+                  endv   = startv+nactive_cols_recycling_basis - 1
+                  startw = endv+1
+                  endw   = nallvec
+               else
+                  call error(routine_name, "This functionality is not allowed for this case.")
+               end if
+            else
+               call error(routine_name, "Ritz values are converged, but none of them is converged to the required precision.")
+            end if
+         end if
 
          ! Generate the matrices for the next step.
          if (allocated(recycling_YTGY)) then
