@@ -36,13 +36,16 @@ real(kr),parameter,private :: threshold_eigval_default = 1.5_kr
 logical,parameter,private  :: read_threshold_from_file = .false.
 ! LOBPCG related variables
 ! maximal number of LOBPCG iterations
-integer,parameter,private ::  lobpcg_maxit = 1
+!integer,parameter,private ::  lobpcg_maxit = 1
+integer,parameter,private ::  lobpcg_maxit = 15 ! old adaptivity
 ! precision of LOBPCG solver - worst residual
-real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-11_kr
+!real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-11_kr
+real(kr),parameter,private :: lobpcg_rel_tol   = 1.e-9_kr ! old adaptivity
 ! maximal number of eigenvectors per problem
 ! this number is used for sufficient size of problems 
 ! for small problems, size of glob is used
-integer,parameter,private ::  neigvecx     = 30  
+!integer,parameter,private ::  neigvecx     = 30  
+integer,parameter,private ::  neigvecx     = 10 ! old adaptivity
 ! verbosity of LOBPCG solver
 ! 0 - no output
 ! 1 - some output
