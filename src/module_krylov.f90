@@ -29,7 +29,7 @@
     ! profiling 
           logical,private :: profile = .false.
     ! tolerance on relative difference in Ritz values
-          real(kr),parameter,private :: tol_ritz_values = 1.e-5_kr
+          real(kr),parameter,private :: tol_ritz_values = 1.e-6_kr
     ! should all the Ritz values be converged to the same precision? If not, only relative norm of the difference
     ! should be below the tolerance
           logical,parameter,private :: all_ritz_values_must_be_converged = .false.
