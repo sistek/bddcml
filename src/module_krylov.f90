@@ -81,6 +81,7 @@
 
           integer ::             lrecycling_previous_eigvals
           real(kr),allocatable :: recycling_previous_eigvals(:)
+          integer ::              ind_previous_eigvals = 0
 
           contains
 
@@ -4158,6 +4159,7 @@
                   write(*,'(a,a)') routine_name,': Ritz values and their relative difference'
                   write(*,'(a,a,i8)') routine_name,': Number of Ritz values converged to given precision: ', nconverged
                   ind = min(endw-nconverged+1,endw)
+                  ind_previous_eigvals = ind
                   write(*,'(a,a,f13.8,f13.8)') routine_name,': Final converged Ritz value and its precision: ', &
                   eigvals(ind), abs((eigvals(ind)-recycling_previous_eigvals(ind-startv+1)) / eigvals(ind))
                end if
@@ -4273,7 +4275,8 @@
             if (.not. allocated(recycling_previous_eigvals) .or. .not. is_recycling_ritz_converged) then
                call error(routine_name, "Ritz values not allocated, or they are not converged.")
             end if
-            smallest_ritz_value = recycling_previous_eigvals(1)
+            !smallest_ritz_value = recycling_previous_eigvals(1)
+            smallest_ritz_value = recycling_previous_eigvals(ind_previous_eigvals)
             lanczos_eigenvalue  = previous_eigmax_from_lanczos
             !eigmax = max(smallest_ritz_value,lanczos_eigenvalue)
             ! take as the bound the largest from minimal Ritz value and the largest estimate from the Lanczos process
