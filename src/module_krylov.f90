@@ -4155,10 +4155,10 @@
                      exit
                   end if
                end do
+               ind = min(endw-nconverged+1,endw)
                if (myid == 0) then
                   write(*,'(a,a)') routine_name,': Ritz values and their relative difference'
                   write(*,'(a,a,i8)') routine_name,': Number of Ritz values converged to given precision: ', nconverged
-                  ind = min(endw-nconverged+1,endw)
                   write(*,'(a,a,f13.8,f13.8)') routine_name,': Final converged Ritz value and its precision: ', &
                   eigvals(ind), abs((eigvals(ind)-recycling_previous_eigvals(ind-startv+1)) / eigvals(ind))
                end if
@@ -4282,9 +4282,9 @@
             ! take as the bound the largest from minimal Ritz value and the largest estimate from the Lanczos process
             ! Three options to get the upper bound for Chebyshev:
             ! Get the estimate of the largest eigenvalue from the adaptive BDDC.
-            eigmax = levels_max_eigenvalue
+            !eigmax = levels_max_eigenvalue
             ! Get the estimate from the Ritz values from Krylov subspace recycling
-            !eigmax = smallest_ritz_value
+            eigmax = smallest_ritz_value
             ! Get the estimate from previsus Lanzcos process in the Krylov solver
             !eigmax = lanczos_eigenvalue
       end subroutine
