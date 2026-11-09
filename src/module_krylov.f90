@@ -4159,14 +4159,14 @@
                   write(*,'(a,a)') routine_name,': Ritz values and their relative difference'
                   write(*,'(a,a,i8)') routine_name,': Number of Ritz values converged to given precision: ', nconverged
                   ind = min(endw-nconverged+1,endw)
-                  ind_previous_eigvals = ind
                   write(*,'(a,a,f13.8,f13.8)') routine_name,': Final converged Ritz value and its precision: ', &
                   eigvals(ind), abs((eigvals(ind)-recycling_previous_eigvals(ind-startv+1)) / eigvals(ind))
                end if
             end if
          end if
-         ! store eigvals
+         ! store eigvals - mind the shift in indexing
          recycling_previous_eigvals(1:nstore) = eigvals(startv:endw)
+         ind_previous_eigvals = ind - (nallvec-nstore)
          deallocate(eigvals)
 
          ! If the Ritz values are converged, reduce the number of the stored vectors to 
