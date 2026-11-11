@@ -1463,8 +1463,8 @@ subroutine levels_prepare_standard_level(parallel_division,&
       integer ::            lpair2proc
       integer,allocatable :: pair2proc(:)
       ! set to 1 if only one block is allowed (as in the old adaptivity)
-      !integer, parameter :: adaptivity_max_outer = 10
-      integer, parameter :: adaptivity_max_outer = 1 ! old adaptivity
+      integer, parameter :: adaptivity_max_outer = 10
+      !integer, parameter :: adaptivity_max_outer = 1 ! old adaptivity
       integer :: iouter
 
       logical :: remove_bc_nodes 
